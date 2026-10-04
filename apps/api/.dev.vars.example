@@ -1,0 +1,8 @@
+# Copy to .dev.vars (gitignored). Values here override "vars" in wrangler.jsonc during `wrangler dev`.
+SUPABASE_URL=http://127.0.0.1:54321
+SUPABASE_PUBLISHABLE_KEY=sb_publishable_from_supabase_status
+SUPABASE_SECRET_KEY=sb_secret_from_supabase_status
+PROVIDER_MODE=mock
+APP_URL=http://localhost:5173
+# Optional. Leave blank to skip sending scan reports.
+RESEND_API_KEY=
