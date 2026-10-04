@@ -1,5 +1,7 @@
 # Nearcited
 
+[![CI](https://github.com/jwh3times/Nearcited/actions/workflows/ci.yml/badge.svg)](https://github.com/jwh3times/Nearcited/actions/workflows/ci.yml)
+
 Tracks whether a local business gets named when people ask an AI assistant or search Google for
 what it sells, and who gets named instead.
 
@@ -142,3 +144,19 @@ scans will fail with "No data provider is configured" until one is written.
 - **Stuck-scan cleanup.** A scan whose queue message is lost stays "queued" forever.
 
 More detail, and the open product questions, in [docs/architecture.md](docs/architecture.md).
+What is planned, in order, is in [Build order](https://github.com/jwh3times/Nearcited/issues/15).
+
+## Contributing and security
+
+Issues are welcome; outside pull requests are not being accepted yet. See
+[CONTRIBUTING.md](CONTRIBUTING.md). Report vulnerabilities privately, as described in
+[SECURITY.md](SECURITY.md).
+
+## License
+
+Copyright (C) 2026 Jerry Holland.
+
+Nearcited is free software: you may use, modify and share it under the terms of the
+[GNU Affero General Public License, version 3](LICENSE). If you let other people use a modified
+version over a network, that license requires you to offer them its source. It comes with no
+warranty.

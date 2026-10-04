@@ -2,6 +2,7 @@
   "name": "nearcited",
   "private": true,
   "version": "0.1.0",
+  "license": "AGPL-3.0-only",
   "description": "Local visibility tracking across Google local search and AI answers",
   "packageManager": "pnpm@10.28.0",
   "engines": {
