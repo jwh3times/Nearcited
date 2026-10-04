@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Lint, typecheck, test, build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      # Includes the row-level security tests, which run the migrations in in-process Postgres.
+      - run: pnpm test
+      - run: pnpm build
+      - name: Validate the Worker config and bundle
+        run: pnpm --filter @nearcited/api exec wrangler deploy --dry-run --outdir dist
+
+  integration:
+    name: Store against Postgres and PostgREST
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres
+      POSTGREST_URL: http://127.0.0.1:3000
+      POSTGREST_JWT_SECRET: integration-test-secret-at-least-32-chars
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Load the Supabase shim, migrations and test users
+        run: scripts/integration-db.sh
+      # Started here rather than as a service container, which would come up before the step
+      # above has created the role PostgREST logs in as.
+      - name: Start PostgREST
+        run: |
+          docker run --detach --name postgrest --network host \
+            -e PGRST_DB_URI=postgres://authenticator:postgres@127.0.0.1:5432/postgres \
+            -e PGRST_DB_SCHEMAS=public \
+            -e PGRST_DB_ANON_ROLE=anon \
+            -e PGRST_JWT_SECRET="$POSTGREST_JWT_SECRET" \
+            postgrest/postgrest:v13.0.4
+      - name: Wait for PostgREST
+        run: |
+          for attempt in $(seq 1 30); do
+            status=$(curl -s -o /dev/null -w '%{http_code}' "$POSTGREST_URL/locations" || true)
+            # 401: the table is in the schema cache and closed to signed-out callers.
+            if [ "$status" = "401" ]; then exit 0; fi
+            sleep 2
+          done
+          echo "PostgREST never became ready (last status $status)" >&2
+          docker logs postgrest >&2
+          exit 1
+      - run: pnpm --filter @nearcited/api exec vitest run test/supabase-store.integration.test.ts

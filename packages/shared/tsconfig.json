@@ -1,0 +1,9 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // Shared code runs in the browser and in Workers. WebWorker gives URL and fetch types
+    // without document or window, which neither side should reach for here.
+    "lib": ["ES2023", "WebWorker"]
+  },
+  "include": ["src", "test"]
+}
