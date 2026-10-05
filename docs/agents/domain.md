@@ -5,8 +5,8 @@ How the engineering skills should consume this repo's domain documentation when 
 ## Before exploring, read these
 
 This repository is single-context: it is a pnpm workspace, but one product with one vocabulary, so
-there is one `GLOSSARY.md` and one `docs/adr/` at the root and no `GLOSSARY-MAP.md`. Neither exists
-yet. `docs/architecture.md` is the current description of how the system works.
+there is one `GLOSSARY.md` and one `docs/adr/` at the root and no `GLOSSARY-MAP.md`. `docs/adr/`
+holds the decision records; `GLOSSARY.md` does not exist yet. `docs/architecture.md` is the current description of how the system works.
 
 - **`GLOSSARY.md`** at the repo root, or
 - **`GLOSSARY-MAP.md`** at the repo root if it exists: it points at one `GLOSSARY.md` per context. Read each one relevant to the topic.

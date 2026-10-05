@@ -38,10 +38,35 @@ A provider only fetches. Whether the business was named is decided by `analyzeOb
 `packages/shared`, so every surface is judged by the same rules and those rules are tested without
 network access.
 
+## Tuning
+
+Prompt wording and score weights are values, defined by `TuningSchema` in
+`packages/shared/src/tuning.ts` with placeholder defaults. The values a deployment really uses
+live in the private companion repository as `private/tuning.json`
+([ADR 0001](adr/0001-private-tuning-as-data.md)).
+
+```
+private/tuning.json (maintainers and the deploy workflow only)
+        |
+scripts/prepare-tuning.mjs      run by wrangler before dev, deploy and dry run
+        |
+apps/api/.tuning/tuning.json    gitignored: { source: "private", tuning } or { source: "default" }
+        |
+apps/api/src/tuning.ts          resolveTuning() at startup; an invalid private file throws
+        |
+queue consumer -> runScan({ weights, unavailable })
+```
+
+`runScan` and the scoring functions take the tuning as arguments, so they are tested without the
+bundled file. Only `apps/api/src/index.ts` imports the resolved tuning.
+
 Failure handling in `runScan`:
 
 - **Nothing to check, or no provider configured**: the scan is marked failed and the message is
   acknowledged. Retrying would not help.
+- **Live mode on the default tuning**: every scan is marked failed with a reason, before any
+  provider is called. A build without the private file must not store placeholder results as
+  measurements.
 - **A provider throws**: the scan is marked failed with the error, and the error is rethrown so
   the queue redelivers. A redelivered scan re-runs from scratch and replaces any earlier results.
   After `max_retries` the message goes to the dead-letter queue.
@@ -111,5 +136,5 @@ These are not engineering tasks, and the code cannot answer them.
    run. Price the plan from that number, not the other way round.
 4. **Who buys?** Single-location owners churn and are expensive to reach. Agencies managing many
    locations are the more plausible first customer, and they will want white-label reports.
-5. **The score weights are a guess** (`packages/shared/src/scoring.ts`). Nothing ties a rank on
+5. **The score weights are a guess** (the defaults in `packages/shared/src/tuning.ts`). Nothing ties a rank on
    any surface to calls or visits yet.

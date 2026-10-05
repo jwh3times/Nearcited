@@ -35,8 +35,9 @@ pass `pnpm check` and run in mock mode without it.
 - **Commit and push the two repositories independently.**
 - If `private/` is absent and the task needs it (writing a provider's prompts, pricing a plan),
   stop and ask the user to run `npm run bootstrap:private`.
-- How the Worker build consumes code kept there is not decided yet; issue #25 owns it. Until
-  then `private/` holds documents only, and no code here imports from it.
+- **The only thing the build takes from it is `private/tuning.json`**, a data file of prompt
+  wording and score weights (`docs/adr/0001-private-tuning-as-data.md`). All code stays here.
+  No source file imports from `private/`.
 
 ## Rules
 
@@ -55,8 +56,14 @@ pass `pnpm check` and run in mock mode without it.
   the integration test.
 - **Providers only fetch.** They return an `Observation`; `analyzeObservation` in the shared
   package decides what it means. Do not put matching logic in a provider.
+- **Tuning is data, and its real values are private.** A new prompt, weight or sampling value
+  starts as a field and a placeholder default in `TuningSchema` (`packages/shared/src/tuning.ts`);
+  the real value goes in `private/tuning.json`. Code takes the tuning as an argument. Only the
+  Worker entry point imports `apps/api/src/tuning.ts`, and the web app imports nothing from the
+  tuning module but types, because its bundle is public.
 - **Mock data must never pass as real.** `PROVIDER_MODE` is mock only when it is exactly `"mock"`,
-  and the UI shows a banner while it is. Keep both.
+  and the UI shows a banner while it is. Keep both. For the same reason live scans refuse to run on
+  the default tuning (`liveScansUnavailable`); keep that too.
 - **The code is AGPL-3.0-only and the repo is public.** A new dependency must be under a license
   that can be combined with it; MIT, ISC, BSD, Apache-2.0 and MPL-2.0 are fine, anything else
   needs checking first. Outside pull requests are not merged (see `CONTRIBUTING.md`).
@@ -102,5 +109,5 @@ The five default labels (`needs-triage`, `needs-info`, `ready-for-agent`, `ready
 
 ### Domain docs
 
-Single-context: one `GLOSSARY.md` and `docs/adr/` at the repo root, both created when the first
-term or decision is settled. See `docs/agents/domain.md`.
+Single-context: `docs/adr/` at the repo root holds the decision records, and one `GLOSSARY.md`
+will join it when the first term is settled. See `docs/agents/domain.md`.

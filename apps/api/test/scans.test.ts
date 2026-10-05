@@ -1,7 +1,7 @@
 import { type Observation, type ScanMessage, SURFACES } from "@nearcited/shared";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildScanReportEmail } from "../src/email/report";
-import type { ProviderRegistry } from "../src/providers";
+import { liveScansUnavailable, type ProviderRegistry } from "../src/providers";
 import { createMockProviders } from "../src/providers/mock";
 import { runScan, type ScanReport } from "../src/scans/runner";
 import { enqueueDueScans } from "../src/scans/schedule";
@@ -244,5 +244,34 @@ describe("buildScanReportEmail", () => {
     expect(email.text).toContain("ChatGPT: named in 1 of 1");
     expect(email.text).toContain("Gemini: named in 0 of 1");
     expect(email.text).toContain(`https://app.example/locations/${locationId}`);
+  });
+});
+
+describe("tuning", () => {
+  it("scores with the weights it is given", async () => {
+    const scan = await queueScan();
+    const weights = { unranked: 0, by_position: [{ through: 1, weight: 1 }], beyond: 0 };
+    await runScan(scan.id, { store: worker, providers, weights });
+    // ChatGPT names the business second, which these weights count as nothing.
+    expect((await worker.getScan(scan.id))?.visibility_score).toBe(0);
+  });
+
+  it("fails every scan, without calling a provider, when the build cannot run live scans", async () => {
+    const scan = await queueScan();
+    const observe = vi.fn();
+    const outcome = await runScan(scan.id, {
+      store: worker,
+      providers: { chatgpt: { surface: "chatgpt", observe } },
+      unavailable: "Live scans are turned off.",
+    });
+    expect(outcome).toBe("failed");
+    expect(observe).not.toHaveBeenCalled();
+    expect((await worker.getScan(scan.id))?.error).toBe("Live scans are turned off.");
+  });
+
+  it("turns live scans off only for live mode on default tuning", () => {
+    expect(liveScansUnavailable({ PROVIDER_MODE: "live" }, "default")).toMatch(/turned off/);
+    expect(liveScansUnavailable({ PROVIDER_MODE: "live" }, "private")).toBeUndefined();
+    expect(liveScansUnavailable({ PROVIDER_MODE: "mock" }, "default")).toBeUndefined();
   });
 });

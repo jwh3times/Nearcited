@@ -97,6 +97,16 @@ the queue or cron settings in `wrangler.jsonc`)
   "Limits to design around".
 - `README.md`: "How it works", only when the user-visible flow changed.
 
+**The tuning schema or how it is bundled changed** (`packages/shared/src/tuning.ts`,
+`scripts/prepare-tuning.mjs`, `apps/api/src/tuning.ts`, "build" or "alias" in `wrangler.jsonc`)
+
+- `docs/architecture.md`: "Tuning".
+- `README.md`: "Private companion".
+- `docs/adr/0001-private-tuning-as-data.md`: only when the decision itself changed; a decision
+  record is replaced by a new one, through `domain-modeling`.
+- Report that `private/README.md` may need the new field described; leave the editing to the
+  caller.
+
 **A provider added or changed** (`apps/api/src/providers/`)
 
 - `README.md`: the status line at the top, "What is not built", and the
