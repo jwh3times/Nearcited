@@ -32,6 +32,20 @@ jobs:
       - name: Validate the Worker config and bundle
         run: pnpm --filter @nearcited/api exec wrangler deploy --dry-run --outdir dist
 
+  agent-config:
+    name: Verify generated agent config
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+      - name: Test the sync script
+        run: node --test scripts/sync-agents.test.mjs
+      # .claude/skills is generated from .agents/skills. Fails when the committed copy is stale.
+      - name: Check the generated copies match their sources
+        run: node scripts/sync-agents.mjs --check
+
   integration:
     name: Store against Postgres and PostgREST
     runs-on: ubuntu-latest

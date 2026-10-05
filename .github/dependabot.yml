@@ -1,18 +1,56 @@
+# Dependabot version updates, checked every day at 05:00 US Eastern. Security updates are a
+# repository setting (Settings > Advanced Security) and are not limited by the schedule here.
+#
+# Minor and patch updates arrive as one pull request per ecosystem. Majors arrive one at a time,
+# except for families that only work at matching versions, which travel together.
 version: 2
 updates:
-  # One pull request a week for all minor and patch updates; majors arrive separately.
+  # The pnpm workspace: the root package.json plus apps/* and packages/*, one lockfile.
   - package-ecosystem: npm
     directory: /
     schedule:
-      interval: weekly
-    open-pull-requests-limit: 5
+      interval: daily
+      time: "05:00"
+      timezone: America/New_York
+    open-pull-requests-limit: 10
     groups:
+      # react and react-dom must be the same version at runtime, and the types follow them.
+      react:
+        applies-to: version-updates
+        patterns:
+          - react
+          - react-dom
+          - "@types/react"
+          - "@types/react-dom"
+        update-types:
+          - major
+      # The React plugin needs a matching Vite major, and Vitest tracks the Vite majors it supports.
+      vite:
+        applies-to: version-updates
+        patterns:
+          - vite
+          - vitest
+          - "@vitejs/plugin-react"
+          - "@vitest/*"
+        update-types:
+          - major
       minor-and-patch:
+        applies-to: version-updates
         update-types:
           - minor
           - patch
 
+  # Action versions in .github/workflows.
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: weekly
+      interval: daily
+      time: "05:00"
+      timezone: America/New_York
+    open-pull-requests-limit: 5
+    groups:
+      actions-minor-and-patch:
+        applies-to: version-updates
+        update-types:
+          - minor
+          - patch
