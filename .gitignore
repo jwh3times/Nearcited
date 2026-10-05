@@ -10,3 +10,6 @@ coverage/
 .DS_Store
 supabase/.branches/
 supabase/.temp/
+
+# The optional private companion checkout (npm run bootstrap:private). Its own repository.
+/private/

@@ -13,8 +13,30 @@ changing how scans run or how data is accessed.
 - `pnpm format`: apply Biome fixes.
 - `pnpm --filter @nearcited/<api|web|shared|db> test`: one package's tests.
 - `pnpm dev`: Worker on 8787, Vite on 5173.
+- `npm run bootstrap:private`: clone the private companion into `private/` (maintainers only).
+- `npm run sync:main`: fast-forward `main` here and in `private/`. Refuses a dirty tree.
 - `pnpm sync:agents`: regenerate `.claude/skills` and `.codex/agents` after changing anything in
   `.agents/skills` or `.claude/agents`.
+
+## Private companion
+
+`private/` is gitignored here and is a separate, confidential repository for authorized
+maintainers. A public clone does not have it, and everything in this repository must install,
+pass `pnpm check` and run in mock mode without it.
+
+- **What lives there:** provider prompt text, sampling and score weights; pricing, vendor quotes
+  and measured costs by vendor; anything naming a real customer or prospect; security review
+  findings; deployment runbooks. `private/README.md` is its index and says what each file owns.
+  Read it before working there.
+- **Nothing from `private/` is copied into this repository**, including into issues, pull
+  requests, commit messages and docs. A public document may say a private one exists.
+- **This repository never names the private one.** Its locator lives in 1Password and
+  `scripts/bootstrap-private.mjs` reads it at run time. Keep it out of every tracked file.
+- **Commit and push the two repositories independently.**
+- If `private/` is absent and the task needs it (writing a provider's prompts, pricing a plan),
+  stop and ask the user to run `npm run bootstrap:private`.
+- How the Worker build consumes code kept there is not decided yet; issue #25 owns it. Until
+  then `private/` holds documents only, and no code here imports from it.
 
 ## Rules
 
@@ -68,9 +90,10 @@ The skills come from [mattpocock/skills](https://github.com/mattpocock/skills) (
 
 ### Issue tracker
 
-Issues live in GitHub Issues (`jwh3times/Nearcited`), through the `gh` CLI. Every open issue is
-also on the Nearcited project board (project 10), whose `Stage` and `Gate` fields carry the
-sequencing. See `docs/agents/issue-tracker.md`.
+Issues live in GitHub Issues, through the `gh` CLI: public work in `jwh3times/Nearcited`,
+confidential work in the private companion's tracker. Every open issue from both is on the
+Nearcited project board (project 10), whose `Stage` and `Gate` fields carry the sequencing. See
+`docs/agents/issue-tracker.md`.
 
 ### Triage labels
 

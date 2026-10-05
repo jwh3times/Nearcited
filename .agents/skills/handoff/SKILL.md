@@ -52,7 +52,8 @@ client's folder is absent means CLI mirror; otherwise desktop client.
 ### 1. Survey work not merged to main
 
 The other machine starts from `origin/main`; anything not merged there is stranded
-on this one. Run `git fetch origin --prune`, then run every check below:
+on this one. Run `git fetch origin --prune`, then run every check below in the
+public checkout and again inside `private/` when it is checked out:
 
 - **Uncommitted** — `git status --porcelain -uall`.
 - **Unpushed** — `git for-each-ref --format="%(refname:short) %(upstream:track)" refs/heads`.
@@ -67,8 +68,8 @@ When any check finds something, **alert the user immediately** with a block head
 `⚠ Work not merged to main` that lists each item with its branch, worktree, or
 PR. Then continue; step 5 repeats the alert.
 
-**Done when:** every check has run, and each finding is in the alert or the
-survey is confirmed clean.
+**Done when:** every check has run in both repositories, and each finding is in
+the alert or the survey is confirmed clean.
 
 ### 2. Write the handoff document
 
@@ -93,7 +94,8 @@ Summarise the session so a fresh agent can continue it:
 
 Reference specs, plans, ADRs, issues, commits, and diffs by path or URL instead of
 restating them. Redact API keys, passwords, other secrets, and personally
-identifiable information — the doc lives outside the repository.
+identifiable information — the doc lives outside the repository. Refer to
+private material by its path under `private/` and leave its content there.
 
 If the user passed arguments, they describe what the next session will focus on;
 tailor the doc to that.

@@ -93,11 +93,12 @@ Complete when the transfer summary lists the map as uploaded.
 ### 3. Re-ground
 
 The doc is a snapshot taken on another machine. Run `git fetch origin --prune` and
-`git status`, follow its workspace instructions (fast-forward `main`, a fresh
-branch or worktree), and check every branch, PR, and issue it names against its
+`git status`, follow its workspace instructions (`npm run sync:main`, which
+fast-forwards `main` here and in `private/`; a fresh branch or worktree), and check every branch, PR, and issue it names against its
 current state. Where the two disagree, current state wins.
 
-Then make this machine runnable: `pnpm install`, and confirm `apps/api/.dev.vars`
+Then make this machine runnable: `npm run bootstrap:private` when the doc
+points into `private/` and it is absent here, `pnpm install`, and confirm `apps/api/.dev.vars`
 and `apps/web/.env.local` exist. Both are gitignored, so they never arrive with
 the handoff; recreate a missing one from its `.example` file and the values
 `pnpm dlx supabase status` prints.
