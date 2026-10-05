@@ -266,6 +266,9 @@ The repository is set up for Claude Code and Codex.
   [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)) and are pinned in `skills-lock.json`. Among
   them: `/triage`, `/to-spec`, `/to-tickets`, `/implement`, `/tdd`, `/diagnosing-bugs`,
   `/code-review`, `/grill-me` and `/improve-codebase-architecture`. `/ask-matt` picks one for you.
+- Four more skills are written for this repository: `/ship` checks a branch against the rules in
+  `AGENTS.md`, refreshes the docs and opens the pull request; `/end-session` records what a
+  session learned and cleans up; `/handoff` and `/lets-go` pass a session between machines.
 - `.agents/skills/` is the installed source. `.claude/skills/` is generated from it by
   `pnpm sync:agents`, and CI fails if the two differ.
 - `docs/agents/` tells the skills where issues live (GitHub Issues), which triage labels to use,
