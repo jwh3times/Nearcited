@@ -12,6 +12,20 @@ only what the code implements.
 The repository is public. Keys, a customer's or prospect's business name,
 pricing and vendor quotes stay out of every document.
 
+## Private boundary
+
+`private/` is a separate confidential repository, ignored here and absent from a
+public clone. `AGENTS.md` ("Private companion") says what lives there.
+
+- Public documents may say a private document exists. They carry none of its
+  content, and they never name the private repository.
+- When a public document states something that belongs there (a prompt, a
+  weight a provider really uses, a price, a vendor quote, a real business's
+  name), that is drift of the worst kind: report it first, in either mode, and
+  in fix mode remove it from the public document.
+- `private/README.md` is the private index. Update it only when the caller asks
+  for private docs, and commit nothing there yourself.
+
 ## Mode
 
 The caller names one. With none named, use **fix**.
@@ -98,7 +112,8 @@ the queue or cron settings in `wrangler.jsonc`)
 
 **A command, script or package added** (`package.json` files, `scripts/`)
 
-- `README.md`: Commands and Layout.
+- `README.md`: Commands and Layout, and "Private companion" when the script
+  manages the `private/` checkout.
 - `AGENTS.md`: Commands, when agents run it.
 
 **A project rule added or changed**

@@ -14,10 +14,29 @@ Sequencing lives on the [project board](#project-board).
 
 Infer the repo from `git remote -v`; `gh` does this automatically when run inside a clone.
 
+## Which tracker
+
+Route by **whether the text is safe in public history**.
+
+|                      | Repository                       | Holds                                                                                          |
+| -------------------- | -------------------------------- | ---------------------------------------------------------------------------------------------- |
+| **Public** (default) | `jwh3times/Nearcited`            | Anything a public pull request closes: engineering work, bugs, architecture questions          |
+| **Private**          | the private companion repository | Work whose description needs prompts, weights, pricing, vendor terms or a real business's name |
+
+`gh` infers the public repository from the clone. For the private tracker, run `gh` from inside
+the `private/` checkout so it infers that one the same way. This tree never names the private
+repository.
+
+**Never reference a private issue from a public issue, pull request or commit.** The reference
+leaks that it exists. A private issue may cite public work freely.
+
+When one piece of work has both sides, the public issue describes the plumbing and stands on its
+own; the private issue holds the confidential part and links to the public one.
+
 ## Project board
 
 [Nearcited](https://github.com/users/jwh3times/projects/10) (project 10, owner `jwh3times`) holds every
-open issue. The issue is the record; the board is a view of all of them with three fields that
+open issue from both trackers. The issue is the record; the board is a view of all of them with three fields that
 carry the sequencing. The board is private. [Build order](https://github.com/jwh3times/Nearcited/issues/15)
 shows the same order to public readers, so move an issue in its task list when its `Stage` changes.
 
@@ -46,7 +65,9 @@ Commands. Read field and option IDs each time; they are not stable enough to wri
 - **Set a field**: `gh project item-edit --project-id <project-id> --id <item-id> --field-id <field-id> --single-select-option-id <option-id>`.
   The project ID is `gh project view 10 --owner jwh3times --format json -q .id`.
 
-Every new issue goes on the board with all three fields set, in the same session that opens it.
+Every new issue, public or private, goes on the board with all three fields set, in the same
+session that opens it. A private issue on the board stays visible only to people who can read
+the private repository.
 
 ## Pull requests as a triage surface
 

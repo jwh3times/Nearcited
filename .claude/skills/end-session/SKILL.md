@@ -47,14 +47,19 @@ copy of it somewhere.
 | A repository setting or a decision only the owner can make                  | A checkbox in [#17](https://github.com/jwh3times/Nearcited/issues/17), or its own issue labelled `ready-for-human` if it is large |
 | An answer to an open product question                                       | A comment on the issue that asks it (#14 for what a recommendation working means)                                                 |
 | Implemented behaviour, setup steps, a known gap closed or found, a new rule | Public docs, through the `docs-updater` agent (step 4)                                                                            |
+| A prompt, weight, price, vendor quote, measured cost by vendor, or anything naming a real business | `private/`, indexed in `private/README.md` (step 3)                                              |
+| Confidential work someone should pick up                                    | An issue in the private tracker (step 3)                                                                                          |
 | A settled domain term or a durable architecture decision                    | `GLOSSARY.md` or `docs/adr/`, through `/domain-modeling`                                                                          |
 
 Whatever the repository already records (code, git history, a merged PR) is
 already recorded. Skip it.
 
-The repository is public. Keys, a customer's or prospect's business name, pricing
-and vendor quotes stay out of issues and docs; put the non-secret conclusion in the
-issue and tell the user what was left out.
+This repository is public. A customer's or prospect's business name, pricing,
+vendor quotes, prompts and weights go to `private/` or the private tracker, and
+the public issue gets only the conclusion that is safe to publish. Keys go in
+neither repository; they live in 1Password. When `private/` is absent, ask the
+user to run `npm run bootstrap:private`, and if they decline, list in the report
+what could not be recorded.
 
 ### 3. Update GitHub issues, the board and memory
 
@@ -87,6 +92,13 @@ the issue tracker doc. For this session:
 - When a stage changes, move the issue in the
   [Build order](https://github.com/jwh3times/Nearcited/issues/15) task list too.
   The board is private; that issue is the same order for public readers.
+
+**Private docs.** Write each private item to the file `private/README.md` says
+owns that kind of fact, or to a new file with a row added to that index in the
+same commit. Commit and push in `private/` on its own: it is a separate
+repository, and nothing there rides along with a public commit. For a private
+issue, run `gh` from inside `private/` so it targets that tracker, and never
+reference it from a public issue or pull request.
 
 **Memory.** One fact per file in the per-project memory directory (its path is in
 the memory section of your system prompt), with a one-line pointer in `MEMORY.md`.
@@ -123,7 +135,8 @@ edit in the working tree or an issue.
 
 Harvesting is done, so deleting is now safe.
 
-**Uncommitted work first.** `git status --porcelain -uall`. For each tracked
+**Uncommitted work first.** `git status --porcelain -uall`, here and again
+inside `private/` when it is checked out. For each tracked
 modification and each untracked file the session did not obviously generate, ask
 the user whether to commit or discard.
 
@@ -147,7 +160,7 @@ gitignored and hold the local keys and the link to the hosted project.
   database and needs an explicit request.
 
 **Branch state.** Report it and leave it as it is: unpushed commits
-(`git log --oneline @{u}..`), worktrees (`git worktree list`), and local branches
+(`git log --oneline @{u}..`, in both repositories), worktrees (`git worktree list`), and local branches
 whose PR has merged (`gh pr list --head <branch> --state merged`; merged head
 branches are deleted on GitHub automatically, so only the local copy remains).
 

@@ -28,6 +28,7 @@ jobs:
       - run: pnpm typecheck
       # Includes the row-level security tests, which run the migrations in in-process Postgres.
       - run: pnpm test
+      - run: pnpm test:scripts
       - run: pnpm build
       - name: Validate the Worker config and bundle
         run: pnpm --filter @nearcited/api exec wrangler deploy --dry-run --outdir dist

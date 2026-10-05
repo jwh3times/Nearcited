@@ -53,6 +53,7 @@ what is missing, or stop and tell the user when the fix is a design decision.
 | touches `PROVIDER_MODE` or the banner   | Mock mode still requires exactly `"mock"`, and the sample-data banner still shows while it is on.                                                                                                      |
 | changes any `package.json` dependencies | A licence that combines with AGPL-3.0-only (MIT, ISC, BSD, Apache-2.0, MPL-2.0 pass; anything else is a stop until checked), and an updated `pnpm-lock.yaml`.                                          |
 | touches `.agents/skills/` or `.claude/agents/` | Regenerated `.claude/skills/` and `.codex/agents/` (step 4 runs the sync).                                                                                                                      |
+| mentions prompts, weights, pricing, a vendor quote, or a real business | None of it. That content lives in `private/` (see "Private companion" in `AGENTS.md`); move it there and leave at most a note that it exists. The private repository's name appears nowhere in the diff. |
 | adds any file                           | No secrets and no real customer or prospect data: the repository is public. `.dev.vars` and `.env.local` stay untracked.                                                                               |
 
 **Done when:** every row whose trigger matches the diff has been checked, and each
@@ -128,5 +129,9 @@ Give the user: the PR URL; the issues it closes; what step 2 found and fixed or
 left for them; which docs changed; and the state of the checks, saying which ran
 locally and which only CI covers. CodeQL and the Copilot review also report on
 the PR and can block the merge.
+
+`/ship` covers this repository only. When the same work changed `private/`,
+commit and push there separately (`git -C private status`), and say in the
+report whether that is done. The PR body does not mention it.
 
 Merging is the user's call. `/ship` stops at "PR open".

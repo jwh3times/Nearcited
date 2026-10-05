@@ -22,6 +22,7 @@ provider is wired in yet, so nothing it shows today is a measurement. See
 - [Tests](#tests)
 - [Deploy](#deploy)
 - [Repository automation](#repository-automation)
+- [Private companion](#private-companion)
 - [Working with coding agents](#working-with-coding-agents)
 - [What is not built](#what-is-not-built)
 - [Contributing and security](#contributing-and-security)
@@ -68,6 +69,8 @@ packages/
 supabase/
   migrations/   Schema, row-level security, and the SQL functions the Worker calls.
 scripts/        integration-db.sh prepares a plain Postgres for the store integration test.
+                bootstrap-private.mjs and sync-main.mjs manage the private companion checkout.
+private/        The private companion, when checked out. Ignored here; its own repository.
 docs/           architecture.md: how a scan flows, the tenancy model, and known gaps.
                 agents/: where the agent skills find the issue tracker, labels and domain docs.
 .agents/skills/ Agent skills, as installed. Codex reads these.
@@ -147,6 +150,9 @@ templates.
 | `pnpm cf:deploy` | Build, then `wrangler deploy` |
 | `pnpm db:types` | Generate TypeScript types from the local Supabase database |
 | `pnpm --filter @nearcited/api test` | One package's tests (`api`, `web`, `shared` or `db`) |
+| `npm run bootstrap:private` | Clone the private companion into `private/` (maintainers) |
+| `npm run sync:main` | Fast-forward `main` here and in `private/` |
+| `pnpm test:scripts` | Tests for the scripts in `scripts/` |
 | `pnpm sync:agents` | Regenerate `.claude/skills` and `.codex/agents` from their sources |
 | `pnpm sync:agents:check` | Fail if a generated copy is stale |
 
@@ -257,6 +263,25 @@ scans will fail with "No data provider is configured" until one is written.
 - **Secret scanning with push protection** and **private vulnerability reporting** are on. See
   [SECURITY.md](SECURITY.md) for how to report a problem.
 - **Deploy** (`.github/workflows/deploy.yml`) is manual.
+
+## Private companion
+
+Some of the product is kept out of this repository: provider prompts, sampling and scoring
+values, pricing, and anything about a real customer. It lives in a separate private repository
+that maintainers check out at `private/`, which this repository ignores.
+
+Nothing here needs it. A public clone installs, passes `pnpm check` and runs on sample data
+without it.
+
+Maintainers with access restore it with one command, which reads the repository's location from
+1Password (the `op` CLI, signed in) and clones it with the GitHub CLI:
+
+```sh
+npm run bootstrap:private
+npm run sync:main        # fast-forward main in both checkouts; refuses a dirty tree
+```
+
+`npm run bootstrap:private -- --url <owner/name or GitHub URL>` skips 1Password.
 
 ## Working with coding agents
 
