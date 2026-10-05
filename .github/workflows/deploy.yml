@@ -1,11 +1,10 @@
 name: Deploy
 
-# Manual only. Needs these in the repository's settings before the first run:
-#   secrets: CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID
-#   variables: VITE_SUPABASE_URL, VITE_SUPABASE_PUBLISHABLE_KEY
-# For a live deploy, also these secrets, so the build can read the private tuning file:
-#   PRIVATE_REPOSITORY (owner/name), PRIVATE_REPOSITORY_DEPLOY_KEY (a read-only deploy key)
-# Without them the Worker is built on the public default tuning and refuses live scans.
+# Manual only. Credentials come from the 1Password `Nearcited` vault at run time, through a
+# service account that can read only that vault. Before the first run:
+#   secret:    OP_SERVICE_ACCOUNT_TOKEN (the only credential GitHub holds)
+#   variables: VITE_SUPABASE_URL, VITE_SUPABASE_PUBLISHABLE_KEY (public values)
+#   vault:     the items named by the op:// references in the "Load credentials" step
 # Worker secrets (SUPABASE_SECRET_KEY, RESEND_API_KEY) are set once with `wrangler secret put`.
 on:
   workflow_dispatch:
@@ -20,30 +19,39 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    env:
-      PRIVATE_REPOSITORY: ${{ secrets.PRIVATE_REPOSITORY }}
     steps:
       - uses: actions/checkout@v7
+      - name: Load credentials from 1Password
+        id: op
+        uses: 1password/load-secrets-action@v5
+        env:
+          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
+          PRIVATE_REPOSITORY: op://Nearcited/Nearcited Workspace/private_repository
+          # A read-only deploy key on the private companion. The query asks for the format git reads.
+          PRIVATE_REPOSITORY_DEPLOY_KEY: op://Nearcited/Nearcited Deploy Key/private key?ssh-format=openssh
+          CLOUDFLARE_API_TOKEN: op://Nearcited/Cloudflare/api_token
+          CLOUDFLARE_ACCOUNT_ID: op://Nearcited/Cloudflare/account_id
+      # The build reads private/tuning.json. Without it the Worker gets the public default tuning
+      # and refuses live scans (docs/adr/0001-private-tuning-as-data.md).
+      - name: Check out the private companion
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ steps.op.outputs.PRIVATE_REPOSITORY }}
+          ssh-key: ${{ steps.op.outputs.PRIVATE_REPOSITORY_DEPLOY_KEY }}
+          path: private
+          persist-credentials: false
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
           cache: pnpm
-      - name: Check out the private companion
-        if: env.PRIVATE_REPOSITORY != ''
-        uses: actions/checkout@v7
-        with:
-          repository: ${{ secrets.PRIVATE_REPOSITORY }}
-          ssh-key: ${{ secrets.PRIVATE_REPOSITORY_DEPLOY_KEY }}
-          path: private
-          persist-credentials: false
       - run: pnpm install --frozen-lockfile
-      # With the private companion checked out, this also checks its tuning file against the schema.
+      # Also checks the private tuning file against the schema.
       - run: pnpm test
       - name: Build the web app and deploy the Worker
         run: pnpm cf:deploy
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ steps.op.outputs.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ steps.op.outputs.CLOUDFLARE_ACCOUNT_ID }}
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}

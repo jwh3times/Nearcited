@@ -246,13 +246,14 @@ The `integration` job in `.github/workflows/ci.yml` is a working example.
 5. From the repo root, with `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` set in the
    environment: `pnpm cf:deploy`.
 
-`.github/workflows/deploy.yml` does step 5 on demand once the repository has the secrets and
-variables listed at the top of that file.
+`.github/workflows/deploy.yml` does step 5 on demand. It reads its credentials from the 1Password
+`Nearcited` vault at run time, so GitHub holds one secret, `OP_SERVICE_ACCOUNT_TOKEN`, for a
+service account that can read only that vault. The vault items it expects are named at the top
+of that file.
 
 `PROVIDER_MODE` ships as `mock`. Any other value means live. A live build needs the private
-tuning file, so the deploy has to run where `private/` is checked out: the workflow does that
-when the `PRIVATE_REPOSITORY` and `PRIVATE_REPOSITORY_DEPLOY_KEY` secrets are set. Without the
-file, live scans fail with a message saying so. With it, live still has no providers yet, so scans
+tuning file, so the deploy has to run where `private/` is checked out, which the workflow does.
+Without the file, live scans fail with a message saying so. With it, live still has no providers yet, so scans
 fail with "No data provider is configured" until one is written.
 
 ## Repository automation

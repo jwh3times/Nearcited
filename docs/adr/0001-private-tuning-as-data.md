@@ -42,7 +42,7 @@ option that leaves a public clone, CI and the lockfile untouched by the private 
 - **A new private value starts as a public schema change.** Add the field and its default here,
   then the real value in the private file. The schema's shape is public; only the values are not.
 - **Deploying needs the private checkout.** `.github/workflows/deploy.yml` fetches it with a
-  read-only deploy key held in repository secrets.
+  read-only deploy key that it reads from 1Password at run time.
 - Deploying this AGPL code together with private values is the copyright holder's right, and is
   one reason outside pull requests are not merged. Anyone else who hosts a modified copy must
   still publish their changes.
