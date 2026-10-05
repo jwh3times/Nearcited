@@ -1,0 +1,27 @@
+# Security
+
+## Reporting a vulnerability
+
+Report it privately through GitHub: open the repository's **Security** tab and choose
+**Report a vulnerability**. Please do not open a public issue for a security problem.
+
+Include what you did, what you expected, and what happened instead. A request you can replay
+or a failing test is the most useful thing you can send.
+
+There is no bug bounty.
+
+## What counts most
+
+Nearcited is multi-tenant, and tenant isolation is enforced by Postgres row-level security
+(see `docs/architecture.md`). The reports that matter most are:
+
+- Reading or changing another organization's locations, queries, scans, results or
+  recommendations.
+- Writing scan results, scores or recommendations as a signed-in user. Only the worker should be
+  able to.
+- Calling a worker-only database function through the public API.
+- Getting past token verification on `/api/*`.
+
+## Supported versions
+
+Only the current `main` branch.

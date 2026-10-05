@@ -30,5 +30,8 @@ changing how scans run or how data is accessed.
   package decides what it means. Do not put matching logic in a provider.
 - **Mock data must never pass as real.** `PROVIDER_MODE` is mock only when it is exactly `"mock"`,
   and the UI shows a banner while it is. Keep both.
+- **The code is AGPL-3.0-only and the repo is public.** A new dependency must be under a license
+  that can be combined with it; MIT, ISC, BSD, Apache-2.0 and MPL-2.0 are fine, anything else
+  needs checking first. Outside pull requests are not merged (see `CONTRIBUTING.md`).
 - No secrets in the repo. Local values go in `apps/api/.dev.vars` and `apps/web/.env.local`, both
   gitignored.
