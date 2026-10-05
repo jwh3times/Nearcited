@@ -52,6 +52,11 @@ The skills come from [mattpocock/skills](https://github.com/mattpocock/skills) (
   CI runs `pnpm sync:agents:check` and fails if the copy is stale.
 - **Install or update with the installer**, so the lock file stays right:
   `npx skills add mattpocock/skills -a codex -s <name> --copy -y`, or `npx skills update -p -y`.
+- **Four skills are this repository's own** and are not in the lock file: `ship` (rule check, doc
+  refresh, `pnpm check`, PR), `end-session` (record what a session learned, then clean up),
+  and `handoff` with `lets-go` (pass a session to another machine through the Proton Drive
+  Handoffs folder). Edit them in `.agents/skills/`. When a project rule, a required check or a
+  document's job changes, update `ship` to match.
 - `scripts/sync-agents.mjs` and its test are shared verbatim with other repositories. Do not edit
   them here. The script also mirrors `.claude/agents/*.md` to `.codex/agents/*.toml`; this
   repository has no specialist agents yet.

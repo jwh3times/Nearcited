@@ -2,7 +2,15 @@
   "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
   "vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
   "files": {
-    "includes": ["**", "!**/dist", "!**/.wrangler", "!pnpm-lock.yaml", "!scripts/sync-agents*.mjs"]
+    "includes": [
+      "**",
+      "!**/dist",
+      "!**/.wrangler",
+      "!pnpm-lock.yaml",
+      "!scripts/sync-agents*.mjs",
+      "!.agents",
+      "!.claude/skills"
+    ]
   },
   "formatter": { "indentStyle": "space", "indentWidth": 2, "lineWidth": 100 },
   "linter": { "enabled": true, "rules": { "preset": "recommended" } },
