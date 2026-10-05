@@ -1,0 +1,8 @@
+# Text files are LF in the repository and on checkout, whatever a contributor's core.autocrlf
+# says. The generated skill copies in .claude/skills are compared byte for byte in CI.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.ico binary
+*.woff2 binary

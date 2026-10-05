@@ -17,6 +17,8 @@
     "test": "pnpm -r test",
     "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm build",
     "cf:deploy": "pnpm build && pnpm --filter @nearcited/api run deploy",
+    "sync:agents": "node scripts/sync-agents.mjs",
+    "sync:agents:check": "node scripts/sync-agents.mjs --check",
     "db:types": "supabase gen types typescript --local > packages/shared/src/database.types.ts"
   },
   "devDependencies": {

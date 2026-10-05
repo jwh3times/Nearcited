@@ -21,5 +21,5 @@ pnpm check
 ```
 
 That runs lint, typecheck, every unit test and the build. The rules a change has to follow are in
-[CLAUDE.md](CLAUDE.md), and the reasoning behind them is in
+[AGENTS.md](AGENTS.md), and the reasoning behind them is in
 [docs/architecture.md](docs/architecture.md).

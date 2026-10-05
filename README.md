@@ -9,6 +9,42 @@ what it sells, and who gets named instead.
 provider is wired in yet, so nothing it shows today is a measurement. See
 [What is not built](#what-is-not-built).
 
+## Contents
+
+- [How it works](#how-it-works)
+- [Stack](#stack)
+- [Layout](#layout)
+- [Run it locally](#run-it-locally)
+- [Configuration](#configuration)
+- [Commands](#commands)
+- [API](#api)
+- [Data model](#data-model)
+- [Tests](#tests)
+- [Deploy](#deploy)
+- [Repository automation](#repository-automation)
+- [Working with coding agents](#working-with-coding-agents)
+- [What is not built](#what-is-not-built)
+- [Contributing and security](#contributing-and-security)
+- [License](#license)
+
+## How it works
+
+A user signs in, creates an organization, and adds a **location**: a business at an address. For
+each location they list the **queries** to track. A query is either a prompt someone would give
+an AI assistant ("best emergency plumber in Asheville") or a keyword they would type into Google.
+
+A **scan** runs every active query on every **surface** that kind of query applies to. The
+surfaces are ChatGPT, Gemini, Perplexity, Claude, Google AI Overview, the Google local pack and
+Google organic results. For each one, a provider fetches what the surface returned, and shared
+code decides whether the business was named, at what position, and who was named instead. The
+scan then stores a 0 to 100 visibility score and a list of recommendations.
+
+Scans start from the "Run scan" button or from a daily schedule, and run on a queue. A scheduled
+scan emails its result to the organization's owners.
+
+[docs/architecture.md](docs/architecture.md) covers the scan flow, the tenancy model, the limits a
+Worker imposes, and the known gaps.
+
 ## Stack
 
 | Layer | Choice |
@@ -33,6 +69,11 @@ supabase/
   migrations/   Schema, row-level security, and the SQL functions the Worker calls.
 scripts/        integration-db.sh prepares a plain Postgres for the store integration test.
 docs/           architecture.md: how a scan flows, the tenancy model, and known gaps.
+                agents/: where the agent skills find the issue tracker, labels and domain docs.
+.agents/skills/ Agent skills, as installed. Codex reads these.
+.claude/skills/ The same skills, generated for Claude Code. Do not edit.
+.github/        CI and deploy workflows, Dependabot config, pull request template.
+AGENTS.md       The rules a change has to follow. CLAUDE.md imports it.
 ```
 
 ## Run it locally
@@ -66,6 +107,32 @@ app shows a banner saying so. To fire the daily schedule by hand:
 curl "http://localhost:8787/cdn-cgi/handler/scheduled"
 ```
 
+## Configuration
+
+The Worker reads its settings from `vars` in `apps/api/wrangler.jsonc`. Locally,
+`apps/api/.dev.vars` overrides them; in production, secrets are set with `wrangler secret put`.
+
+| Name | Secret | What it is |
+| --- | --- | --- |
+| `SUPABASE_URL` | no | The Supabase project URL. |
+| `SUPABASE_PUBLISHABLE_KEY` | no | Used with the caller's own token, so row-level security applies. |
+| `SUPABASE_SECRET_KEY` | yes | Bypasses row-level security. Only the scheduler and the scan worker use it. |
+| `PROVIDER_MODE` | no | Exactly `mock` serves generated data. Any other value is live. |
+| `APP_URL` | no | Where the web app is served. |
+| `EMAIL_FROM` | no | The sender of scan reports. |
+| `RESEND_API_KEY` | yes | Optional. Without it, scheduled scans finish without sending a report. |
+
+The web app reads two values at build time, from `apps/web/.env.local` or the environment. Both
+are safe to ship to the browser.
+
+| Name | What it is |
+| --- | --- |
+| `VITE_SUPABASE_URL` | The same project URL. |
+| `VITE_SUPABASE_PUBLISHABLE_KEY` | The same publishable key. |
+
+Neither file is committed. `apps/api/.dev.vars.example` and `apps/web/.env.example` are the
+templates.
+
 ## Commands
 
 | Command | What it does |
@@ -77,6 +144,50 @@ curl "http://localhost:8787/cdn-cgi/handler/scheduled"
 | `pnpm test` | Every unit test, including the row-level security tests |
 | `pnpm build` | Build the web app |
 | `pnpm cf:deploy` | Build, then `wrangler deploy` |
+| `pnpm --filter @nearcited/api test` | One package's tests (`api`, `web`, `shared` or `db`) |
+| `pnpm sync:agents` | Regenerate `.claude/skills` from `.agents/skills` |
+| `pnpm sync:agents:check` | Fail if that generated copy is stale |
+
+## API
+
+Every route is under `/api`. All except `/api/health` need a Supabase access token in the
+`Authorization: Bearer` header. Requests run in Postgres as that user, so a row in someone else's
+organization reads as missing and returns 404. Payloads are defined in
+`packages/shared/src/schemas.ts`.
+
+| Method and path | What it does |
+| --- | --- |
+| `GET /api/health` | Liveness check. No sign-in needed. |
+| `GET /api/me` | The signed-in user and their organizations. |
+| `POST /api/organizations` | Create an organization; the caller becomes its owner. |
+| `GET /api/organizations/:organizationId/locations` | List an organization's locations. |
+| `POST /api/organizations/:organizationId/locations` | Add a location. |
+| `GET /api/locations/:id` | One location with its queries, latest scan and recommendations. |
+| `DELETE /api/locations/:id` | Delete a location and its history. |
+| `POST /api/locations/:id/queries` | Add a prompt or keyword to track. |
+| `DELETE /api/queries/:id` | Remove a tracked query. |
+| `PATCH /api/recommendations/:id` | Mark a recommendation open, done or dismissed. |
+| `GET /api/locations/:id/scans` | The last 30 scans for a location. |
+| `POST /api/locations/:id/scans` | Queue a manual scan. 409 if one is already under way. |
+| `GET /api/scans/:id` | One scan with its results. |
+
+## Data model
+
+One migration, `supabase/migrations/20261004000000_init.sql`, defines everything.
+
+| Table | Holds |
+| --- | --- |
+| `organizations` | The tenant. Every other row belongs to one. |
+| `memberships` | Which users belong to an organization, as `owner`, `admin` or `member`. |
+| `locations` | A business at an address, and how often it is scanned (`off`, `weekly`, `daily`). |
+| `tracked_queries` | The prompts and keywords checked for a location. |
+| `scans` | One run for a location: its trigger, status and score. |
+| `scan_results` | One row per query and surface: named or not, position, and who else was named. |
+| `recommendations` | What a scan suggested, and whether the user has dealt with it. |
+
+Row-level security policies on every table are the authorization layer. Signed-in users can
+insert one kind of scan row, a queued manual scan for a location they can see; results, scores
+and recommendations are written only by the worker, through `complete_scan()`.
 
 ## Tests
 
@@ -129,6 +240,43 @@ variables listed at the top of that file.
 
 `PROVIDER_MODE` ships as `mock`. Any other value means live, and live has no providers yet, so
 scans will fail with "No data provider is configured" until one is written.
+
+## Repository automation
+
+- **CI** (`.github/workflows/ci.yml`) runs on every pull request and on `main`. Its three jobs are
+  the required checks: `Lint, typecheck, test, build`, `Store against Postgres and PostgREST`, and
+  `Verify generated agent config`.
+- **`main` is protected by a ruleset.** Changes arrive by pull request with the required checks
+  passing on an up-to-date branch and review threads resolved. Force pushes and deleting the
+  branch are blocked.
+- **Dependabot** (`.github/dependabot.yml`) checks npm and GitHub Actions versions every day at
+  05:00 US Eastern. Minor and patch updates arrive as one pull request per ecosystem; majors
+  arrive separately. Dependabot alerts and security updates are on.
+- **Secret scanning with push protection** and **private vulnerability reporting** are on. See
+  [SECURITY.md](SECURITY.md) for how to report a problem.
+- **Deploy** (`.github/workflows/deploy.yml`) is manual.
+
+## Working with coding agents
+
+The repository is set up for Claude Code and Codex.
+
+- [`AGENTS.md`](AGENTS.md) holds the rules a change has to follow. Codex reads it directly, and
+  [`CLAUDE.md`](CLAUDE.md) imports it for Claude Code.
+- The agent skills are from [mattpocock/skills](https://github.com/mattpocock/skills) (MIT; see
+  [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)) and are pinned in `skills-lock.json`. Among
+  them: `/triage`, `/to-spec`, `/to-tickets`, `/implement`, `/tdd`, `/diagnosing-bugs`,
+  `/code-review`, `/grill-me` and `/improve-codebase-architecture`. `/ask-matt` picks one for you.
+- `.agents/skills/` is the installed source. `.claude/skills/` is generated from it by
+  `pnpm sync:agents`, and CI fails if the two differ.
+- `docs/agents/` tells the skills where issues live (GitHub Issues), which triage labels to use,
+  and where the glossary and decision records go.
+
+To add or update a skill:
+
+```sh
+npx skills add mattpocock/skills -a codex -s <name> --copy -y   # or: npx skills update -p -y
+pnpm sync:agents
+```
 
 ## What is not built
 
