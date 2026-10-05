@@ -4,5 +4,6 @@ SUPABASE_PUBLISHABLE_KEY=sb_publishable_from_supabase_status
 SUPABASE_SECRET_KEY=sb_secret_from_supabase_status
 PROVIDER_MODE=mock
 APP_URL=http://localhost:5173
+EMAIL_FROM=Nearcited <reports@example.com>
 # Optional. Leave blank to skip sending scan reports.
 RESEND_API_KEY=

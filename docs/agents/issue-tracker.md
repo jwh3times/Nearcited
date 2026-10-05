@@ -1,7 +1,7 @@
 # Issue tracker: GitHub
 
 Issues and specs for this repo live as GitHub issues in `jwh3times/Nearcited`. Use the `gh` CLI for all operations.
-The order the backlog should be built in is the [Build order](https://github.com/jwh3times/Nearcited/issues/15) issue.
+Sequencing lives on the [project board](#project-board).
 
 ## Conventions
 
@@ -13,6 +13,40 @@ The order the backlog should be built in is the [Build order](https://github.com
 - **Close**: `gh issue close <number> --comment "..."`
 
 Infer the repo from `git remote -v`; `gh` does this automatically when run inside a clone.
+
+## Project board
+
+[Nearcited](https://github.com/users/jwh3times/projects/10) (project 10, owner `jwh3times`) holds every
+open issue. The issue is the record; the board is a view of all of them with three fields that
+carry the sequencing. The board is private. [Build order](https://github.com/jwh3times/Nearcited/issues/15)
+shows the same order to public readers, so move an issue in its task list when its `Stage` changes.
+
+| Field    | Options                                                                                                                                                              | Meaning                                                                    |
+| -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| `Status` | Todo, In Progress, Done                                                                                                                                              | Closing an issue sets Done. Set In Progress by hand when work starts.      |
+| `Stage`  | 1 - Make it real, 2 - Find out whether anyone wants it, 3 - Safe for someone else to use, 4 - Sellable, 5 - Rounding out, Decisions and upkeep                       | The order to build in. Lower stages first.                                 |
+| `Gate`   | None, Owner decision, Owner action, External                                                                                                                         | What must happen outside the code before the item can finish.              |
+
+- **Owner decision**: the owner has to choose something first (a vendor, a price, where code lives).
+- **Owner action**: the owner has to do something an agent cannot (create an account, set a secret,
+  change a repository setting).
+- **External**: waiting on a third party.
+
+What blocks what is recorded as native issue dependencies, described under
+[Wayfinding operations](#wayfinding-operations), and never in a board field.
+
+**The frontier**, what to build next: open items in the lowest stage that have no open blocker and a
+`Gate` of None.
+
+Commands. Read field and option IDs each time; they are not stable enough to write down.
+
+- **List items**: `gh project item-list 10 --owner jwh3times --format json`
+- **Fields and option IDs**: `gh project field-list 10 --owner jwh3times --format json`
+- **Add an issue**: `gh project item-add 10 --owner jwh3times --url <issue-url> --format json -q .id`
+- **Set a field**: `gh project item-edit --project-id <project-id> --id <item-id> --field-id <field-id> --single-select-option-id <option-id>`.
+  The project ID is `gh project view 10 --owner jwh3times --format json -q .id`.
+
+Every new issue goes on the board with all three fields set, in the same session that opens it.
 
 ## Pull requests as a triage surface
 

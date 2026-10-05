@@ -52,7 +52,7 @@ what is missing, or stop and tell the user when the fix is a design decision.
 | adds or changes a provider              | A provider that returns an `Observation` and nothing else, registered only when its key is present, with recorded-response tests and no network. Matching stays in `analyzeObservation`.               |
 | touches `PROVIDER_MODE` or the banner   | Mock mode still requires exactly `"mock"`, and the sample-data banner still shows while it is on.                                                                                                      |
 | changes any `package.json` dependencies | A licence that combines with AGPL-3.0-only (MIT, ISC, BSD, Apache-2.0, MPL-2.0 pass; anything else is a stop until checked), and an updated `pnpm-lock.yaml`.                                          |
-| touches `.agents/skills/`               | A regenerated `.claude/skills/` (step 4 runs the sync).                                                                                                                                                |
+| touches `.agents/skills/` or `.claude/agents/` | Regenerated `.claude/skills/` and `.codex/agents/` (step 4 runs the sync).                                                                                                                      |
 | adds any file                           | No secrets and no real customer or prospect data: the repository is public. `.dev.vars` and `.env.local` stay untracked.                                                                               |
 
 **Done when:** every row whose trigger matches the diff has been checked, and each
@@ -60,24 +60,17 @@ gap is fixed or reported.
 
 ### 3. Refresh the docs the diff made stale
 
-Each document owns one kind of fact. Update the owner; leave the others alone.
+Dispatch the `docs-updater` agent in **fix** mode, scoped to this branch's diff
+(`"$base"..HEAD`), and tell it what step 2 changed. It owns the table of which
+document holds which fact. Where the harness cannot dispatch an agent, read
+[`.claude/agents/docs-updater.md`](../../../.claude/agents/docs-updater.md) and
+follow it yourself.
 
-| Changed                                                                          | Owner                                                                           |
-| -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| A route, an environment variable, a command, a table, setup or deploy steps      | `README.md` (API, Configuration, Commands, Data model, Run it locally, Deploy)  |
-| Something listed under "What is not built" got built, or a new gap was left      | `README.md`, and "Known gaps" in `docs/architecture.md`                         |
-| How a scan flows, failure handling, tenancy, a Worker limit                      | `docs/architecture.md`                                                          |
-| The measured cost of one check                                                   | `docs/architecture.md` (issues #3 and #8 require it there)                      |
-| A rule every change must follow, or a command agents run                         | `AGENTS.md`                                                                     |
-| What counts as a security report                                                 | `SECURITY.md`                                                                   |
-| A required CI check, the Dependabot schedule, a workflow                         | "Repository automation" in `README.md`                                          |
-| A settled domain term or architecture decision                                   | `GLOSSARY.md` or `docs/adr/`, through `/domain-modeling`                        |
+A pure refactor or test change usually owes no doc edit; the agent's report
+saying so is a complete result.
 
-A pure refactor or test change usually owes no doc edit; say so in the report
-instead of inventing one.
-
-**Done when:** every row whose left column matches the diff has its owner
-checked against the new behaviour.
+**Done when:** the agent's report is in hand, and each drift it could not
+resolve from code is fixed or carried into step 7.
 
 ### 4. Checks: refuse to push if any fail
 
@@ -125,7 +118,7 @@ gh pr list --head "$(git branch --show-current)" --state open --json number -q '
 - **PR exists**: `gh pr edit <number>` to refresh the body.
 
 Write `Closes #N` in the body for each issue the branch finishes, so the merge
-closes it and the Build order task list updates by itself. A branch that closes
+closes it and the [project board](https://github.com/users/jwh3times/projects/10) moves it to Done. A branch that closes
 no issue is worth one line in the report: either the work was untracked, or an
 issue should exist.
 

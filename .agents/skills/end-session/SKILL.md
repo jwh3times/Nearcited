@@ -1,6 +1,6 @@
 ---
 name: end-session
-description: Close out a work session — harvest what was learned into memory and GitHub issues, then clean the local workspace. Use when the user says they are done for the day, wants to wrap up or end the session, or asks to clean up and record what this session found.
+description: Close out a work session — harvest what was learned into memory, GitHub issues and the project board, check the docs for drift, then clean the local workspace. Use when the user says they are done for the day, wants to wrap up or end the session, or asks to clean up and record what this session found.
 ---
 
 # End session
@@ -23,7 +23,7 @@ session would want: decisions made, facts verified against real data, dead ends
 and why they were dead, work started, work discovered but not started, surprises
 that contradicted a doc, and every action only the user can take.
 
-Include the scratch surfaces, because step 4 clears them:
+Include the scratch surfaces, because step 5 clears them:
 
 - the OS temp scratchpad this session wrote to
 - untracked files in the tree (`git status --porcelain -uall`)
@@ -42,10 +42,10 @@ copy of it somewhere.
 | --------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
 | How the user works, a standing preference, a gotcha no file records         | Memory (step 3)                                                                                                                   |
 | A discrete piece of work someone should pick up                             | A GitHub issue (step 3)                                                                                                           |
-| A change to what gets built first, or a new dependency between issues       | The task list in [Build order](https://github.com/jwh3times/Nearcited/issues/15), and a `Depends on` line in the dependent issue  |
+| A change to what gets built first, what gates an item, or what blocks it    | The [project board](https://github.com/users/jwh3times/projects/10) (step 3): `Stage`, `Gate`, and a blocking link between the issues                |
 | A repository setting or a decision only the owner can make                  | A checkbox in [#17](https://github.com/jwh3times/Nearcited/issues/17), or its own issue labelled `ready-for-human` if it is large |
 | An answer to an open product question                                       | A comment on the issue that asks it (#14 for what a recommendation working means)                                                 |
-| Implemented behaviour, setup steps, a known gap closed or found, a new rule | Public docs, which travel with the change through `/ship`: `README.md`, `docs/architecture.md`, `AGENTS.md`. Flag them in step 5. |
+| Implemented behaviour, setup steps, a known gap closed or found, a new rule | Public docs, through the `docs-updater` agent (step 4)                                                                            |
 | A settled domain term or a durable architecture decision                    | `GLOSSARY.md` or `docs/adr/`, through `/domain-modeling`                                                                          |
 
 Whatever the repository already records (code, git history, a merged PR) is
@@ -55,7 +55,7 @@ The repository is public. Keys, a customer's or prospect's business name, pricin
 and vendor quotes stay out of issues and docs; put the non-secret conclusion in the
 issue and tell the user what was left out.
 
-### 3. Update GitHub issues and memory
+### 3. Update GitHub issues, the board and memory
 
 **Issues.** Command forms are in
 [`docs/agents/issue-tracker.md`](../../../docs/agents/issue-tracker.md) and the
@@ -67,14 +67,25 @@ Confirm `gh auth status`, then for this session:
 - **Advanced but open**: comment with the current state and what unblocks it, so
   the issue stands alone without this transcript.
 - **New work discovered**: open an issue in the shape the existing ones use
-  (Why, Scope, Done when, Depends on), label it `bug` or `enhancement` plus one
-  triage label, and add it to the Build order task list at the stage it belongs to.
-- **A known gap found or closed**: the list under "Known gaps" in
-  `docs/architecture.md` and "What is not built" in `README.md` are public docs;
-  flag the edit for `/ship`.
+  (Why, Scope, Done when, Depends on), and label it `bug` or `enhancement` plus
+  one triage label.
 
-An issue states its own question. Relationships go in task lists and
-`Depends on #N`, where GitHub shows the other issue's state live.
+An issue states its own question. Relationships go in blocking links, where
+GitHub shows the other issue's state live.
+
+**Board.** The field names, option lists and commands are in the
+[project board section](../../../docs/agents/issue-tracker.md#project-board) of
+the issue tracker doc. For this session:
+
+- Add every issue opened above, and set its `Status`, `Stage` and `Gate`.
+- Set `Status` to In Progress for work started and left open. Closing an issue
+  moves it to Done without help.
+- Correct `Stage`, `Gate` and the blocking links wherever the session proved the
+  sequencing wrong. The frontier, what to build next, is computed from them:
+  open items in the lowest stage with no open blocker and a `Gate` of None.
+- When a stage changes, move the issue in the
+  [Build order](https://github.com/jwh3times/Nearcited/issues/15) task list too.
+  The board is private; that issue is the same order for public readers.
 
 **Memory.** One fact per file in the per-project memory directory (its path is in
 the memory section of your system prompt), with a one-line pointer in `MEMORY.md`.
@@ -82,9 +93,32 @@ Before writing, read the memory whose subject overlaps and update it. Delete
 memories this session proved wrong. Use absolute dates.
 
 **Done when:** an issue reader with no access to this session knows the current
-state, and `MEMORY.md` has one live pointer per fact.
+state, every open issue is on the board with all three fields set, and
+`MEMORY.md` has one live pointer per fact.
 
-### 4. Clean the local workspace
+### 4. Check the docs for drift
+
+Dispatch the `docs-updater` agent, scoped to what this session changed. Where
+the harness cannot dispatch an agent, read
+[`.claude/agents/docs-updater.md`](../../../.claude/agents/docs-updater.md) and
+follow it yourself. Take the first branch that applies:
+
+- **The session changed no code, config or workflow**: skip this step.
+- **On a feature branch with work not yet merged**: **fix** mode, scoped to
+  `$(git merge-base origin/main HEAD)..HEAD` plus the uncommitted changes. Its
+  edits stay in the working tree for step 5, which asks the user about them with
+  the rest. `/ship` runs the same agent again before the PR, so nothing is lost
+  if they wait.
+- **The session's work is already merged, or it changed only GitHub settings**:
+  **check** mode, scoped to the merged commits or a description of the settings
+  changed. `main` takes changes only by pull request, so for each drift found
+  open an issue labelled `documentation` and `ready-for-agent`, or one issue
+  listing them all when they are small, and add it to the board.
+
+**Done when:** the agent's report is in hand, and every drift it found is an
+edit in the working tree or an issue.
+
+### 5. Clean the local workspace
 
 Harvesting is done, so deleting is now safe.
 
@@ -119,13 +153,14 @@ branches are deleted on GitHub automatically, so only the local copy remains).
 **Done when:** `git status` shows only work the user chose to keep, and ports
 8787 and 5173 are free unless the user wanted them left running.
 
-### 5. Report
+### 6. Report
 
 Give the user, in this order:
 
-1. What was recorded and where: memory files, and issues opened, commented on or
-   closed, each by number.
-2. What was cleaned: paths removed, processes and containers stopped.
-3. What is still open: unpushed commits, undelivered branch work, public-doc
-   updates owed to `/ship`, actions only the user can take, and any harvested item
+1. What was recorded and where: memory files, issues opened, commented on or
+   closed, each by number, and board fields changed.
+2. What the docs check found: files edited, or the issues opened for drift.
+3. What was cleaned: paths removed, processes and containers stopped.
+4. What is still open: unpushed commits, undelivered branch work, doc edits
+   left uncommitted, actions only the user can take, and any harvested item
    you could not route.
