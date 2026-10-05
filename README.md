@@ -70,8 +70,10 @@ supabase/
   migrations/   Schema, row-level security, and the SQL functions the Worker calls.
 scripts/        integration-db.sh prepares a plain Postgres for the store integration test.
                 bootstrap-private.mjs and sync-main.mjs manage the private companion checkout.
+                prepare-tuning.mjs writes the tuning file the Worker bundles.
 private/        The private companion, when checked out. Ignored here; its own repository.
 docs/           architecture.md: how a scan flows, the tenancy model, and known gaps.
+                adr/: decisions that are hard to reverse, and why they were made.
                 agents/: where the agent skills find the issue tracker, labels and domain docs.
 .agents/skills/ Agent skills, as installed. Codex reads these.
 .claude/skills/ The same skills, generated for Claude Code. Do not edit.
@@ -200,12 +202,13 @@ and recommendations are written only by the worker, through `complete_scan()`.
 ## Tests
 
 - **`packages/shared`**: name matching, mention detection, scoring, recommendation rules, input
-  validation.
+  validation, and the tuning schema, its defaults and prompt rendering.
 - **`packages/db`**: applies the real migrations to in-process Postgres (PGlite) and checks, as
   different users, that one organization cannot read or write another's rows, that users cannot
-  forge scan results, and that worker-only functions are closed to them. No Docker needed.
+  forge scan results, and that worker-only functions are closed to them. No Docker needed. It
+  also checks `private/tuning.json` against the tuning schema where that file exists.
 - **`apps/api`**: every route against an in-memory store, the scan runner (success, retry,
-  permanent failure, reporting), the scheduler, and the mock providers.
+  permanent failure, reporting, scoring with given weights, refusing live scans on default tuning), the scheduler, and the mock providers.
 - **`apps/web`**: the logic that lays results out as a grid.
 
 ### Integration tests
@@ -246,8 +249,11 @@ The `integration` job in `.github/workflows/ci.yml` is a working example.
 `.github/workflows/deploy.yml` does step 5 on demand once the repository has the secrets and
 variables listed at the top of that file.
 
-`PROVIDER_MODE` ships as `mock`. Any other value means live, and live has no providers yet, so
-scans will fail with "No data provider is configured" until one is written.
+`PROVIDER_MODE` ships as `mock`. Any other value means live. A live build needs the private
+tuning file, so the deploy has to run where `private/` is checked out: the workflow does that
+when the `PRIVATE_REPOSITORY` and `PRIVATE_REPOSITORY_DEPLOY_KEY` secrets are set. Without the
+file, live scans fail with a message saying so. With it, live still has no providers yet, so scans
+fail with "No data provider is configured" until one is written.
 
 ## Repository automation
 
@@ -272,6 +278,14 @@ that maintainers check out at `private/`, which this repository ignores.
 
 Nothing here needs it. A public clone installs, passes `pnpm check` and runs on sample data
 without it.
+
+The one thing the build takes from it is `private/tuning.json`: prompt wording and score weights,
+as data. All the code that uses those values is here, with placeholder defaults in
+`packages/shared/src/tuning.ts`. Wrangler runs `scripts/prepare-tuning.mjs` before every dev
+session and deploy, which bundles the private file when it is present and the defaults when it is
+not. Live scans refuse to run on the defaults, so a build without the private file cannot store
+placeholder results as measurements. The reasoning is in
+[docs/adr/0001-private-tuning-as-data.md](docs/adr/0001-private-tuning-as-data.md).
 
 Maintainers with access restore it with one command, which reads the repository's location from
 1Password (the `op` CLI, signed in) and clones it with the GitHub CLI:

@@ -3,6 +3,7 @@ import {
   deriveRecommendations,
   type Location,
   type Scan,
+  type ScoreWeights,
   SURFACES_BY_KIND,
   visibilityScore,
 } from "@nearcited/shared";
@@ -20,6 +21,10 @@ export interface RunScanDeps {
   /** Must be a store made with the secret key. */
   store: Store;
   providers: ProviderRegistry;
+  /** Score weights from the tuning. Defaults to the public ones. */
+  weights?: ScoreWeights;
+  /** When set, no scan can run on this build, and every scan fails with this reason. */
+  unavailable?: string;
   now?: () => Date;
   /** Called after a scheduled scan succeeds. A failure here is logged and does not fail the scan. */
   notify?: (report: ScanReport) => Promise<void>;
@@ -48,6 +53,7 @@ export async function runScan(scanId: string, deps: RunScanDeps): Promise<ScanOu
 
   try {
     await store.markScanRunning(scanId);
+    if (deps.unavailable) throw new PermanentScanFailure(deps.unavailable);
 
     const queries = (await store.listQueries(location.id)).filter((query) => query.is_active);
     if (queries.length === 0) {
@@ -78,7 +84,7 @@ export async function runScan(scanId: string, deps: RunScanDeps): Promise<ScanOu
       }),
     );
 
-    const score = visibilityScore(results);
+    const score = visibilityScore(results, deps.weights);
     await store.completeScan(scanId, {
       score,
       results,

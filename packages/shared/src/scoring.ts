@@ -1,19 +1,20 @@
 import { SURFACES, type Surface } from "./schemas";
+import { defaultTuning, type ScoreWeights } from "./tuning";
 
 /**
  * How much one check counts toward the visibility score.
  *
- * These weights are a starting guess, not a measured model: nobody has yet shown what a rank on
- * one of these surfaces is worth in calls or visits. Replace them once there is outcome data.
+ * The weights come from the tuning (see ./tuning.ts). The defaults are a starting guess, not a
+ * measured model: nobody has yet shown what a rank on one of these surfaces is worth in calls or
+ * visits.
  */
-export function positionWeight(position: number | null): number {
-  if (position === null) return 0.6; // named, but the surface gave no order
-  if (position <= 1) return 1;
-  if (position === 2) return 0.8;
-  if (position === 3) return 0.65;
-  if (position <= 5) return 0.5;
-  if (position <= 10) return 0.3;
-  return 0.15;
+export function positionWeight(
+  position: number | null,
+  weights: ScoreWeights = defaultTuning.score,
+): number {
+  if (position === null) return weights.unranked;
+  const step = weights.by_position.find((candidate) => position <= candidate.through);
+  return step ? step.weight : weights.beyond;
 }
 
 export interface ScoredCheck {
@@ -22,10 +23,13 @@ export interface ScoredCheck {
 }
 
 /** 0–100, one decimal. Null when there was nothing to score. */
-export function visibilityScore(checks: readonly ScoredCheck[]): number | null {
+export function visibilityScore(
+  checks: readonly ScoredCheck[],
+  weights: ScoreWeights = defaultTuning.score,
+): number | null {
   if (checks.length === 0) return null;
   const total = checks.reduce(
-    (sum, check) => sum + (check.mentioned ? positionWeight(check.position) : 0),
+    (sum, check) => sum + (check.mentioned ? positionWeight(check.position, weights) : 0),
     0,
   );
   return Math.round((total / checks.length) * 1000) / 10;

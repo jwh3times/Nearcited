@@ -1,6 +1,8 @@
 node_modules/
 dist/
 .wrangler/
+# Written by scripts/prepare-tuning.mjs for the Worker bundle. May hold private values.
+.tuning/
 .dev.vars
 .env
 .env.*
