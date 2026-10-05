@@ -72,6 +72,7 @@ docs/           architecture.md: how a scan flows, the tenancy model, and known 
                 agents/: where the agent skills find the issue tracker, labels and domain docs.
 .agents/skills/ Agent skills, as installed. Codex reads these.
 .claude/skills/ The same skills, generated for Claude Code. Do not edit.
+.claude/agents/ Specialist agents. .codex/agents/ is the generated copy for Codex.
 .github/        CI and deploy workflows, Dependabot config, pull request template.
 AGENTS.md       The rules a change has to follow. CLAUDE.md imports it.
 ```
@@ -144,9 +145,10 @@ templates.
 | `pnpm test` | Every unit test, including the row-level security tests |
 | `pnpm build` | Build the web app |
 | `pnpm cf:deploy` | Build, then `wrangler deploy` |
+| `pnpm db:types` | Generate TypeScript types from the local Supabase database |
 | `pnpm --filter @nearcited/api test` | One package's tests (`api`, `web`, `shared` or `db`) |
-| `pnpm sync:agents` | Regenerate `.claude/skills` from `.agents/skills` |
-| `pnpm sync:agents:check` | Fail if that generated copy is stale |
+| `pnpm sync:agents` | Regenerate `.claude/skills` and `.codex/agents` from their sources |
+| `pnpm sync:agents:check` | Fail if a generated copy is stale |
 
 ## API
 
@@ -248,7 +250,7 @@ scans will fail with "No data provider is configured" until one is written.
   `Verify generated agent config`.
 - **`main` is protected by a ruleset.** Changes arrive by pull request with the required checks
   passing on an up-to-date branch and review threads resolved. Force pushes and deleting the
-  branch are blocked.
+  branch are blocked. CodeQL alerts block the merge, and Copilot reviews each push.
 - **Dependabot** (`.github/dependabot.yml`) checks npm and GitHub Actions versions every day at
   05:00 US Eastern. Minor and patch updates arrive as one pull request per ecosystem; majors
   arrive separately. Dependabot alerts and security updates are on.
@@ -271,8 +273,10 @@ The repository is set up for Claude Code and Codex.
   session learned and cleans up; `/handoff` and `/lets-go` pass a session between machines.
 - `.agents/skills/` is the installed source. `.claude/skills/` is generated from it by
   `pnpm sync:agents`, and CI fails if the two differ.
-- `docs/agents/` tells the skills where issues live (GitHub Issues), which triage labels to use,
-  and where the glossary and decision records go.
+- `docs-updater` (`.claude/agents/docs-updater.md`, generated for Codex in `.codex/agents/`) keeps
+  these documents true to the code. `/ship` and `/end-session` both run it.
+- `docs/agents/` tells the skills where issues live (GitHub Issues and a project board), which
+  triage labels to use, and where the glossary and decision records go.
 
 To add or update a skill:
 
