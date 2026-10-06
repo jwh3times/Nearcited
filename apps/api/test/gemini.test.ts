@@ -9,36 +9,58 @@ import { createGeminiProvider, parseGeminiInteraction } from "../src/providers/g
 import { createLiveProviders } from "../src/providers/live";
 
 /**
- * Responses in the shape Google documents for the Interactions API with the google_search tool
- * and a JSON response format. They are written from the documentation, not recorded: replace
- * them with a recorded response the first time a real key is used.
+ * A response in the shape the Interactions API really returns for the google_search tool with a
+ * JSON response format, checked against a live call on 2026-10-06 (model gemini-3.8-flash). The
+ * structure and field names are real; the content is invented, because Google's terms do not
+ * allow a grounded result to be stored or republished.
  */
+const usage = {
+  total_tokens: 1096,
+  total_input_tokens: 136,
+  total_output_tokens: 461,
+  total_thought_tokens: 499,
+  total_cached_tokens: 0,
+  total_tool_use_tokens: 0,
+  grounding_tool_count: [{ type: "google_search", count: 2, search_query_count: 2 }],
+};
+
 function interaction(answer: unknown, annotations: unknown[] = []) {
   return {
     id: "v1_test",
     object: "interaction",
     model: "gemini-3.8-flash",
     status: "completed",
+    service_tier: "standard",
+    created: "2026-10-06T04:55:12Z",
+    updated: "2026-10-06T04:55:12Z",
+    usage,
     steps: [
-      { type: "thought", signature: "abc" },
-      { type: "google_search_call", arguments: { queries: ["best pizza raleigh nc"] } },
       {
-        type: "google_search_result",
-        call_id: "search_001",
-        result: [{ search_suggestions: "<div/>" }],
+        id: "call_1",
+        type: "google_search_call",
+        search_type: "web_search",
+        signature: "abc",
+        arguments: { queries: ["best pizza raleigh nc", "pizza raleigh nc reviews"] },
       },
+      {
+        call_id: "call_1",
+        type: "google_search_result",
+        signature: "def",
+        is_error: false,
+        result: [{ search_suggestions: "<style></style><div></div>" }],
+      },
+      { type: "thought", signature: "ghi" },
       {
         type: "model_output",
         content: [
           {
             type: "text",
-            text: typeof answer === "string" ? answer : JSON.stringify(answer),
+            text: typeof answer === "string" ? answer : JSON.stringify(answer, null, 2),
             annotations,
           },
         ],
       },
     ],
-    usage: { total_input_tokens: 120, total_output_tokens: 240 },
   };
 }
 
@@ -88,20 +110,39 @@ function provider(fetchStub: typeof fetch, onUsage?: (usage: unknown) => void) {
 }
 
 describe("parseGeminiInteraction", () => {
-  it("returns the answer, the businesses in order and the cited URLs", () => {
+  it("returns the answer, the businesses in order and the cited sites", () => {
+    const redirect = "https://vertexaisearch.cloud.google.com/grounding-api-redirect/";
+    const cite = (title: string, id: string, start_index: number) => ({
+      type: "url_citation",
+      title,
+      url: `${redirect}${id}`,
+      start_index,
+      end_index: start_index + 40,
+    });
     const observation = parseGeminiInteraction(
       interaction(goodAnswer, [
-        { type: "url_citation", url: "https://joespizza.example/menu", title: "Joe's Pizza" },
-        { type: "url_citation", url: "https://tonys.example", title: "tonys.example" },
-        { type: "url_citation", url: "https://joespizza.example/menu", title: "Joe's Pizza" },
+        cite("tonys.example", "AAA", 30),
+        cite("tonys.example", "AAB", 80),
+        cite("joespizza.example", "AAC", 120),
       ]),
     );
     expect(observation).toEqual({
       kind: "answer",
       text: goodAnswer.answer,
       businesses: ["Tony's Slice House", "Joe's Pizza"],
-      cited_urls: ["https://joespizza.example/menu", "https://tonys.example"],
+      cited_urls: ["https://tonys.example", "https://joespizza.example"],
     });
+  });
+
+  it("keeps a citation's own URL when it is not a Google redirect", () => {
+    const observation = parseGeminiInteraction(
+      interaction(goodAnswer, [
+        { type: "url_citation", url: "https://joespizza.example/menu", title: "Joe's Pizza" },
+      ]),
+    );
+    expect(observation.kind === "answer" && observation.cited_urls).toEqual([
+      "https://joespizza.example/menu",
+    ]);
   });
 
   it("uses the site named in the title when the citation is a Google redirect", () => {
@@ -196,7 +237,7 @@ describe("createGeminiProvider", () => {
       query,
       at: new Date(),
     });
-    expect(onUsage).toHaveBeenCalledWith({ total_input_tokens: 120, total_output_tokens: 240 });
+    expect(onUsage).toHaveBeenCalledWith(usage);
   });
 
   it("throws with the status and Google's message on an error response", async () => {

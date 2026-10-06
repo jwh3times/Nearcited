@@ -69,10 +69,25 @@ A live scan checks each surface whose key is set and skips the rest (`createLive
 from the answer's citation annotations. This is Gemini through the API with search grounding, not
 the consumer app: same models and index, different system prompt.
 
-**Cost of one Gemini check: not measured yet.** Google bills each search query the model runs
-(one prompt can run several) plus input and output tokens. The provider logs each response's
-usage block as `gemini usage ...`; read the real figure from the Worker's logs after the first
-live scans and write it here.
+**Cost of one Gemini check: about 3 cents**, from a single live call on 2026-10-06 with
+`gemini-3.8-flash`, so treat it as a first reading and not an average:
+
+| Part | Used | Rate | Cost |
+| --- | --- | --- | --- |
+| Search queries | 2 | $14 per 1,000 | $0.028 |
+| Output and thinking tokens | 960 | $3.75 per million | $0.0036 |
+| Input tokens | 136 | $0.75 per million | $0.0001 |
+
+Search is nearly all of it. Google bills each query the model chooses to run, and one prompt can
+run several. The first 5,000 queries a month are free, which makes a check about a third of a
+cent until that allowance is used. Tokens from the search results themselves are not billed. The
+token rates double on 2027-01-01. The provider logs each response's usage block as
+`gemini usage ...`, so the average can be read from the Worker's logs once real scans run.
+
+**Google's terms need reading before this goes live.** The Gemini API terms for Grounding with
+Google Search restrict storing and analysing grounded results, and require Google's search
+suggestions to be shown with them. Storing answers and scoring who they name is what this product
+does. See the "Grounding with Google Search" section of https://ai.google.dev/gemini-api/terms.
 
 Failure handling in `runScan`:
 
