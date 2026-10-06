@@ -43,6 +43,12 @@ describe("TuningSchema", () => {
     const { chatgpt: _chatgpt, ...withoutChatGpt } = defaultTuning;
     expect(TuningSchema.safeParse(withoutChatGpt).success).toBe(false);
   });
+
+  it("requires a Claude model", () => {
+    expect(TuningSchema.safeParse({ ...defaultTuning, claude: { model: "" } }).success).toBe(false);
+    const { claude: _claude, ...withoutClaude } = defaultTuning;
+    expect(TuningSchema.safeParse(withoutClaude).success).toBe(false);
+  });
 });
 
 describe("resolveTuning", () => {

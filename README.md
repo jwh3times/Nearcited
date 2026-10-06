@@ -5,9 +5,9 @@
 Tracks whether a local business gets named when people ask an AI assistant or search Google for
 what it sells, and who gets named instead.
 
-**Status: early.** The application runs end to end on generated sample data, and one real
-provider exists: ChatGPT, through OpenAI's API with web search. The other six surfaces are not
-built. See [What is not built](#what-is-not-built).
+**Status: early.** Two real providers exist: ChatGPT, through OpenAI's API with web search, and
+Claude, through Anthropic's. The other five surfaces are not built, and local development runs
+on generated sample data. See [What is not built](#what-is-not-built).
 
 ## Contents
 
@@ -52,6 +52,7 @@ Worker imposes, and the known gaps.
 | --- | --- |
 | Web | React 19, Vite, TypeScript, React Router, TanStack Query |
 | API and jobs | One Cloudflare Worker: Hono for HTTP, a Cron Trigger to schedule scans, a Queue to run them |
+| Assistants | OpenAI's Responses API and Anthropic's Messages API (through its SDK), both with web search |
 | Data and auth | Supabase (Postgres with row-level security, email sign-in) |
 | Email | Resend |
 | Tooling | pnpm workspaces, Biome, Vitest |
@@ -127,6 +128,7 @@ The Worker reads its settings from `vars` in `apps/api/wrangler.jsonc`. Locally,
 | `APP_URL` | no | Where the web app is served. |
 | `EMAIL_FROM` | no | The sender of scan reports. |
 | `OPENAI_API_KEY` | yes | Optional. In live mode, scans check ChatGPT when it is set and skip that surface when it is not. |
+| `ANTHROPIC_API_KEY` | yes | Optional. The same, for Claude. |
 | `RESEND_API_KEY` | yes | Optional. Without it, scheduled scans finish without sending a report. |
 
 The web app reads two values at build time, from `apps/web/.env.local` or the environment. Both
@@ -210,7 +212,7 @@ and recommendations are written only by the worker, through `complete_scan()`.
   also checks `private/tuning.json` against the tuning schema where that file exists.
 - **`apps/api`**: every route against an in-memory store, the scan runner (success, retry,
   permanent failure, reporting, scoring with given weights, refusing live scans on default tuning),
-  the ChatGPT provider against responses in the documented shape, the scheduler, and the mock providers.
+  the ChatGPT and Claude providers against responses in the shape the real APIs return, the scheduler, and the mock providers.
 - **`apps/web`**: the logic that lays results out as a grid.
 
 ### Integration tests
@@ -247,6 +249,7 @@ The `integration` job in `.github/workflows/ci.yml` is a working example.
    pnpm exec wrangler secret put SUPABASE_SECRET_KEY
    pnpm exec wrangler secret put RESEND_API_KEY   # optional: scheduled-scan reports
    pnpm exec wrangler secret put OPENAI_API_KEY   # optional: live ChatGPT checks
+   pnpm exec wrangler secret put ANTHROPIC_API_KEY   # optional: live Claude checks
    ```
 5. From the repo root, with `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` set in the
    environment: `pnpm cf:deploy`.
@@ -261,7 +264,7 @@ Exactly `mock` serves generated data instead, which is what `.dev.vars.example` 
 development. Any other value means live. A live build needs the private
 tuning file, so the deploy has to run where `private/` is checked out, which the workflow does.
 Without the file, live scans fail with a message saying so. With it, a live scan checks each
-surface whose key is set (today that is ChatGPT, with `OPENAI_API_KEY`) and skips the rest; with
+surface whose key is set (ChatGPT with `OPENAI_API_KEY`, Claude with `ANTHROPIC_API_KEY`) and skips the rest; with
 no key set at all, scans fail with "No data provider is configured".
 
 ## Repository automation
@@ -335,8 +338,9 @@ pnpm sync:agents
 
 ## What is not built
 
-- **Most real data providers.** ChatGPT is implemented (`apps/api/src/providers/chatgpt.ts`).
-  Perplexity, Claude, Gemini and the three Google surfaces are not;
+- **Most real data providers.** ChatGPT and Claude are implemented (`chatgpt.ts` and
+  `claude.ts` in `apps/api/src/providers/`). Perplexity, Gemini and the three Google surfaces
+  are not;
   `apps/api/src/providers/live.ts` has notes on what each needs.
 - **Billing and plan limits.** Nothing stops an organization from adding unlimited locations and
   queries, each of which will cost money per scan once providers are live.
