@@ -1,18 +1,23 @@
+import type { Tuning } from "@nearcited/shared";
 import type { Env } from "../env";
+import { createChatGptProvider } from "./chatgpt";
 import type { ProviderRegistry } from "./types";
 
 /**
- * Real data providers. None are implemented yet, so live mode checks nothing and every scan
- * fails with "No data provider is configured".
+ * Real data providers. A surface is registered only when its key is present, and a surface with
+ * no provider is skipped, so a scan checks whatever is configured and nothing else.
  *
  * To add one: implement `SurfaceProvider` in its own file, read its key from `Env`, and register
- * it here only when that key is present. What each surface needs:
+ * it here. What the remaining surfaces need:
  *
- * - chatgpt, gemini, perplexity, claude: send the prompt, with the location's city and region
- *   stated in it, to that vendor's API with web search or grounding turned on. Return the answer
- *   text, the URLs it cited, and the businesses it named in order (ask for those as structured
- *   output; do not parse them out of prose). Answers vary between runs, so one call is a sample,
- *   not a measurement: decide how many samples per check before trusting a trend.
+ * - perplexity, claude: as `chatgpt.ts` does. Send the rendered prompt to that vendor's
+ *   API with web search turned on, ask for the answer and the businesses it named as structured
+ *   output, and collect the URLs it cited. Answers vary between runs, so one call is a sample,
+ *   not a measurement.
+ *
+ * - gemini: not through Google's own API. Its terms for Grounding with Google Search do not
+ *   allow grounded results to be stored, analysed or collected, which is what a scan does. It
+ *   would have to come from a data vendor.
  *
  * - google_local_pack, google_organic, google_ai_overview: Google has no API for these. Use a
  *   SERP data vendor and pass the location's coordinates, because results change block by block.
@@ -20,6 +25,18 @@ import type { ProviderRegistry } from "./types";
  *
  * See docs/architecture.md for the limits a Worker puts on a scan.
  */
-export function createLiveProviders(_env: Env): ProviderRegistry {
-  return {};
+export function createLiveProviders(
+  env: Pick<Env, "OPENAI_API_KEY">,
+  tuning: Tuning,
+): ProviderRegistry {
+  const providers: ProviderRegistry = {};
+  if (env.OPENAI_API_KEY) {
+    providers.chatgpt = createChatGptProvider({
+      apiKey: env.OPENAI_API_KEY,
+      tuning,
+      // One line per call, so the cost of a check can be read from the Worker's logs.
+      onUsage: (used) => console.log("chatgpt usage", JSON.stringify(used)),
+    });
+  }
+  return providers;
 }

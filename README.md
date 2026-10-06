@@ -5,9 +5,9 @@
 Tracks whether a local business gets named when people ask an AI assistant or search Google for
 what it sells, and who gets named instead.
 
-**Status: skeleton.** The application runs end to end on generated sample data. No real data
-provider is wired in yet, so nothing it shows today is a measurement. See
-[What is not built](#what-is-not-built).
+**Status: early.** The application runs end to end on generated sample data, and one real
+provider exists: ChatGPT, through OpenAI's API with web search. The other six surfaces are not
+built. See [What is not built](#what-is-not-built).
 
 ## Contents
 
@@ -126,6 +126,7 @@ The Worker reads its settings from `vars` in `apps/api/wrangler.jsonc`. Locally,
 | `PROVIDER_MODE` | no | Exactly `mock` serves generated data. Any other value is live. |
 | `APP_URL` | no | Where the web app is served. |
 | `EMAIL_FROM` | no | The sender of scan reports. |
+| `OPENAI_API_KEY` | yes | Optional. In live mode, scans check ChatGPT when it is set and skip that surface when it is not. |
 | `RESEND_API_KEY` | yes | Optional. Without it, scheduled scans finish without sending a report. |
 
 The web app reads two values at build time, from `apps/web/.env.local` or the environment. Both
@@ -208,7 +209,8 @@ and recommendations are written only by the worker, through `complete_scan()`.
   forge scan results, and that worker-only functions are closed to them. No Docker needed. It
   also checks `private/tuning.json` against the tuning schema where that file exists.
 - **`apps/api`**: every route against an in-memory store, the scan runner (success, retry,
-  permanent failure, reporting, scoring with given weights, refusing live scans on default tuning), the scheduler, and the mock providers.
+  permanent failure, reporting, scoring with given weights, refusing live scans on default tuning),
+  the ChatGPT provider against responses in the documented shape, the scheduler, and the mock providers.
 - **`apps/web`**: the logic that lays results out as a grid.
 
 ### Integration tests
@@ -244,6 +246,7 @@ The `integration` job in `.github/workflows/ci.yml` is a working example.
    ```sh
    pnpm exec wrangler secret put SUPABASE_SECRET_KEY
    pnpm exec wrangler secret put RESEND_API_KEY   # optional: scheduled-scan reports
+   pnpm exec wrangler secret put OPENAI_API_KEY   # optional: live ChatGPT checks
    ```
 5. From the repo root, with `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` set in the
    environment: `pnpm cf:deploy`.
@@ -255,8 +258,9 @@ of that file.
 
 `PROVIDER_MODE` ships as `mock`. Any other value means live. A live build needs the private
 tuning file, so the deploy has to run where `private/` is checked out, which the workflow does.
-Without the file, live scans fail with a message saying so. With it, live still has no providers yet, so scans
-fail with "No data provider is configured" until one is written.
+Without the file, live scans fail with a message saying so. With it, a live scan checks each
+surface whose key is set (today that is ChatGPT, with `OPENAI_API_KEY`) and skips the rest; with
+no key set at all, scans fail with "No data provider is configured".
 
 ## Repository automation
 
@@ -329,8 +333,9 @@ pnpm sync:agents
 
 ## What is not built
 
-- **Real data providers.** `apps/api/src/providers/live.ts` is an empty registry with notes on
-  what each surface needs. This is the product; everything else is plumbing.
+- **Most real data providers.** ChatGPT is implemented (`apps/api/src/providers/chatgpt.ts`).
+  Perplexity, Claude, Gemini and the three Google surfaces are not;
+  `apps/api/src/providers/live.ts` has notes on what each needs.
 - **Billing and plan limits.** Nothing stops an organization from adding unlimited locations and
   queries, each of which will cost money per scan once providers are live.
 - **Inviting teammates.** The schema and policies support members and roles; there is no API or

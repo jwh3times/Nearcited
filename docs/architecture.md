@@ -60,6 +60,46 @@ queue consumer -> runScan({ weights, unavailable })
 `runScan` and the scoring functions take the tuning as arguments, so they are tested without the
 bundled file. Only `apps/api/src/index.ts` imports the resolved tuning.
 
+## Live providers
+
+A live scan checks each surface whose key is set and skips the rest (`createLiveProviders`).
+
+**ChatGPT** (`apps/api/src/providers/chatgpt.ts`) calls OpenAI's Responses API with the
+`web_search` tool, told to search as someone in the location's city, and asks for the answer and
+the businesses it named as JSON. Cited URLs come from the answer's citation annotations. This is
+ChatGPT through the API with web search, not the consumer app: same models and search, but no
+consumer system prompt and no user memory.
+
+OpenAI requires citations to be visible and clickable wherever information from web results is
+shown, so the location page lists each answer's sources under its excerpt. Keep that list when
+changing how results are displayed.
+
+**Cost of one ChatGPT check: about 7 cents on `gpt-6.1-sol`**, the default model. This is from
+a single live call on 2026-10-06, so treat it as a first reading and not an average:
+
+| Part | Used | Rate | Cost |
+| --- | --- | --- | --- |
+| Input tokens | 20,977 | $2 per million | $0.042 |
+| Web searches | 2 | $10 per 1,000 | $0.02 |
+| Output and reasoning tokens | 638 | $10 per million | $0.006 |
+
+OpenAI bills the pages a search reads as input at the model's rate, so the model decides most of
+the cost. The same prompt was run once on two other models the same day:
+
+| Model | Cost | Compared with `gpt-6.1-sol` |
+| --- | --- | --- |
+| `gpt-6-astra` | $0.27 | The same three businesses in the same order |
+| `gpt-6-luna` | $0.033 | The same first two, a different third, and longer business names |
+
+Searches are a flat rate on every model, which puts a floor of 2 to 3 cents under any check. The
+model is a tuning value (`chatgpt.model`). The provider logs each response's usage as
+`chatgpt usage ...`, so the average can be read from the Worker's logs once real scans run.
+
+**Gemini is not built on Google's API, on purpose.** Google's terms for Grounding with Google
+Search do not allow grounded results to be stored, analysed or collected into a database, and a
+scan does all three. One trial call on 2026-10-06 worked and cost about 3 cents, nearly all of it
+search queries; the result was not kept. Gemini results would have to come from a data vendor.
+
 Failure handling in `runScan`:
 
 - **Nothing to check, or no provider configured**: the scan is marked failed and the message is

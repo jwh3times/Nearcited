@@ -529,3 +529,10 @@ mark {
     min-width: 9rem;
   }
 }
+
+.excerpts .sources {
+  margin-top: 0.35rem;
+  font-size: 0.85rem;
+  color: var(--muted, inherit);
+  overflow-wrap: anywhere;
+}
