@@ -49,8 +49,9 @@
   "vars": {
     "SUPABASE_URL": "https://vjzwlvinotphwkrugthn.supabase.co",
     "SUPABASE_PUBLISHABLE_KEY": "sb_publishable_0QuNzqQvzgrx_I107ryqFw_Lsx4Ho4S",
-    // "mock" serves generated data. Anything else is live, and live has no providers yet.
-    "PROVIDER_MODE": "mock",
+    // Exactly "mock" serves generated data and shows the sample-data banner. Anything else is
+    // live: scans call the real providers whose keys are set, and each check costs money.
+    "PROVIDER_MODE": "live",
     "APP_URL": "https://nearcited.com",
     "EMAIL_FROM": "Nearcited <reports@nearcited.com>"
   }

@@ -256,7 +256,9 @@ The `integration` job in `.github/workflows/ci.yml` is a working example.
 service account that can read only that vault. The vault items it expects are named at the top
 of that file.
 
-`PROVIDER_MODE` ships as `mock`. Any other value means live. A live build needs the private
+`PROVIDER_MODE` in `apps/api/wrangler.jsonc` is `live`, so the deployed Worker runs real checks.
+Exactly `mock` serves generated data instead, which is what `.dev.vars.example` sets for local
+development. Any other value means live. A live build needs the private
 tuning file, so the deploy has to run where `private/` is checked out, which the workflow does.
 Without the file, live scans fail with a message saying so. With it, a live scan checks each
 surface whose key is set (today that is ChatGPT, with `OPENAI_API_KEY`) and skips the rest; with
