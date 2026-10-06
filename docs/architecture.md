@@ -95,6 +95,38 @@ Searches are a flat rate on every model, which puts a floor of 2 to 3 cents unde
 model is a tuning value (`chatgpt.model`). The provider logs each response's usage as
 `chatgpt usage ...`, so the average can be read from the Worker's logs once real scans run.
 
+**Claude** (`apps/api/src/providers/claude.ts`) calls Anthropic's Messages API through its SDK
+with the `web_search` tool, located in the location's city, and asks for the answer, the
+businesses it named and the pages it relied on as JSON. Three things about it are deliberate:
+
+- **Sources come from the answer, checked against the search.** With a JSON output format Claude
+  attaches no citations to its text, so the provider asks for the URLs it relied on and keeps
+  only those the search really returned.
+- **Searches are called directly, capped at three.** The tool's default filters results through
+  code execution; on the trial prompt that took twice the time and tokens for a similar answer.
+- **A declined prompt is re-run on Anthropic's fallback model** (`fallbacks: "default"`), so a
+  scan does not fail on a safety classifier. The usage log records which model answered.
+
+**Cost of one Claude check: about 14 cents on `claude-opus-5-5`**, the default model. This is
+from a single live call on 2026-10-06, so treat it as a first reading and not an average:
+
+| Part | Used | Rate | Cost |
+| --- | --- | --- | --- |
+| Input tokens | 22,591 | $4 per million | $0.09 |
+| Output and thinking tokens | 1,566 | $20 per million | $0.031 |
+| Web searches | 2 | $10 per 1,000 | $0.02 |
+
+Anthropic bills search results as input tokens, and on a turn with several searches the earlier
+results are read again each time, so the number of searches drives the cost more than the model
+does. The same prompt run two other ways the same day:
+
+| Setup | Cost | Why |
+| --- | --- | --- |
+| `claude-opus-5-5`, default filtered search, cap of 5 | $0.27 | 5 searches, 44,890 input tokens, 41 seconds |
+| `claude-sonnet-5-5`, direct search, cap of 3 | $0.28 | 3 searches but 116,775 input tokens; half the token price did not make up for it |
+
+The model is a tuning value (`claude.model`). The provider logs each check as `claude usage ...`.
+
 **Gemini is not built on Google's API, on purpose.** Google's terms for Grounding with Google
 Search do not allow grounded results to be stored, analysed or collected into a database, and a
 scan does all three. One trial call on 2026-10-06 worked and cost about 3 cents, nearly all of it

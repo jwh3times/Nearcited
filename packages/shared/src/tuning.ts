@@ -55,6 +55,8 @@ export const TuningSchema = z.object({
   prompts: PromptsSchema,
   /** Request settings for the ChatGPT provider. */
   chatgpt: z.object({ model: z.string().trim().min(1) }),
+  /** Request settings for the Claude provider. */
+  claude: z.object({ model: z.string().trim().min(1) }),
 });
 export type Tuning = z.infer<typeof TuningSchema>;
 
@@ -75,6 +77,7 @@ export const defaultTuning: Tuning = {
     by_surface: {},
   },
   chatgpt: { model: "gpt-6.1-sol" },
+  claude: { model: "claude-opus-5-5" },
 };
 
 export type TuningSource = "private" | "default";

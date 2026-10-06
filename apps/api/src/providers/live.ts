@@ -1,6 +1,7 @@
 import type { Tuning } from "@nearcited/shared";
 import type { Env } from "../env";
 import { createChatGptProvider } from "./chatgpt";
+import { createClaudeProvider } from "./claude";
 import type { ProviderRegistry } from "./types";
 
 /**
@@ -10,7 +11,7 @@ import type { ProviderRegistry } from "./types";
  * To add one: implement `SurfaceProvider` in its own file, read its key from `Env`, and register
  * it here. What the remaining surfaces need:
  *
- * - perplexity, claude: as `chatgpt.ts` does. Send the rendered prompt to that vendor's
+ * - perplexity: as `chatgpt.ts` and `claude.ts` do. Send the rendered prompt to that vendor's
  *   API with web search turned on, ask for the answer and the businesses it named as structured
  *   output, and collect the URLs it cited. Answers vary between runs, so one call is a sample,
  *   not a measurement.
@@ -26,7 +27,7 @@ import type { ProviderRegistry } from "./types";
  * See docs/architecture.md for the limits a Worker puts on a scan.
  */
 export function createLiveProviders(
-  env: Pick<Env, "OPENAI_API_KEY">,
+  env: Pick<Env, "OPENAI_API_KEY" | "ANTHROPIC_API_KEY">,
   tuning: Tuning,
 ): ProviderRegistry {
   const providers: ProviderRegistry = {};
@@ -36,6 +37,13 @@ export function createLiveProviders(
       tuning,
       // One line per call, so the cost of a check can be read from the Worker's logs.
       onUsage: (used) => console.log("chatgpt usage", JSON.stringify(used)),
+    });
+  }
+  if (env.ANTHROPIC_API_KEY) {
+    providers.claude = createClaudeProvider({
+      apiKey: env.ANTHROPIC_API_KEY,
+      tuning,
+      onUsage: (used) => console.log("claude usage", JSON.stringify(used)),
     });
   }
   return providers;

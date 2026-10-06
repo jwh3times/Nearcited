@@ -7,5 +7,7 @@ APP_URL=http://localhost:5173
 EMAIL_FROM=Nearcited <reports@example.com>
 # Optional. Only used when PROVIDER_MODE is not mock: live scans check ChatGPT when this is set.
 OPENAI_API_KEY=
+# Optional. The same, for Claude.
+ANTHROPIC_API_KEY=
 # Optional. Leave blank to skip sending scan reports.
 RESEND_API_KEY=
