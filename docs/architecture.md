@@ -60,6 +60,20 @@ queue consumer -> runScan({ weights, unavailable })
 `runScan` and the scoring functions take the tuning as arguments, so they are tested without the
 bundled file. Only `apps/api/src/index.ts` imports the resolved tuning.
 
+## Live providers
+
+A live scan checks each surface whose key is set and skips the rest (`createLiveProviders`).
+
+**Gemini** (`apps/api/src/providers/gemini.ts`) calls Google's Interactions API with the
+`google_search` tool, and asks for the answer and the businesses it named as JSON. Cited URLs come
+from the answer's citation annotations. This is Gemini through the API with search grounding, not
+the consumer app: same models and index, different system prompt.
+
+**Cost of one Gemini check: not measured yet.** Google bills each search query the model runs
+(one prompt can run several) plus input and output tokens. The provider logs each response's
+usage block as `gemini usage ...`; read the real figure from the Worker's logs after the first
+live scans and write it here.
+
 Failure handling in `runScan`:
 
 - **Nothing to check, or no provider configured**: the scan is marked failed and the message is

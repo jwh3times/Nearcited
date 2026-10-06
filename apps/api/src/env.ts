@@ -15,6 +15,8 @@ export interface Env {
   PROVIDER_MODE: string;
   APP_URL: string;
   EMAIL_FROM: string;
+  /** Optional secret. With it, live scans check Gemini; without it that surface is skipped. */
+  GEMINI_API_KEY?: string;
   /** Optional. Without it, scheduled scans finish without sending a report. */
   RESEND_API_KEY?: string;
 }

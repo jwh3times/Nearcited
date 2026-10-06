@@ -35,6 +35,14 @@ describe("TuningSchema", () => {
     const noQuery = { ...defaultTuning, prompts: { default: "Best places in {city}" } };
     expect(TuningSchema.safeParse(noQuery).success).toBe(false);
   });
+
+  it("requires a Gemini model", () => {
+    expect(TuningSchema.safeParse({ ...defaultTuning, gemini: { model: " " } }).success).toBe(
+      false,
+    );
+    const { gemini: _gemini, ...withoutGemini } = defaultTuning;
+    expect(TuningSchema.safeParse(withoutGemini).success).toBe(false);
+  });
 });
 
 describe("resolveTuning", () => {

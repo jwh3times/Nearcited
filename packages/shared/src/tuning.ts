@@ -53,6 +53,8 @@ export type Prompts = z.infer<typeof PromptsSchema>;
 export const TuningSchema = z.object({
   score: ScoreWeightsSchema,
   prompts: PromptsSchema,
+  /** Request settings for the Gemini provider. */
+  gemini: z.object({ model: z.string().trim().min(1) }),
 });
 export type Tuning = z.infer<typeof TuningSchema>;
 
@@ -72,6 +74,7 @@ export const defaultTuning: Tuning = {
     default: "{query} in {city}, {region}",
     by_surface: {},
   },
+  gemini: { model: "gemini-3.8-flash" },
 };
 
 export type TuningSource = "private" | "default";

@@ -1,4 +1,4 @@
-import type { TuningSource } from "@nearcited/shared";
+import type { Tuning, TuningSource } from "@nearcited/shared";
 import type { Env } from "../env";
 import { createLiveProviders } from "./live";
 import { createMockProviders } from "./mock";
@@ -13,8 +13,8 @@ export function usesSampleData(env: Pick<Env, "PROVIDER_MODE">): boolean {
  * Anything other than an explicit "mock" is treated as live, so a missing or mistyped setting
  * fails scans loudly instead of quietly filling the product with generated data.
  */
-export function createProviders(env: Env): ProviderRegistry {
-  return usesSampleData(env) ? createMockProviders() : createLiveProviders(env);
+export function createProviders(env: Env, tuning: Tuning): ProviderRegistry {
+  return usesSampleData(env) ? createMockProviders() : createLiveProviders(env, tuning);
 }
 
 /**
