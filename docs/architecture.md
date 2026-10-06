@@ -60,6 +60,29 @@ queue consumer -> runScan({ weights, unavailable })
 `runScan` and the scoring functions take the tuning as arguments, so they are tested without the
 bundled file. Only `apps/api/src/index.ts` imports the resolved tuning.
 
+## Live providers
+
+A live scan checks each surface whose key is set and skips the rest (`createLiveProviders`).
+
+**ChatGPT** (`apps/api/src/providers/chatgpt.ts`) calls OpenAI's Responses API with the
+`web_search` tool, told to search as someone in the location's city, and asks for the answer and
+the businesses it named as JSON. Cited URLs come from the answer's citation annotations. This is
+ChatGPT through the API with web search, not the consumer app: same models and search, but no
+consumer system prompt and no user memory.
+
+OpenAI requires citations to be visible and clickable wherever information from web results is
+shown, so the location page lists each answer's sources under its excerpt. Keep that list when
+changing how results are displayed.
+
+**Cost of one ChatGPT check: not measured yet.** OpenAI bills each web search call plus input and
+output tokens. The provider logs each response's usage block as `chatgpt usage ...`; read the
+real figure from the Worker's logs after the first live calls and write it here.
+
+**Gemini is not built on Google's API, on purpose.** Google's terms for Grounding with Google
+Search do not allow grounded results to be stored, analysed or collected into a database, and a
+scan does all three. One trial call on 2026-10-06 worked and cost about 3 cents, nearly all of it
+search queries; the result was not kept. Gemini results would have to come from a data vendor.
+
 Failure handling in `runScan`:
 
 - **Nothing to check, or no provider configured**: the scan is marked failed and the message is

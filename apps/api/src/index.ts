@@ -25,7 +25,7 @@ export default {
   /** Queue consumer: run each scan, and email its report if it was a scheduled one. */
   async queue(batch, env) {
     const store = createSupabaseStore(createAdminClient(env));
-    const providers = createProviders(env);
+    const providers = createProviders(env, activeTuning.tuning);
 
     for (const message of batch.messages) {
       const parsed = ScanMessageSchema.safeParse(message.body);

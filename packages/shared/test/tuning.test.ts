@@ -35,6 +35,14 @@ describe("TuningSchema", () => {
     const noQuery = { ...defaultTuning, prompts: { default: "Best places in {city}" } };
     expect(TuningSchema.safeParse(noQuery).success).toBe(false);
   });
+
+  it("requires a ChatGPT model", () => {
+    expect(TuningSchema.safeParse({ ...defaultTuning, chatgpt: { model: " " } }).success).toBe(
+      false,
+    );
+    const { chatgpt: _chatgpt, ...withoutChatGpt } = defaultTuning;
+    expect(TuningSchema.safeParse(withoutChatGpt).success).toBe(false);
+  });
 });
 
 describe("resolveTuning", () => {
