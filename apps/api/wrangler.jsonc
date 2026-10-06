@@ -6,6 +6,12 @@
   "compatibility_flags": ["nodejs_compat"],
   "observability": { "enabled": true },
 
+  // Served at nearcited.com. Cloudflare creates the DNS record and the certificate, which needs
+  // the domain's DNS to be on the same Cloudflare account. The workers.dev address stays on so
+  // links to the first deployment keep working.
+  "routes": [{ "pattern": "nearcited.com", "custom_domain": true }],
+  "workers_dev": true,
+
   // Before every dev session, deploy and dry run, write the tuning file the Worker bundles:
   // the private values when private/tuning.json exists, otherwise a marker for the public
   // defaults. See docs/adr/0001-private-tuning-as-data.md.
@@ -45,7 +51,7 @@
     "SUPABASE_PUBLISHABLE_KEY": "sb_publishable_0QuNzqQvzgrx_I107ryqFw_Lsx4Ho4S",
     // "mock" serves generated data. Anything else is live, and live has no providers yet.
     "PROVIDER_MODE": "mock",
-    "APP_URL": "https://nearcited.jerryholland00.workers.dev",
-    "EMAIL_FROM": "Nearcited <onboarding@resend.dev>"
+    "APP_URL": "https://nearcited.com",
+    "EMAIL_FROM": "Nearcited <reports@nearcited.com>"
   }
 }
