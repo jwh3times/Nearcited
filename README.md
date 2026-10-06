@@ -237,7 +237,9 @@ The `integration` job in `.github/workflows/ci.yml` is a working example.
    pnpm exec wrangler queues create nearcited-scans-dlq
    ```
 3. In `apps/api/wrangler.jsonc`, set `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `APP_URL` and
-   `EMAIL_FROM`.
+   `EMAIL_FROM`. To serve it on your own domain, set `routes` to that domain with
+   `custom_domain`; the domain's DNS has to be on the same Cloudflare account. `EMAIL_FROM`
+   has to be an address on a domain verified with Resend.
 4. Set the secrets:
    ```sh
    pnpm exec wrangler secret put SUPABASE_SECRET_KEY
