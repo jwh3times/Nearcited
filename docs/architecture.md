@@ -74,9 +74,21 @@ OpenAI requires citations to be visible and clickable wherever information from 
 shown, so the location page lists each answer's sources under its excerpt. Keep that list when
 changing how results are displayed.
 
-**Cost of one ChatGPT check: not measured yet.** OpenAI bills each web search call plus input and
-output tokens. The provider logs each response's usage block as `chatgpt usage ...`; read the
-real figure from the Worker's logs after the first live calls and write it here.
+**Cost of one ChatGPT check: about 27 cents on `gpt-6-astra`**, from a single live call on
+2026-10-06, so treat it as a first reading and not an average:
+
+| Part | Used | Rate | Cost |
+| --- | --- | --- | --- |
+| Input tokens | 21,021 | $10 per million | $0.21 |
+| Output and reasoning tokens | 704 | $50 per million | $0.035 |
+| Web searches | 2 | $10 per 1,000 | $0.02 |
+
+Input tokens are four fifths of it, because OpenAI bills the pages a search reads as input at the
+model's rate. That makes the model the lever: at the same token counts, `gpt-6-sol` ($2 and $10
+per million) would be about 7 cents and `gpt-6-luna` ($0.10 and $0.50) about 2 cents. Those two
+figures are arithmetic, not measurements, and a smaller model may search and answer differently.
+The model is a tuning value (`chatgpt.model`). The provider logs each response's usage as
+`chatgpt usage ...`, so the average can be read from the Worker's logs once real scans run.
 
 **Gemini is not built on Google's API, on purpose.** Google's terms for Grounding with Google
 Search do not allow grounded results to be stored, analysed or collected into a database, and a

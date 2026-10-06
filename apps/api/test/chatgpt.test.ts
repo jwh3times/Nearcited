@@ -9,19 +9,26 @@ import { createChatGptProvider, parseChatGptResponse } from "../src/providers/ch
 import { createLiveProviders } from "../src/providers/live";
 
 /**
- * Responses in the shape OpenAI documents for the Responses API with the web_search tool and a
- * JSON schema text format. They are written from the documentation, not recorded: check them
- * against a real response the first time a key is used, and correct whatever differs.
+ * A response in the shape the Responses API really returns for the web_search tool with a strict
+ * JSON schema format, checked against a live call on 2026-10-06 (model gpt-6-astra). The
+ * structure and field names are real; the content is invented.
  */
 const usage = {
-  input_tokens: 328,
-  input_tokens_details: { cached_tokens: 0 },
-  output_tokens: 356,
-  output_tokens_details: { reasoning_tokens: 0 },
-  total_tokens: 684,
+  input_tokens: 21021,
+  input_tokens_details: { cache_write_tokens: 4501, cached_tokens: 0 },
+  output_tokens: 704,
+  output_tokens_details: { reasoning_tokens: 201 },
+  total_tokens: 21725,
 };
+const tool_usage = { web_search: { num_requests: 2 } };
 
 function apiResponse(answer: unknown, annotations: unknown[] = []) {
+  const search = (id: string, query: string) => ({
+    id,
+    type: "web_search_call",
+    status: "completed",
+    action: { type: "search", query, queries: [query] },
+  });
   return {
     id: "resp_test",
     object: "response",
@@ -29,8 +36,12 @@ function apiResponse(answer: unknown, annotations: unknown[] = []) {
     error: null,
     incomplete_details: null,
     model: "gpt-6-astra",
+    service_tier: "default",
+    store: false,
     output: [
-      { type: "web_search_call", id: "ws_1", status: "completed", action: { type: "search" } },
+      search("ws_1", "best pizza Raleigh NC"),
+      search("ws_2", "Raleigh pizza reviews"),
+      { id: "rs_1", type: "reasoning", content: [], encrypted_content: null, summary: [] },
       {
         type: "message",
         id: "msg_1",
@@ -46,8 +57,15 @@ function apiResponse(answer: unknown, annotations: unknown[] = []) {
         ],
       },
     ],
-    store: false,
+    tools: [
+      {
+        type: "web_search",
+        search_context_size: "medium",
+        user_location: { type: "approximate", city: "Raleigh", country: "US", region: "NC" },
+      },
+    ],
     usage,
+    tool_usage,
   };
 }
 
@@ -95,7 +113,7 @@ function respondWith(body: unknown, status = 200) {
   return vi.fn<typeof fetch>(async () => Response.json(body, { status }));
 }
 
-function provider(fetchStub: typeof fetch, onUsage?: (usage: unknown) => void) {
+function provider(fetchStub: typeof fetch, onUsage?: (used: unknown) => void) {
   return createChatGptProvider({
     apiKey: "test-key",
     tuning: defaultTuning,
@@ -110,9 +128,9 @@ describe("parseChatGptResponse", () => {
   it("returns the answer, the businesses in order and the cited URLs", () => {
     const observation = parseChatGptResponse(
       apiResponse(goodAnswer, [
-        cite("https://tonys.example/?utm_source=chatgpt.com", 10),
-        cite("https://joespizza.example/menu?utm_source=chatgpt.com", 60),
-        cite("https://tonys.example/?utm_source=chatgpt.com", 90),
+        cite("https://tonys.example/?utm_source=openai", 10),
+        cite("https://joespizza.example/menu", 60),
+        cite("https://tonys.example/?utm_source=openai", 90),
       ]),
     );
     expect(observation).toEqual({
@@ -234,7 +252,7 @@ describe("createChatGptProvider", () => {
   it("reports usage for a successful call", async () => {
     const onUsage = vi.fn();
     await provider(respondWith(apiResponse(goodAnswer)), onUsage).observe(input);
-    expect(onUsage).toHaveBeenCalledWith(usage);
+    expect(onUsage).toHaveBeenCalledWith({ usage, tool_usage });
   });
 
   it("throws with the status and OpenAI's message on an error response", async () => {

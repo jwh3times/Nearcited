@@ -65,6 +65,7 @@ const ResponseSchema = z.looseObject({
     .array(z.looseObject({ type: z.string(), content: z.array(ContentSchema).optional() }))
     .optional(),
   usage: z.unknown().optional(),
+  tool_usage: z.unknown().optional(),
 });
 
 const ErrorSchema = z.looseObject({
@@ -72,10 +73,12 @@ const ErrorSchema = z.looseObject({
 });
 
 /** OpenAI tags the links it cites. The tag is theirs, not part of the page's address. */
+const OPENAI_TAGS = new Set(["openai", "chatgpt.com"]);
+
 function withoutTracking(url: string): string {
   try {
     const parsed = new URL(url);
-    if (parsed.searchParams.get("utm_source") === "chatgpt.com") {
+    if (OPENAI_TAGS.has(parsed.searchParams.get("utm_source") ?? "")) {
       parsed.searchParams.delete("utm_source");
     }
     return parsed.toString();
@@ -132,8 +135,8 @@ export interface ChatGptOptions {
   tuning: Pick<Tuning, "prompts" | "chatgpt">;
   /** Replaceable in tests. */
   fetch?: typeof fetch;
-  /** Called with the usage block of each successful response, for measuring cost. */
-  onUsage?: (usage: unknown) => void;
+  /** Called with what each successful response says it used, for measuring cost. */
+  onUsage?: (used: { usage: unknown; tool_usage: unknown }) => void;
 }
 
 export function createChatGptProvider(options: ChatGptOptions): SurfaceProvider {
@@ -189,7 +192,10 @@ export function createChatGptProvider(options: ChatGptOptions): SurfaceProvider 
 
       const observation = parseChatGptResponse(body);
       const parsed = ResponseSchema.safeParse(body);
-      if (parsed.success && parsed.data.usage !== undefined) options.onUsage?.(parsed.data.usage);
+      if (parsed.success && parsed.data.usage !== undefined) {
+        // Tokens are in `usage`; the number of searches billed is in `tool_usage.web_search`.
+        options.onUsage?.({ usage: parsed.data.usage, tool_usage: parsed.data.tool_usage });
+      }
       return observation;
     },
   };

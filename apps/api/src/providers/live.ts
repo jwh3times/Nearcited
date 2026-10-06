@@ -35,7 +35,7 @@ export function createLiveProviders(
       apiKey: env.OPENAI_API_KEY,
       tuning,
       // One line per call, so the cost of a check can be read from the Worker's logs.
-      onUsage: (usage) => console.log("chatgpt usage", JSON.stringify(usage)),
+      onUsage: (used) => console.log("chatgpt usage", JSON.stringify(used)),
     });
   }
   return providers;
