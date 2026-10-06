@@ -10,15 +10,15 @@ import { createLiveProviders } from "../src/providers/live";
 
 /**
  * A response in the shape the Responses API really returns for the web_search tool with a strict
- * JSON schema format, checked against a live call on 2026-10-06 (model gpt-6-astra). The
+ * JSON schema format, checked against live calls on 2026-10-06 (model gpt-6.1-sol). The
  * structure and field names are real; the content is invented.
  */
 const usage = {
-  input_tokens: 21021,
-  input_tokens_details: { cache_write_tokens: 4501, cached_tokens: 0 },
-  output_tokens: 704,
-  output_tokens_details: { reasoning_tokens: 201 },
-  total_tokens: 21725,
+  input_tokens: 20977,
+  input_tokens_details: { cached_tokens: 0 },
+  output_tokens: 638,
+  output_tokens_details: { reasoning_tokens: 187 },
+  total_tokens: 21615,
 };
 const tool_usage = { web_search: { num_requests: 2 } };
 
@@ -35,7 +35,7 @@ function apiResponse(answer: unknown, annotations: unknown[] = []) {
     status: "completed",
     error: null,
     incomplete_details: null,
-    model: "gpt-6-astra",
+    model: "gpt-6.1-sol",
     service_tier: "default",
     store: false,
     output: [

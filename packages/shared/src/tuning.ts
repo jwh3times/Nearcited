@@ -74,7 +74,7 @@ export const defaultTuning: Tuning = {
     default: "{query} in {city}, {region}",
     by_surface: {},
   },
-  chatgpt: { model: "gpt-6-astra" },
+  chatgpt: { model: "gpt-6.1-sol" },
 };
 
 export type TuningSource = "private" | "default";
