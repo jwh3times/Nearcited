@@ -41,11 +41,11 @@
   // Not secret. Secrets (SUPABASE_SECRET_KEY, RESEND_API_KEY) go in .dev.vars locally and
   // `wrangler secret put` in production.
   "vars": {
-    "SUPABASE_URL": "https://YOUR-PROJECT.supabase.co",
-    "SUPABASE_PUBLISHABLE_KEY": "sb_publishable_REPLACE_ME",
+    "SUPABASE_URL": "https://vjzwlvinotphwkrugthn.supabase.co",
+    "SUPABASE_PUBLISHABLE_KEY": "sb_publishable_0QuNzqQvzgrx_I107ryqFw_Lsx4Ho4S",
     // "mock" serves generated data. Anything else is live, and live has no providers yet.
     "PROVIDER_MODE": "mock",
-    "APP_URL": "http://localhost:5173",
-    "EMAIL_FROM": "Nearcited <reports@example.com>"
+    "APP_URL": "https://nearcited.jerryholland00.workers.dev",
+    "EMAIL_FROM": "Nearcited <onboarding@resend.dev>"
   }
 }
