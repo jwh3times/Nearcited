@@ -102,30 +102,40 @@ businesses it named and the pages it relied on as JSON. Three things about it ar
 - **Sources come from the answer, checked against the search.** With a JSON output format Claude
   attaches no citations to its text, so the provider asks for the URLs it relied on and keeps
   only those the search really returned.
-- **Searches are called directly, capped at three.** The tool's default filters results through
-  code execution; on the trial prompt that took twice the time and tokens for a similar answer.
+- **Searches are called directly and capped.** The tool's default filters results through code
+  execution; on the trial prompt that took twice the time and tokens for a similar answer. The
+  cap is a tuning value and is the main cost control.
 - **A declined prompt is re-run on Anthropic's fallback model** (`fallbacks: "default"`), so a
   scan does not fail on a safety classifier. The usage log records which model answered.
 
-**Cost of one Claude check: about 14 cents on `claude-opus-5-5`**, the default model. This is
-from a single live call on 2026-10-06, so treat it as a first reading and not an average:
+**Cost of one Claude check: about 7 cents** on the default tuning: `claude-sonnet-5-5`, low
+effort, one search. This is from a single live call on 2026-10-06, so treat it as a first reading
+and not an average:
 
 | Part | Used | Rate | Cost |
 | --- | --- | --- | --- |
-| Input tokens | 22,591 | $4 per million | $0.09 |
-| Output and thinking tokens | 1,566 | $20 per million | $0.031 |
-| Web searches | 2 | $10 per 1,000 | $0.02 |
+| Input tokens | 23,392 | $2 per million | $0.047 |
+| Output and thinking tokens | 1,029 | $10 per million | $0.010 |
+| Web searches | 1 | $10 per 1,000 | $0.01 |
 
 Anthropic bills search results as input tokens, and on a turn with several searches the earlier
 results are read again each time, so the number of searches drives the cost more than the model
-does. The same prompt run two other ways the same day:
+or the effort does. The same prompt run other ways the same day:
 
-| Setup | Cost | Why |
-| --- | --- | --- |
-| `claude-opus-5-5`, default filtered search, cap of 5 | $0.27 | 5 searches, 44,890 input tokens, 41 seconds |
-| `claude-sonnet-5-5`, direct search, cap of 3 | $0.28 | 3 searches but 116,775 input tokens; half the token price did not make up for it |
+| Model | Effort | Search cap | Cost | Searches run | Input tokens |
+| --- | --- | --- | --- | --- | --- |
+| `claude-sonnet-5-5` | low | 1 | $0.067 | 1 | 23,392 |
+| `claude-opus-5-5` | low | 1 | $0.089 | 1 | 13,676 |
+| `claude-opus-5-5` | medium | 3 | $0.14 | 2 | 22,591 |
+| `claude-sonnet-5-5` | low | 3 | $0.22 | 3 | 87,228 |
+| `claude-sonnet-5-5` | medium | 3 | $0.28 | 3 | 116,775 |
+| `claude-opus-5-5` | medium | 5, filtered search | $0.27 | 5 | 44,890 |
 
-The model is a tuning value (`claude.model`). The provider logs each check as `claude usage ...`.
+Sonnet searches up to whatever cap it is given and reads more input per search than Opus, so it
+is only the cheaper model when the cap is one. All six runs named an overlapping set of
+businesses; one run each cannot show whether fewer searches give a worse answer. The model, the
+effort and the cap are tuning values (`claude.model`, `claude.effort`, `claude.max_searches`).
+The provider logs each check as `claude usage ...`.
 
 **Gemini is not built on Google's API, on purpose.** Google's terms for Grounding with Google
 Search do not allow grounded results to be stored, analysed or collected into a database, and a

@@ -44,8 +44,16 @@ describe("TuningSchema", () => {
     expect(TuningSchema.safeParse(withoutChatGpt).success).toBe(false);
   });
 
-  it("requires a Claude model", () => {
-    expect(TuningSchema.safeParse({ ...defaultTuning, claude: { model: "" } }).success).toBe(false);
+  it("requires a Claude model, a known effort and a whole number of searches", () => {
+    const claude = (change: object) => ({
+      ...defaultTuning,
+      claude: { ...defaultTuning.claude, ...change },
+    });
+    expect(TuningSchema.safeParse(claude({ model: "" })).success).toBe(false);
+    expect(TuningSchema.safeParse(claude({ effort: "extreme" })).success).toBe(false);
+    expect(TuningSchema.safeParse(claude({ max_searches: 0 })).success).toBe(false);
+    expect(TuningSchema.safeParse(claude({ max_searches: 1.5 })).success).toBe(false);
+    expect(TuningSchema.safeParse(claude({ effort: "high", max_searches: 3 })).success).toBe(true);
     const { claude: _claude, ...withoutClaude } = defaultTuning;
     expect(TuningSchema.safeParse(withoutClaude).success).toBe(false);
   });

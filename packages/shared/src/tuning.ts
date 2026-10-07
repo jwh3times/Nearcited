@@ -56,7 +56,16 @@ export const TuningSchema = z.object({
   /** Request settings for the ChatGPT provider. */
   chatgpt: z.object({ model: z.string().trim().min(1) }),
   /** Request settings for the Claude provider. */
-  claude: z.object({ model: z.string().trim().min(1) }),
+  claude: z.object({
+    model: z.string().trim().min(1),
+    /** How hard the model works on each answer. Higher effort searches and reasons more. */
+    effort: z.enum(["low", "medium", "high", "xhigh", "max"]),
+    /**
+     * The most web searches one check may run. This is the main cost control: each search adds
+     * its results to the input billed, and earlier results are read again on every later one.
+     */
+    max_searches: z.number().int().min(1).max(10),
+  }),
 });
 export type Tuning = z.infer<typeof TuningSchema>;
 
@@ -77,7 +86,7 @@ export const defaultTuning: Tuning = {
     by_surface: {},
   },
   chatgpt: { model: "gpt-6.1-sol" },
-  claude: { model: "claude-opus-5-5" },
+  claude: { model: "claude-sonnet-5-5", effort: "low", max_searches: 1 },
 };
 
 export type TuningSource = "private" | "default";
