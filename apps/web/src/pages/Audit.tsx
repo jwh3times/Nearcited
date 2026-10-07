@@ -4,7 +4,7 @@ import { useEffect } from "react";
 import { Sources } from "../components/Sources";
 import { ApiRequestError, api } from "../lib/api";
 import { auditAnswers, auditCompetitors, auditPending, auditSurfaces } from "../lib/audit";
-import { listOf } from "../lib/format";
+import { listOf, plainText } from "../lib/format";
 import { markName } from "../lib/matrix";
 
 const day = new Intl.DateTimeFormat(undefined, { dateStyle: "long" });
@@ -227,7 +227,7 @@ function Answers({ audit }: { audit: PublicAudit }) {
               <span className="muted">{prompt}</span>
             </h3>
             <p>
-              {markName(cell.excerpt ?? "", audit.business_name).map((part, index) =>
+              {markName(plainText(cell.excerpt ?? ""), audit.business_name).map((part, index) =>
                 part.marked ? (
                   // biome-ignore lint/suspicious/noArrayIndexKey: parts are positional and never reorder
                   <mark key={index}>{part.text}</mark>

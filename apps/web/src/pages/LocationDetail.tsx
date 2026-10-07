@@ -14,7 +14,7 @@ import { ScoreTrend } from "../components/ScoreTrend";
 import { Sources } from "../components/Sources";
 import { VisibilityMatrix } from "../components/VisibilityMatrix";
 import { api } from "../lib/api";
-import { cadence, formatDate, listOf } from "../lib/format";
+import { cadence, formatDate, listOf, plainText } from "../lib/format";
 import { markName, tallyCompetitors } from "../lib/matrix";
 
 const inFlight = (scan: ScanWithResults | null) =>
@@ -201,13 +201,14 @@ export function LocationDetail() {
                   </span>
                 </h3>
                 <p>
-                  {markName(result.answer_excerpt ?? "", location.name).map((part, index) =>
-                    part.marked ? (
-                      // biome-ignore lint/suspicious/noArrayIndexKey: parts are positional and never reorder
-                      <mark key={index}>{part.text}</mark>
-                    ) : (
-                      part.text
-                    ),
+                  {markName(plainText(result.answer_excerpt ?? ""), location.name).map(
+                    (part, index) =>
+                      part.marked ? (
+                        // biome-ignore lint/suspicious/noArrayIndexKey: parts are positional and never reorder
+                        <mark key={index}>{part.text}</mark>
+                      ) : (
+                        part.text
+                      ),
                   )}
                 </p>
                 <Sources urls={result.cited_urls} />

@@ -68,6 +68,25 @@ describe("auditCompetitors", () => {
     ]);
     expect(auditCompetitors(audit(), 1)).toEqual([{ name: "Tony's", count: 9 }]);
   });
+
+  it("counts two spellings of one business together, under the shorter name", () => {
+    const prompts = [
+      {
+        text: "best pizza",
+        cells: [
+          cell("chatgpt", [
+            ["Tony's, LLC", 3],
+            ["Zed", 4],
+          ]),
+          cell("claude", [["Tony's", 2]]),
+        ],
+      },
+    ];
+    expect(auditCompetitors(audit({ prompts }))).toEqual([
+      { name: "Tony's", count: 5 },
+      { name: "Zed", count: 4 },
+    ]);
+  });
 });
 
 describe("auditPending", () => {
