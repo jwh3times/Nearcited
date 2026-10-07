@@ -233,7 +233,10 @@ The `integration` job in `.github/workflows/ci.yml` is a working example.
 ## Deploy
 
 1. Create a Supabase project and apply the migrations: `pnpm dlx supabase link`, then
-   `pnpm dlx supabase db push`. In Auth settings, set the site URL to your deployed URL.
+   `pnpm dlx supabase db push`. Both need a Supabase access token (`SUPABASE_ACCESS_TOKEN`) and
+   the project's database password (`SUPABASE_DB_PASSWORD`). Under Authentication, URL
+   Configuration, set the site URL to your deployed URL and add `<that URL>/**` to the redirect
+   URLs, or the emailed sign-in link will not return to the app.
 2. Create the queues:
    ```sh
    cd apps/api
@@ -244,17 +247,19 @@ The `integration` job in `.github/workflows/ci.yml` is a working example.
    `EMAIL_FROM`. To serve it on your own domain, set `routes` to that domain with
    `custom_domain`; the domain's DNS has to be on the same Cloudflare account. `EMAIL_FROM`
    has to be an address on a domain verified with Resend.
-4. Set the secrets:
+4. Deploy. From the repo root, with `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` set in
+   the environment: `pnpm cf:deploy`. The Cloudflare API token needs permission to edit Workers
+   and Queues.
+5. Set the secrets on the Worker the deploy created, from `apps/api`:
    ```sh
    pnpm exec wrangler secret put SUPABASE_SECRET_KEY
    pnpm exec wrangler secret put RESEND_API_KEY   # optional: scheduled-scan reports
    pnpm exec wrangler secret put OPENAI_API_KEY   # optional: live ChatGPT checks
    pnpm exec wrangler secret put ANTHROPIC_API_KEY   # optional: live Claude checks
    ```
-5. From the repo root, with `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` set in the
-   environment: `pnpm cf:deploy`.
+   Until `SUPABASE_SECRET_KEY` is set, the app serves and sign-in works, but no scan can run.
 
-`.github/workflows/deploy.yml` does step 5 on demand. It reads its credentials from the 1Password
+`.github/workflows/deploy.yml` does step 4 on demand. It reads its credentials from the 1Password
 `Nearcited` vault at run time, so GitHub holds one secret, `OP_SERVICE_ACCOUNT_TOKEN`, for a
 service account that can read only that vault. The vault items it expects are named at the top
 of that file.
