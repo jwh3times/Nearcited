@@ -275,3 +275,84 @@ describe("tuning", () => {
     expect(liveScansUnavailable({ PROVIDER_MODE: "mock" }, "default")).toBeUndefined();
   });
 });
+
+describe("the scan window", () => {
+  /** Nobody names the business. */
+  const silent: ProviderRegistry = {
+    chatgpt: {
+      surface: "chatgpt",
+      observe: async () => ({
+        kind: "answer",
+        text: "Try Tony's Slice House.",
+        businesses: ["Tony's Slice House"],
+        cited_urls: [],
+      }),
+    },
+    gemini: providers.gemini,
+  };
+
+  async function scan(registry: ProviderRegistry, options: { sampleData?: boolean } = {}) {
+    const queued = await queueScan("scheduled");
+    let report: ScanReport | undefined;
+    await runScan(queued.id, {
+      store: worker,
+      providers: registry,
+      sampleData: options.sampleData,
+      notify: async (sent) => {
+        report = sent;
+      },
+    });
+    if (!report) throw new Error("no report");
+    return { report, stored: await worker.getScan(queued.id) };
+  }
+
+  it("scores over this scan and the ones before it", async () => {
+    // ChatGPT names the business second (0.8) and Gemini does not: (0.8 + 0) / 2.
+    expect((await scan(providers)).stored?.visibility_score).toBe(40);
+    // Then nobody does. ChatGPT is now 1 of 2, so its cell is worth 0.4: (0.4 + 0) / 2.
+    const second = await scan(silent);
+    expect(second.stored?.visibility_score).toBe(20);
+    expect(second.report.window.scans).toBe(2);
+    expect(second.report.results).toHaveLength(2);
+    expect(second.report.window.results).toHaveLength(4);
+  });
+
+  it("stops counting scans older than the window", async () => {
+    await scan(providers);
+    for (let i = 0; i < 6; i++) await scan(silent);
+    // Seven scans: the one hit is still inside the window.
+    expect((await worker.listScans(locationId, 1))[0]?.visibility_score).toBeCloseTo(5.7, 1);
+    // The eighth pushes it out.
+    expect((await scan(silent)).stored?.visibility_score).toBe(0);
+  });
+
+  it("derives recommendations from the window, not from one answer", async () => {
+    await scan(providers);
+    await scan(silent);
+    const recommendations = await worker.listRecommendations(locationId);
+    // ChatGPT named the business once in the window, so it is not reported as absent there.
+    expect(recommendations.map((recommendation) => recommendation.rule)).toEqual(["absent:gemini"]);
+    expect(recommendations[0]?.detail).toContain("any of 2 checks");
+  });
+
+  it("records the kind of scan and never mixes sample scans with real ones", async () => {
+    const sample = await scan(providers, { sampleData: true });
+    expect(sample.stored?.sample_data).toBe(true);
+
+    const real = await scan(silent);
+    expect(real.stored?.sample_data).toBe(false);
+    // The sample scan named the business, but the real scan's window does not include it.
+    expect(real.stored?.visibility_score).toBe(0);
+    expect(real.report.window.scans).toBe(1);
+  });
+
+  it("says in the report how many scans the counts cover", async () => {
+    await scan(providers);
+    const { report } = await scan(silent);
+    const email = buildScanReportEmail(report, "https://app.example");
+    expect(email.subject).toBe("Joe's Pizza: visibility 20 of 100");
+    expect(email.text).toContain("Where it was named, over the last 2 scans:");
+    expect(email.text).toContain("ChatGPT: named in 1 of 2");
+    expect(email.text).toContain("Gemini: named in 0 of 2");
+  });
+});

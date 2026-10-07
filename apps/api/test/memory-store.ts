@@ -140,6 +140,7 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         trigger,
         visibility_score: null,
         error: null,
+        sample_data: false,
         created_at: timestamp(),
         started_at: null,
         finished_at: null,
@@ -167,6 +168,21 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
       return db.results.filter((result) => result.scan_id === scanId);
     },
 
+    async listRecentResults(locationId, scans, sampleData) {
+      if (!seesLocation(locationId)) return [];
+      // Newest first by insertion, since scans made in the same millisecond share a timestamp.
+      return db.scans
+        .filter(
+          (scan) =>
+            scan.location_id === locationId &&
+            scan.status === "succeeded" &&
+            scan.sample_data === sampleData,
+        )
+        .reverse()
+        .slice(0, Math.max(0, scans))
+        .map((scan) => db.results.filter((result) => result.scan_id === scan.id));
+    },
+
     async listRecommendations(locationId) {
       return seesLocation(locationId)
         ? db.recommendations.filter((recommendation) => recommendation.location_id === locationId)
@@ -180,8 +196,13 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
       return recommendation;
     },
 
-    async markScanRunning(id) {
-      Object.assign(requireScan(id), { status: "running", started_at: timestamp(), error: null });
+    async markScanRunning(id, sampleData) {
+      Object.assign(requireScan(id), {
+        status: "running",
+        started_at: timestamp(),
+        error: null,
+        sample_data: sampleData,
+      });
     },
 
     async completeScan(id, outcome) {

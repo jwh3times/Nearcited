@@ -46,6 +46,24 @@ describe("buildMatrix", () => {
     expect(groups[1]?.rows[0]?.cells[0]?.result).not.toBeNull();
   });
 
+  it("attaches the rate over recent scans to each cell that has one", () => {
+    const [group] = buildMatrix(
+      [query("p1", "ai_prompt", "best pizza")],
+      [result("p1", "gemini")],
+      {
+        size: 7,
+        scans: 3,
+        cells: [{ tracked_query_id: "p1", surface: "gemini", checks: 3, mentions: 2 }],
+      },
+    );
+    const cells = group?.rows[0]?.cells ?? [];
+    expect(cells.find((cell) => cell.surface === "gemini")?.rate).toMatchObject({
+      checks: 3,
+      mentions: 2,
+    });
+    expect(cells.find((cell) => cell.surface === "chatgpt")?.rate).toBeNull();
+  });
+
   it("leaves out a kind with no queries", () => {
     expect(buildMatrix([query("p1", "ai_prompt", "best pizza")], [])).toHaveLength(1);
     expect(buildMatrix([], [])).toEqual([]);

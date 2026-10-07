@@ -121,7 +121,7 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
     });
     expect(await worker.listLocationsDueForScan(100)).not.toContain(location.id);
 
-    await worker.markScanRunning(scan.id);
+    await worker.markScanRunning(scan.id, false);
     expect(await aliceStore.getScan(scan.id)).toMatchObject({ status: "running" });
 
     await worker.failScan(scan.id, "upstream 503");
@@ -161,6 +161,13 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
     expect((await aliceStore.getLocation(location.id))?.last_scanned_at).not.toBeNull();
 
     const results = await aliceStore.listScanResults(scan.id);
+    // The window: this location's successful scans of one kind, newest first, and nobody else's.
+    expect(await aliceStore.listRecentResults(location.id, 7, false)).toEqual([
+      expect.arrayContaining(results),
+    ]);
+    expect(await aliceStore.listRecentResults(location.id, 7, true)).toEqual([]);
+    expect(await aliceStore.listRecentResults(location.id, 0, false)).toEqual([]);
+    expect(await bobStore.listRecentResults(location.id, 7, false)).toEqual([]);
     expect(results.map((r) => [r.surface, r.mentioned, r.position]).sort()).toEqual([
       ["chatgpt", true, 2],
       ["gemini", false, null],

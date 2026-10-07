@@ -28,7 +28,9 @@ POST /api/locations/:id/scans          cron
         provider.observe()   -> Observation   (what the surface returned)
         analyzeObservation() -> Finding       (was the business named, where, who else)
                        |
-     visibilityScore() + deriveRecommendations()
+     listRecentResults(): the last six successful scans of the same kind
+                       |
+     windowScore() + deriveRecommendations(), over this scan and those six
                        |
      complete_scan() in Postgres: results, score, last_scanned_at and
      recommendations, in one transaction
@@ -142,6 +144,26 @@ Search do not allow grounded results to be stored, analysed or collected into a 
 scan does all three. One trial call on 2026-10-06 worked and cost about 3 cents, nearly all of it
 search queries; the result was not kept. Gemini results would have to come from a data vendor.
 
+## Rates over a window of scans
+
+An assistant can name different businesses for the same prompt an hour apart, so one answer is a
+sample. The product reports and scores over a window instead (`SCAN_WINDOW`, seven scans):
+
+- **A cell is one prompt on one surface.** The grid shows "x of y": how many of the cell's checks
+  in the window named the business. The latest answer is shown beneath.
+- **The score averages each cell over its own checks, then averages the cells.** A prompt added
+  yesterday counts as much as one tracked all week.
+- **The newest scan decides which cells exist.** A removed prompt, or a surface no longer
+  checked, drops out of the rate at once.
+- **The window counts scans, not days.** It works unchanged for a location scanned weekly, daily
+  or several times a day. Scan frequency is expected to become a plan setting.
+- **Sample scans and real scans never share a window.** Each scan records `sample_data` when the
+  worker starts it, and a window holds scans of one kind only.
+- **A scan's `visibility_score` is the score over the window that scan closed**, so the history
+  of scores is already a rolling figure.
+
+A new location has one scan in its window and reads "named" or "not named" until more arrive.
+
 Failure handling in `runScan`:
 
 - **Nothing to check, or no provider configured**: the scan is marked failed and the message is
@@ -209,7 +231,9 @@ These are not engineering tasks, and the code cannot answer them.
 1. **Does anything the product recommends move the number?** The recommendation rules are things
    that are checkable, not things shown to work. A tracker that cannot demonstrate improvement
    is a report people cancel.
-2. **What is one sample worth?** Assistant answers vary run to run and by location. One call per
+2. **What is one sample worth?** Partly answered: results are now rates over the last seven
+   scans (see "Rates over a window of scans"), which costs nothing extra per scan. Whether seven
+   is enough is still open. Assistant answers vary run to run and by location. One call per
    check is an anecdote. Sampling enough to be credible multiplies cost per location.
 3. **What does a location cost to serve?** Map pack data is bought per keyword, per location, per
    run. Price the plan from that number, not the other way round.

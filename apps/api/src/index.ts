@@ -2,7 +2,7 @@ import { type ScanMessage, ScanMessageSchema } from "@nearcited/shared";
 import { createApp } from "./app";
 import { buildScanReportEmail, sendEmail } from "./email/report";
 import type { Env } from "./env";
-import { createProviders, liveScansUnavailable } from "./providers";
+import { createProviders, liveScansUnavailable, usesSampleData } from "./providers";
 import { runScan } from "./scans/runner";
 import { enqueueDueScans } from "./scans/schedule";
 import { createAdminClient, createSupabaseStore } from "./store/supabase";
@@ -40,6 +40,7 @@ export default {
           providers,
           weights: activeTuning.tuning.score,
           unavailable: liveScansUnavailable(env, activeTuning.source),
+          sampleData: usesSampleData(env),
           // Without a Resend key there is nobody to tell, so skip the owner lookup too.
           notify: env.RESEND_API_KEY
             ? async (report) => {

@@ -40,6 +40,11 @@ Google organic results. For each one, a provider fetches what the surface return
 code decides whether the business was named, at what position, and who was named instead. The
 scan then stores a 0 to 100 visibility score and a list of recommendations.
 
+An assistant can answer the same prompt differently each time, so one answer is a sample and not
+a measurement. Results are therefore shown as "named in x of y", counted over a location's last
+seven successful scans, and the score and recommendations are worked out over the same window.
+New locations are scanned daily, which fills the window in a week.
+
 Scans start from the "Run scan" button or from a daily schedule, and run on a queue. A scheduled
 scan emails its result to the organization's owners.
 
@@ -186,7 +191,7 @@ organization reads as missing and returns 404. Payloads are defined in
 
 ## Data model
 
-One migration, `supabase/migrations/20261004000000_init.sql`, defines everything.
+The migrations in `supabase/migrations/` define everything.
 
 | Table | Holds |
 | --- | --- |
@@ -194,7 +199,7 @@ One migration, `supabase/migrations/20261004000000_init.sql`, defines everything
 | `memberships` | Which users belong to an organization, as `owner`, `admin` or `member`. |
 | `locations` | A business at an address, and how often it is scanned (`off`, `weekly`, `daily`). |
 | `tracked_queries` | The prompts and keywords checked for a location. |
-| `scans` | One run for a location: its trigger, status and score. |
+| `scans` | One run for a location: its trigger, status, whether it ran on sample data, and the score over the window it closed. |
 | `scan_results` | One row per query and surface: named or not, position, and who else was named. |
 | `recommendations` | What a scan suggested, and whether the user has dealt with it. |
 

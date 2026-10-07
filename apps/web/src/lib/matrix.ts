@@ -2,6 +2,7 @@ import {
   QUERY_KINDS,
   type QueryKind,
   type ScanResult,
+  type ScanWindow,
   SURFACES_BY_KIND,
   type Surface,
   type TrackedQuery,
@@ -11,6 +12,8 @@ export interface MatrixCell {
   surface: Surface;
   /** Null when this surface was not checked for this query in the scan. */
   result: ScanResult | null;
+  /** How often the business was named over the recent scans. Null before the first one. */
+  rate: { checks: number; mentions: number } | null;
 }
 
 export interface MatrixRow {
@@ -25,9 +28,16 @@ export interface MatrixGroup {
 }
 
 /** One table per query kind: a row per query, a column per surface that kind is checked on. */
-export function buildMatrix(queries: TrackedQuery[], results: ScanResult[]): MatrixGroup[] {
+export function buildMatrix(
+  queries: TrackedQuery[],
+  results: ScanResult[],
+  window?: ScanWindow,
+): MatrixGroup[] {
   const byKey = new Map(
     results.map((result) => [`${result.tracked_query_id}|${result.surface}`, result]),
+  );
+  const rates = new Map(
+    (window?.cells ?? []).map((cell) => [`${cell.tracked_query_id}|${cell.surface}`, cell]),
   );
 
   return QUERY_KINDS.map((kind) => {
@@ -42,6 +52,7 @@ export function buildMatrix(queries: TrackedQuery[], results: ScanResult[]): Mat
           cells: surfaces.map((surface) => ({
             surface,
             result: byKey.get(`${query.id}|${surface}`) ?? null,
+            rate: rates.get(`${query.id}|${surface}`) ?? null,
           })),
         })),
     };

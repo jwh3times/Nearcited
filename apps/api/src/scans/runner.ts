@@ -2,10 +2,12 @@ import {
   analyzeObservation,
   deriveRecommendations,
   type Location,
+  poolWindow,
+  SCAN_WINDOW,
   type Scan,
   type ScoreWeights,
   SURFACES_BY_KIND,
-  visibilityScore,
+  windowScore,
 } from "@nearcited/shared";
 import type { ProviderRegistry } from "../providers";
 import type { NewScanResult, Store } from "../store/types";
@@ -13,8 +15,12 @@ import type { NewScanResult, Store } from "../store/types";
 export interface ScanReport {
   location: Location;
   scan: Scan;
+  /** Scored over the window, not from this scan alone. */
   score: number | null;
+  /** This scan's own results. */
   results: NewScanResult[];
+  /** Every check the score was counted over: this scan and the recent ones before it. */
+  window: { scans: number; results: NewScanResult[] };
 }
 
 export interface RunScanDeps {
@@ -25,6 +31,8 @@ export interface RunScanDeps {
   weights?: ScoreWeights;
   /** When set, no scan can run on this build, and every scan fails with this reason. */
   unavailable?: string;
+  /** Whether the providers serve generated sample data. Recorded on the scan. */
+  sampleData?: boolean;
   now?: () => Date;
   /** Called after a scheduled scan succeeds. A failure here is logged and does not fail the scan. */
   notify?: (report: ScanReport) => Promise<void>;
@@ -44,6 +52,7 @@ class PermanentScanFailure extends Error {}
  */
 export async function runScan(scanId: string, deps: RunScanDeps): Promise<ScanOutcome> {
   const { store, providers } = deps;
+  const sampleData = deps.sampleData ?? false;
   const now = deps.now ?? (() => new Date());
 
   const scan = await store.getScan(scanId);
@@ -52,7 +61,7 @@ export async function runScan(scanId: string, deps: RunScanDeps): Promise<ScanOu
   if (!location) return "skipped";
 
   try {
-    await store.markScanRunning(scanId);
+    await store.markScanRunning(scanId, sampleData);
     if (deps.unavailable) throw new PermanentScanFailure(deps.unavailable);
 
     const queries = (await store.listQueries(location.id)).filter((query) => query.is_active);
@@ -84,16 +93,27 @@ export async function runScan(scanId: string, deps: RunScanDeps): Promise<ScanOu
       }),
     );
 
-    const score = visibilityScore(results, deps.weights);
+    // One answer is a sample, so the score and the recommendations are counted over this scan and
+    // the recent ones before it. This scan is not yet marked succeeded, so it is not among them.
+    const earlier = await store.listRecentResults(location.id, SCAN_WINDOW - 1, sampleData);
+    const scans: NewScanResult[][] = [results, ...earlier];
+    const pooled = poolWindow(scans);
+    const score = windowScore(scans, deps.weights);
     await store.completeScan(scanId, {
       score,
       results,
-      recommendations: deriveRecommendations(location, results),
+      recommendations: deriveRecommendations(location, pooled),
     });
 
     if (scan.trigger === "scheduled" && deps.notify) {
       try {
-        await deps.notify({ location, scan, score, results });
+        await deps.notify({
+          location,
+          scan,
+          score,
+          results,
+          window: { scans: scans.length, results: pooled },
+        });
       } catch (error) {
         console.error(`Scan ${scanId} finished but its report was not sent`, error);
       }

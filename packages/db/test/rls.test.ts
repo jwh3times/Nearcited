@@ -121,6 +121,16 @@ describe("locations and tracked queries", () => {
     expect(queryId).not.toBe("");
   });
 
+  it("scans a new location daily unless told otherwise", async () => {
+    const [location] = await as("authenticated", alice, () =>
+      rows<{ scan_frequency: string }>(
+        "select scan_frequency from public.locations where id = $1",
+        [locationId],
+      ),
+    );
+    expect(location?.scan_frequency).toBe("daily");
+  });
+
   it("cannot be read or written by a non-member", async () => {
     expect(
       await as("authenticated", bob, () => rows("select id from public.locations")),
@@ -195,6 +205,7 @@ describe("scans", () => {
     ["a finished status", "status", "'succeeded'"],
     ["the scheduled trigger", "trigger", "'scheduled'"],
     ["a score", "visibility_score", "99"],
+    ["a sample-data label", "sample_data", "true"],
   ])("cannot be inserted by a member with %s", async (_label, column, value) => {
     const columns = ["location_id", "requested_by", ...(column === "trigger" ? [] : ["trigger"])];
     const values = ["$1", "$2", ...(column === "trigger" ? [] : ["'manual'"])];

@@ -1,11 +1,14 @@
 import {
   type LocationDetail,
   RecommendationUpdateSchema,
+  SCAN_WINDOW,
+  summarizeWindow,
   TrackedQueryInputSchema,
 } from "@nearcited/shared";
 import { Hono } from "hono";
 import type { AppEnv } from "../app";
 import { notFound } from "../errors";
+import { usesSampleData } from "../providers";
 import type { Store } from "../store/types";
 import { parseJson, uuidParam } from "../validation";
 
@@ -22,16 +25,18 @@ locationRoutes.get("/locations/:id", async (c) => {
   const store = c.get("store");
   const location = await requireLocation(store, uuidParam(c, "id", "Location"));
 
-  const [queries, [latest], recommendations] = await Promise.all([
+  const [queries, [latest], recommendations, recent] = await Promise.all([
     store.listQueries(location.id),
     store.listScans(location.id, 1),
     store.listRecommendations(location.id),
+    store.listRecentResults(location.id, SCAN_WINDOW, usesSampleData(c.env)),
   ]);
 
   const detail: LocationDetail = {
     location,
     queries,
     latest_scan: latest ? { ...latest, results: await store.listScanResults(latest.id) } : null,
+    window: { size: SCAN_WINDOW, scans: recent.length, cells: summarizeWindow(recent) },
     recommendations,
   };
   return c.json(detail);

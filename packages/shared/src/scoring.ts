@@ -54,3 +54,86 @@ export function summarizeBySurface(
     };
   }).filter((summary) => summary.checks > 0);
 }
+
+/**
+ * How many of a location's most recent scans a rate is counted over.
+ *
+ * One answer from an assistant is a sample: the same prompt can name different businesses an
+ * hour apart. So the product reports "named in x of y" over this many scans, and scores from
+ * that, instead of treating the latest answer as the truth.
+ */
+export const SCAN_WINDOW = 7;
+
+/** One check, as far as the window is concerned. */
+export interface WindowCheck {
+  tracked_query_id: string;
+  surface: Surface;
+  mentioned: boolean;
+  position: number | null;
+}
+
+/** One prompt on one surface, counted over the window. */
+export interface WindowCell {
+  tracked_query_id: string;
+  surface: Surface;
+  checks: number;
+  mentions: number;
+}
+
+const cellKey = (check: Pick<WindowCheck, "tracked_query_id" | "surface">) =>
+  `${check.tracked_query_id}|${check.surface}`;
+
+/**
+ * Every check in the window, newest scan first, for the cells the newest scan made.
+ *
+ * The newest scan decides which cells exist, so a prompt that was removed, or a surface that is
+ * no longer checked, drops out of the rate at once instead of lingering for a week.
+ */
+export function poolWindow<T extends WindowCheck>(scans: readonly (readonly T[])[]): T[] {
+  const [newest] = scans;
+  if (!newest) return [];
+  const current = new Set(newest.map(cellKey));
+  return scans.flat().filter((check) => current.has(cellKey(check)));
+}
+
+/** A count per cell, in the order the newest scan lists them. */
+export function summarizeWindow(scans: readonly (readonly WindowCheck[])[]): WindowCell[] {
+  const cells = new Map<string, WindowCell>();
+  for (const check of poolWindow(scans)) {
+    const key = cellKey(check);
+    const cell = cells.get(key) ?? {
+      tracked_query_id: check.tracked_query_id,
+      surface: check.surface,
+      checks: 0,
+      mentions: 0,
+    };
+    cell.checks += 1;
+    if (check.mentioned) cell.mentions += 1;
+    cells.set(key, cell);
+  }
+  return [...cells.values()];
+}
+
+/**
+ * 0–100, one decimal, over the window. Null when there was nothing to score.
+ *
+ * Each cell is averaged over its own checks first, and the cells are then averaged, so a prompt
+ * added yesterday counts as much as one tracked all week.
+ */
+export function windowScore(
+  scans: readonly (readonly WindowCheck[])[],
+  weights: ScoreWeights = defaultTuning.score,
+): number | null {
+  const totals = new Map<string, { sum: number; checks: number }>();
+  for (const check of poolWindow(scans)) {
+    const key = cellKey(check);
+    const total = totals.get(key) ?? { sum: 0, checks: 0 };
+    total.sum += check.mentioned ? positionWeight(check.position, weights) : 0;
+    total.checks += 1;
+    totals.set(key, total);
+  }
+  if (totals.size === 0) return null;
+  const mean =
+    [...totals.values()].reduce((sum, total) => sum + total.sum / total.checks, 0) / totals.size;
+  return Math.round(mean * 1000) / 10;
+}
