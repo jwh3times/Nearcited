@@ -14,7 +14,7 @@
     "@anthropic-ai/sdk": "^0.131.0",
     "@nearcited/shared": "workspace:*",
     "@supabase/supabase-js": "^2.117.2",
-    "hono": "^4.13.12",
+    "hono": "^4.13.13",
     "resend": "^6.32.0",
     "zod": "^4.6.5"
   },
