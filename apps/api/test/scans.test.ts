@@ -432,3 +432,18 @@ describe("failStaleScans", () => {
     expect(await runScan(late.id, { store: worker, providers })).toBe("succeeded");
   });
 });
+
+describe("usage caps", () => {
+  it("do not count scheduled scans against the manual-scan limit", async () => {
+    const organization = db.organizations[0];
+    if (!organization) throw new Error("no organization");
+    organization.max_manual_scans_per_day = 0;
+
+    const scheduled = await worker.createScan(locationId, "scheduled", null);
+    expect(scheduled.status).toBe("queued");
+    await worker.failScan(scheduled.id, "upstream 503");
+    await expect(
+      memoryStore(db, owner).createScan(locationId, "manual", owner),
+    ).rejects.toMatchObject({ kind: "limit" });
+  });
+});

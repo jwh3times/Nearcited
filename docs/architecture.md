@@ -208,6 +208,21 @@ Two rules follow, and breaking either one is a data leak:
 2. **A new table needs policies and explicit grants in the same migration**, and a test in
    `packages/db` that tries to read and write it as a non-member.
 
+**Usage caps live on the organization** (`max_locations`, `max_queries_per_location`,
+`max_manual_scans_per_day`) and are enforced by triggers, because a limit checked only in a route
+handler could be skipped by calling the database directly. Four things about them are deliberate:
+
+- **The triggers fire after the row is written.** Row-level security has had its say by then, so
+  a non-member is refused as a non-member and never learns whether a limit was reached.
+- **They lock the organization row**, so two inserts arriving together are counted one at a time.
+- **Only active prompts count**, and restoring a retired one is checked like adding one.
+- **A member cannot change the limits.** The update grant on `organizations` covers `name` only.
+  Limits are set with the secret key, by hand today and by billing later.
+
+Each trigger raises its own error code with a message written for the user, which the store
+passes through as a `limit` error and the API returns as 409 `limit_reached`. The scheduled scans
+are not counted against the manual-scan limit.
+
 Users can insert exactly one kind of scan row: a queued, manual scan in their own name for a
 location they can see. Results, scores and recommendations are written only by the worker.
 Organizations are created only through `create_organization()`, which makes the caller the owner.

@@ -117,6 +117,11 @@ the queue or cron settings in `wrangler.jsonc`)
 - `docs/architecture.md`: the cost of one check, when the change measured it. No
   such figure exists yet; the first one goes under "Limits to design around".
 
+**A usage limit added or changed** (the limit columns on `organizations` and their triggers)
+
+- `docs/architecture.md`: Tenancy, the paragraph on usage caps.
+- `README.md`: Data model.
+
 **A known gap closed, or a new one left**
 
 - `docs/architecture.md`: "Known gaps". Remove an entry only when the code

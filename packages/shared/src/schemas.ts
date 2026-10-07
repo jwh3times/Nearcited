@@ -65,6 +65,12 @@ const Timestamp = z.string();
 export const OrganizationSchema = z.object({
   id: Id,
   name: z.string(),
+  /** How many locations the organization may have. */
+  max_locations: z.number().int().nonnegative(),
+  /** How many active prompts and keywords each location may have. Retired ones do not count. */
+  max_queries_per_location: z.number().int().nonnegative(),
+  /** How many scans members may start by hand, across the organization, in any 24 hours. */
+  max_manual_scans_per_day: z.number().int().nonnegative(),
   created_at: Timestamp,
 });
 export type Organization = z.infer<typeof OrganizationSchema>;

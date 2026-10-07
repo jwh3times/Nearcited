@@ -198,13 +198,17 @@ The migrations in `supabase/migrations/` define everything.
 
 | Table | Holds |
 | --- | --- |
-| `organizations` | The tenant. Every other row belongs to one. |
+| `organizations` | The tenant. Every other row belongs to one. Holds its usage limits: locations, active prompts per location, and manual scans a day. |
 | `memberships` | Which users belong to an organization, as `owner`, `admin` or `member`. |
 | `locations` | A business at an address, and how often it is scanned (`off`, `weekly`, `daily`). |
 | `tracked_queries` | The prompts and keywords checked for a location. A retired one is kept, with its results, but not scanned. |
 | `scans` | One run for a location: its trigger, status, whether it ran on sample data, and the score over the window it closed. |
 | `scan_results` | One row per query and surface: named or not, position, and who else was named. |
 | `recommendations` | What a scan suggested, and whether the user has dealt with it. |
+
+Usage limits are enforced by database triggers, so they hold for the API and for anyone calling
+the database directly. Going over one returns 409 `limit_reached` with a message that names the
+limit and its value.
 
 Row-level security policies on every table are the authorization layer. Signed-in users can
 insert one kind of scan row, a queued manual scan for a location they can see; results, scores
@@ -356,8 +360,8 @@ pnpm sync:agents
   `claude.ts` in `apps/api/src/providers/`). Perplexity, Gemini and the three Google surfaces
   are not;
   `apps/api/src/providers/live.ts` has notes on what each needs.
-- **Billing and plan limits.** Nothing stops an organization from adding unlimited locations and
-  queries, each of which will cost money per scan once providers are live.
+- **Billing.** Each organization has limits on locations, prompts and manual scans, but nothing
+  sets them by plan or takes payment. They are changed by hand in the database.
 - **Inviting teammates.** The schema and policies support members and roles; there is no API or
   screen for it.
 - **Switching organizations.** A user in several organizations always sees the first.

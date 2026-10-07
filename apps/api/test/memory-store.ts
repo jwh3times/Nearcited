@@ -23,6 +23,8 @@ export interface MemoryDb {
   results: ScanResult[];
   recommendations: Recommendation[];
   emails: Map<string, string>;
+  /** IDs of scans a member asked for, which is what the manual-scan limit counts. */
+  requestedBy: Set<string>;
 }
 
 export function createMemoryDb(): MemoryDb {
@@ -35,12 +37,20 @@ export function createMemoryDb(): MemoryDb {
     results: [],
     recommendations: [],
     emails: new Map(),
+    requestedBy: new Set(),
   };
 }
 
 let clock = Date.parse("2026-10-01T00:00:00Z");
 /** Strictly increasing, so "latest" is well defined even within one millisecond. */
 const timestamp = () => new Date(clock++).toISOString();
+
+/** Roomier than the database's defaults, so tests that are not about limits never meet one. */
+export const DEFAULT_LIMITS = {
+  max_locations: 10,
+  max_queries_per_location: 20,
+  max_manual_scans_per_day: 50,
+};
 
 /** `userId: null` is the worker's view: no filtering. */
 export function memoryStore(db: MemoryDb, userId: string | null): Store {
@@ -50,6 +60,17 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
   const visibleLocation = (id: string) =>
     db.locations.find((location) => location.id === id && seesOrg(location.organization_id));
   const seesLocation = (id: string) => visibleLocation(id) !== undefined;
+  const limits = (organizationId: string) =>
+    db.organizations.find((organization) => organization.id === organizationId) ?? DEFAULT_LIMITS;
+  /** Mirrors the trigger: only active prompts count, so retiring one makes room. */
+  const requireRoomForQuery = (locationId: string) => {
+    const organizationId = db.locations.find((l) => l.id === locationId)?.organization_id ?? "";
+    const allowed = limits(organizationId).max_queries_per_location;
+    const used = db.queries.filter((q) => q.location_id === locationId && q.is_active).length;
+    if (used >= allowed) {
+      throw new StoreError("limit", `A location can have ${allowed} active prompts.`);
+    }
+  };
   /** Mirrors the partial unique index: one queued or running scan per location. */
   const inFlight = (locationId: string, exceptId?: string) =>
     db.scans.some(
@@ -71,7 +92,12 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
 
     async createOrganization(name) {
       if (userId === null) throw new StoreError("forbidden", "not authenticated");
-      const organization = { id: crypto.randomUUID(), name, created_at: timestamp() };
+      const organization: Organization = {
+        id: crypto.randomUUID(),
+        name,
+        ...DEFAULT_LIMITS,
+        created_at: timestamp(),
+      };
       db.organizations.push(organization);
       db.memberships.push({ organization_id: organization.id, user_id: userId, role: "owner" });
       return organization;
@@ -85,6 +111,11 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
 
     async createLocation(organizationId, input) {
       if (!seesOrg(organizationId)) throw new StoreError("forbidden", "row-level security");
+      const allowed = limits(organizationId).max_locations;
+      const used = db.locations.filter((l) => l.organization_id === organizationId).length;
+      if (used >= allowed) {
+        throw new StoreError("limit", `This organization can have ${allowed} locations.`);
+      }
       const location: Location = {
         ...input,
         id: crypto.randomUUID(),
@@ -121,6 +152,7 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
           query.text === input.text,
       );
       if (duplicate) throw new StoreError("conflict", "duplicate tracked query");
+      requireRoomForQuery(locationId);
       const query: TrackedQuery = {
         ...input,
         id: crypto.randomUUID(),
@@ -135,13 +167,27 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
     async setQueryActive(id, active) {
       const query = db.queries.find((candidate) => candidate.id === id);
       if (!query || !seesLocation(query.location_id)) return null;
+      if (active && !query.is_active) requireRoomForQuery(query.location_id);
       query.is_active = active;
       return query;
     },
 
-    async createScan(locationId, trigger, _requestedBy) {
+    async createScan(locationId, trigger, requestedBy) {
       if (!seesLocation(locationId)) throw new StoreError("forbidden", "row-level security");
       if (inFlight(locationId)) throw new StoreError("conflict", "scans_one_in_flight_idx");
+      if (trigger === "manual" && requestedBy !== null) {
+        const organizationId = db.locations.find((l) => l.id === locationId)?.organization_id ?? "";
+        const allowed = limits(organizationId).max_manual_scans_per_day;
+        const used = db.scans.filter(
+          (scan) =>
+            scan.trigger === "manual" &&
+            db.requestedBy.has(scan.id) &&
+            db.locations.find((l) => l.id === scan.location_id)?.organization_id === organizationId,
+        ).length;
+        if (used >= allowed) {
+          throw new StoreError("limit", `This organization can start ${allowed} manual scans.`);
+        }
+      }
       const scan: Scan = {
         id: crypto.randomUUID(),
         location_id: locationId,
@@ -155,6 +201,7 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         finished_at: null,
       };
       db.scans.push(scan);
+      if (requestedBy !== null) db.requestedBy.add(scan.id);
       return scan;
     },
 

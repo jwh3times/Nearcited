@@ -22,6 +22,9 @@ export function Locations({ organization }: { organization: Organization }) {
     },
   });
 
+  // The database enforces the limit. This only saves a round trip and says why.
+  const atLimit = (locations.data?.length ?? 0) >= organization.max_locations;
+
   function submit(event: FormEvent) {
     event.preventDefault();
     create.mutate();
@@ -65,6 +68,12 @@ export function Locations({ organization }: { organization: Organization }) {
 
       <section className="section">
         <h2>Add a location</h2>
+        {locations.data && (
+          <p className="window-note">
+            {locations.data.length} of {organization.max_locations} locations used.
+            {atLimit && " Remove one, or ask for a higher limit, to add another."}
+          </p>
+        )}
         <form onSubmit={submit} className="grid-form">
           <label>
             Business name
@@ -82,7 +91,7 @@ export function Locations({ organization }: { organization: Organization }) {
             Website
             <input type="url" placeholder="https://" maxLength={200} {...field("website")} />
           </label>
-          <button type="submit" disabled={create.isPending}>
+          <button type="submit" disabled={create.isPending || atLimit}>
             {create.isPending ? "Adding location" : "Add location"}
           </button>
         </form>
