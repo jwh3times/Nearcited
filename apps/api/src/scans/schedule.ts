@@ -1,5 +1,5 @@
 import type { ScanMessage } from "@nearcited/shared";
-import type { Store } from "../store/types";
+import { type Store, StoreError } from "../store/types";
 
 /** Cloudflare Queues accepts at most 100 messages per sendBatch call. */
 const BATCH_LIMIT = 100;
@@ -23,9 +23,32 @@ export async function enqueueDueScans(
 
   const messages: { body: ScanMessage }[] = [];
   for (const locationId of locationIds) {
-    const scan = await store.createScan(locationId, "scheduled", null);
-    messages.push({ body: { scan_id: scan.id } });
+    try {
+      const scan = await store.createScan(locationId, "scheduled", null);
+      messages.push({ body: { scan_id: scan.id } });
+    } catch (error) {
+      // Someone started a manual scan between the due list and now. That scan will do.
+      if (error instanceof StoreError && error.kind === "conflict") continue;
+      throw error;
+    }
   }
-  await queue.sendBatch(messages);
+  if (messages.length > 0) await queue.sendBatch(messages);
   return messages.length;
+}
+
+/** How long a scan may sit queued or running before it is treated as abandoned. */
+export const STALE_AFTER_MS = 30 * 60 * 1000;
+
+const ABANDONED = "The scan did not finish and was abandoned. Run it again.";
+
+/**
+ * Fails scans that have been in flight too long, so their locations can be scanned again.
+ * Returns how many.
+ *
+ * A scan ends up here when its queue message was never sent or was lost, or when the worker was
+ * cut off mid-scan. A queue invocation is limited to fifteen minutes, so a scan still in flight
+ * after thirty is not coming back. If its message does turn up later, the scan simply runs.
+ */
+export async function failStaleScans(store: Store, now: Date = new Date()): Promise<number> {
+  return store.failStaleScans(new Date(now.getTime() - STALE_AFTER_MS).toISOString(), ABANDONED);
 }

@@ -10,7 +10,7 @@ import {
   windowScore,
 } from "@nearcited/shared";
 import type { ProviderRegistry } from "../providers";
-import type { NewScanResult, Store } from "../store/types";
+import { type NewScanResult, type Store, StoreError } from "../store/types";
 
 export interface ScanReport {
   location: Location;
@@ -62,6 +62,14 @@ export async function runScan(scanId: string, deps: RunScanDeps): Promise<ScanOu
 
   try {
     await store.markScanRunning(scanId, sampleData);
+  } catch (error) {
+    // A redelivered message for a scan that already failed, while a newer scan for the same
+    // location is in flight. The newer one stands; this one stays as it was.
+    if (error instanceof StoreError && error.kind === "conflict") return "skipped";
+    throw error;
+  }
+
+  try {
     if (deps.unavailable) throw new PermanentScanFailure(deps.unavailable);
 
     const queries = (await store.listQueries(location.id)).filter((query) => query.is_active);

@@ -254,6 +254,30 @@ export function createSupabaseStore(db: SupabaseClient): Store {
       if (error) fail("Fail scan", error);
     },
 
+    async failStaleScans(olderThan, message) {
+      const abandoned = {
+        status: "failed",
+        error: message.slice(0, 500),
+        finished_at: new Date().toISOString(),
+      };
+      // A queued scan is timed from when it was requested, a running one from when it started.
+      const queued = await db
+        .from("scans")
+        .update(abandoned)
+        .eq("status", "queued")
+        .lt("created_at", olderThan)
+        .select("id");
+      if (queued.error) fail("Fail stale queued scans", queued.error);
+      const running = await db
+        .from("scans")
+        .update(abandoned)
+        .eq("status", "running")
+        .lt("started_at", olderThan)
+        .select("id");
+      if (running.error) fail("Fail stale running scans", running.error);
+      return (queued.data?.length ?? 0) + (running.data?.length ?? 0);
+    },
+
     async listLocationsDueForScan(limit) {
       const { data, error } = await db.rpc("locations_due_for_scan", { max_rows: limit });
       if (error) fail("List locations due for scan", error);

@@ -121,6 +121,27 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
     });
     expect(await worker.listLocationsDueForScan(100)).not.toContain(location.id);
 
+    // One scan in flight per location, enforced by the unique index, for the worker too.
+    await expect(aliceStore.createScan(location.id, "manual", alice)).rejects.toMatchObject({
+      kind: "conflict",
+    });
+    await expect(worker.createScan(location.id, "scheduled", null)).rejects.toMatchObject({
+      kind: "conflict",
+    });
+    // Nothing is stale yet, and a signed-in user cannot run the sweep.
+    const anHourAgo = new Date(Date.now() - 3_600_000).toISOString();
+    expect(await worker.failStaleScans(anHourAgo, "abandoned")).toBe(0);
+    await expect(aliceStore.failStaleScans(anHourAgo, "abandoned")).rejects.toMatchObject({
+      kind: "forbidden",
+    });
+    // With a cutoff in the future the queued scan counts as stale, which frees the location.
+    const soon = new Date(Date.now() + 60_000).toISOString();
+    expect(await worker.failStaleScans(soon, "abandoned")).toBe(1);
+    expect(await aliceStore.getScan(scan.id)).toMatchObject({
+      status: "failed",
+      error: "abandoned",
+    });
+
     await worker.markScanRunning(scan.id, false);
     expect(await aliceStore.getScan(scan.id)).toMatchObject({ status: "running" });
 

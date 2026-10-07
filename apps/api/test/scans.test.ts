@@ -4,7 +4,7 @@ import { buildScanReportEmail } from "../src/email/report";
 import { liveScansUnavailable, type ProviderRegistry } from "../src/providers";
 import { createMockProviders } from "../src/providers/mock";
 import { runScan, type ScanReport } from "../src/scans/runner";
-import { enqueueDueScans } from "../src/scans/schedule";
+import { enqueueDueScans, failStaleScans, STALE_AFTER_MS } from "../src/scans/schedule";
 import type { Store } from "../src/store/types";
 import { createMemoryDb, type MemoryDb, memoryStore } from "./memory-store";
 
@@ -183,6 +183,20 @@ describe("enqueueDueScans", () => {
     expect(batches).toEqual([[{ body: { scan_id: db.scans[0]?.id } }]]);
   });
 
+  it("skips a location that got a scan between the due list and now", async () => {
+    const racing: Store = {
+      ...worker,
+      listLocationsDueForScan: async () => {
+        await worker.createScan(locationId, "manual", null);
+        return [locationId];
+      },
+    };
+    const sendBatch = vi.fn();
+    expect(await enqueueDueScans(racing, { sendBatch })).toBe(0);
+    expect(sendBatch).not.toHaveBeenCalled();
+    expect(db.scans).toHaveLength(1);
+  });
+
   it("sends nothing when no location is due", async () => {
     db.queries = [];
     const sendBatch = vi.fn();
@@ -354,5 +368,67 @@ describe("the scan window", () => {
     expect(email.text).toContain("Where it was named, over the last 2 scans:");
     expect(email.text).toContain("ChatGPT: named in 1 of 2");
     expect(email.text).toContain("Gemini: named in 0 of 2");
+  });
+});
+
+describe("one scan in flight per location", () => {
+  it("refuses a second scan while one is queued or running, and allows one after", async () => {
+    const first = await queueScan();
+    await expect(queueScan()).rejects.toMatchObject({ kind: "conflict" });
+
+    await worker.markScanRunning(first.id, false);
+    await expect(queueScan()).rejects.toMatchObject({ kind: "conflict" });
+
+    await worker.failScan(first.id, "upstream 503");
+    expect((await queueScan()).status).toBe("queued");
+  });
+
+  it("skips a redelivered scan when a newer one for the location is in flight", async () => {
+    const old = await queueScan();
+    await worker.failScan(old.id, "upstream 503");
+    const newer = await queueScan();
+
+    expect(await runScan(old.id, { store: worker, providers })).toBe("skipped");
+    expect((await worker.getScan(old.id))?.status).toBe("failed");
+    expect((await worker.getScan(newer.id))?.status).toBe("queued");
+  });
+});
+
+describe("failStaleScans", () => {
+  // The in-memory store has its own clock, so "later" is measured from the scan itself.
+  const since = (scan: { created_at: string }, ms: number) =>
+    new Date(Date.parse(scan.created_at) + ms);
+
+  it("fails a scan left queued too long, so the location can be scanned again", async () => {
+    const stuck = await queueScan();
+    expect(await failStaleScans(worker, since(stuck, STALE_AFTER_MS - 60_000))).toBe(0);
+    expect((await worker.getScan(stuck.id))?.status).toBe("queued");
+
+    expect(await failStaleScans(worker, since(stuck, STALE_AFTER_MS + 60_000))).toBe(1);
+    expect(await worker.getScan(stuck.id)).toMatchObject({
+      status: "failed",
+      error: "The scan did not finish and was abandoned. Run it again.",
+    });
+    expect((await queueScan()).status).toBe("queued");
+  });
+
+  it("fails a scan left running too long, timed from when it started", async () => {
+    const stuck = await queueScan();
+    await worker.markScanRunning(stuck.id, false);
+    expect(await failStaleScans(worker, since(stuck, STALE_AFTER_MS + 60_000))).toBe(1);
+    expect((await worker.getScan(stuck.id))?.status).toBe("failed");
+  });
+
+  it("leaves finished scans alone", async () => {
+    const done = await queueScan();
+    await runScan(done.id, { store: worker, providers });
+    expect(await failStaleScans(worker, since(done, STALE_AFTER_MS * 10))).toBe(0);
+    expect((await worker.getScan(done.id))?.status).toBe("succeeded");
+  });
+
+  it("lets a scan that was failed as abandoned run if its message turns up", async () => {
+    const late = await queueScan();
+    await failStaleScans(worker, since(late, STALE_AFTER_MS + 60_000));
+    expect(await runScan(late.id, { store: worker, providers })).toBe("succeeded");
   });
 });
