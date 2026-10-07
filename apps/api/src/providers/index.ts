@@ -25,6 +25,19 @@ export function checkedSurfaces(
 }
 
 /**
+ * Narrows a set of surfaces to the ones an organization's plan covers. `allowed` is the
+ * organization's `surfaces`: null means it gets everything that is set up.
+ */
+export function planSurfaces<T extends Surface>(
+  available: readonly T[],
+  allowed: readonly Surface[] | null,
+): T[] {
+  return allowed === null
+    ? [...available]
+    : available.filter((surface) => allowed.includes(surface));
+}
+
+/**
  * Why live scans cannot run on this build, or undefined when they can. A build without the
  * private tuning would send placeholder prompts and score on guessed weights, and store the
  * result as if it were a measurement.

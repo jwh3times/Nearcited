@@ -159,8 +159,7 @@ sample. The product reports and scores over a window instead (`SCAN_WINDOW`, sev
 - **Prompts are retired, never deleted.** Deleting one would delete every result recorded for
   it. A retired prompt is not scanned; restoring it brings its earlier results back into the
   window where they still fall inside it. Members have no delete permission on the table.
-- **The window counts scans, not days.** It works unchanged for a location scanned weekly, daily
-  or several times a day. Scan frequency is expected to become a plan setting.
+- **The window counts scans, not days.** It works unchanged whatever the organization's cadence.
 - **Sample scans and real scans never share a window.** Each scan records `sample_data` when the
   worker starts it, and a window holds scans of one kind only.
 - **A scan's `visibility_score` is the score over the window that scan closed**, so the history
@@ -218,6 +217,16 @@ handler could be skipped by calling the database directly. Four things about the
 - **Only active prompts count**, and restoring a retired one is checked like adding one.
 - **A member cannot change the limits.** The update grant on `organizations` covers `name` only.
   Limits are set with the secret key, by hand today and by billing later.
+
+**Plan settings live beside the caps**, protected the same way:
+
+- `scan_every_days` is how many days apart the organization's locations are scanned.
+  `locations_due_for_scan` uses it. A location's own `scan_frequency` can pause it or ask for
+  weekly, which only ever slows it down. Cadences shorter than a day are not possible while the
+  schedule fires once a day.
+- `surfaces` is which surfaces its scans check; null means every one that is set up. The runner
+  never calls a provider outside the list, so a plan is not charged for an assistant it does
+  not include, and the results grid shows the same list.
 
 Each trigger raises its own error code with a message written for the user, which the store
 passes through as a `limit` error and the API returns as 409 `limit_reached`. The scheduled scans

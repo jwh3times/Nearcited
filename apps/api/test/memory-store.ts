@@ -50,6 +50,8 @@ export const DEFAULT_LIMITS = {
   max_locations: 10,
   max_queries_per_location: 20,
   max_manual_scans_per_day: 50,
+  scan_every_days: 1,
+  surfaces: null,
 };
 
 /** `userId: null` is the worker's view: no filtering. */
@@ -88,6 +90,10 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
   return {
     async listOrganizations() {
       return db.organizations.filter((organization) => seesOrg(organization.id));
+    },
+
+    async getOrganization(id) {
+      return db.organizations.find((o) => o.id === id && seesOrg(id)) ?? null;
     },
 
     async createOrganization(name) {

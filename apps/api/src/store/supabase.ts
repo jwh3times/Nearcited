@@ -50,7 +50,7 @@ function fail(action: string, error: DbError): never {
 }
 
 const ORGANIZATION_COLUMNS =
-  "id, name, max_locations, max_queries_per_location, max_manual_scans_per_day, created_at";
+  "id, name, max_locations, max_queries_per_location, max_manual_scans_per_day, scan_every_days, surfaces, created_at";
 
 const LOCATION_COLUMNS =
   "id, organization_id, name, website, phone, address_line, city, region, postal_code, country_code, google_place_id, primary_category, scan_frequency, last_scanned_at, created_at";
@@ -69,6 +69,16 @@ export function createSupabaseStore(db: SupabaseClient): Store {
         .order("created_at");
       if (error) fail("List organizations", error);
       return OrganizationSchema.array().parse(data);
+    },
+
+    async getOrganization(id) {
+      const { data, error } = await db
+        .from("organizations")
+        .select(ORGANIZATION_COLUMNS)
+        .eq("id", id)
+        .maybeSingle();
+      if (error) fail("Get organization", error);
+      return data ? OrganizationSchema.parse(data) : null;
     },
 
     async createOrganization(name) {

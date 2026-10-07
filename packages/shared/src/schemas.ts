@@ -71,6 +71,10 @@ export const OrganizationSchema = z.object({
   max_queries_per_location: z.number().int().nonnegative(),
   /** How many scans members may start by hand, across the organization, in any 24 hours. */
   max_manual_scans_per_day: z.number().int().nonnegative(),
+  /** How many days apart its locations are scanned. 1 is daily. */
+  scan_every_days: z.number().int().positive(),
+  /** The surfaces its scans check. Null means every surface that is set up. */
+  surfaces: z.array(SurfaceSchema).nullable(),
   created_at: Timestamp,
 });
 export type Organization = z.infer<typeof OrganizationSchema>;

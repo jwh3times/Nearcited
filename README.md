@@ -43,7 +43,7 @@ scan then stores a 0 to 100 visibility score and a list of recommendations.
 An assistant can answer the same prompt differently each time, so one answer is a sample and not
 a measurement. Results are therefore shown as "named in x of y", counted over a location's last
 seven successful scans, and the score and recommendations are worked out over the same window.
-New locations are scanned daily, which fills the window in a week.
+How often a location is scanned, and on which assistants, are settings on its organization.
 
 The location page charts the score over time, and each cell of the results grid carries a strip
 of dots, one per recent scan, showing how that prompt has moved on that assistant.
@@ -198,9 +198,9 @@ The migrations in `supabase/migrations/` define everything.
 
 | Table | Holds |
 | --- | --- |
-| `organizations` | The tenant. Every other row belongs to one. Holds its usage limits: locations, active prompts per location, and manual scans a day. |
+| `organizations` | The tenant. Every other row belongs to one. Holds its usage limits (locations, active prompts per location, manual scans a day) and its plan settings (how many days apart it is scanned, and on which surfaces). |
 | `memberships` | Which users belong to an organization, as `owner`, `admin` or `member`. |
-| `locations` | A business at an address, and how often it is scanned (`off`, `weekly`, `daily`). |
+| `locations` | A business at an address. Its `scan_frequency` can pause it (`off`) or ask for less than the organization's cadence (`weekly`), never more. |
 | `tracked_queries` | The prompts and keywords checked for a location. A retired one is kept, with its results, but not scanned. |
 | `scans` | One run for a location: its trigger, status, whether it ran on sample data, and the score over the window it closed. |
 | `scan_results` | One row per query and surface: named or not, position, and who else was named. |
@@ -360,7 +360,7 @@ pnpm sync:agents
   `claude.ts` in `apps/api/src/providers/`). Perplexity, Gemini and the three Google surfaces
   are not;
   `apps/api/src/providers/live.ts` has notes on what each needs.
-- **Billing.** Each organization has limits on locations, prompts and manual scans, but nothing
+- **Billing.** Each organization has limits, a scan cadence and a list of surfaces, but nothing
   sets them by plan or takes payment. They are changed by hand in the database.
 - **Inviting teammates.** The schema and policies support members and roles; there is no API or
   screen for it.
