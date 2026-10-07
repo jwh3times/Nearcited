@@ -4,20 +4,30 @@ import { buildScanReportEmail, sendEmail } from "./email/report";
 import type { Env } from "./env";
 import { createProviders, liveScansUnavailable, usesSampleData } from "./providers";
 import { runScan } from "./scans/runner";
-import { enqueueDueScans } from "./scans/schedule";
+import { enqueueDueScans, failStaleScans } from "./scans/schedule";
 import { createAdminClient, createSupabaseStore } from "./store/supabase";
 import { activeTuning } from "./tuning";
 
 const app = createApp();
+
+/** The schedule that only sweeps. Any other trigger, including a manual test, also queues scans. */
+const SWEEP_ONLY_CRON = "*/15 * * * *";
 
 export default {
   // Only /api/* reaches the Worker. Everything else is served from the web app's build output
   // (see "assets" in wrangler.jsonc).
   fetch: app.fetch,
 
-  /** Cron: queue a scan for every location that is due. */
-  async scheduled(_controller, env) {
+  /**
+   * Cron. Every run clears abandoned scans; the daily run also queues a scan for every location
+   * that is due. The two schedules are in wrangler.jsonc.
+   */
+  async scheduled(controller, env) {
     const store = createSupabaseStore(createAdminClient(env));
+    const abandoned = await failStaleScans(store);
+    if (abandoned > 0) console.log(`Failed ${abandoned} abandoned scans`);
+    if (controller.cron === SWEEP_ONLY_CRON) return;
+
     const queued = await enqueueDueScans(store, env.SCAN_QUEUE);
     console.log(`Queued ${queued} scheduled scans`);
   },

@@ -55,6 +55,7 @@ export interface Store {
   /** Retires a prompt or restores it. Its results are kept either way. */
   setQueryActive(id: string, active: boolean): Promise<TrackedQuery | null>;
 
+  /** Throws a conflict when the location already has a scan queued or running. */
   createScan(locationId: string, trigger: ScanTrigger, requestedBy: string | null): Promise<Scan>;
   listScans(locationId: string, limit: number): Promise<Scan[]>;
   getScan(id: string): Promise<Scan | null>;
@@ -73,9 +74,15 @@ export interface Store {
   setRecommendationStatus(id: string, status: RecommendationStatus): Promise<Recommendation | null>;
 
   // Worker only: these need the secret key.
+  /** Throws a conflict when a different scan for the same location is already in flight. */
   markScanRunning(id: string, sampleData: boolean): Promise<void>;
   completeScan(id: string, outcome: CompletedScan): Promise<void>;
   failScan(id: string, error: string): Promise<void>;
+  /**
+   * Fails every scan that has been queued since before `olderThan`, or running since before it.
+   * Returns how many. `olderThan` is an ISO timestamp.
+   */
+  failStaleScans(olderThan: string, error: string): Promise<number>;
   listLocationsDueForScan(limit: number): Promise<string[]>;
   listOwnerEmails(organizationId: string): Promise<string[]>;
 }

@@ -186,7 +186,7 @@ organization reads as missing and returns 404. Payloads are defined in
 | `PATCH /api/queries/:id` | Retire a tracked query, or restore it. Its results are kept. |
 | `PATCH /api/recommendations/:id` | Mark a recommendation open, done or dismissed. |
 | `GET /api/locations/:id/scans` | The last 30 scans for a location. |
-| `POST /api/locations/:id/scans` | Queue a manual scan. 409 if one is already under way. |
+| `POST /api/locations/:id/scans` | Queue a manual scan. 409 if one is already under way, which the database enforces. |
 | `GET /api/scans/:id` | One scan with its results. |
 
 ## Data model
@@ -359,7 +359,6 @@ pnpm sync:agents
 - **Switching organizations.** A user in several organizations always sees the first.
 - **Trends.** Scan history is stored and served (`GET /api/locations/:id/scans`) but not charted.
 - **Editing a location** after creating it.
-- **Stuck-scan cleanup.** A scan whose queue message is lost stays "queued" forever.
 
 More detail, and the open product questions, in [docs/architecture.md](docs/architecture.md).
 What is planned, in order, is in [Build order](https://github.com/jwh3times/Nearcited/issues/15).

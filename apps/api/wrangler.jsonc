@@ -27,8 +27,9 @@
     "run_worker_first": ["/api/*"]
   },
 
-  // Daily at 09:00 UTC: queue scans for locations that are due.
-  "triggers": { "crons": ["0 9 * * *"] },
+  // Daily at 09:00 UTC: queue scans for locations that are due. Every 15 minutes: fail scans
+  // that were abandoned, so their locations can be scanned again. src/index.ts tells them apart.
+  "triggers": { "crons": ["0 9 * * *", "*/15 * * * *"] },
 
   "queues": {
     "producers": [{ "queue": "nearcited-scans", "binding": "SCAN_QUEUE" }],

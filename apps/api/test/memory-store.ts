@@ -50,6 +50,14 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
   const visibleLocation = (id: string) =>
     db.locations.find((location) => location.id === id && seesOrg(location.organization_id));
   const seesLocation = (id: string) => visibleLocation(id) !== undefined;
+  /** Mirrors the partial unique index: one queued or running scan per location. */
+  const inFlight = (locationId: string, exceptId?: string) =>
+    db.scans.some(
+      (scan) =>
+        scan.location_id === locationId &&
+        scan.id !== exceptId &&
+        (scan.status === "queued" || scan.status === "running"),
+    );
   const requireScan = (id: string) => {
     const scan = db.scans.find((candidate) => candidate.id === id);
     if (!scan) throw new StoreError("unexpected", `scan ${id} not found`);
@@ -133,6 +141,7 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
 
     async createScan(locationId, trigger, _requestedBy) {
       if (!seesLocation(locationId)) throw new StoreError("forbidden", "row-level security");
+      if (inFlight(locationId)) throw new StoreError("conflict", "scans_one_in_flight_idx");
       const scan: Scan = {
         id: crypto.randomUUID(),
         location_id: locationId,
@@ -197,7 +206,10 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
     },
 
     async markScanRunning(id, sampleData) {
-      Object.assign(requireScan(id), {
+      const scan = requireScan(id);
+      if (inFlight(scan.location_id, id))
+        throw new StoreError("conflict", "scans_one_in_flight_idx");
+      Object.assign(scan, {
         status: "running",
         started_at: timestamp(),
         error: null,
@@ -241,6 +253,18 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
 
     async failScan(id, error) {
       Object.assign(requireScan(id), { status: "failed", error, finished_at: timestamp() });
+    },
+
+    async failStaleScans(olderThan, error) {
+      const stale = db.scans.filter(
+        (scan) =>
+          (scan.status === "queued" && scan.created_at < olderThan) ||
+          (scan.status === "running" && (scan.started_at ?? scan.created_at) < olderThan),
+      );
+      for (const scan of stale) {
+        Object.assign(scan, { status: "failed", error, finished_at: timestamp() });
+      }
+      return stale.length;
     },
 
     async listLocationsDueForScan(limit) {

@@ -10,6 +10,7 @@ import {
 import { beforeEach, describe, expect, it } from "vitest";
 import { createApp } from "../src/app";
 import type { Env } from "../src/env";
+import type { Store } from "../src/store/types";
 import { createMemoryDb, type MemoryDb, memoryStore } from "./memory-store";
 
 const alice = "a0000000-0000-4000-8000-000000000001";
@@ -287,6 +288,26 @@ describe("scans", () => {
     const scan = ScanSchema.parse(await response.json());
     expect(scan).toMatchObject({ status: "queued", trigger: "manual" });
     expect(sent).toEqual([{ scan_id: scan.id }]);
+  });
+
+  it("refuses a second scan when the database reports one in flight, even if the check missed it", async () => {
+    const { location } = await seed();
+    // Two requests arriving together both pass the read; the second insert is what fails.
+    const racing = memoryStore(db, alice);
+    const store: Store = { ...racing, listScans: async () => [] };
+    await store.createScan(location.id, "manual", alice);
+
+    const racingApp = createApp({
+      authenticate: async () => ({ user: { id: alice, email: "alice@example.com" }, store }),
+    });
+    const response = await racingApp.request(
+      `/api/locations/${location.id}/scans`,
+      { method: "POST" },
+      env,
+    );
+    expect(response.status).toBe(409);
+    expect(await errorCode(response)).toBe("scan_in_progress");
+    expect(sent).toEqual([]);
   });
 
   it("refuses a second scan while one is under way", async () => {

@@ -7,9 +7,10 @@
 - **`fetch`**: the HTTP API, a Hono app mounted at `/api`. Only `/api/*` reaches the Worker.
   Every other path is served from the web app's build output, with unknown paths falling back to
   `index.html` so client-side routes work. That routing lives in `wrangler.jsonc` under `assets`.
-- **`scheduled`**: a daily Cron Trigger. It asks Postgres which locations are due
-  (`locations_due_for_scan`), creates a `scheduled` scan row for each, and puts the scan IDs on
-  the queue.
+- **`scheduled`**: two Cron Triggers. Every 15 minutes it fails scans that have been queued or
+  running for more than 30 minutes, so an abandoned scan cannot block its location for long.
+  Once a day it also asks Postgres which locations are due (`locations_due_for_scan`), creates a
+  `scheduled` scan row for each, and puts the scan IDs on the queue.
 - **`queue`**: the consumer. For each scan ID it runs the scan and, for scheduled scans, emails
   the organization's owners.
 
@@ -167,6 +168,12 @@ sample. The product reports and scores over a window instead (`SCAN_WINDOW`, sev
 
 A new location has one scan in its window and reads "named" or "not named" until more arrive.
 
+**One scan in flight per location.** A partial unique index on `scans (location_id)` for the
+`queued` and `running` statuses makes a second insert fail, whoever makes it: two requests
+arriving together, or the scheduler racing a manual scan. The API reports it as
+`scan_in_progress`; the scheduler skips the location. A redelivered message for a scan that
+already failed is skipped when a newer scan for the same location is in flight.
+
 Failure handling in `runScan`:
 
 - **Nothing to check, or no provider configured**: the scan is marked failed and the message is
@@ -220,10 +227,9 @@ drift.
 
 ## Known gaps
 
-- A manual scan whose queue send fails leaves a `queued` row with no message behind it. Nothing
-  sweeps stale scans.
-- The scan-in-progress check on `POST /scans` is a read followed by a write, so two simultaneous
-  requests can both pass it.
+- A manual scan whose queue send fails leaves a `queued` row with no message behind it. The
+  sweep fails it within about 45 minutes, and until then the location cannot be scanned again.
+  A signed-in user cannot update a scan, so the request that hit the failure cannot clear it.
 - On a Supabase project that still signs tokens with a legacy shared secret, `getClaims` asks the
   Auth server on every request. Use asymmetric signing keys.
 

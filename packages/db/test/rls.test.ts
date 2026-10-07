@@ -238,6 +238,32 @@ describe("scans", () => {
     ).rejects.toThrow(/row-level security/);
   });
 
+  it("allows one scan in flight per location, whoever asks", async () => {
+    const insert =
+      "insert into public.scans (location_id, trigger, requested_by) values ($1, $2, $3)";
+    await expect(
+      as("authenticated", alice, () => db.query(insert, [locationId, "manual", alice])),
+    ).rejects.toThrow(/scans_one_in_flight_idx/);
+    await expect(
+      as("service_role", null, () => db.query(insert, [locationId, "scheduled", null])),
+    ).rejects.toThrow(/scans_one_in_flight_idx/);
+
+    // A running scan still counts. Once it finishes, the next one is allowed.
+    await db.query("update public.scans set status = 'running' where id = $1", [scanId]);
+    await expect(
+      as("service_role", null, () => db.query(insert, [locationId, "scheduled", null])),
+    ).rejects.toThrow(/scans_one_in_flight_idx/);
+
+    await db.query("update public.scans set status = 'failed' where id = $1", [scanId]);
+    const [next] = await as("service_role", null, () =>
+      rows<{ id: string }>(`${insert} returning id`, [locationId, "scheduled", null]),
+    );
+    expect(next?.id).toBeTruthy();
+    // Put things back as the tests that follow expect: the original scan queued, the extra gone.
+    await db.query("delete from public.scans where id = $1", [next?.id]);
+    await db.query("update public.scans set status = 'queued' where id = $1", [scanId]);
+  });
+
   it("cannot be queued in someone else's name or for someone else's location", async () => {
     await expect(
       as("authenticated", alice, () =>
