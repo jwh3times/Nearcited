@@ -196,3 +196,29 @@ describe("recommendations from the site check", () => {
     ]);
   });
 });
+
+describe("hostile pages", () => {
+  it("reads a page built to be slow to parse in time that grows with its length", () => {
+    const start = performance.now();
+    for (const piece of [
+      "<!--",
+      "<script",
+      '<script type="application/ld+json">',
+      "<title",
+      "<",
+      "&#",
+    ]) {
+      const check = analyzeSite(snapshot({ html: piece.repeat(120_000) }), joes);
+      expect(check.checks.find((item) => item.id === "reachable")?.passed).toBe(true);
+    }
+    blockedCrawlers("#".repeat(600_000));
+    blockedCrawlers("User-agent:".repeat(60_000));
+    expect(performance.now() - start).toBeLessThan(3000);
+  });
+
+  it("copes with tags and blocks that never close", () => {
+    expect(visibleText("Open <b>bold <!-- never closed")).toBe("Open bold");
+    expect(visibleText("Before <script>var a = 1;")).toBe("Before");
+    expect(visibleText("Text <unclosed")).toBe("Text");
+  });
+});

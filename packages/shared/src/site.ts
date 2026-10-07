@@ -112,16 +112,17 @@ function decodeEntities(text: string): string {
   });
 }
 
-/** The words a reader would see with scripts off: tags, scripts and styles removed. */
-export function visibleText(html: string): string {
-  return decodeEntities(
-    html
-      .replace(/<!--[\s\S]*?-->/g, " ")
-      .replace(/<(script|style|template|svg)\b[\s\S]*?<\/\1\s*>/gi, " ")
-      .replace(/<[^>]*>/g, " "),
-  )
-    .replace(/\s+/g, " ")
-    .trim();
+/** Elements whose content is not page text. Their bodies are skipped, or kept aside. */
+const RAW_ELEMENTS = new Set(["script", "style", "template", "svg", "title"]);
+
+interface ParsedPage {
+  /** The words a reader would see with scripts off. */
+  text: string;
+  title: string;
+  /** Each `<meta>` tag, whole. */
+  metas: string[];
+  /** The body of each JSON-LD script block. */
+  jsonLd: string[];
 }
 
 function attribute(tag: string, name: string): string | null {
@@ -129,21 +130,75 @@ function attribute(tag: string, name: string): string | null {
   return match ? (match[1] ?? match[2] ?? match[3] ?? "") : null;
 }
 
-function hasNoindexMeta(html: string): boolean {
-  return (html.match(/<meta\b[^>]*>/gi) ?? []).some((tag) => {
+/**
+ * Reads the page in one pass, by position. The page comes from a site nobody here controls, so
+ * nothing in this function backtracks: a page built to be slow to parse costs only its length.
+ */
+function parsePage(html: string): ParsedPage {
+  const lower = html.toLowerCase();
+  const text: string[] = [];
+  const page: ParsedPage = { text: "", title: "", metas: [], jsonLd: [] };
+
+  let at = 0;
+  while (at < html.length) {
+    const open = html.indexOf("<", at);
+    if (open === -1) {
+      text.push(html.slice(at));
+      break;
+    }
+    text.push(html.slice(at, open), " ");
+
+    if (lower.startsWith("<!--", open)) {
+      const end = lower.indexOf("-->", open + 4);
+      at = end === -1 ? html.length : end + 3;
+      continue;
+    }
+    const close = html.indexOf(">", open);
+    if (close === -1) break;
+    const tag = html.slice(open, close + 1);
+    at = close + 1;
+
+    let nameEnd = open + 1;
+    while (nameEnd < close && /[a-z0-9]/.test(lower.charAt(nameEnd))) nameEnd++;
+    const name = lower.slice(open + 1, nameEnd);
+
+    if (name === "meta") page.metas.push(tag);
+    if (!RAW_ELEMENTS.has(name)) continue;
+
+    const end = lower.indexOf(`</${name}`, at);
+    const body = html.slice(at, end === -1 ? html.length : end);
+    if (name === "title") page.title = body;
+    if (
+      name === "script" &&
+      attribute(tag, "type")?.trim().toLowerCase() === "application/ld+json"
+    ) {
+      page.jsonLd.push(body);
+    }
+    const endClose = end === -1 ? -1 : html.indexOf(">", end);
+    at = endClose === -1 ? html.length : endClose + 1;
+  }
+
+  page.text = decodeEntities(text.join("")).replace(/\s+/g, " ").trim();
+  return page;
+}
+
+/** The words a reader would see with scripts off: tags, scripts and styles removed. */
+export function visibleText(html: string): string {
+  return parsePage(html).text;
+}
+
+function hasNoindexMeta(metas: readonly string[]): boolean {
+  return metas.some((tag) => {
     const name = attribute(tag, "name")?.toLowerCase();
     return (
       (name === "robots" || name === "googlebot") &&
-      /\bnoindex\b/i.test(attribute(tag, "content") ?? "")
+      (attribute(tag, "content") ?? "").toLowerCase().includes("noindex")
     );
   });
 }
 
 /** Whether any JSON-LD block on the page gives something a name and an address. */
-function hasBusinessData(html: string): boolean {
-  const blocks = html.matchAll(
-    /<script\b[^>]*type\s*=\s*["']?application\/ld\+json["']?[^>]*>([\s\S]*?)<\/script\s*>/gi,
-  );
+function hasBusinessData(blocks: readonly string[]): boolean {
   const describesBusiness = (node: unknown, depth = 0): boolean => {
     if (depth > 6 || node === null || typeof node !== "object") return false;
     if (Array.isArray(node)) return node.some((item) => describesBusiness(item, depth + 1));
@@ -151,14 +206,14 @@ function hasBusinessData(html: string): boolean {
     if (typeof record.name === "string" && record.name.trim() && record.address) return true;
     return Object.values(record).some((value) => describesBusiness(value, depth + 1));
   };
-  for (const [, body] of blocks) {
+  return blocks.some((body) => {
     try {
-      if (describesBusiness(JSON.parse(body ?? ""))) return true;
+      return describesBusiness(JSON.parse(body));
     } catch {
       // A block that is not valid JSON tells a crawler nothing, so it counts as absent.
+      return false;
     }
-  }
-  return false;
+  });
 }
 
 /**
@@ -172,7 +227,8 @@ export function blockedCrawlers(
   const groups: { agents: string[]; rules: { allow: boolean; path: string }[] }[] = [];
   let current: (typeof groups)[number] | null = null;
   for (const raw of robotsTxt.split(/\r?\n/)) {
-    const line = raw.replace(/#.*$/, "").trim();
+    const hash = raw.indexOf("#");
+    const line = (hash === -1 ? raw : raw.slice(0, hash)).trim();
     const colon = line.indexOf(":");
     if (colon === -1) continue;
     const field = line.slice(0, colon).trim().toLowerCase();
@@ -210,10 +266,9 @@ export function analyzeSite(snapshot: SiteSnapshot, business: SiteBusiness): Sit
     return { ...base, checks: [{ id: "reachable", passed: false }] };
   }
 
-  const text = visibleText(snapshot.html);
-  const title = decodeEntities(
-    /<title\b[^>]*>([\s\S]*?)<\/title\s*>/i.exec(snapshot.html)?.[1] ?? "",
-  );
+  const page = parsePage(snapshot.html);
+  const text = page.text;
+  const title = decodeEntities(page.title);
   const words = text ? text.split(" ").length : 0;
   const searchable = normalizeName(`${title} ${text}`);
   const blocked = snapshot.robots_txt ? blockedCrawlers(snapshot.robots_txt) : [];
@@ -223,12 +278,12 @@ export function analyzeSite(snapshot: SiteSnapshot, business: SiteBusiness): Sit
   const checks: SiteCheck["checks"] = [
     { id: "reachable", passed: true },
     { id: "crawlers_allowed", passed: blocked.length === 0 },
-    { id: "indexable", passed: !snapshot.noindex_header && !hasNoindexMeta(snapshot.html) },
+    { id: "indexable", passed: !snapshot.noindex_header && !hasNoindexMeta(page.metas) },
     { id: "text_content", passed: words >= MIN_PAGE_WORDS },
     { id: "names_business", passed: says(business.name) },
     // Without a city on file there is nothing to look for, so the check is left out.
     ...(business.city ? [{ id: "names_city" as const, passed: says(business.city) }] : []),
-    { id: "structured_data", passed: hasBusinessData(snapshot.html) },
+    { id: "structured_data", passed: hasBusinessData(page.jsonLd) },
   ];
   return { ...base, blocked_crawlers: blocked, words, checks };
 }
