@@ -199,9 +199,6 @@ drift.
   sweeps stale scans.
 - The scan-in-progress check on `POST /scans` is a read followed by a write, so two simultaneous
   requests can both pass it.
-- `listOwnerEmails` and the report email have unit coverage for the email body only. The lookup
-  uses the Supabase Auth admin API and has not been run against a real project.
-- Sign-in by emailed link has not been exercised end to end; the API's token verification has.
 - On a Supabase project that still signs tokens with a legacy shared secret, `getClaims` asks the
   Auth server on every request. Use asymmetric signing keys.
 
