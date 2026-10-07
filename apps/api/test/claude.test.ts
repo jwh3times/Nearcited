@@ -10,7 +10,8 @@ import { createLiveProviders } from "../src/providers/live";
 
 /**
  * Responses in the shape the Messages API really returns for the web_search tool called directly
- * with a JSON output format, checked against live calls on 2026-10-06 (model claude-opus-5-5).
+ * with a JSON output format, checked against live calls on 2026-10-06 (claude-opus-5-5 and
+ * claude-sonnet-5-5).
  * The structure and field names are real; the content is invented.
  */
 const usage = {
@@ -53,7 +54,7 @@ function message(content: unknown[], overrides: Record<string, unknown> = {}) {
     id: "msg_test",
     type: "message",
     role: "assistant",
-    model: "claude-opus-5-5",
+    model: "claude-sonnet-5-5",
     content,
     stop_reason: "end_turn",
     stop_sequence: null,
@@ -207,12 +208,12 @@ describe("createClaudeProvider", () => {
       {
         type: "web_search_20260209",
         name: "web_search",
-        max_uses: 3,
+        max_uses: defaultTuning.claude.max_searches,
         allowed_callers: ["direct"],
         user_location: { type: "approximate", city: "Raleigh", region: "NC", country: "US" },
       },
     ]);
-    expect(body.output_config.effort).toBe("medium");
+    expect(body.output_config.effort).toBe(defaultTuning.claude.effort);
     expect(body.output_config.format.type).toBe("json_schema");
     expect(body.output_config.format.schema.required).toEqual(["answer", "businesses", "sources"]);
     // Thinking is always on for this model, and forcing a tool is rejected: send neither.
@@ -220,20 +221,22 @@ describe("createClaudeProvider", () => {
     expect(body.tool_choice).toBeUndefined();
   });
 
-  it("uses the surface's own prompt and the model from the tuning", async () => {
+  it("uses the surface's own prompt and the model, effort and search cap from the tuning", async () => {
     const fetchStub = respondWith({ body: message([text(goodAnswer)]) });
     const tuned = createClaudeProvider({
       apiKey: "test-key",
       fetch: fetchStub,
       tuning: {
         prompts: { default: "{query}", by_surface: { claude: "Near {city}: {query}" } },
-        claude: { model: "some-other-model" },
+        claude: { model: "some-other-model", effort: "high", max_searches: 4 },
       },
     });
     await tuned.observe(input);
     const body = sentBody(fetchStub);
     expect(body.messages[0].content).toBe("Near Raleigh: best pizza");
     expect(body.model).toBe("some-other-model");
+    expect(body.output_config.effort).toBe("high");
+    expect(body.tools[0].max_uses).toBe(4);
   });
 
   it("resumes a paused turn by sending it back, and uses the content of both parts", async () => {
@@ -279,7 +282,7 @@ describe("createClaudeProvider", () => {
     const onUsage = vi.fn();
     const fetchStub = respondWith({ body: message([text(goodAnswer)]) });
     await provider(fetchStub, onUsage).observe(input);
-    expect(onUsage).toHaveBeenCalledWith({ model: "claude-opus-5-5", usage });
+    expect(onUsage).toHaveBeenCalledWith({ model: "claude-sonnet-5-5", usage });
   });
 
   it("throws with the status and Anthropic's message on an error response, without retrying", async () => {

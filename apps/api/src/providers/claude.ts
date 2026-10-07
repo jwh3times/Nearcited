@@ -135,7 +135,7 @@ export function createClaudeProvider(options: ClaudeOptions): SurfaceProvider {
             // recommended fallback model inside the same call.
             fallbacks: "default",
             output_config: {
-              effort: "medium",
+              effort: options.tuning.claude.effort,
               format: { type: "json_schema", schema: ANSWER_SCHEMA },
             },
             tools: [
@@ -143,7 +143,7 @@ export function createClaudeProvider(options: ClaudeOptions): SurfaceProvider {
                 type: "web_search_20260209",
                 name: "web_search",
                 // Each search adds its results to the input tokens billed, so cap them.
-                max_uses: 3,
+                max_uses: options.tuning.claude.max_searches,
                 // Plain searches. The default on this tool version filters results through code
                 // execution, which took twice the time and tokens for the same answer.
                 allowed_callers: ["direct"],
