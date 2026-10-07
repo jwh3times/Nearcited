@@ -62,6 +62,8 @@ describe("buildMatrix", () => {
             history: [true, false, true],
           },
         ],
+        answers: 0,
+        sources: [],
       },
     );
     const cells = group?.rows[0]?.cells ?? [];

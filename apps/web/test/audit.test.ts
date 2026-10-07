@@ -17,6 +17,7 @@ const cell = (surface: AuditCell["surface"], competitors: [string, number][] = [
   competitors: competitors.map(([name, count]) => ({ name, count })),
   excerpt: null,
   cited_urls: [],
+  sources: [],
 });
 
 const audit = (change: Partial<PublicAudit> = {}): PublicAudit => ({
@@ -41,6 +42,7 @@ const audit = (change: Partial<PublicAudit> = {}): PublicAudit => ({
     { text: "late night food", cells: null },
     { text: "pizza delivery", cells: [cell("chatgpt", [["Alpha", 1]])] },
   ],
+  sources: [],
   created_at: "2026-10-07T12:00:00.000Z",
   expires_at: "2026-11-06T12:00:00.000Z",
   ...change,

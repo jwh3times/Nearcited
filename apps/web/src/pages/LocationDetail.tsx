@@ -12,6 +12,7 @@ import { Link, useNavigate, useParams } from "react-router";
 import { ErrorNote } from "../components/ErrorNote";
 import { ScoreTrend } from "../components/ScoreTrend";
 import { Sources } from "../components/Sources";
+import { SourceTable } from "../components/SourceTable";
 import { VisibilityMatrix } from "../components/VisibilityMatrix";
 import { api } from "../lib/api";
 import { cadence, formatDate, listOf, plainText } from "../lib/format";
@@ -185,6 +186,18 @@ export function LocationDetail() {
               </li>
             ))}
           </ol>
+        </section>
+      )}
+
+      {scanWindow.sources.length > 0 && (
+        <section className="section">
+          <h2>Where the answers come from</h2>
+          <p className="window-note">
+            The sites the assistants read before answering, over the last {scanWindow.scans}{" "}
+            {scanWindow.scans === 1 ? "scan" : "scans"}. A site that is read often, in answers that
+            never name {location.name}, is the first place to check your listing.
+          </p>
+          <SourceTable sources={scanWindow.sources} answers={scanWindow.answers} />
         </section>
       )}
 

@@ -171,7 +171,7 @@ describe("organizations and locations", () => {
     expect(detail.location.id).toBe(location.id);
     expect(detail.queries.map((q) => q.id)).toEqual([query.id]);
     expect(detail.latest_scan).toBeNull();
-    expect(detail.window).toEqual({ size: 7, scans: 0, cells: [] });
+    expect(detail.window).toEqual({ size: 7, scans: 0, cells: [], answers: 0, sources: [] });
     // Sample data covers every surface.
     expect(detail.surfaces).toHaveLength(7);
     expect(detail.recommendations).toEqual([]);
@@ -198,7 +198,7 @@ describe("organizations and locations", () => {
       mentioned,
       position: mentioned ? 1 : null,
       competitors: [],
-      cited_urls: [],
+      cited_urls: ["https://reviews.example/best-pizza"],
       answer_excerpt: null,
     });
     for (const mentioned of [true, false, true]) {
@@ -231,6 +231,17 @@ describe("organizations and locations", () => {
           checks: 3,
           mentions: 2,
           history: [true, false, true],
+        },
+      ],
+      // The sites those three answers cited, and how many of the answers named the business.
+      answers: 3,
+      sources: [
+        {
+          host: "reviews.example",
+          answers: 3,
+          named: 2,
+          own: false,
+          urls: ["https://reviews.example/best-pizza"],
         },
       ],
     });

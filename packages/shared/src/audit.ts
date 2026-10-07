@@ -1,7 +1,8 @@
 import { z } from "zod";
 import type { Finding } from "./analysis";
-import { type Surface, SurfaceSchema } from "./schemas";
+import { SourceSummarySchema, type Surface, SurfaceSchema } from "./schemas";
 import { positionWeight } from "./scoring";
+import { mergeSources, summarizeSources } from "./sources";
 import { defaultTuning, type ScoreWeights } from "./tuning";
 
 /**
@@ -27,6 +28,8 @@ export const AuditCellSchema = z.object({
   excerpt: z.string().nullable(),
   /** The pages that answer cited. Shown with the quote, as the providers' terms require. */
   cited_urls: z.array(z.string()),
+  /** The sites every answer cited, not only the quoted one. Absent from audits made before it. */
+  sources: z.array(SourceSummarySchema).default([]),
 });
 export type AuditCell = z.infer<typeof AuditCellSchema>;
 
@@ -80,6 +83,8 @@ export const PublicAuditSchema = z.object({
   score: z.number().nullable(),
   /** In the order they were asked. `cells` is null while that prompt is still being checked. */
   prompts: z.array(z.object({ text: z.string(), cells: z.array(AuditCellSchema).nullable() })),
+  /** The sites the answers cited across the whole report, most cited first. */
+  sources: z.array(SourceSummarySchema),
   created_at: Timestamp,
   expires_at: Timestamp,
 });
@@ -92,6 +97,7 @@ export function buildAuditCell(
   surface: Surface,
   findings: readonly Finding[],
   weights: ScoreWeights = defaultTuning.score,
+  website: string | null = null,
 ): AuditCell {
   const counts = new Map<string, number>();
   for (const finding of findings) {
@@ -120,6 +126,7 @@ export function buildAuditCell(
       .slice(0, MAX_COMPETITORS),
     excerpt: quoted?.answer_excerpt ?? null,
     cited_urls: quoted?.cited_urls ?? [],
+    sources: summarizeSources(findings, website),
   };
 }
 
@@ -149,6 +156,9 @@ export function toPublicAudit(stored: StoredAudit): PublicAudit {
     samples: stored.samples,
     score: auditScore(prompts.flatMap((prompt) => (prompt.cells ? [{ cells: prompt.cells }] : []))),
     prompts,
+    sources: mergeSources(
+      prompts.flatMap((prompt) => (prompt.cells ?? []).map((cell) => cell.sources)),
+    ),
     created_at: stored.created_at,
     expires_at: stored.expires_at,
   };

@@ -292,6 +292,15 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
       competitors: [{ name: "Tony's Slice House", count: 2 }],
       excerpt: "Try Tony's Slice House or Joe's Pizza.",
       cited_urls: ["https://example.com/best-pizza"],
+      sources: [
+        {
+          host: "example.com",
+          answers: 2,
+          named: 1,
+          own: false,
+          urls: ["https://example.com/best-pizza"],
+        },
+      ],
     };
     await worker.recordAuditPart(audit.id, 0, { cells: [cell] });
     for (const reader of [visitor, bobStore]) {

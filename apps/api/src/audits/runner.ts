@@ -112,7 +112,7 @@ export async function runAuditPart(
             analyzeObservation(await provider.observe(input), input.location),
           ),
         );
-        return buildAuditCell(surface, findings, deps.weights);
+        return buildAuditCell(surface, findings, deps.weights, audit.website);
       }),
     );
     await store.recordAuditPart(auditId, promptIndex, { cells });

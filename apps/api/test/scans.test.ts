@@ -345,7 +345,11 @@ describe("the scan window", () => {
     await scan(silent);
     const recommendations = await worker.listRecommendations(locationId);
     // ChatGPT named the business once in the window, so it is not reported as absent there.
-    expect(recommendations.map((recommendation) => recommendation.rule)).toEqual(["absent:gemini"]);
+    // Four answers in the window and none cited the business's own site, which is said too.
+    expect(recommendations.map((recommendation) => recommendation.rule)).toEqual([
+      "absent:gemini",
+      "own_site_uncited",
+    ]);
     expect(recommendations[0]?.detail).toContain("any of 2 checks");
   });
 

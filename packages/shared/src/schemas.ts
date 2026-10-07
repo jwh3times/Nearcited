@@ -27,6 +27,12 @@ export const SURFACES_BY_KIND: Record<QueryKind, readonly Surface[]> = {
   search_keyword: ["google_local_pack", "google_organic", "google_ai_overview"],
 };
 
+/** The surfaces whose answers list the pages they were built from. */
+export const CITING_SURFACES: readonly Surface[] = [
+  ...SURFACES_BY_KIND.ai_prompt,
+  "google_ai_overview",
+];
+
 export const SURFACE_LABELS: Record<Surface, string> = {
   chatgpt: "ChatGPT",
   gemini: "Gemini",
@@ -235,6 +241,20 @@ export const ScanWithResultsSchema = ScanSchema.extend({
 });
 export type ScanWithResults = z.infer<typeof ScanWithResultsSchema>;
 
+/** One site the answers cited, counted over a set of answers. */
+export const SourceSummarySchema = z.object({
+  host: z.string(),
+  /** How many answers cited the site. */
+  answers: z.number().int().positive(),
+  /** How many of those answers named the business. */
+  named: z.number().int().nonnegative(),
+  /** True for the business's own website. */
+  own: z.boolean(),
+  /** The site's most cited pages. */
+  urls: z.array(z.string()),
+});
+export type SourceSummary = z.infer<typeof SourceSummarySchema>;
+
 /** How often the business was named, counted over a location's most recent successful scans. */
 export const ScanWindowSchema = z.object({
   /** The most scans a rate is counted over. */
@@ -251,6 +271,10 @@ export const ScanWindowSchema = z.object({
       history: z.array(z.boolean()),
     }),
   ),
+  /** How many answers in the window could cite pages, which is what `sources` is counted over. */
+  answers: z.number().int().nonnegative(),
+  /** The sites those answers cited, most cited first. */
+  sources: z.array(SourceSummarySchema),
 });
 export type ScanWindow = z.infer<typeof ScanWindowSchema>;
 
