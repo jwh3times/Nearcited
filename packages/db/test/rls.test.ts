@@ -551,3 +551,108 @@ describe("usage caps", () => {
     ).rejects.toThrow(/permission denied|trigger/);
   });
 });
+
+describe("plan settings", () => {
+  let cadenceOrg = "";
+  let cadenceLocation = "";
+  const due = async () =>
+    (
+      await as("service_role", null, () =>
+        rows<{ id: string }>("select public.locations_due_for_scan() as id"),
+      )
+    )
+      .map((row) => row.id)
+      .includes(cadenceLocation);
+  const scannedHoursAgo = (hours: number) =>
+    db.query(
+      "update public.locations set last_scanned_at = now() - make_interval(hours => $1) where id = $2",
+      [hours, cadenceLocation],
+    );
+
+  it("start a new organization on every two days and every surface", async () => {
+    // Bob has no organization yet, so this one starts with nothing else in it.
+    const [org] = await as("authenticated", bob, () =>
+      rows<{ id: string; scan_every_days: number; surfaces: string[] | null }>(
+        "select * from public.create_organization('Cadence Org')",
+      ),
+    );
+    cadenceOrg = org?.id ?? "";
+    expect(org).toMatchObject({ scan_every_days: 2, surfaces: null });
+
+    const [location] = await as("authenticated", bob, () =>
+      rows<{ id: string }>(
+        "insert into public.locations (organization_id, name, city) values ($1, 'Cadence Shop', 'Raleigh') returning id",
+        [cadenceOrg],
+      ),
+    );
+    cadenceLocation = location?.id ?? "";
+    await as("authenticated", bob, () =>
+      db.query(
+        "insert into public.tracked_queries (location_id, kind, text) values ($1, 'ai_prompt', 'x')",
+        [cadenceLocation],
+      ),
+    );
+    expect(await due()).toBe(true);
+  });
+
+  it("scan a location as often as its organization's plan says", async () => {
+    // Every two days: a scan 30 hours ago is too recent, one 45 hours ago is not.
+    await scannedHoursAgo(30);
+    expect(await due()).toBe(false);
+    await scannedHoursAgo(45);
+    expect(await due()).toBe(true);
+
+    // Daily: the same 30 hours is now overdue, and 21 hours counts as a day.
+    await db.query("update public.organizations set scan_every_days = 1 where id = $1", [
+      cadenceOrg,
+    ]);
+    await scannedHoursAgo(30);
+    expect(await due()).toBe(true);
+    await scannedHoursAgo(21);
+    expect(await due()).toBe(true);
+    await scannedHoursAgo(10);
+    expect(await due()).toBe(false);
+  });
+
+  it("let a location ask for less than its plan allows, or be paused, but never more", async () => {
+    const setFrequency = (frequency: string) =>
+      as("authenticated", bob, () =>
+        db.query("update public.locations set scan_frequency = $1 where id = $2", [
+          frequency,
+          cadenceLocation,
+        ]),
+      );
+    await scannedHoursAgo(72);
+    await setFrequency("weekly");
+    expect(await due()).toBe(false);
+    await scannedHoursAgo(24 * 7);
+    expect(await due()).toBe(true);
+    await setFrequency("off");
+    expect(await due()).toBe(false);
+
+    // On a plan slower than daily, asking for daily changes nothing.
+    await db.query("update public.organizations set scan_every_days = 5 where id = $1", [
+      cadenceOrg,
+    ]);
+    await setFrequency("daily");
+    await scannedHoursAgo(72);
+    expect(await due()).toBe(false);
+  });
+
+  it("cannot be changed by a member", async () => {
+    for (const change of ["scan_every_days = 1", "surfaces = array['chatgpt']::public.surface[]"]) {
+      await expect(
+        as("authenticated", bob, () =>
+          db.query(`update public.organizations set ${change} where id = $1`, [cadenceOrg]),
+        ),
+        change,
+      ).rejects.toThrow(/permission denied/);
+    }
+  });
+
+  it("are read by members and nobody else", async () => {
+    const select = "select surfaces from public.organizations where id = $1";
+    expect(await as("authenticated", bob, () => rows(select, [cadenceOrg]))).toHaveLength(1);
+    expect(await as("authenticated", alice, () => rows(select, [cadenceOrg]))).toHaveLength(0);
+  });
+});

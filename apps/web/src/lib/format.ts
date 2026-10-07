@@ -14,3 +14,20 @@ export function sourceLabel(url: string): string | null {
     return null;
   }
 }
+
+/**
+ * How often a location is scanned, in words. The organization's plan sets the pace; a location
+ * set to weekly asks for less than that, never more.
+ */
+export function cadence(planDays: number, frequency: "off" | "weekly" | "daily"): string {
+  const days = Math.max(planDays, frequency === "weekly" ? 7 : 1);
+  if (days === 1) return "daily";
+  if (days === 7) return "weekly";
+  return `every ${days} days`;
+}
+
+/** "A", "A and B", "A, B and C". */
+export function listOf(items: readonly string[]): string {
+  if (items.length <= 1) return items.join("");
+  return `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+}

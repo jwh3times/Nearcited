@@ -9,7 +9,7 @@ import {
 import { Hono } from "hono";
 import type { AppEnv } from "../app";
 import { notFound } from "../errors";
-import { checkedSurfaces, usesSampleData } from "../providers";
+import { checkedSurfaces, planSurfaces, usesSampleData } from "../providers";
 import type { Store } from "../store/types";
 import { parseJson, uuidParam } from "../validation";
 
@@ -26,7 +26,8 @@ locationRoutes.get("/locations/:id", async (c) => {
   const store = c.get("store");
   const location = await requireLocation(store, uuidParam(c, "id", "Location"));
 
-  const [queries, [latest], recommendations, recent] = await Promise.all([
+  const [organization, queries, [latest], recommendations, recent] = await Promise.all([
+    store.getOrganization(location.organization_id),
     store.listQueries(location.id),
     store.listScans(location.id, 1),
     store.listRecommendations(location.id),
@@ -38,7 +39,7 @@ locationRoutes.get("/locations/:id", async (c) => {
     queries,
     latest_scan: latest ? { ...latest, results: await store.listScanResults(latest.id) } : null,
     window: { size: SCAN_WINDOW, scans: recent.length, cells: summarizeWindow(recent) },
-    surfaces: checkedSurfaces(c.env),
+    surfaces: planSurfaces(checkedSurfaces(c.env), organization?.surfaces ?? null),
     recommendations,
   };
   return c.json(detail);

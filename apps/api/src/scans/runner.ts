@@ -9,7 +9,7 @@ import {
   SURFACES_BY_KIND,
   windowScore,
 } from "@nearcited/shared";
-import type { ProviderRegistry } from "../providers";
+import { type ProviderRegistry, planSurfaces } from "../providers";
 import { type NewScanResult, type Store, StoreError } from "../store/types";
 
 export interface ScanReport {
@@ -77,8 +77,13 @@ export async function runScan(scanId: string, deps: RunScanDeps): Promise<ScanOu
       throw new PermanentScanFailure("Add at least one prompt or keyword before scanning.");
     }
 
+    // A scan checks the surfaces that are set up and that the organization's plan covers. Each
+    // check costs money, so a surface outside the plan is never called.
+    const organization = await store.getOrganization(location.organization_id);
+    const covered = (kind: (typeof queries)[number]["kind"]) =>
+      planSurfaces(SURFACES_BY_KIND[kind], organization?.surfaces ?? null);
     const checks = queries.flatMap((query) =>
-      SURFACES_BY_KIND[query.kind].flatMap((surface) => {
+      covered(query.kind).flatMap((surface) => {
         const provider = providers[surface];
         return provider ? [{ query, provider }] : [];
       }),
