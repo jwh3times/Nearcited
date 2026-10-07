@@ -480,3 +480,61 @@ describe("plan surfaces", () => {
     expect(await runScan(scan.id, { store: worker, providers })).toBe("failed");
   });
 });
+
+describe("the on-page check", () => {
+  const page = (html: string | null) => async () => ({
+    url: "https://joes.example/",
+    status: html === null ? 503 : 200,
+    html,
+    robots_txt: null,
+    noindex_header: false,
+  });
+  const words = Array.from({ length: 60 }, (_, index) => `word${index}`).join(" ");
+  const siteRules = async () =>
+    (await worker.listRecommendations(locationId))
+      .filter((recommendation) => recommendation.status === "open")
+      .map((recommendation) => recommendation.rule)
+      .filter((rule) => rule.startsWith("site:"));
+  const run = async (inspectSite?: Parameters<typeof runScan>[1]["inspectSite"]) => {
+    const scan = await queueScan();
+    return runScan(scan.id, { store: worker, providers, inspectSite });
+  };
+
+  it("turns what the page lacks into recommendations, and clears them when it is fixed", async () => {
+    const inspected: string[] = [];
+    await run(async (website) => {
+      inspected.push(website);
+      return page(`<p>Welcome. ${words}</p>`)();
+    });
+    expect(inspected).toEqual(["https://joes.example"]);
+    expect(await siteRules()).toEqual([
+      "site:names_business",
+      "site:names_city",
+      "site:structured_data",
+    ]);
+
+    await run(
+      page(
+        `<p>Joe's Pizza in Raleigh. ${words}</p><script type="application/ld+json">{"name":"Joe's Pizza","address":"1 Main St"}</script>`,
+      ),
+    );
+    expect(await siteRules()).toEqual([]);
+  });
+
+  it("does not fail the scan when the site is down or the fetch throws", async () => {
+    expect(await run(page(null))).toBe("succeeded");
+    expect(await siteRules()).toEqual(["site:reachable"]);
+
+    expect(
+      await run(async () => {
+        throw new Error("connection reset");
+      }),
+    ).toBe("succeeded");
+    expect(await siteRules()).toEqual(["site:reachable"]);
+  });
+
+  it("says nothing about the site when it is not asked to look", async () => {
+    await run();
+    expect(await siteRules()).toEqual([]);
+  });
+});

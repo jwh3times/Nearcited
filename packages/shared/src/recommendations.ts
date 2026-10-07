@@ -1,6 +1,7 @@
 import { hostOf } from "./analysis";
-import { CITING_SURFACES, SURFACE_LABELS, type Surface } from "./schemas";
+import { CITING_SURFACES, type SiteCheck, SURFACE_LABELS, type Surface } from "./schemas";
 import { summarizeBySurface } from "./scoring";
+import { SITE_CHECKS } from "./site";
 import { summarizeSources } from "./sources";
 
 export interface DerivedRecommendation {
@@ -57,10 +58,14 @@ function mostNamed(results: readonly ResultFacts[], limit: number): string[] {
  * - `source:<host>`: a site the answers keep citing, where no answer that cited it named the
  *   business. Clears when an answer that cites the site names the business.
  * - `own_site_uncited`: no answer cited the business's own website. Clears when one does.
+ * - `site:<check>`: the on-page check of the business's home page found something an assistant
+ *   cannot read past. Clears when the next scan's fetch of the page passes that check. `site` is
+ *   null when the page was not checked, which makes no claim either way.
  */
 export function deriveRecommendations(
   location: LocationFacts,
   results: readonly ResultFacts[],
+  site: SiteCheck | null = null,
 ): DerivedRecommendation[] {
   const recommendations: DerivedRecommendation[] = [];
 
@@ -120,6 +125,20 @@ export function deriveRecommendations(
       rule: "own_site_uncited",
       title: "Assistants are not reading your website",
       detail: `None of the ${answers.length} assistant answers cited ${ownHost}. Make sure its home page says in plain text what the business does and where, so there is something to quote. This clears when an answer cites the site.`,
+    });
+  }
+
+  for (const check of site?.checks ?? []) {
+    if (check.passed) continue;
+    const { title, fix } = SITE_CHECKS[check.id];
+    const blocked =
+      check.id === "crawlers_allowed" && site?.blocked_crawlers.length
+        ? ` Blocked: ${site.blocked_crawlers.join(", ")}.`
+        : "";
+    recommendations.push({
+      rule: `site:${check.id}`,
+      title,
+      detail: `${fix}${blocked} This clears when the next scan reads the page and finds it fixed.`,
     });
   }
 

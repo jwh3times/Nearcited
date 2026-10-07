@@ -216,6 +216,35 @@ later scan that acting on it worked, and that condition must be the same one tha
 firing, because `complete_scan()` resolves a recommendation whose rule no longer fires. Neither
 rule claims that an action causes an assistant to name a business.
 
+## The on-page check
+
+A scan, and the first prompt of an audit, also read the business's own home page. The split is the
+same as for providers: `fetchSite` (`apps/api/src/site/fetch.ts`) only fetches and returns a
+`SiteSnapshot`; `analyzeSite` (`packages/shared/src/site.ts`) decides what it means and returns a
+`SiteCheck`, a fixed list of pass or fail checks.
+
+| Check | Passes when |
+| --- | --- |
+| `reachable` | The home page answers 200 with HTML. When it does not, this is the only check reported. |
+| `crawlers_allowed` | `robots.txt` does not shut the assistants' search crawlers (`ANSWER_CRAWLERS`) out of the whole site. Crawlers that gather training data are not checked. |
+| `indexable` | No `noindex` in a robots meta tag or the `X-Robots-Tag` header. |
+| `text_content` | The page has at least `MIN_PAGE_WORDS` words with scripts, styles and tags removed. Nothing is rendered, because the crawlers mostly do not run scripts. |
+| `names_business` | The title or text contains the business name, matched the way answers are matched. |
+| `names_city` | The same for the city. Left out when the location has none. |
+| `structured_data` | A JSON-LD block gives something both a `name` and an `address`. |
+
+Each failed check becomes a `site:<check>` recommendation, which clears when a later scan's fetch
+passes it. A site that will not load never fails the scan; it is the finding. With no
+`inspectSite` given to the runner (a deployment on sample data, or a test), no claim is made
+about the site and no site rule fires. Nothing is stored for a location beyond those
+recommendations; an audit keeps the whole `SiteCheck` in its first prompt's part and the page
+shows it as a checklist.
+
+The address is typed by a user, so the fetch treats it as hostile: `http` and `https` on default
+ports only, no IP addresses or internal names, every redirect checked the same way before it is
+followed (at most four), an eight second timeout, and the body cut off at 600 kB. It sends
+`User-Agent: NearcitedBot/1.0` and makes at most ten requests.
+
 ## Shareable audits
 
 An audit is a one-off report for a business with no account (`packages/shared/src/audit.ts`). It

@@ -1,9 +1,11 @@
 import {
   type AuditJob,
   analyzeObservation,
+  analyzeSite,
   buildAuditCell,
   type Location,
   type ScoreWeights,
+  type SiteSnapshot,
   SURFACES_BY_KIND,
   type TrackedQuery,
 } from "@nearcited/shared";
@@ -20,6 +22,8 @@ export interface RunAuditDeps {
   sampleData: boolean;
   /** When set, live checks cannot run on this build, and the audit fails with this reason. */
   unavailable?: string;
+  /** Fetches the business's own website for the on-page check. Without it, no check is made. */
+  inspectSite?: (website: string) => Promise<SiteSnapshot>;
   now?: () => Date;
 }
 
@@ -115,7 +119,24 @@ export async function runAuditPart(
         return buildAuditCell(surface, findings, deps.weights, audit.website);
       }),
     );
-    await store.recordAuditPart(auditId, promptIndex, { cells });
+    // The website is checked once per audit, alongside the first prompt. A page that cannot be
+    // fetched is a finding, not a failure, so this never throws.
+    const site =
+      promptIndex === 0 && audit.website && deps.inspectSite
+        ? analyzeSite(
+            await deps.inspectSite(audit.website).catch(
+              (): SiteSnapshot => ({
+                url: audit.website ?? "",
+                status: null,
+                html: null,
+                robots_txt: null,
+                noindex_header: false,
+              }),
+            ),
+            { name: audit.business_name, city: audit.city },
+          )
+        : null;
+    await store.recordAuditPart(auditId, promptIndex, site ? { cells, site } : { cells });
     return "done";
   } catch (error) {
     await store.failAudit(auditId, error instanceof Error ? error.message : String(error));

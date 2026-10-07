@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { Finding } from "./analysis";
-import { SourceSummarySchema, type Surface, SurfaceSchema } from "./schemas";
+import { SiteCheckSchema, SourceSummarySchema, type Surface, SurfaceSchema } from "./schemas";
 import { positionWeight } from "./scoring";
 import { mergeSources, summarizeSources } from "./sources";
 import { defaultTuning, type ScoreWeights } from "./tuning";
@@ -36,6 +36,8 @@ export type AuditCell = z.infer<typeof AuditCellSchema>;
 /** One prompt's results across the assistants. Stored as each prompt finishes. */
 export const AuditPartSchema = z.object({
   cells: z.array(AuditCellSchema),
+  /** The on-page check of the business's website. Made once, with the first prompt. */
+  site: SiteCheckSchema.nullish(),
 });
 export type AuditPart = z.infer<typeof AuditPartSchema>;
 
@@ -85,6 +87,8 @@ export const PublicAuditSchema = z.object({
   prompts: z.array(z.object({ text: z.string(), cells: z.array(AuditCellSchema).nullable() })),
   /** The sites the answers cited across the whole report, most cited first. */
   sources: z.array(SourceSummarySchema),
+  /** The on-page check of the business's website. Null when it has none, or was not checked. */
+  site: SiteCheckSchema.nullable(),
   created_at: Timestamp,
   expires_at: Timestamp,
 });
@@ -159,6 +163,7 @@ export function toPublicAudit(stored: StoredAudit): PublicAudit {
     sources: mergeSources(
       prompts.flatMap((prompt) => (prompt.cells ?? []).map((cell) => cell.sources)),
     ),
+    site: Object.values(stored.parts).find((part) => part.site)?.site ?? null,
     created_at: stored.created_at,
     expires_at: stored.expires_at,
   };

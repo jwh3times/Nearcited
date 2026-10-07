@@ -61,7 +61,8 @@ export function normalizeName(name: string): string {
   return tokens.join(" ");
 }
 
-function containsTokenRun(haystack: string, needle: string): boolean {
+/** Whether `needle` appears in `haystack` as whole words in a row. Both already normalised. */
+export function containsTokenRun(haystack: string, needle: string): boolean {
   if (!needle) return false;
   return ` ${haystack} `.includes(` ${needle} `);
 }

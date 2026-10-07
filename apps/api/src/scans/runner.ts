@@ -1,11 +1,14 @@
 import {
   analyzeObservation,
+  analyzeSite,
   deriveRecommendations,
   type Location,
   poolWindow,
   SCAN_WINDOW,
   type Scan,
   type ScoreWeights,
+  type SiteCheck,
+  type SiteSnapshot,
   SURFACES_BY_KIND,
   windowScore,
 } from "@nearcited/shared";
@@ -34,6 +37,11 @@ export interface RunScanDeps {
   /** Whether the providers serve generated sample data. Recorded on the scan. */
   sampleData?: boolean;
   now?: () => Date;
+  /**
+   * Fetches a location's own website for the on-page check. Left out where no real page should be
+   * fetched, such as a deployment serving sample data; the scan then makes no claim about the site.
+   */
+  inspectSite?: (website: string) => Promise<SiteSnapshot>;
   /** Called after a scheduled scan succeeds. A failure here is logged and does not fail the scan. */
   notify?: (report: ScanReport) => Promise<void>;
 }
@@ -112,10 +120,26 @@ export async function runScan(scanId: string, deps: RunScanDeps): Promise<ScanOu
     const scans: NewScanResult[][] = [results, ...earlier];
     const pooled = poolWindow(scans);
     const score = windowScore(scans, deps.weights);
+
+    // The on-page check never fails a scan: a site that will not load is itself the finding.
+    let site: SiteCheck | null = null;
+    if (deps.inspectSite && location.website) {
+      const snapshot = await deps.inspectSite(location.website).catch(
+        (): SiteSnapshot => ({
+          url: location.website ?? "",
+          status: null,
+          html: null,
+          robots_txt: null,
+          noindex_header: false,
+        }),
+      );
+      site = analyzeSite(snapshot, location);
+    }
+
     await store.completeScan(scanId, {
       score,
       results,
-      recommendations: deriveRecommendations(location, pooled),
+      recommendations: deriveRecommendations(location, pooled, site),
     });
 
     if (scan.trigger === "scheduled" && deps.notify) {
