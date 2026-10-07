@@ -36,12 +36,21 @@ interface DbError {
 const ERROR_KINDS: Record<string, StoreErrorKind> = {
   "23505": "conflict", // unique_violation
   "42501": "forbidden", // insufficient_privilege, including a row-level security rejection
+  // Raised by the usage-cap triggers, each with a message written for the user.
+  NC001: "limit", // locations per organization
+  NC002: "limit", // active prompts per location
+  NC003: "limit", // manual scans per day
 };
 
 function fail(action: string, error: DbError): never {
   const kind = ERROR_KINDS[error.code ?? ""] ?? "unexpected";
-  throw new StoreError(kind, `${action}: ${error.message}`, { cause: error });
+  // A limit's message goes to the user as it is. Anything else is for the logs.
+  const message = kind === "limit" ? error.message : `${action}: ${error.message}`;
+  throw new StoreError(kind, message, { cause: error });
 }
+
+const ORGANIZATION_COLUMNS =
+  "id, name, max_locations, max_queries_per_location, max_manual_scans_per_day, created_at";
 
 const LOCATION_COLUMNS =
   "id, organization_id, name, website, phone, address_line, city, region, postal_code, country_code, google_place_id, primary_category, scan_frequency, last_scanned_at, created_at";
@@ -56,7 +65,7 @@ export function createSupabaseStore(db: SupabaseClient): Store {
     async listOrganizations() {
       const { data, error } = await db
         .from("organizations")
-        .select("id, name, created_at")
+        .select(ORGANIZATION_COLUMNS)
         .order("created_at");
       if (error) fail("List organizations", error);
       return OrganizationSchema.array().parse(data);

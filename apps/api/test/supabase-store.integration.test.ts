@@ -213,6 +213,25 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
       status: "dismissed",
     });
 
+    // Usage caps come from the database with a message for the user. The organization's own
+    // limits are read back with it, and a member cannot raise them.
+    const [mine] = await aliceStore.listOrganizations();
+    expect(mine).toMatchObject({
+      max_locations: 1,
+      max_queries_per_location: 10,
+      max_manual_scans_per_day: 5,
+    });
+    const {
+      id: _id,
+      organization_id: _org,
+      last_scanned_at: _scanned,
+      created_at: _at,
+      ...input
+    } = location;
+    await expect(
+      aliceStore.createLocation(organization.id, { ...input, name: "Second Shop" }),
+    ).rejects.toMatchObject({ kind: "limit", message: expect.stringContaining("1 location") });
+
     // Retiring a prompt keeps its results; a non-member cannot do it.
     expect(await bobStore.setQueryActive(query.id, false)).toBeNull();
     expect(await aliceStore.setQueryActive(query.id, false)).toMatchObject({

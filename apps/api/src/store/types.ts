@@ -12,7 +12,8 @@ import type {
   TrackedQueryInput,
 } from "@nearcited/shared";
 
-export type StoreErrorKind = "conflict" | "forbidden" | "unexpected";
+/** "limit" is a usage cap reached. Its message is written for the user and safe to show. */
+export type StoreErrorKind = "conflict" | "forbidden" | "limit" | "unexpected";
 
 export class StoreError extends Error {
   constructor(

@@ -421,3 +421,133 @@ describe("worker functions", () => {
     expect(await statuses()).toEqual({ add_website: "open", "absent:gemini": "dismissed" });
   });
 });
+
+describe("usage caps", () => {
+  /** Limits are set by whoever manages plans, never by a member. Here that is the test itself. */
+  const setLimits = (limits: string) =>
+    db.query(`update public.organizations set ${limits} where id = $1`, [orgId]);
+  const addLocation = (name: string) =>
+    as("authenticated", alice, () =>
+      rows<{ id: string }>(
+        "insert into public.locations (organization_id, name, city) values ($1, $2, 'Raleigh') returning id",
+        [orgId, name],
+      ),
+    );
+  const addQuery = (location: string, text: string) =>
+    as("authenticated", alice, () =>
+      rows<{ id: string }>(
+        "insert into public.tracked_queries (location_id, kind, text) values ($1, 'ai_prompt', $2) returning id",
+        [location, text],
+      ),
+    );
+  const manualScan = (location: string) =>
+    as("authenticated", alice, () =>
+      rows<{ id: string }>(
+        "insert into public.scans (location_id, trigger, requested_by) values ($1, 'manual', $2) returning id",
+        [location, alice],
+      ),
+    );
+  let second = "";
+
+  it("start a new organization on the defaults", async () => {
+    const [org] = await rows<Record<string, number>>(
+      "select max_locations, max_queries_per_location, max_manual_scans_per_day from public.organizations where id = $1",
+      [orgId],
+    );
+    expect(org).toEqual({
+      max_locations: 1,
+      max_queries_per_location: 10,
+      max_manual_scans_per_day: 5,
+    });
+  });
+
+  it("refuse a location past the limit, naming the limit", async () => {
+    await expect(addLocation("Second Shop")).rejects.toThrow(/can have 1 location /);
+
+    await setLimits("max_locations = 2");
+    const [location] = await addLocation("Second Shop");
+    second = location?.id ?? "";
+    expect(second).not.toBe("");
+    await expect(addLocation("Third Shop")).rejects.toThrow(/can have 2 locations /);
+  });
+
+  it("tell a non-member they are a non-member, not that a limit was reached", async () => {
+    await expect(
+      as("authenticated", bob, () =>
+        db.query(
+          "insert into public.locations (organization_id, name, city) values ($1, 'Planted', 'Raleigh')",
+          [orgId],
+        ),
+      ),
+    ).rejects.toThrow(/row-level security/);
+  });
+
+  it("count only active prompts, so retiring one makes room and restoring one needs it", async () => {
+    await setLimits("max_queries_per_location = 1");
+    const [first] = await addQuery(second, "first prompt");
+    await expect(addQuery(second, "second prompt")).rejects.toThrow(/can have 1 active prompt /);
+
+    const retire = (active: boolean) =>
+      as("authenticated", alice, () =>
+        db.query("update public.tracked_queries set is_active = $1 where id = $2", [
+          active,
+          first?.id,
+        ]),
+      );
+    await retire(false);
+    await addQuery(second, "second prompt");
+    await expect(retire(true)).rejects.toThrow(/can have 1 active prompt /);
+  });
+
+  it("limit manual scans across the organization, and leave scheduled scans alone", async () => {
+    const [{ used } = { used: 0 }] = await rows<{ used: number }>(
+      `select count(*)::int as used from public.scans s join public.locations l on l.id = s.location_id
+       where l.organization_id = $1 and s.trigger = 'manual' and s.requested_by is not null`,
+      [orgId],
+    );
+    await setLimits(`max_manual_scans_per_day = ${used}`);
+    await expect(manualScan(second)).rejects.toThrow(/manual scans? in 24 hours/);
+
+    // The schedule is not a member asking, so it is not counted.
+    const [scheduled] = await as("service_role", null, () =>
+      rows<{ id: string }>(
+        "insert into public.scans (location_id, trigger) values ($1, 'scheduled') returning id",
+        [second],
+      ),
+    );
+    expect(scheduled?.id).toBeTruthy();
+    await db.query("update public.scans set status = 'failed' where id = $1", [scheduled?.id]);
+
+    await setLimits(`max_manual_scans_per_day = ${used + 1}`);
+    const [allowed] = await manualScan(second);
+    expect(allowed?.id).toBeTruthy();
+  });
+
+  it("cannot be raised by a member, who can still rename the organization", async () => {
+    for (const column of [
+      "max_locations",
+      "max_queries_per_location",
+      "max_manual_scans_per_day",
+    ]) {
+      await expect(
+        as("authenticated", alice, () =>
+          db.query(`update public.organizations set ${column} = 999 where id = $1`, [orgId]),
+        ),
+        column,
+      ).rejects.toThrow(/permission denied/);
+    }
+    const [renamed] = await as("authenticated", alice, () =>
+      rows<{ name: string }>(
+        "update public.organizations set name = 'Renamed' where id = $1 returning name",
+        [orgId],
+      ),
+    );
+    expect(renamed?.name).toBe("Renamed");
+  });
+
+  it("keep the trigger functions closed to callers", async () => {
+    await expect(
+      as("authenticated", alice, () => db.query("select public.enforce_location_limit()")),
+    ).rejects.toThrow(/permission denied|trigger/);
+  });
+});

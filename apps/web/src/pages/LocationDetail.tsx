@@ -38,6 +38,8 @@ export function LocationDetail() {
   });
 
   const history = useQuery({ queryKey: historyKey, queryFn: () => api.listScans(id) });
+  // Already loaded by the page shell, so this reads the cache.
+  const me = useQuery({ queryKey: ["me"], queryFn: api.me });
 
   const startScan = useMutation({ mutationFn: () => api.startScan(id), onSuccess: refresh });
   const setQueryActive = useMutation({
@@ -67,6 +69,9 @@ export function LocationDetail() {
     surfaces,
     recommendations,
   } = detail.data;
+  const organization = me.data?.organizations.find(
+    (candidate) => candidate.id === location.organization_id,
+  );
   const active = queries.filter((query) => query.is_active);
   const retired = queries.filter((query) => !query.is_active);
   const results = scan?.status === "succeeded" ? scan.results : [];
@@ -128,7 +133,12 @@ export function LocationDetail() {
         )}
         {results.length > 0 && <WindowNote scans={scanWindow.scans} size={scanWindow.size} />}
         <ErrorNote error={setQueryActive.error} />
-        <AddQuery locationId={location.id} onAdded={refresh} />
+        <AddQuery
+          locationId={location.id}
+          onAdded={refresh}
+          used={active.length}
+          allowed={organization?.max_queries_per_location}
+        />
         {retired.length > 0 && (
           <div className="retired">
             <h3>Retired</h3>
@@ -255,7 +265,20 @@ function ScanStatus({ detail }: { detail: Detail }) {
   );
 }
 
-function AddQuery({ locationId, onAdded }: { locationId: string; onAdded: () => unknown }) {
+function AddQuery({
+  locationId,
+  onAdded,
+  used,
+  allowed,
+}: {
+  locationId: string;
+  onAdded: () => unknown;
+  /** Active prompts on this location, and how many its organization allows. */
+  used: number;
+  allowed: number | undefined;
+}) {
+  // The database enforces the limit. This only saves a round trip and says why.
+  const atLimit = allowed !== undefined && used >= allowed;
   const [kind, setKind] = useState<QueryKind>("ai_prompt");
   const [text, setText] = useState("");
   const create = useMutation({
@@ -296,10 +319,16 @@ function AddQuery({ locationId, onAdded }: { locationId: string; onAdded: () => 
             onChange={(event) => setText(event.target.value)}
           />
         </label>
-        <button type="submit" className="secondary" disabled={create.isPending}>
+        <button type="submit" className="secondary" disabled={create.isPending || atLimit}>
           {kind === "ai_prompt" ? "Add prompt" : "Add keyword"}
         </button>
       </form>
+      {allowed !== undefined && (
+        <p className="window-note">
+          {used} of {allowed} active prompts used.
+          {atLimit && " Retire one to add another."}
+        </p>
+      )}
       <ErrorNote error={create.error} />
     </>
   );

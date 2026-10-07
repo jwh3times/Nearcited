@@ -45,9 +45,15 @@ export function createApp(deps: AppDeps = { authenticate: authenticateWithSupaba
     if (error instanceof ApiError) {
       return c.json({ error: { code: error.code, message: error.message } }, error.status);
     }
-    if (error instanceof StoreError && error.kind !== "unexpected") {
-      const { status, message } = STORE_ERRORS[error.kind];
-      return c.json({ error: { code: error.kind, message } }, status);
+    if (error instanceof StoreError) {
+      if (error.kind === "limit") {
+        // The message names the limit and its value. It is written in the database trigger.
+        return c.json({ error: { code: "limit_reached", message: error.message } }, 409);
+      }
+      if (error.kind !== "unexpected") {
+        const { status, message } = STORE_ERRORS[error.kind];
+        return c.json({ error: { code: error.kind, message } }, status);
+      }
     }
     console.error(`${c.req.method} ${c.req.path} failed`, error);
     return c.json({ error: { code: "internal", message: "Something went wrong." } }, 500);

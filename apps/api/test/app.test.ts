@@ -115,6 +115,12 @@ describe("organizations and locations", () => {
       "Raleigh Pizza Group",
     ]);
     expect(mine.sample_data).toBe(true);
+    // The limits travel with the organization, so the app can show them before they are hit.
+    expect(mine.organizations[0]).toMatchObject({
+      max_locations: expect.any(Number),
+      max_queries_per_location: expect.any(Number),
+      max_manual_scans_per_day: expect.any(Number),
+    });
 
     const theirs = MeSchema.parse(await (await call(bob, "GET", "/me")).json());
     expect(theirs.organizations).toEqual([]);
@@ -283,6 +289,43 @@ describe("organizations and locations", () => {
     expect((await call(alice, "PATCH", `/queries/${query.id}`, {})).status).toBe(422);
   });
 
+  it("refuses a location past the organization's limit, saying what the limit is", async () => {
+    const { location } = await seed();
+    const organization = db.organizations.find((o) => o.id === location.organization_id);
+    if (!organization) throw new Error("no organization");
+    organization.max_locations = 1;
+
+    const response = await call(alice, "POST", `/organizations/${organization.id}/locations`, {
+      name: "Second Shop",
+      city: "Durham",
+    });
+    expect(response.status).toBe(409);
+    const body = (await response.json()) as { error: { code: string; message: string } };
+    expect(body.error.code).toBe("limit_reached");
+    expect(body.error.message).toContain("1 location");
+    expect(db.locations).toHaveLength(1);
+  });
+
+  it("counts only active prompts toward the limit, so retiring one makes room", async () => {
+    const { location, query } = await seed();
+    const organization = db.organizations.find((o) => o.id === location.organization_id);
+    if (!organization) throw new Error("no organization");
+    organization.max_queries_per_location = 1;
+    const add = (text: string) =>
+      call(alice, "POST", `/locations/${location.id}/queries`, { kind: "ai_prompt", text });
+
+    const refused = await add("another prompt");
+    expect(refused.status).toBe(409);
+    expect(await errorCode(refused)).toBe("limit_reached");
+
+    await call(alice, "PATCH", `/queries/${query.id}`, { is_active: false });
+    expect((await add("another prompt")).status).toBe(201);
+    // Restoring the first would make two active, which is over the limit again.
+    const restore = await call(alice, "PATCH", `/queries/${query.id}`, { is_active: true });
+    expect(restore.status).toBe(409);
+    expect(await errorCode(restore)).toBe("limit_reached");
+  });
+
   it("deletes a location", async () => {
     const { location } = await seed();
     expect((await call(alice, "DELETE", `/locations/${location.id}`)).status).toBe(204);
@@ -318,6 +361,23 @@ describe("scans", () => {
     expect(response.status).toBe(409);
     expect(await errorCode(response)).toBe("scan_in_progress");
     expect(sent).toEqual([]);
+  });
+
+  it("refuses a manual scan past the daily limit, and says so", async () => {
+    const { location } = await seed();
+    const organization = db.organizations.find((o) => o.id === location.organization_id);
+    if (!organization) throw new Error("no organization");
+    organization.max_manual_scans_per_day = 1;
+
+    const first = await call(alice, "POST", `/locations/${location.id}/scans`);
+    expect(first.status).toBe(202);
+    const scan = ScanSchema.parse(await first.json());
+    await memoryStore(db, null).failScan(scan.id, "upstream 503");
+
+    const second = await call(alice, "POST", `/locations/${location.id}/scans`);
+    expect(second.status).toBe(409);
+    expect(await errorCode(second)).toBe("limit_reached");
+    expect(sent).toHaveLength(1);
   });
 
   it("refuses a second scan while one is under way", async () => {
