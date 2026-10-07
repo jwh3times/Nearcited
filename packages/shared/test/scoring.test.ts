@@ -141,9 +141,22 @@ describe("the scan window", () => {
       [absent("q1", "chatgpt"), absent("q1", "claude")],
       [check("q1", "chatgpt", 2), check("q1", "claude", 4)],
     ];
+    // The scans are newest first; each cell's history reads oldest first.
     expect(summarizeWindow(scans)).toEqual([
-      { tracked_query_id: "q1", surface: "chatgpt", checks: 3, mentions: 2 },
-      { tracked_query_id: "q1", surface: "claude", checks: 3, mentions: 1 },
+      {
+        tracked_query_id: "q1",
+        surface: "chatgpt",
+        checks: 3,
+        mentions: 2,
+        history: [true, false, true],
+      },
+      {
+        tracked_query_id: "q1",
+        surface: "claude",
+        checks: 3,
+        mentions: 1,
+        history: [true, false, false],
+      },
     ]);
   });
 
@@ -154,7 +167,7 @@ describe("the scan window", () => {
     ];
     // q1 was removed and Claude is no longer checked: neither counts any more.
     expect(summarizeWindow(scans)).toEqual([
-      { tracked_query_id: "q2", surface: "chatgpt", checks: 2, mentions: 2 },
+      { tracked_query_id: "q2", surface: "chatgpt", checks: 2, mentions: 2, history: [true, true] },
     ]);
     expect(poolWindow(scans)).toHaveLength(2);
   });

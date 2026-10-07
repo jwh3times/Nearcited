@@ -168,6 +168,11 @@ sample. The product reports and scores over a window instead (`SCAN_WINDOW`, sev
 
 A new location has one scan in its window and reads "named" or "not named" until more arrive.
 
+Each cell also carries its `history`, whether each check in the window named the business, which
+the grid draws as a strip of dots. The chart of the score over time on the location page plots
+each successful scan's `visibility_score` from `GET /api/locations/:id/scans`, on a fixed 0 to
+100 axis, and only for scans of the same kind as the latest one.
+
 **One scan in flight per location.** A partial unique index on `scans (location_id)` for the
 `queued` and `running` statuses makes a second insert fail, whoever makes it: two requests
 arriving together, or the scheduler racing a manual scan. The API reports it as
