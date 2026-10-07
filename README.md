@@ -93,7 +93,7 @@ AGENTS.md       The rules a change has to follow. CLAUDE.md imports it.
 
 ## Run it locally
 
-Needs Node 22, pnpm 10, and Docker (for the local Supabase stack).
+Needs Node 26, pnpm 10, and Docker (for the local Supabase stack).
 
 ```sh
 pnpm install

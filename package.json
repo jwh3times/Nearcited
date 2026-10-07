@@ -6,7 +6,7 @@
   "description": "Local visibility tracking across Google local search and AI answers",
   "packageManager": "pnpm@10.28.0",
   "engines": {
-    "node": ">=22"
+    "node": ">=26"
   },
   "scripts": {
     "dev": "pnpm --parallel --filter @nearcited/api --filter @nearcited/web dev",
