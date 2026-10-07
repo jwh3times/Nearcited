@@ -109,5 +109,5 @@ The five default labels (`needs-triage`, `needs-info`, `ready-for-agent`, `ready
 
 ### Domain docs
 
-Single-context: `docs/adr/` at the repo root holds the decision records, and one `GLOSSARY.md`
-will join it when the first term is settled. See `docs/agents/domain.md`.
+Single-context: `docs/adr/` at the repo root holds the decision records and one `GLOSSARY.md`
+at the root holds the settled terms. See `docs/agents/domain.md`.
