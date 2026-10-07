@@ -1,4 +1,6 @@
 import type {
+  AuditJob,
+  AuditPart,
   DerivedRecommendation,
   Location,
   LocationInput,
@@ -8,6 +10,7 @@ import type {
   Scan,
   ScanResult,
   ScanTrigger,
+  StoredAudit,
   TrackedQuery,
   TrackedQueryInput,
 } from "@nearcited/shared";
@@ -75,7 +78,17 @@ export interface Store {
   listRecommendations(locationId: string): Promise<Recommendation[]>;
   setRecommendationStatus(id: string, status: RecommendationStatus): Promise<Recommendation | null>;
 
+  /**
+   * A shareable audit by the token in its link, or null when there is none, or it has been
+   * revoked or has expired. Works for any caller, signed in or not: holding the link is the
+   * permission.
+   */
+  getAuditByToken(token: string): Promise<StoredAudit | null>;
+
   // Worker only: these need the secret key.
+  getAudit(id: string): Promise<AuditJob | null>;
+  recordAuditPart(id: string, promptIndex: number, part: AuditPart): Promise<void>;
+  failAudit(id: string, error: string): Promise<void>;
   /** Throws a conflict when a different scan for the same location is already in flight. */
   markScanRunning(id: string, sampleData: boolean): Promise<void>;
   completeScan(id: string, outcome: CompletedScan): Promise<void>;

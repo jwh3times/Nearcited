@@ -1,9 +1,11 @@
 import {
+  AuditJobSchema,
   LocationSchema,
   OrganizationSchema,
   RecommendationSchema,
   ScanResultSchema,
   ScanSchema,
+  StoredAuditSchema,
   TrackedQuerySchema,
 } from "@nearcited/shared";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
@@ -21,6 +23,14 @@ export function createUserClient(env: Env, accessToken: string): SupabaseClient 
     ...clientOptions,
     global: { headers: { Authorization: `Bearer ${accessToken}` } },
   });
+}
+
+/**
+ * A client for a caller who is not signed in. It can reach only what the database grants the
+ * anonymous role, which is the one function that looks an audit up by its token.
+ */
+export function createAnonClient(env: Env): SupabaseClient {
+  return createClient(env.SUPABASE_URL, env.SUPABASE_PUBLISHABLE_KEY, clientOptions);
 }
 
 /** A client that bypasses row-level security. Never construct this on a request path. */
@@ -236,6 +246,41 @@ export function createSupabaseStore(db: SupabaseClient): Store {
         .maybeSingle();
       if (error) fail("Update recommendation", error);
       return data ? RecommendationSchema.parse(data) : null;
+    },
+
+    async getAuditByToken(token) {
+      const { data, error } = await db.rpc("get_audit", { p_token: token });
+      if (error) fail("Get audit by token", error);
+      return data ? StoredAuditSchema.parse(data) : null;
+    },
+
+    async getAudit(id) {
+      const { data, error } = await db
+        .from("audits")
+        .select(
+          "id, business_name, website, city, region, country_code, prompts, samples, status, revoked_at",
+        )
+        .eq("id", id)
+        .maybeSingle();
+      if (error) fail("Get audit", error);
+      return data ? AuditJobSchema.parse(data) : null;
+    },
+
+    async recordAuditPart(id, promptIndex, part) {
+      const { error } = await db.rpc("record_audit_part", {
+        p_audit_id: id,
+        p_index: promptIndex,
+        p_part: part,
+      });
+      if (error) fail("Record audit part", error);
+    },
+
+    async failAudit(id, message) {
+      const { error } = await db
+        .from("audits")
+        .update({ status: "failed", error: message.slice(0, 500) })
+        .eq("id", id);
+      if (error) fail("Fail audit", error);
     },
 
     async markScanRunning(id, sampleData) {

@@ -51,7 +51,20 @@ of dots, one per recent scan, showing how that prompt has moved on that assistan
 Scans start from the "Run scan" button or from a daily schedule, and run on a queue. A scheduled
 scan emails its result to the organization's owners.
 
-[docs/architecture.md](docs/architecture.md) covers the scan flow, the tenancy model, the limits a
+### Shareable audits
+
+An **audit** is a one-off report for a business that has not signed up: up to five prompts, each
+asked several times (five by default) on every assistant that is set up. The page shows a score,
+how often the business was named, who was named instead, and the sources the assistants cited. It
+is read at `/audit/<token>`, with no sign-in; holding the link is the permission. A link stops
+working 30 days after it is made, or when it is revoked.
+
+Only the owner of the deployment can make one, from the command line (see
+[Commands](#commands)). There is deliberately no endpoint, public or signed-in, that creates an
+audit. It costs real money, prompts x samples x assistants answers, and refuses to run on sample
+data or on the default tuning.
+
+[docs/architecture.md](docs/architecture.md) covers the scan flow, how an audit runs, the tenancy model, the limits a
 Worker imposes, and the known gaps.
 
 ## Stack
@@ -78,6 +91,7 @@ packages/
 supabase/
   migrations/   Schema, row-level security, and the SQL functions the Worker calls.
 scripts/        integration-db.sh prepares a plain Postgres for the store integration test.
+                create-audit.mjs creates and revokes shareable audits.
                 bootstrap-private.mjs and sync-main.mjs manage the private companion checkout.
                 prepare-tuning.mjs writes the tuning file the Worker bundles.
 private/        The private companion, when checked out. Ignored here; its own repository.
@@ -165,20 +179,30 @@ templates.
 | `pnpm --filter @nearcited/api test` | One package's tests (`api`, `web`, `shared` or `db`) |
 | `npm run bootstrap:private` | Clone the private companion into `private/` (maintainers) |
 | `npm run sync:main` | Fast-forward `main` here and in `private/` |
+| `npm run audit:create -- --name ... --city ... --prompt ...` | Create a shareable audit and queue it (owner only; see below) |
+| `npm run audit:revoke -- <link or token>` | Make an audit's link stop working |
 | `pnpm test:scripts` | Tests for the scripts in `scripts/` |
 | `pnpm sync:agents` | Regenerate `.claude/skills` and `.codex/agents` from their sources |
 | `pnpm sync:agents:check` | Fail if a generated copy is stale |
 
+`audit:create` takes `--name` and `--city` (required), `--region`, `--country` (default `US`),
+`--website`, `--samples` (1 to 5, default 5) and `--prompt` once for each of 1 to 5 prompts. It
+prints the link. It needs `SUPABASE_SECRET_KEY`, `CLOUDFLARE_API_TOKEN` and
+`CLOUDFLARE_ACCOUNT_ID` in the environment, and reads the Supabase URL, the app URL and the queue
+name from `apps/api/wrangler.jsonc`. Keep the values out of files in this repository; for
+example, run it under `op run` with an env file of 1Password references.
+
 ## API
 
-Every route is under `/api`. All except `/api/health` need a Supabase access token in the
-`Authorization: Bearer` header. Requests run in Postgres as that user, so a row in someone else's
+Every route is under `/api`. All except `/api/health` and `/api/audits/:token` need a Supabase
+access token in the `Authorization: Bearer` header. Requests run in Postgres as that user, so a row in someone else's
 organization reads as missing and returns 404. Payloads are defined in
 `packages/shared/src/schemas.ts`.
 
 | Method and path | What it does |
 | --- | --- |
 | `GET /api/health` | Liveness check. No sign-in needed. |
+| `GET /api/audits/:token` | A shareable audit, for anyone holding its token. 404 if the token is unknown, revoked or past its 30 days. Never cached and not indexed. |
 | `GET /api/me` | The signed-in user and their organizations. |
 | `POST /api/organizations` | Create an organization; the caller becomes its owner. |
 | `GET /api/organizations/:organizationId/locations` | List an organization's locations. |
@@ -205,6 +229,7 @@ The migrations in `supabase/migrations/` define everything.
 | `scans` | One run for a location: its trigger, status, whether it ran on sample data, and the score over the window it closed. |
 | `scan_results` | One row per query and surface: named or not, position, and who else was named. |
 | `recommendations` | What a scan suggested, and whether the user has dealt with it. |
+| `audits` | A shareable audit: the business, its prompts, the results as each prompt finishes, and its token, expiry and revocation. Belongs to no organization, and no API role can read it directly. |
 
 Usage limits are enforced by database triggers, so they hold for the API and for anyone calling
 the database directly. Going over one returns 409 `limit_reached` with a message that names the
@@ -213,6 +238,10 @@ limit and its value.
 Row-level security policies on every table are the authorization layer. Signed-in users can
 insert one kind of scan row, a queued manual scan for a location they can see; results, scores
 and recommendations are written only by the worker, through `complete_scan()`.
+
+`audits` is the exception to "every row belongs to an organization". Its table is closed to
+signed-in and anonymous users alike; the Worker and the owner's script use the secret key, and a
+reader gets one audit only by its token, through the `get_audit()` function.
 
 ## Tests
 
@@ -224,9 +253,9 @@ and recommendations are written only by the worker, through `complete_scan()`.
   also checks `private/tuning.json` against the tuning schema where that file exists.
 - **`apps/api`**: every route against an in-memory store, the scan runner (success, retry,
   permanent failure, reporting, scoring with given weights, refusing live scans on default tuning),
-  the ChatGPT and Claude providers against responses in the shape the real APIs return, the scheduler, and the mock providers.
-- **`apps/web`**: the logic that lays results out as a grid, and the logic behind the chart of the
-  score over time.
+  the ChatGPT and Claude providers against responses in the shape the real APIs return, the scheduler, the audit runner, and the mock providers.
+- **`apps/web`**: the logic that lays results out as a grid, the logic behind the chart of the
+  score over time, and the logic behind the audit page.
 
 ### Integration tests
 

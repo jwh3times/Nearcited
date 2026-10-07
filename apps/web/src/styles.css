@@ -703,3 +703,53 @@ mark {
   background: var(--mark);
   border-color: var(--ink);
 }
+
+/* The shareable audit: the one page a stranger sees. */
+
+.audit h1 {
+  max-width: 22ch;
+}
+
+.audit .lede {
+  max-width: 60ch;
+}
+
+.audit-score {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 2rem;
+  margin-top: 2.5rem;
+  padding: 1.5rem 0;
+  border-block: 1px solid var(--line);
+}
+
+.audit-score p {
+  margin: 0;
+  max-width: 44ch;
+}
+
+.audit-score .audit-score-number {
+  font-family: var(--display);
+  font-size: 4rem;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.audit-score-number span {
+  font-size: var(--step-1);
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.audit-footer {
+  margin-top: 4rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--line);
+}
+
+.audit-footer p {
+  margin: 0 0 0.4rem;
+}

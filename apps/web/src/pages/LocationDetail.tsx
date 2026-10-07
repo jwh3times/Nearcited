@@ -11,9 +11,10 @@ import { type FormEvent, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { ErrorNote } from "../components/ErrorNote";
 import { ScoreTrend } from "../components/ScoreTrend";
+import { Sources } from "../components/Sources";
 import { VisibilityMatrix } from "../components/VisibilityMatrix";
 import { api } from "../lib/api";
-import { cadence, formatDate, listOf, sourceLabel } from "../lib/format";
+import { cadence, formatDate, listOf } from "../lib/format";
 import { markName, tallyCompetitors } from "../lib/matrix";
 
 const inFlight = (scan: ScanWithResults | null) =>
@@ -385,31 +386,6 @@ function Recommendations({
       </ul>
       <ErrorNote error={update.error} />
     </>
-  );
-}
-
-/**
- * The pages an answer cited. Providers' terms require these to be shown, visible and clickable,
- * wherever the answer is, so do not drop this list when changing how excerpts are displayed.
- */
-function Sources({ urls }: { urls: string[] }) {
-  const links = urls.flatMap((url) => {
-    const label = sourceLabel(url);
-    return label ? [{ url, label }] : [];
-  });
-  if (links.length === 0) return null;
-  return (
-    <p className="sources">
-      Sources:{" "}
-      {links.map((link, index) => (
-        <span key={link.url}>
-          {index > 0 && ", "}
-          <a href={link.url} target="_blank" rel="noopener noreferrer nofollow">
-            {link.label}
-          </a>
-        </span>
-      ))}
-    </p>
   );
 }
 

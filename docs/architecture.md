@@ -12,7 +12,8 @@
   Once a day it also asks Postgres which locations are due (`locations_due_for_scan`), creates a
   `scheduled` scan row for each, and puts the scan IDs on the queue.
 - **`queue`**: the consumer. For each scan ID it runs the scan and, for scheduled scans, emails
-  the organization's owners.
+  the organization's owners. A message shaped `{ audit_id, prompt_index }` is one prompt of a
+  shareable audit instead (see "Shareable audits").
 
 ## How a scan runs
 
@@ -191,9 +192,61 @@ Failure handling in `runScan`:
 - **One failed check fails the whole scan.** Scoring a partial scan would move the number for
   reasons unrelated to the business. Revisit this once real providers show how flaky they are.
 
+## Shareable audits
+
+An audit is a one-off report for a business with no account (`packages/shared/src/audit.ts`). It
+exists so a prospect can be shown a measurement without waiting for a window of daily scans to
+fill.
+
+```
+npm run audit:create (owner, secret key)
+        |
+insert audits row (queued) ; one message per prompt: { audit_id, prompt_index }
+        |
+     SCAN_QUEUE  (the same queue as scans)
+        |
+queue consumer: runAuditPart()
+        |
+   the prompt, asked `samples` times on each configured assistant
+        |
+   buildAuditCell() per assistant -> record_audit_part()
+        |
+   ready once every prompt has reported
+```
+
+- **One message per prompt.** Each answer is a subrequest and a whole audit can be dozens, so one
+  prompt per invocation stays inside what a Worker may do. A prompt asked again replaces its
+  earlier result, so redelivery is safe.
+- **Each prompt is asked `samples` times (up to 5) on each assistant.** A cell keeps the number of
+  checks and mentions, the positions, the competitors, one excerpt and the cited pages. The
+  providers and `analyzeObservation` are the ones scans use.
+- **It refuses what a scan refuses.** On sample data, or on the default tuning in live mode, the
+  audit is marked failed with a reason and the message is acknowledged. Any other error is
+  recorded on the audit and rethrown so the queue redelivers; a later success clears it.
+- **A revoked audit is skipped.**
+- **No endpoint creates an audit.** A public one would let anyone spend the provider budget, and
+  a signed-in one would have to decide whose budget it was. The owner creates audits with the
+  secret key, from `scripts/create-audit.mjs`.
+
+**Access is by token through a function, not by row-level security.** An audit belongs to no
+organization, so there is no membership for a policy to test, and the reader has no account. The
+table is closed to `anon` and `authenticated` (row-level security on, every grant revoked, all
+granted to `service_role`). `get_audit(token)` is `SECURITY DEFINER` and callable by `anon`: it
+returns the one audit whose 64-character token matches while it is neither revoked nor past
+`expires_at` (30 days), and only the fields the page shows. Otherwise it returns null, which
+`GET /api/audits/:token` reports as 404 without saying which case it was. The route is registered
+before the sign-in middleware, builds its client from the publishable key (`createAnonClient`),
+never the admin client, and sets `Cache-Control: private, no-store` and
+`X-Robots-Tag: noindex, nofollow`, because the link is the secret. `record_audit_part()` is
+callable by `service_role` only.
+
+The web page at `/audit/:token` is rendered before the sign-in gate and polls while the audit is
+queued.
+
 ## Tenancy
 
-Every row belongs to an organization, and a user reaches a row only through a membership.
+Every row belongs to an organization, and a user reaches a row only through a membership. The
+exception is `audits`, described above.
 
 The API does not check ownership in application code. For each request it builds a Supabase
 client that carries the caller's own access token (`createUserClient`), so Postgres evaluates the

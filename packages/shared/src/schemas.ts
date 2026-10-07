@@ -276,3 +276,10 @@ export type ApiError = z.infer<typeof ApiErrorSchema>;
 /** Body of a message on the scan queue. */
 export const ScanMessageSchema = z.object({ scan_id: Id });
 export type ScanMessage = z.infer<typeof ScanMessageSchema>;
+
+/** A message asking the worker to check one prompt of an audit. One message per prompt. */
+export const AuditMessageSchema = z.object({
+  audit_id: Id,
+  prompt_index: z.number().int().nonnegative(),
+});
+export type AuditMessage = z.infer<typeof AuditMessageSchema>;
