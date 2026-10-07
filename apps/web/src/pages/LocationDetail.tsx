@@ -59,7 +59,14 @@ export function LocationDetail() {
     );
   }
 
-  const { location, queries, latest_scan: scan, window: scanWindow, recommendations } = detail.data;
+  const {
+    location,
+    queries,
+    latest_scan: scan,
+    window: scanWindow,
+    surfaces,
+    recommendations,
+  } = detail.data;
   const active = queries.filter((query) => query.is_active);
   const retired = queries.filter((query) => !query.is_active);
   const results = scan?.status === "succeeded" ? scan.results : [];
@@ -115,6 +122,7 @@ export function LocationDetail() {
             queries={active}
             results={results}
             window={scanWindow}
+            surfaces={surfaces}
             onRetire={(id) => setQueryActive.mutate({ id, active: false })}
           />
         )}

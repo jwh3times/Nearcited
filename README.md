@@ -183,7 +183,7 @@ organization reads as missing and returns 404. Payloads are defined in
 | `POST /api/organizations` | Create an organization; the caller becomes its owner. |
 | `GET /api/organizations/:organizationId/locations` | List an organization's locations. |
 | `POST /api/organizations/:organizationId/locations` | Add a location. |
-| `GET /api/locations/:id` | One location with its queries, latest scan and recommendations. |
+| `GET /api/locations/:id` | One location with its queries, latest scan, rates over recent scans, the surfaces being checked, and recommendations. |
 | `DELETE /api/locations/:id` | Delete a location and its history. |
 | `POST /api/locations/:id/queries` | Add a prompt or keyword to track. Adding one that was retired restores it. |
 | `PATCH /api/queries/:id` | Retire a tracked query, or restore it. Its results are kept. |

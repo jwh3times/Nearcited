@@ -1,4 +1,4 @@
-import type { Tuning } from "@nearcited/shared";
+import type { Surface, Tuning } from "@nearcited/shared";
 import type { Env } from "../env";
 import { createChatGptProvider } from "./chatgpt";
 import { createClaudeProvider } from "./claude";
@@ -47,4 +47,12 @@ export function createLiveProviders(
     });
   }
   return providers;
+}
+
+/** The surfaces `createLiveProviders` would register for this environment, without building them. */
+export function liveSurfaces(env: Pick<Env, "OPENAI_API_KEY" | "ANTHROPIC_API_KEY">): Surface[] {
+  const surfaces: Surface[] = [];
+  if (env.OPENAI_API_KEY) surfaces.push("chatgpt");
+  if (env.ANTHROPIC_API_KEY) surfaces.push("claude");
+  return surfaces;
 }

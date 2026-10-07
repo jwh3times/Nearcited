@@ -249,6 +249,8 @@ export const LocationDetailSchema = z.object({
   queries: z.array(TrackedQuerySchema),
   latest_scan: ScanWithResultsSchema.nullable(),
   window: ScanWindowSchema,
+  /** The surfaces a scan checks right now. The rest have no provider set up. */
+  surfaces: z.array(SurfaceSchema),
   recommendations: z.array(RecommendationSchema),
 });
 export type LocationDetail = z.infer<typeof LocationDetailSchema>;
