@@ -447,3 +447,32 @@ describe("usage caps", () => {
     ).rejects.toMatchObject({ kind: "limit" });
   });
 });
+
+describe("plan surfaces", () => {
+  it("checks only the surfaces the organization's plan covers", async () => {
+    const organization = db.organizations[0];
+    if (!organization) throw new Error("no organization");
+    organization.surfaces = ["chatgpt"];
+    const gemini = vi.fn(providers.gemini?.observe);
+
+    const scan = await queueScan();
+    await runScan(scan.id, {
+      store: worker,
+      providers: { ...providers, gemini: { surface: "gemini", observe: gemini } },
+    });
+
+    // Gemini is set up but not in the plan, so it is never called and never charged for.
+    expect(gemini).not.toHaveBeenCalled();
+    expect((await worker.listScanResults(scan.id)).map((result) => result.surface)).toEqual([
+      "chatgpt",
+    ]);
+  });
+
+  it("fails without retrying when the plan covers no surface that is set up", async () => {
+    const organization = db.organizations[0];
+    if (!organization) throw new Error("no organization");
+    organization.surfaces = ["perplexity"];
+    const scan = await queueScan();
+    expect(await runScan(scan.id, { store: worker, providers })).toBe("failed");
+  });
+});

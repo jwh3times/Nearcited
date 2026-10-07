@@ -220,7 +220,13 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
       max_locations: 1,
       max_queries_per_location: 10,
       max_manual_scans_per_day: 5,
+      scan_every_days: 2,
+      surfaces: null,
     });
+    // A member reads their own organization, the worker reads any, and a non-member reads none.
+    expect(await aliceStore.getOrganization(organization.id)).toEqual(mine);
+    expect(await worker.getOrganization(organization.id)).toEqual(mine);
+    expect(await bobStore.getOrganization(organization.id)).toBeNull();
     const {
       id: _id,
       organization_id: _org,

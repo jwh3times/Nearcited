@@ -120,6 +120,8 @@ describe("organizations and locations", () => {
       max_locations: expect.any(Number),
       max_queries_per_location: expect.any(Number),
       max_manual_scans_per_day: expect.any(Number),
+      scan_every_days: expect.any(Number),
+      surfaces: null,
     });
 
     const theirs = MeSchema.parse(await (await call(bob, "GET", "/me")).json());
@@ -173,6 +175,18 @@ describe("organizations and locations", () => {
     // Sample data covers every surface.
     expect(detail.surfaces).toHaveLength(7);
     expect(detail.recommendations).toEqual([]);
+  });
+
+  it("lists only the surfaces the organization's plan covers", async () => {
+    const { location } = await seed();
+    const organization = db.organizations.find((o) => o.id === location.organization_id);
+    if (!organization) throw new Error("no organization");
+    organization.surfaces = ["claude", "google_local_pack"];
+
+    const detail = LocationDetailSchema.parse(
+      await (await call(alice, "GET", `/locations/${location.id}`)).json(),
+    );
+    expect(detail.surfaces).toEqual(["claude", "google_local_pack"]);
   });
 
   it("returns how often the business was named over the recent successful scans", async () => {

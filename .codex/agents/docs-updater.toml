@@ -117,7 +117,8 @@ the queue or cron settings in `wrangler.jsonc`)
 - `docs/architecture.md`: the cost of one check, when the change measured it. No
   such figure exists yet; the first one goes under "Limits to design around".
 
-**A usage limit added or changed** (the limit columns on `organizations` and their triggers)
+**A usage limit or plan setting added or changed** (the limit and plan columns on
+`organizations`, their triggers, and `locations_due_for_scan`)
 
 - `docs/architecture.md`: Tenancy, the paragraph on usage caps.
 - `README.md`: Data model.

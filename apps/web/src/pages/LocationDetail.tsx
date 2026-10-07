@@ -13,7 +13,7 @@ import { ErrorNote } from "../components/ErrorNote";
 import { ScoreTrend } from "../components/ScoreTrend";
 import { VisibilityMatrix } from "../components/VisibilityMatrix";
 import { api } from "../lib/api";
-import { formatDate, sourceLabel } from "../lib/format";
+import { cadence, formatDate, listOf, sourceLabel } from "../lib/format";
 import { markName, tallyCompetitors } from "../lib/matrix";
 
 const inFlight = (scan: ScanWithResults | null) =>
@@ -112,6 +112,12 @@ export function LocationDetail() {
       </div>
 
       <ScanStatus detail={detail.data} />
+      {organization && location.scan_frequency !== "off" && surfaces.length > 0 && (
+        <p className="window-note">
+          Scanned {cadence(organization.scan_every_days, location.scan_frequency)} on{" "}
+          {listOf(surfaces.map((surface) => SURFACE_LABELS[surface]))}.
+        </p>
+      )}
       <ErrorNote error={startScan.error} />
       {history.data && <ScoreTrend scans={history.data} />}
 

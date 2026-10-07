@@ -45,6 +45,7 @@ export interface CompletedScan {
 export interface Store {
   listOrganizations(): Promise<Organization[]>;
   createOrganization(name: string): Promise<Organization>;
+  getOrganization(id: string): Promise<Organization | null>;
 
   listLocations(organizationId: string): Promise<Location[]>;
   createLocation(organizationId: string, input: LocationInput): Promise<Location>;
