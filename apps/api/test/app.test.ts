@@ -211,7 +211,7 @@ describe("organizations and locations", () => {
       ["GET", `/locations/${location.id}`, undefined],
       ["DELETE", `/locations/${location.id}`, undefined],
       ["POST", `/locations/${location.id}/queries`, { kind: "ai_prompt", text: "x" }],
-      ["DELETE", `/queries/${query.id}`, undefined],
+      ["PATCH", `/queries/${query.id}`, { is_active: false }],
       ["GET", `/locations/${location.id}/scans`, undefined],
       ["POST", `/locations/${location.id}/scans`, undefined],
     ] as const) {
@@ -237,9 +237,43 @@ describe("organizations and locations", () => {
     expect(response.status).toBe(409);
   });
 
-  it("deletes a query and a location", async () => {
+  it("retires a prompt and restores it, without deleting anything", async () => {
+    const { query } = await seed();
+    const retired = await call(alice, "PATCH", `/queries/${query.id}`, { is_active: false });
+    expect(retired.status).toBe(200);
+    expect(await retired.json()).toMatchObject({ id: query.id, is_active: false });
+    expect(db.queries).toHaveLength(1);
+
+    const restored = await call(alice, "PATCH", `/queries/${query.id}`, { is_active: true });
+    expect(await restored.json()).toMatchObject({ id: query.id, is_active: true });
+  });
+
+  it("has no way to delete a prompt", async () => {
+    const { query } = await seed();
+    expect((await call(alice, "DELETE", `/queries/${query.id}`)).status).toBe(404);
+    expect(db.queries).toHaveLength(1);
+  });
+
+  it("restores a retired prompt when the same wording is added again", async () => {
     const { location, query } = await seed();
-    expect((await call(alice, "DELETE", `/queries/${query.id}`)).status).toBe(204);
+    await call(alice, "PATCH", `/queries/${query.id}`, { is_active: false });
+
+    const added = await call(alice, "POST", `/locations/${location.id}/queries`, {
+      kind: query.kind,
+      text: query.text,
+    });
+    expect(added.status).toBe(200);
+    expect(await added.json()).toMatchObject({ id: query.id, is_active: true });
+    expect(db.queries).toHaveLength(1);
+  });
+
+  it("rejects an update that does not say whether the prompt is active", async () => {
+    const { query } = await seed();
+    expect((await call(alice, "PATCH", `/queries/${query.id}`, {})).status).toBe(422);
+  });
+
+  it("deletes a location", async () => {
+    const { location } = await seed();
     expect((await call(alice, "DELETE", `/locations/${location.id}`)).status).toBe(204);
     expect((await call(alice, "DELETE", `/locations/${location.id}`)).status).toBe(404);
   });

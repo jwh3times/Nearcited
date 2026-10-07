@@ -153,8 +153,11 @@ sample. The product reports and scores over a window instead (`SCAN_WINDOW`, sev
   in the window named the business. The latest answer is shown beneath.
 - **The score averages each cell over its own checks, then averages the cells.** A prompt added
   yesterday counts as much as one tracked all week.
-- **The newest scan decides which cells exist.** A removed prompt, or a surface no longer
+- **The newest scan decides which cells exist.** A retired prompt, or a surface no longer
   checked, drops out of the rate at once.
+- **Prompts are retired, never deleted.** Deleting one would delete every result recorded for
+  it. A retired prompt is not scanned; restoring it brings its earlier results back into the
+  window where they still fall inside it. Members have no delete permission on the table.
 - **The window counts scans, not days.** It works unchanged for a location scanned weekly, daily
   or several times a day. Scan frequency is expected to become a plan setting.
 - **Sample scans and real scans never share a window.** Each scan records `sample_data` when the

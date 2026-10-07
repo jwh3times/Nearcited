@@ -124,10 +124,15 @@ export function createSupabaseStore(db: SupabaseClient): Store {
       return TrackedQuerySchema.parse(data);
     },
 
-    async deleteQuery(id) {
-      const { data, error } = await db.from("tracked_queries").delete().eq("id", id).select("id");
-      if (error) fail("Delete tracked query", error);
-      return (data?.length ?? 0) > 0;
+    async setQueryActive(id, active) {
+      const { data, error } = await db
+        .from("tracked_queries")
+        .update({ is_active: active })
+        .eq("id", id)
+        .select("id, location_id, kind, text, is_active, created_at")
+        .maybeSingle();
+      if (error) fail("Update tracked query", error);
+      return data ? TrackedQuerySchema.parse(data) : null;
     },
 
     async createScan(locationId, trigger, requestedBy) {

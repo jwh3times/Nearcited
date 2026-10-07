@@ -4,6 +4,7 @@ import {
   SCAN_WINDOW,
   summarizeWindow,
   TrackedQueryInputSchema,
+  TrackedQueryUpdateSchema,
 } from "@nearcited/shared";
 import { Hono } from "hono";
 import type { AppEnv } from "../app";
@@ -52,13 +53,27 @@ locationRoutes.post("/locations/:id/queries", async (c) => {
   const store = c.get("store");
   const location = await requireLocation(store, uuidParam(c, "id", "Location"));
   const input = await parseJson(c, TrackedQueryInputSchema);
+
+  // Asking for a prompt that was retired brings it back with its history, instead of failing as
+  // a duplicate of a row the user can no longer see in the grid.
+  const retired = (await store.listQueries(location.id)).find(
+    (query) => !query.is_active && query.kind === input.kind && query.text === input.text,
+  );
+  if (retired) {
+    const restored = await store.setQueryActive(retired.id, true);
+    if (restored) return c.json(restored, 200);
+  }
   return c.json(await store.createQuery(location.id, input), 201);
 });
 
-locationRoutes.delete("/queries/:id", async (c) => {
-  const deleted = await c.get("store").deleteQuery(uuidParam(c, "id", "Query"));
-  if (!deleted) throw notFound("Query");
-  return c.body(null, 204);
+// There is no delete: removing a prompt would remove every result recorded for it. Retiring it
+// stops it being scanned and keeps the history.
+locationRoutes.patch("/queries/:id", async (c) => {
+  const id = uuidParam(c, "id", "Query");
+  const { is_active } = await parseJson(c, TrackedQueryUpdateSchema);
+  const updated = await c.get("store").setQueryActive(id, is_active);
+  if (!updated) throw notFound("Query");
+  return c.json(updated);
 });
 
 locationRoutes.patch("/recommendations/:id", async (c) => {

@@ -124,11 +124,11 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
       return query;
     },
 
-    async deleteQuery(id) {
+    async setQueryActive(id, active) {
       const query = db.queries.find((candidate) => candidate.id === id);
-      if (!query || !seesLocation(query.location_id)) return false;
-      db.queries = db.queries.filter((candidate) => candidate.id !== id);
-      return true;
+      if (!query || !seesLocation(query.location_id)) return null;
+      query.is_active = active;
+      return query;
     },
 
     async createScan(locationId, trigger, _requestedBy) {

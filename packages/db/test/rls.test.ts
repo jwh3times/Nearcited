@@ -131,6 +131,25 @@ describe("locations and tracked queries", () => {
     expect(location?.scan_frequency).toBe("daily");
   });
 
+  it("can be retired by a member but not deleted", async () => {
+    const [retired] = await as("authenticated", alice, () =>
+      rows<{ is_active: boolean }>(
+        "update public.tracked_queries set is_active = false where id = $1 returning is_active",
+        [queryId],
+      ),
+    );
+    expect(retired?.is_active).toBe(false);
+    await as("authenticated", alice, () =>
+      db.query("update public.tracked_queries set is_active = true where id = $1", [queryId]),
+    );
+
+    await expect(
+      as("authenticated", alice, () =>
+        db.query("delete from public.tracked_queries where id = $1", [queryId]),
+      ),
+    ).rejects.toThrow(/permission denied/);
+  });
+
   it("cannot be read or written by a non-member", async () => {
     expect(
       await as("authenticated", bob, () => rows("select id from public.locations")),

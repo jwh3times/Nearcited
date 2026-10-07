@@ -67,7 +67,8 @@ export const api = {
   deleteLocation: (id: string) => send("DELETE", `/locations/${id}`),
   createQuery: (locationId: string, input: TrackedQueryInput) =>
     json(TrackedQuerySchema, "POST", `/locations/${locationId}/queries`, input),
-  deleteQuery: (id: string) => send("DELETE", `/queries/${id}`),
+  setQueryActive: (id: string, is_active: boolean) =>
+    json(TrackedQuerySchema, "PATCH", `/queries/${id}`, { is_active }),
   startScan: (locationId: string) => json(ScanSchema, "POST", `/locations/${locationId}/scans`),
   setRecommendationStatus: (id: string, status: RecommendationStatus) =>
     json(RecommendationSchema, "PATCH", `/recommendations/${id}`, { status }),

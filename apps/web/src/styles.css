@@ -556,3 +556,29 @@ mark {
   font-size: var(--step--1);
   max-width: 60ch;
 }
+
+.retired {
+  margin-top: 1.5rem;
+}
+
+.retired h3 {
+  font-size: var(--step--1);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.retired ul {
+  list-style: none;
+  padding: 0;
+  margin: 0.5rem 0 0;
+}
+
+.retired li {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.35rem 0;
+  color: var(--muted);
+  border-top: 1px solid var(--line);
+}

@@ -16,11 +16,11 @@ interface Props {
   queries: TrackedQuery[];
   results: ScanResult[];
   window: ScanWindow;
-  onRemove: (queryId: string) => void;
+  onRetire: (queryId: string) => void;
 }
 
 /** One table per query kind: queries down the side, surfaces across the top. */
-export function VisibilityMatrix({ queries, results, window, onRemove }: Props) {
+export function VisibilityMatrix({ queries, results, window, onRetire }: Props) {
   return (
     <>
       {buildMatrix(queries, results, window).map((group) => (
@@ -51,10 +51,10 @@ export function VisibilityMatrix({ queries, results, window, onRemove }: Props) 
                     <button
                       type="button"
                       className="link"
-                      aria-label={`Remove "${row.query.text}"`}
-                      onClick={() => onRemove(row.query.id)}
+                      aria-label={`Retire "${row.query.text}"`}
+                      onClick={() => onRetire(row.query.id)}
                     >
-                      Remove
+                      Retire
                     </button>
                   </td>
                 </tr>

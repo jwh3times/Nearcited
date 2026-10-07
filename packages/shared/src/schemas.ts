@@ -196,6 +196,12 @@ export const TrackedQueryInputSchema = z.object({
 });
 export type TrackedQueryInput = z.output<typeof TrackedQueryInputSchema>;
 
+/** Retires a prompt (false) or restores it (true). A retired prompt keeps its results. */
+export const TrackedQueryUpdateSchema = z.object({
+  is_active: z.boolean(),
+});
+export type TrackedQueryUpdate = z.output<typeof TrackedQueryUpdateSchema>;
+
 export const RecommendationUpdateSchema = z.object({
   status: RecommendationStatusSchema,
 });

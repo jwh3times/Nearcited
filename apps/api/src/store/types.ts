@@ -52,7 +52,8 @@ export interface Store {
 
   listQueries(locationId: string): Promise<TrackedQuery[]>;
   createQuery(locationId: string, input: TrackedQueryInput): Promise<TrackedQuery>;
-  deleteQuery(id: string): Promise<boolean>;
+  /** Retires a prompt or restores it. Its results are kept either way. */
+  setQueryActive(id: string, active: boolean): Promise<TrackedQuery | null>;
 
   createScan(locationId: string, trigger: ScanTrigger, requestedBy: string | null): Promise<Scan>;
   listScans(locationId: string, limit: number): Promise<Scan[]>;
