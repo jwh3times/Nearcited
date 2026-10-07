@@ -221,8 +221,15 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
       max_queries_per_location: 10,
       max_manual_scans_per_day: 5,
     });
+    const {
+      id: _id,
+      organization_id: _org,
+      last_scanned_at: _scanned,
+      created_at: _at,
+      ...input
+    } = location;
     await expect(
-      aliceStore.createLocation(organization.id, { ...location, name: "Second Shop" }),
+      aliceStore.createLocation(organization.id, { ...input, name: "Second Shop" }),
     ).rejects.toMatchObject({ kind: "limit", message: expect.stringContaining("1 location") });
 
     // Retiring a prompt keeps its results; a non-member cannot do it.
