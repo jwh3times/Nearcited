@@ -3,6 +3,7 @@ import {
   type ScanResult,
   type ScanWindow,
   SURFACE_LABELS,
+  type Surface,
   type TrackedQuery,
 } from "@nearcited/shared";
 import { buildMatrix, type MatrixCell, ordinal } from "../lib/matrix";
@@ -16,14 +17,16 @@ interface Props {
   queries: TrackedQuery[];
   results: ScanResult[];
   window: ScanWindow;
+  /** The surfaces a scan checks right now. */
+  surfaces: readonly Surface[];
   onRetire: (queryId: string) => void;
 }
 
 /** One table per query kind: queries down the side, surfaces across the top. */
-export function VisibilityMatrix({ queries, results, window, onRetire }: Props) {
+export function VisibilityMatrix({ queries, results, window, surfaces, onRetire }: Props) {
   return (
     <>
-      {buildMatrix(queries, results, window).map((group) => (
+      {buildMatrix(queries, results, window, surfaces).map((group) => (
         <div key={group.kind} className="matrix-scroll">
           <table className="matrix">
             <caption>{GROUP_HEADINGS[group.kind]}</caption>
@@ -35,6 +38,7 @@ export function VisibilityMatrix({ queries, results, window, onRetire }: Props) 
                     {SURFACE_LABELS[surface]}
                   </th>
                 ))}
+                {group.surfaces.length === 0 && <th scope="col" className="matrix-surface" />}
                 <td />
               </tr>
             </thead>
@@ -47,6 +51,15 @@ export function VisibilityMatrix({ queries, results, window, onRetire }: Props) 
                       <Cell cell={cell} />
                     </td>
                   ))}
+                  {row.cells.length === 0 && (
+                    <td className="matrix-cell">
+                      <span className="unchecked">
+                        {group.kind === "ai_prompt"
+                          ? "No assistant is set up to check this"
+                          : "Google results are not checked yet"}
+                      </span>
+                    </td>
+                  )}
                   <td className="matrix-remove">
                     <button
                       type="button"

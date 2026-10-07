@@ -1,6 +1,6 @@
-import type { Tuning, TuningSource } from "@nearcited/shared";
+import { SURFACES, type Surface, type Tuning, type TuningSource } from "@nearcited/shared";
 import type { Env } from "../env";
-import { createLiveProviders } from "./live";
+import { createLiveProviders, liveSurfaces } from "./live";
 import { createMockProviders } from "./mock";
 import type { ProviderRegistry } from "./types";
 
@@ -15,6 +15,13 @@ export function usesSampleData(env: Pick<Env, "PROVIDER_MODE">): boolean {
  */
 export function createProviders(env: Env, tuning: Tuning): ProviderRegistry {
   return usesSampleData(env) ? createMockProviders() : createLiveProviders(env, tuning);
+}
+
+/** The surfaces a scan checks in this environment. Sample data covers all of them. */
+export function checkedSurfaces(
+  env: Pick<Env, "PROVIDER_MODE" | "OPENAI_API_KEY" | "ANTHROPIC_API_KEY">,
+): Surface[] {
+  return usesSampleData(env) ? [...SURFACES] : liveSurfaces(env);
 }
 
 /**

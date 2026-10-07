@@ -5,6 +5,7 @@ import {
   type TrackedQuery,
 } from "@nearcited/shared";
 import { describe, expect, it, vi } from "vitest";
+import { checkedSurfaces } from "../src/providers";
 import { createClaudeProvider, parseClaudeContent } from "../src/providers/claude";
 import { createLiveProviders } from "../src/providers/live";
 
@@ -316,5 +317,15 @@ describe("createLiveProviders with Claude", () => {
       defaultTuning,
     );
     expect(Object.keys(both).sort()).toEqual(["chatgpt", "claude"]);
+  });
+
+  it("reports the same surfaces a scan would check", () => {
+    const live = { PROVIDER_MODE: "live" };
+    expect(checkedSurfaces(live)).toEqual([]);
+    expect(checkedSurfaces({ ...live, ANTHROPIC_API_KEY: "key" })).toEqual(["claude"]);
+    const both = { ...live, OPENAI_API_KEY: "key", ANTHROPIC_API_KEY: "key" };
+    expect(checkedSurfaces(both)).toEqual(Object.keys(createLiveProviders(both, defaultTuning)));
+    // Sample data covers every surface, whatever keys are set.
+    expect(checkedSurfaces({ PROVIDER_MODE: "mock" })).toHaveLength(7);
   });
 });

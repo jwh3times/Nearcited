@@ -27,11 +27,17 @@ export interface MatrixGroup {
   rows: MatrixRow[];
 }
 
-/** One table per query kind: a row per query, a column per surface that kind is checked on. */
+/**
+ * One table per query kind: a row per query, a column per surface that kind is checked on.
+ *
+ * When `checked` is given, a surface with no provider set up gets no column, unless the latest
+ * scan still holds a result for it. A column of "Not checked" down every row says nothing.
+ */
 export function buildMatrix(
   queries: TrackedQuery[],
   results: ScanResult[],
   window?: ScanWindow,
+  checked?: readonly Surface[],
 ): MatrixGroup[] {
   const byKey = new Map(
     results.map((result) => [`${result.tracked_query_id}|${result.surface}`, result]),
@@ -41,7 +47,12 @@ export function buildMatrix(
   );
 
   return QUERY_KINDS.map((kind) => {
-    const surfaces = SURFACES_BY_KIND[kind];
+    const surfaces = SURFACES_BY_KIND[kind].filter(
+      (surface) =>
+        !checked ||
+        checked.includes(surface) ||
+        results.some((result) => result.surface === surface),
+    );
     return {
       kind,
       surfaces,

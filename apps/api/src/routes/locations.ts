@@ -9,7 +9,7 @@ import {
 import { Hono } from "hono";
 import type { AppEnv } from "../app";
 import { notFound } from "../errors";
-import { usesSampleData } from "../providers";
+import { checkedSurfaces, usesSampleData } from "../providers";
 import type { Store } from "../store/types";
 import { parseJson, uuidParam } from "../validation";
 
@@ -38,6 +38,7 @@ locationRoutes.get("/locations/:id", async (c) => {
     queries,
     latest_scan: latest ? { ...latest, results: await store.listScanResults(latest.id) } : null,
     window: { size: SCAN_WINDOW, scans: recent.length, cells: summarizeWindow(recent) },
+    surfaces: checkedSurfaces(c.env),
     recommendations,
   };
   return c.json(detail);

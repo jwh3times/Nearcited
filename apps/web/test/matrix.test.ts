@@ -72,6 +72,24 @@ describe("buildMatrix", () => {
     expect(cells.find((cell) => cell.surface === "chatgpt")?.rate).toBeNull();
   });
 
+  it("drops the column of a surface that is not checked, unless it still has a result", () => {
+    const queries = [query("p1", "ai_prompt", "best pizza")];
+    const columns = (results: ScanResult[]) =>
+      buildMatrix(queries, results, undefined, ["chatgpt", "claude"])[0]?.surfaces;
+
+    expect(columns([])).toEqual(["chatgpt", "claude"]);
+    // Gemini is no longer checked, but the latest scan has an answer from it: keep showing it.
+    expect(columns([result("p1", "gemini")])).toEqual(["chatgpt", "gemini", "claude"]);
+  });
+
+  it("keeps a kind whose surfaces are all unchecked, with no columns", () => {
+    const [group] = buildMatrix([query("k1", "search_keyword", "pizza near me")], [], undefined, [
+      "chatgpt",
+    ]);
+    expect(group?.surfaces).toEqual([]);
+    expect(group?.rows[0]?.cells).toEqual([]);
+  });
+
   it("leaves out a kind with no queries", () => {
     expect(buildMatrix([query("p1", "ai_prompt", "best pizza")], [])).toHaveLength(1);
     expect(buildMatrix([], [])).toEqual([]);

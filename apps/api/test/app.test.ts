@@ -164,6 +164,8 @@ describe("organizations and locations", () => {
     expect(detail.queries.map((q) => q.id)).toEqual([query.id]);
     expect(detail.latest_scan).toBeNull();
     expect(detail.window).toEqual({ size: 7, scans: 0, cells: [] });
+    // Sample data covers every surface.
+    expect(detail.surfaces).toHaveLength(7);
     expect(detail.recommendations).toEqual([]);
   });
 
