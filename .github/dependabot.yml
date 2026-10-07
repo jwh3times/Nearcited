@@ -39,6 +39,12 @@ updates:
         update-types:
           - minor
           - patch
+    ignore:
+      # The Node types follow the Node version the project runs on (.nvmrc). Types for a newer
+      # major would let code compile that the runtime cannot run. Raise this with .nvmrc.
+      - dependency-name: "@types/node"
+        update-types:
+          - version-update:semver-major
 
   # Action versions in .github/workflows.
   - package-ecosystem: github-actions
