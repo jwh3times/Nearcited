@@ -1,5 +1,7 @@
-import { SURFACE_LABELS, type Surface } from "./schemas";
+import { hostOf } from "./analysis";
+import { CITING_SURFACES, SURFACE_LABELS, type Surface } from "./schemas";
 import { summarizeBySurface } from "./scoring";
+import { summarizeSources } from "./sources";
 
 export interface DerivedRecommendation {
   /** Stable key. One open recommendation per rule per location. */
@@ -18,7 +20,15 @@ interface ResultFacts {
   surface: Surface;
   mentioned: boolean;
   competitors: string[];
+  cited_urls?: readonly string[];
 }
+
+/** A site has to be cited this often before it is worth a recommendation. */
+const MIN_SOURCE_ANSWERS = 2;
+/** At most this many sites are recommended at once, most cited first. */
+const MAX_SOURCE_RECOMMENDATIONS = 3;
+/** Fewer answers than this say too little to call the business's own site unread. */
+const MIN_ANSWERS_FOR_OWN_SITE = 4;
 
 function mostNamed(results: readonly ResultFacts[], limit: number): string[] {
   const counts = new Map<string, number>();
@@ -34,11 +44,19 @@ function mostNamed(results: readonly ResultFacts[], limit: number): string[] {
 }
 
 /**
- * Rule-based next steps from one scan.
+ * Rule-based next steps from the checks in the scan window.
  *
- * This is deliberately thin. The rules below are things that are checkable from data the product
- * already holds; they are not evidence that acting on them moves visibility. Add a rule only when
- * you can say what would have to be true in a later scan for it to count as having worked.
+ * The rule for adding a rule (issue #14): none ships without a stated way to tell, from a later
+ * scan, that acting on it worked. A rule that no longer fires is resolved by the database, so
+ * "worked" and "stops firing" must be the same condition. Nothing here claims that an action
+ * causes an assistant to name a business; each rule only says what was observed and what would
+ * be observed if it changed.
+ *
+ * - `add_website`, `link_google_profile`: bookkeeping. They clear when the field is filled in.
+ * - `absent:<surface>`: clears when any check on that surface names the business.
+ * - `source:<host>`: a site the answers keep citing, where no answer that cited it named the
+ *   business. Clears when an answer that cites the site names the business.
+ * - `own_site_uncited`: no answer cited the business's own website. Clears when one does.
  */
 export function deriveRecommendations(
   location: LocationFacts,
@@ -78,6 +96,30 @@ export function deriveRecommendations(
         named.length > 0
           ? `${location.name} did not appear in any of ${summary.checks} checks on ${label}. Named instead: ${named.join(", ")}.`
           : `${location.name} did not appear in any of ${summary.checks} checks on ${label}.`,
+    });
+  }
+
+  const answers = results
+    .filter((result) => CITING_SURFACES.includes(result.surface))
+    .map((result) => ({ mentioned: result.mentioned, cited_urls: result.cited_urls ?? [] }));
+  const sources = summarizeSources(answers, location.website, Number.POSITIVE_INFINITY);
+
+  for (const source of sources
+    .filter((site) => !site.own && site.named === 0 && site.answers >= MIN_SOURCE_ANSWERS)
+    .slice(0, MAX_SOURCE_RECOMMENDATIONS)) {
+    recommendations.push({
+      rule: `source:${source.host}`,
+      title: `Check your listing on ${source.host}`,
+      detail: `${source.host} was cited in ${source.answers} of ${answers.length} assistant answers, and none of those answers named ${location.name}. Assistants repeat what the pages they read say, so make sure the business is listed there under the same name and city. This clears when an answer that cites ${source.host} names the business.`,
+    });
+  }
+
+  const ownHost = hostOf(location.website);
+  if (ownHost && answers.length >= MIN_ANSWERS_FOR_OWN_SITE && !sources.some((site) => site.own)) {
+    recommendations.push({
+      rule: "own_site_uncited",
+      title: "Assistants are not reading your website",
+      detail: `None of the ${answers.length} assistant answers cited ${ownHost}. Make sure its home page says in plain text what the business does and where, so there is something to quote. This clears when an answer cites the site.`,
     });
   }
 

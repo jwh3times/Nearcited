@@ -192,6 +192,30 @@ Failure handling in `runScan`:
 - **One failed check fails the whole scan.** Scoring a partial scan would move the number for
   reasons unrelated to the business. Revisit this once real providers show how flaky they are.
 
+## Where the answers come from
+
+Every stored result of an assistant check carries the pages that answer cited. `summarizeSources`
+(`packages/shared/src/sources.ts`) turns a set of answers into one row per site: how many answers
+cited it, how many of those answers named the business, whether it is the business's own site,
+and its most cited pages. A site counts once per answer. The location route computes it over the
+same pool the rates use and returns it in `window.sources`; an audit stores it per cell and
+`toPublicAudit` adds the cells together.
+
+It is a statement about answers, not about pages. "Named in 0 of 6" means none of the six answers
+that cited the site named the business. Nothing fetches the site to see whether the business is
+on it.
+
+Two recommendation rules read it (`packages/shared/src/recommendations.ts`):
+
+- `source:<host>`: a site other than the business's own, cited in at least two answers, where no
+  answer that cited it named the business. At most three, most cited first.
+- `own_site_uncited`: the location has a website and none of at least four answers cited it.
+
+The rule for adding a rule, settled in issue #14: none ships without a stated way to tell from a
+later scan that acting on it worked, and that condition must be the same one that stops the rule
+firing, because `complete_scan()` resolves a recommendation whose rule no longer fires. Neither
+rule claims that an action causes an assistant to name a business.
+
 ## Shareable audits
 
 An audit is a one-off report for a business with no account (`packages/shared/src/audit.ts`). It
@@ -319,9 +343,11 @@ drift.
 
 These are not engineering tasks, and the code cannot answer them.
 
-1. **Does anything the product recommends move the number?** The recommendation rules are things
-   that are checkable, not things shown to work. A tracker that cannot demonstrate improvement
-   is a report people cancel.
+1. **Does anything the product recommends move the number?** Partly answered: every rule now
+   states what a later scan must show for it to have worked, and clears itself when that happens
+   (see "Where the answers come from"). Still open: whether acting on one makes it clear more
+   often than doing nothing, which only real locations over time can show, and whether a higher
+   score means more calls or visits. The score stays a description of visibility.
 2. **What is one sample worth?** Partly answered: results are now rates over the last seven
    scans (see "Rates over a window of scans"), which costs nothing extra per scan. Whether seven
    is enough is still open. Assistant answers vary run to run and by location. One call per

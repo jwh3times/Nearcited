@@ -2,6 +2,7 @@ import { type AuditCell, type PublicAudit, SURFACE_LABELS } from "@nearcited/sha
 import { useQuery } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { Sources } from "../components/Sources";
+import { SourceTable } from "../components/SourceTable";
 import { ApiRequestError, api } from "../lib/api";
 import { auditAnswers, auditCompetitors, auditPending, auditSurfaces } from "../lib/audit";
 import { listOf, plainText } from "../lib/format";
@@ -166,6 +167,18 @@ function Report({ audit }: { audit: PublicAudit }) {
                   </li>
                 ))}
               </ul>
+            </section>
+          )}
+
+          {audit.sources.length > 0 && (
+            <section className="section">
+              <h2>Where the answers came from</h2>
+              <p className="muted audit-note">
+                The sites the assistants read before answering. They mostly repeat what these pages
+                say, so a site that is read often, in answers that never name {audit.business_name},
+                is the first place to check the listing.
+              </p>
+              <SourceTable sources={audit.sources} answers={answers} />
             </section>
           )}
 

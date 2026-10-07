@@ -1,7 +1,10 @@
 import {
+  CITING_SURFACES,
   type LocationDetail,
+  poolWindow,
   RecommendationUpdateSchema,
   SCAN_WINDOW,
+  summarizeSources,
   summarizeWindow,
   TrackedQueryInputSchema,
   TrackedQueryUpdateSchema,
@@ -34,11 +37,20 @@ locationRoutes.get("/locations/:id", async (c) => {
     store.listRecentResults(location.id, SCAN_WINDOW, usesSampleData(c.env)),
   ]);
 
+  // The same pool the rates are counted over, narrowed to the answers that list their sources.
+  const answers = poolWindow(recent).filter((result) => CITING_SURFACES.includes(result.surface));
+
   const detail: LocationDetail = {
     location,
     queries,
     latest_scan: latest ? { ...latest, results: await store.listScanResults(latest.id) } : null,
-    window: { size: SCAN_WINDOW, scans: recent.length, cells: summarizeWindow(recent) },
+    window: {
+      size: SCAN_WINDOW,
+      scans: recent.length,
+      cells: summarizeWindow(recent),
+      answers: answers.length,
+      sources: summarizeSources(answers, location.website),
+    },
     surfaces: planSurfaces(checkedSurfaces(c.env), organization?.surfaces ?? null),
     recommendations,
   };

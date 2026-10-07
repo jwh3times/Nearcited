@@ -89,6 +89,8 @@ describe("runAuditPart", () => {
       positions: [2, 2],
       competitors: [{ name: "Tony's Slice House", count: 3 }],
       cited_urls: ["https://example.com/best-pizza"],
+      // Every answer cited the page; two of the three named the business.
+      sources: [{ host: "example.com", answers: 3, named: 2, own: false }],
     });
     expect(cells[0]?.excerpt).toContain("Joe's Pizza");
   });

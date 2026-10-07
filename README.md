@@ -43,6 +43,13 @@ scan then stores a 0 to 100 visibility score and a list of recommendations.
 An assistant can answer the same prompt differently each time, so one answer is a sample and not
 a measurement. Results are therefore shown as "named in x of y", counted over a location's last
 seven successful scans, and the score and recommendations are worked out over the same window.
+
+An assistant with web search lists the pages it read before answering. Nearcited counts those
+sites over the same window: how many answers cited each one, and how many of those answers named
+the business. A site that is read often in answers that never name the business becomes a
+recommendation, and so does a business website that no answer cites. Each recommendation clears
+by itself when a later scan shows the thing it pointed at has changed. The location page and the
+shareable audit both show the table.
 How often a location is scanned, and on which assistants, are settings on its organization.
 
 The location page charts the score over time, and each cell of the results grid carries a strip
@@ -207,7 +214,7 @@ organization reads as missing and returns 404. Payloads are defined in
 | `POST /api/organizations` | Create an organization; the caller becomes its owner. |
 | `GET /api/organizations/:organizationId/locations` | List an organization's locations. |
 | `POST /api/organizations/:organizationId/locations` | Add a location. |
-| `GET /api/locations/:id` | One location with its queries, latest scan, rates over recent scans, the surfaces being checked, and recommendations. |
+| `GET /api/locations/:id` | One location with its queries, latest scan, rates over recent scans, the sites those answers cited, the surfaces being checked, and recommendations. |
 | `DELETE /api/locations/:id` | Delete a location and its history. |
 | `POST /api/locations/:id/queries` | Add a prompt or keyword to track. Adding one that was retired restores it. |
 | `PATCH /api/queries/:id` | Retire a tracked query, or restore it. Its results are kept. |

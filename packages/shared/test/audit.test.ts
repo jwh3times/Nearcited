@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { Finding } from "../src/analysis";
-import { auditScore, buildAuditCell, type StoredAudit, toPublicAudit } from "../src/audit";
+import {
+  auditScore,
+  buildAuditCell,
+  type StoredAudit,
+  StoredAuditSchema,
+  toPublicAudit,
+} from "../src/audit";
 
 const finding = (position: number | null | "unranked", change: Partial<Finding> = {}): Finding => ({
   mentioned: position !== null,
@@ -56,6 +62,22 @@ describe("buildAuditCell", () => {
     expect(cell.cited_urls).toEqual(["https://tonys.example"]);
   });
 
+  it("counts the sites every answer cited, not only the quoted one", () => {
+    const cell = buildAuditCell(
+      "chatgpt",
+      [
+        finding(null, { cited_urls: ["https://reviews.example/a"] }),
+        finding(1, { cited_urls: ["https://reviews.example/a", "https://joes.example/menu"] }),
+      ],
+      undefined,
+      "https://joes.example",
+    );
+    expect(cell.sources.map((site) => [site.host, site.answers, site.named, site.own])).toEqual([
+      ["reviews.example", 2, 1, false],
+      ["joes.example", 1, 1, true],
+    ]);
+  });
+
   it("uses the weights it is given", () => {
     const flat = { unranked: 1, by_position: [{ through: 10, weight: 0.5 }], beyond: 0 };
     expect(buildAuditCell("chatgpt", [finding(2), finding(2)], flat).weight).toBe(1);
@@ -107,6 +129,22 @@ describe("toPublicAudit", () => {
     expect(toPublicAudit({ ...stored, parts: {} }).score).toBeNull();
   });
 
+  it("adds up the cited sites across prompts and assistants", () => {
+    const sourced = (surface: "chatgpt" | "claude") =>
+      buildAuditCell(surface, [finding(null, { cited_urls: ["https://reviews.example/a"] })]);
+    const audit = toPublicAudit({
+      ...stored,
+      parts: { "0": { cells: [sourced("chatgpt"), sourced("claude")] }, "1": { cells: [cell] } },
+    });
+    expect(audit.sources).toMatchObject([{ host: "reviews.example", answers: 2, named: 0 }]);
+  });
+
+  it("reads an audit stored before sites were counted", () => {
+    const { sources: _sources, ...old } = cell;
+    const parsed = StoredAuditSchema.parse({ ...stored, parts: { "0": { cells: [old] } } });
+    expect(toPublicAudit(parsed).sources).toEqual([]);
+  });
+
   it("passes on nothing the page does not show", () => {
     expect(Object.keys(toPublicAudit(stored)).sort()).toEqual(
       [
@@ -118,6 +156,7 @@ describe("toPublicAudit", () => {
         "region",
         "samples",
         "score",
+        "sources",
         "status",
         "website",
       ].sort(),
