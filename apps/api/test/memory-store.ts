@@ -1,4 +1,6 @@
 import type {
+  AuditJob,
+  AuditPart,
   Location,
   Organization,
   Recommendation,
@@ -25,6 +27,15 @@ export interface MemoryDb {
   emails: Map<string, string>;
   /** IDs of scans a member asked for, which is what the manual-scan limit counts. */
   requestedBy: Set<string>;
+  audits: MemoryAudit[];
+}
+
+export interface MemoryAudit extends AuditJob {
+  token: string;
+  parts: Record<string, AuditPart>;
+  error: string | null;
+  created_at: string;
+  expires_at: string;
 }
 
 export function createMemoryDb(): MemoryDb {
@@ -38,6 +49,7 @@ export function createMemoryDb(): MemoryDb {
     recommendations: [],
     emails: new Map(),
     requestedBy: new Set(),
+    audits: [],
   };
 }
 
@@ -256,6 +268,47 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
       if (!recommendation || !seesLocation(recommendation.location_id)) return null;
       recommendation.status = status;
       return recommendation;
+    },
+
+    async getAuditByToken(token) {
+      // Like the database function, this answers anyone who holds the token.
+      const audit = db.audits.find((candidate) => candidate.token === token);
+      if (!audit || audit.revoked_at !== null || audit.expires_at <= new Date().toISOString()) {
+        return null;
+      }
+      const { business_name, website, city, region, prompts, samples, status } = audit;
+      return {
+        business_name,
+        website,
+        city,
+        region,
+        prompts,
+        samples,
+        status,
+        parts: audit.parts,
+        created_at: audit.created_at,
+        expires_at: audit.expires_at,
+      };
+    },
+
+    async getAudit(id) {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      return db.audits.find((candidate) => candidate.id === id) ?? null;
+    },
+
+    async recordAuditPart(id, promptIndex, part) {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      const audit = db.audits.find((candidate) => candidate.id === id);
+      if (!audit) throw new StoreError("unexpected", `audit ${id} not found`);
+      audit.parts[String(promptIndex)] = part;
+      audit.status = Object.keys(audit.parts).length >= audit.prompts.length ? "ready" : "queued";
+      audit.error = null;
+    },
+
+    async failAudit(id, error) {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      const audit = db.audits.find((candidate) => candidate.id === id);
+      if (audit) Object.assign(audit, { status: "failed", error });
     },
 
     async markScanRunning(id, sampleData) {

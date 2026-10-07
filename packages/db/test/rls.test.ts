@@ -656,3 +656,183 @@ describe("plan settings", () => {
     expect(await as("authenticated", alice, () => rows(select, [cadenceOrg]))).toHaveLength(0);
   });
 });
+
+describe("audits", () => {
+  const part = JSON.stringify({ cells: [] });
+  let auditId: string;
+  let token: string;
+
+  const read = (role: Role, userId: string | null, value: string) =>
+    as(role, userId, async () => {
+      const [row] = await rows<{ audit: Record<string, unknown> | null }>(
+        "select public.get_audit($1) as audit",
+        [value],
+      );
+      return row?.audit ?? null;
+    });
+
+  it("are created with the secret key, each with its own long token", async () => {
+    const [audit] = await as("service_role", null, () =>
+      rows<{ id: string; token: string; status: string; samples: number }>(
+        `insert into public.audits (business_name, city, region, prompts)
+         values ('Joe''s Pizza', 'Raleigh', 'NC', array['best pizza', 'late night food'])
+         returning id, token, status, samples`,
+      ),
+    );
+    expect(audit).toMatchObject({ status: "queued", samples: 5 });
+    expect(audit?.token).toMatch(/^[0-9a-f]{64}$/);
+    auditId = audit?.id ?? "";
+    token = audit?.token ?? "";
+  });
+
+  it("cannot be read, listed, created or changed through the table by anyone else", async () => {
+    for (const [role, user] of [
+      ["anon", null],
+      ["authenticated", alice],
+    ] as const) {
+      await expect(as(role, user, () => db.query("select * from public.audits"))).rejects.toThrow(
+        /permission denied/,
+      );
+      await expect(
+        as(role, user, () =>
+          db.query(
+            "insert into public.audits (business_name, city, prompts) values ('x', 'y', array['z'])",
+          ),
+        ),
+      ).rejects.toThrow(/permission denied/);
+      await expect(
+        as(role, user, () => db.query("update public.audits set revoked_at = null")),
+      ).rejects.toThrow(/permission denied/);
+      await expect(as(role, user, () => db.query("delete from public.audits"))).rejects.toThrow(
+        /permission denied/,
+      );
+    }
+  });
+
+  it("are read by anyone holding the token, and only what the page shows", async () => {
+    for (const [role, user] of [
+      ["anon", null],
+      ["authenticated", bob],
+    ] as const) {
+      const audit = await read(role, user, token);
+      expect(audit).toMatchObject({
+        business_name: "Joe's Pizza",
+        city: "Raleigh",
+        prompts: ["best pizza", "late night food"],
+        samples: 5,
+        status: "queued",
+        parts: {},
+      });
+      expect(Object.keys(audit ?? {}).sort()).toEqual([
+        "business_name",
+        "city",
+        "created_at",
+        "expires_at",
+        "parts",
+        "prompts",
+        "region",
+        "samples",
+        "status",
+        "website",
+      ]);
+    }
+  });
+
+  it("answer nothing for a wrong token, the audit's ID, or a pattern", async () => {
+    expect(await read("anon", null, "ab".repeat(32))).toBeNull();
+    expect(await read("anon", null, auditId)).toBeNull();
+    expect(await read("anon", null, "%")).toBeNull();
+    expect(await read("anon", null, "")).toBeNull();
+  });
+
+  it("take results from the worker only", async () => {
+    for (const [role, user] of [
+      ["anon", null],
+      ["authenticated", alice],
+    ] as const) {
+      await expect(
+        as(role, user, () =>
+          db.query("select public.record_audit_part($1, 0, $2::jsonb)", [auditId, part]),
+        ),
+      ).rejects.toThrow(/permission denied/);
+    }
+  });
+
+  it("become ready when every prompt has reported, in any order, and a repeat changes nothing", async () => {
+    const record = (index: number) =>
+      as("service_role", null, () =>
+        db.query("select public.record_audit_part($1, $2, $3::jsonb)", [auditId, index, part]),
+      );
+
+    await record(1);
+    await record(1);
+    expect(await read("anon", null, token)).toMatchObject({
+      status: "queued",
+      parts: { "1": { cells: [] } },
+    });
+
+    await record(0);
+    const audit = await read("anon", null, token);
+    expect(audit?.status).toBe("ready");
+    expect(Object.keys((audit?.parts ?? {}) as object).sort()).toEqual(["0", "1"]);
+  });
+
+  it("recover from a failure when the retry succeeds", async () => {
+    await as("service_role", null, () =>
+      db.query("update public.audits set status = 'failed', error = 'upstream 503' where id = $1", [
+        auditId,
+      ]),
+    );
+    expect((await read("anon", null, token))?.status).toBe("failed");
+
+    await as("service_role", null, () =>
+      db.query("select public.record_audit_part($1, 0, $2::jsonb)", [auditId, part]),
+    );
+    const [row] = await as("service_role", null, () =>
+      rows<{ status: string; error: string | null }>(
+        "select status, error from public.audits where id = $1",
+        [auditId],
+      ),
+    );
+    expect(row).toEqual({ status: "ready", error: null });
+  });
+
+  it("refuse results for an audit that does not exist", async () => {
+    await expect(
+      as("service_role", null, () =>
+        db.query("select public.record_audit_part($1, 0, $2::jsonb)", [alice, part]),
+      ),
+    ).rejects.toThrow(/not found/);
+  });
+
+  it("stop answering once revoked, and once expired", async () => {
+    const set = (sql: string) =>
+      as("service_role", null, () =>
+        db.query(`update public.audits set ${sql} where id = $1`, [auditId]),
+      );
+
+    await set("revoked_at = now()");
+    expect(await read("anon", null, token)).toBeNull();
+    expect(await read("authenticated", alice, token)).toBeNull();
+
+    await set("revoked_at = null, expires_at = now() - interval '1 second'");
+    expect(await read("anon", null, token)).toBeNull();
+
+    await set("expires_at = now() + interval '1 day'");
+    expect(await read("anon", null, token)).not.toBeNull();
+  });
+
+  it("hold at most five prompts and five samples", async () => {
+    const insert = (prompts: string, samples: number) =>
+      as("service_role", null, () =>
+        db.query(
+          `insert into public.audits (business_name, city, prompts, samples)
+           values ('x', 'y', ${prompts}, $1)`,
+          [samples],
+        ),
+      );
+    await expect(insert("array['a','b','c','d','e','f']", 5)).rejects.toThrow(/check constraint/);
+    await expect(insert("array[]::text[]", 5)).rejects.toThrow(/check constraint/);
+    await expect(insert("array['a']", 6)).rejects.toThrow(/check constraint/);
+  });
+});

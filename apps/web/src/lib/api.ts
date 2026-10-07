@@ -6,6 +6,7 @@ import {
   LocationSchema,
   MeSchema,
   OrganizationSchema,
+  PublicAuditSchema,
   RecommendationSchema,
   type RecommendationStatus,
   ScanSchema,
@@ -55,6 +56,9 @@ async function json<S extends z.ZodType>(
 }
 
 export const api = {
+  /** A shareable audit. The one call that needs no sign-in. */
+  getAudit: (token: string) =>
+    json(PublicAuditSchema, "GET", `/audits/${encodeURIComponent(token)}`),
   me: () => json(MeSchema, "GET", "/me"),
   createOrganization: (name: string) =>
     json(OrganizationSchema, "POST", "/organizations", { name }),

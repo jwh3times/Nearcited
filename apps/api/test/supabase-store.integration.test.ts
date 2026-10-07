@@ -250,5 +250,67 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
     // Deleting the location cascades.
     expect(await aliceStore.deleteLocation(location.id)).toBe(true);
     expect(await aliceStore.getScan(scan.id)).toBeNull();
+
+    // A shareable audit belongs to nobody. The owner's script creates it with the secret key,
+    // the worker fills it in, and anyone holding its token reads it, signed in or not.
+    const admin = client(await token({ role: "service_role" }));
+    const created = await admin
+      .from("audits")
+      .insert({
+        business_name: "Joe's Pizza",
+        city: "Raleigh",
+        prompts: ["best pizza"],
+        samples: 2,
+      })
+      .select("id, token")
+      .single();
+    expect(created.error).toBeNull();
+    const audit = created.data as { id: string; token: string };
+    const visitor = createSupabaseStore(client(await token({ role: "anon" })));
+
+    expect(await worker.getAudit(audit.id)).toMatchObject({
+      id: audit.id,
+      prompts: ["best pizza"],
+      samples: 2,
+      status: "queued",
+      revoked_at: null,
+    });
+    await expect(bobStore.getAudit(audit.id)).rejects.toBeInstanceOf(StoreError);
+    await expect(visitor.recordAuditPart(audit.id, 0, { cells: [] })).rejects.toBeInstanceOf(
+      StoreError,
+    );
+
+    await worker.failAudit(audit.id, "upstream 503");
+    expect(await visitor.getAuditByToken(audit.token)).toMatchObject({ status: "failed" });
+
+    const cell = {
+      surface: "chatgpt" as const,
+      checks: 2,
+      mentions: 1,
+      positions: [2],
+      weight: 0.8,
+      competitors: [{ name: "Tony's Slice House", count: 2 }],
+      excerpt: "Try Tony's Slice House or Joe's Pizza.",
+      cited_urls: ["https://example.com/best-pizza"],
+    };
+    await worker.recordAuditPart(audit.id, 0, { cells: [cell] });
+    for (const reader of [visitor, bobStore]) {
+      expect(await reader.getAuditByToken(audit.token)).toMatchObject({
+        business_name: "Joe's Pizza",
+        status: "ready",
+        parts: { "0": { cells: [cell] } },
+      });
+    }
+    expect(await visitor.getAuditByToken("ab".repeat(32))).toBeNull();
+
+    expect(
+      (
+        await admin
+          .from("audits")
+          .update({ revoked_at: new Date().toISOString() })
+          .eq("id", audit.id)
+      ).error,
+    ).toBeNull();
+    expect(await visitor.getAuditByToken(audit.token)).toBeNull();
   });
 });

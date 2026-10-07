@@ -1,9 +1,10 @@
-import type { ScanMessage } from "@nearcited/shared";
+import type { AuditMessage, ScanMessage } from "@nearcited/shared";
 
 /** Bindings and variables from wrangler.jsonc, plus secrets set with `wrangler secret put`. */
 export interface Env {
   ASSETS: Fetcher;
-  SCAN_QUEUE: Queue<ScanMessage>;
+  /** Carries scans, and the prompts of shareable audits. */
+  SCAN_QUEUE: Queue<ScanMessage | AuditMessage>;
 
   SUPABASE_URL: string;
   /** Safe to expose. Used with the caller's own token, so row-level security applies. */

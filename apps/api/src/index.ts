@@ -1,5 +1,11 @@
-import { type ScanMessage, ScanMessageSchema } from "@nearcited/shared";
+import {
+  type AuditMessage,
+  AuditMessageSchema,
+  type ScanMessage,
+  ScanMessageSchema,
+} from "@nearcited/shared";
 import { createApp } from "./app";
+import { runAuditPart } from "./audits/runner";
 import { buildScanReportEmail, sendEmail } from "./email/report";
 import type { Env } from "./env";
 import { createProviders, liveScansUnavailable, usesSampleData } from "./providers";
@@ -38,6 +44,26 @@ export default {
     const providers = createProviders(env, activeTuning.tuning);
 
     for (const message of batch.messages) {
+      const audit = AuditMessageSchema.safeParse(message.body);
+      if (audit.success) {
+        const { audit_id, prompt_index } = audit.data;
+        try {
+          const outcome = await runAuditPart(audit_id, prompt_index, {
+            store,
+            providers,
+            weights: activeTuning.tuning.score,
+            sampleData: usesSampleData(env),
+            unavailable: liveScansUnavailable(env, activeTuning.source),
+          });
+          console.log(`Audit ${audit_id} prompt ${prompt_index} ${outcome}`);
+          message.ack();
+        } catch (error) {
+          console.error(`Audit ${audit_id} prompt ${prompt_index} failed, will retry`, error);
+          message.retry();
+        }
+        continue;
+      }
+
       const parsed = ScanMessageSchema.safeParse(message.body);
       if (!parsed.success) {
         console.error("Dropping malformed scan message", message.body);
@@ -67,4 +93,4 @@ export default {
       }
     }
   },
-} satisfies ExportedHandler<Env, ScanMessage>;
+} satisfies ExportedHandler<Env, ScanMessage | AuditMessage>;
