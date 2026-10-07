@@ -192,9 +192,16 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
       status: "dismissed",
     });
 
-    // Deletes cascade.
-    expect(await bobStore.deleteQuery(query.id)).toBe(false);
-    expect(await aliceStore.deleteQuery(query.id)).toBe(true);
+    // Retiring a prompt keeps its results; a non-member cannot do it.
+    expect(await bobStore.setQueryActive(query.id, false)).toBeNull();
+    expect(await aliceStore.setQueryActive(query.id, false)).toMatchObject({
+      id: query.id,
+      is_active: false,
+    });
+    expect(await aliceStore.listScanResults(scan.id)).toHaveLength(results.length);
+    expect(await aliceStore.setQueryActive(query.id, true)).toMatchObject({ is_active: true });
+
+    // Deleting the location cascades.
     expect(await aliceStore.deleteLocation(location.id)).toBe(true);
     expect(await aliceStore.getScan(scan.id)).toBeNull();
   });

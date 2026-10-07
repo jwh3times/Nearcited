@@ -182,8 +182,8 @@ organization reads as missing and returns 404. Payloads are defined in
 | `POST /api/organizations/:organizationId/locations` | Add a location. |
 | `GET /api/locations/:id` | One location with its queries, latest scan and recommendations. |
 | `DELETE /api/locations/:id` | Delete a location and its history. |
-| `POST /api/locations/:id/queries` | Add a prompt or keyword to track. |
-| `DELETE /api/queries/:id` | Remove a tracked query. |
+| `POST /api/locations/:id/queries` | Add a prompt or keyword to track. Adding one that was retired restores it. |
+| `PATCH /api/queries/:id` | Retire a tracked query, or restore it. Its results are kept. |
 | `PATCH /api/recommendations/:id` | Mark a recommendation open, done or dismissed. |
 | `GET /api/locations/:id/scans` | The last 30 scans for a location. |
 | `POST /api/locations/:id/scans` | Queue a manual scan. 409 if one is already under way. |
@@ -198,7 +198,7 @@ The migrations in `supabase/migrations/` define everything.
 | `organizations` | The tenant. Every other row belongs to one. |
 | `memberships` | Which users belong to an organization, as `owner`, `admin` or `member`. |
 | `locations` | A business at an address, and how often it is scanned (`off`, `weekly`, `daily`). |
-| `tracked_queries` | The prompts and keywords checked for a location. |
+| `tracked_queries` | The prompts and keywords checked for a location. A retired one is kept, with its results, but not scanned. |
 | `scans` | One run for a location: its trigger, status, whether it ran on sample data, and the score over the window it closed. |
 | `scan_results` | One row per query and surface: named or not, position, and who else was named. |
 | `recommendations` | What a scan suggested, and whether the user has dealt with it. |

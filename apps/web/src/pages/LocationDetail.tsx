@@ -33,7 +33,10 @@ export function LocationDetail() {
   });
 
   const startScan = useMutation({ mutationFn: () => api.startScan(id), onSuccess: refresh });
-  const removeQuery = useMutation({ mutationFn: api.deleteQuery, onSuccess: refresh });
+  const setQueryActive = useMutation({
+    mutationFn: ({ id, active }: { id: string; active: boolean }) => api.setQueryActive(id, active),
+    onSuccess: refresh,
+  });
   const removeLocation = useMutation({
     mutationFn: () => api.deleteLocation(id),
     onSuccess: () => navigate("/"),
@@ -50,6 +53,8 @@ export function LocationDetail() {
   }
 
   const { location, queries, latest_scan: scan, window: scanWindow, recommendations } = detail.data;
+  const active = queries.filter((query) => query.is_active);
+  const retired = queries.filter((query) => !query.is_active);
   const results = scan?.status === "succeeded" ? scan.results : [];
   const competitors = tallyCompetitors(results);
   const excerpts = results.filter((result) => result.answer_excerpt);
@@ -80,7 +85,7 @@ export function LocationDetail() {
           <button
             type="button"
             onClick={() => startScan.mutate()}
-            disabled={scanning || queries.length === 0}
+            disabled={scanning || active.length === 0}
           >
             {scanning ? "Scan under way" : "Run scan"}
           </button>
@@ -92,22 +97,46 @@ export function LocationDetail() {
 
       <section className="section">
         <h2>Where {location.name} is named</h2>
-        {queries.length === 0 ? (
+        {active.length === 0 ? (
           <p className="lede">
             Nothing to check yet. Add a prompt someone would ask an assistant, or a keyword they
             would search on Google, then run a scan.
           </p>
         ) : (
           <VisibilityMatrix
-            queries={queries}
+            queries={active}
             results={results}
             window={scanWindow}
-            onRemove={(queryId) => removeQuery.mutate(queryId)}
+            onRetire={(id) => setQueryActive.mutate({ id, active: false })}
           />
         )}
         {results.length > 0 && <WindowNote scans={scanWindow.scans} size={scanWindow.size} />}
-        <ErrorNote error={removeQuery.error} />
+        <ErrorNote error={setQueryActive.error} />
         <AddQuery locationId={location.id} onAdded={refresh} />
+        {retired.length > 0 && (
+          <div className="retired">
+            <h3>Retired</h3>
+            <p className="window-note">
+              No longer scanned and not counted in the score. Their results are kept, and count
+              again if you restore them.
+            </p>
+            <ul>
+              {retired.map((query) => (
+                <li key={query.id}>
+                  <span>{query.text}</span>
+                  <button
+                    type="button"
+                    className="link"
+                    aria-label={`Restore "${query.text}"`}
+                    onClick={() => setQueryActive.mutate({ id: query.id, active: true })}
+                  >
+                    Restore
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </section>
 
       {competitors.length > 0 && (
