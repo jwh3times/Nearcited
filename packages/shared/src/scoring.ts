@@ -78,6 +78,8 @@ export interface WindowCell {
   surface: Surface;
   checks: number;
   mentions: number;
+  /** Whether each check named the business, oldest first. As long as `checks`. */
+  history: boolean[];
 }
 
 const cellKey = (check: Pick<WindowCheck, "tracked_query_id" | "surface">) =>
@@ -106,9 +108,12 @@ export function summarizeWindow(scans: readonly (readonly WindowCheck[])[]): Win
       surface: check.surface,
       checks: 0,
       mentions: 0,
+      history: [],
     };
     cell.checks += 1;
     if (check.mentioned) cell.mentions += 1;
+    // The pool is newest scan first, so adding at the front leaves the oldest first.
+    cell.history.unshift(check.mentioned);
     cells.set(key, cell);
   }
   return [...cells.values()];

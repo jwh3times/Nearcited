@@ -70,6 +70,8 @@ export const api = {
   setQueryActive: (id: string, is_active: boolean) =>
     json(TrackedQuerySchema, "PATCH", `/queries/${id}`, { is_active }),
   startScan: (locationId: string) => json(ScanSchema, "POST", `/locations/${locationId}/scans`),
+  listScans: (locationId: string) =>
+    json(ScanSchema.array(), "GET", `/locations/${locationId}/scans`),
   setRecommendationStatus: (id: string, status: RecommendationStatus) =>
     json(RecommendationSchema, "PATCH", `/recommendations/${id}`, { status }),
 };

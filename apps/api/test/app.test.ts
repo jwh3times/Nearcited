@@ -202,7 +202,15 @@ describe("organizations and locations", () => {
     expect(detail.window).toEqual({
       size: 7,
       scans: 3,
-      cells: [{ tracked_query_id: query.id, surface: "chatgpt", checks: 3, mentions: 2 }],
+      cells: [
+        {
+          tracked_query_id: query.id,
+          surface: "chatgpt",
+          checks: 3,
+          mentions: 2,
+          history: [true, false, true],
+        },
+      ],
     });
   });
 

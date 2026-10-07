@@ -237,6 +237,8 @@ export const ScanWindowSchema = z.object({
       surface: SurfaceSchema,
       checks: z.number().int().positive(),
       mentions: z.number().int().nonnegative(),
+      /** Whether each check named the business, oldest first. */
+      history: z.array(z.boolean()),
     }),
   ),
 });

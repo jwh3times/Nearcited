@@ -45,6 +45,9 @@ a measurement. Results are therefore shown as "named in x of y", counted over a 
 seven successful scans, and the score and recommendations are worked out over the same window.
 New locations are scanned daily, which fills the window in a week.
 
+The location page charts the score over time, and each cell of the results grid carries a strip
+of dots, one per recent scan, showing how that prompt has moved on that assistant.
+
 Scans start from the "Run scan" button or from a daily schedule, and run on a queue. A scheduled
 scan emails its result to the organization's owners.
 
@@ -218,7 +221,8 @@ and recommendations are written only by the worker, through `complete_scan()`.
 - **`apps/api`**: every route against an in-memory store, the scan runner (success, retry,
   permanent failure, reporting, scoring with given weights, refusing live scans on default tuning),
   the ChatGPT and Claude providers against responses in the shape the real APIs return, the scheduler, and the mock providers.
-- **`apps/web`**: the logic that lays results out as a grid.
+- **`apps/web`**: the logic that lays results out as a grid, and the logic behind the chart of the
+  score over time.
 
 ### Integration tests
 
@@ -357,7 +361,6 @@ pnpm sync:agents
 - **Inviting teammates.** The schema and policies support members and roles; there is no API or
   screen for it.
 - **Switching organizations.** A user in several organizations always sees the first.
-- **Trends.** Scan history is stored and served (`GET /api/locations/:id/scans`) but not charted.
 - **Editing a location** after creating it.
 
 More detail, and the open product questions, in [docs/architecture.md](docs/architecture.md).

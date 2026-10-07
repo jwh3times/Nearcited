@@ -13,7 +13,7 @@ export interface MatrixCell {
   /** Null when this surface was not checked for this query in the scan. */
   result: ScanResult | null;
   /** How often the business was named over the recent scans. Null before the first one. */
-  rate: { checks: number; mentions: number } | null;
+  rate: { checks: number; mentions: number; history: boolean[] } | null;
 }
 
 export interface MatrixRow {

@@ -10,6 +10,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { ErrorNote } from "../components/ErrorNote";
+import { ScoreTrend } from "../components/ScoreTrend";
 import { VisibilityMatrix } from "../components/VisibilityMatrix";
 import { api } from "../lib/api";
 import { formatDate, sourceLabel } from "../lib/format";
@@ -23,7 +24,11 @@ export function LocationDetail() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const queryKey = ["location", id];
-  const refresh = () => queryClient.invalidateQueries({ queryKey });
+  const historyKey = ["location-scans", id];
+  const refresh = () => {
+    queryClient.invalidateQueries({ queryKey });
+    queryClient.invalidateQueries({ queryKey: historyKey });
+  };
 
   const detail = useQuery({
     queryKey,
@@ -31,6 +36,8 @@ export function LocationDetail() {
     // Poll only while a scan is under way.
     refetchInterval: (query) => (inFlight(query.state.data?.latest_scan ?? null) ? 2000 : false),
   });
+
+  const history = useQuery({ queryKey: historyKey, queryFn: () => api.listScans(id) });
 
   const startScan = useMutation({ mutationFn: () => api.startScan(id), onSuccess: refresh });
   const setQueryActive = useMutation({
@@ -94,6 +101,7 @@ export function LocationDetail() {
 
       <ScanStatus detail={detail.data} />
       <ErrorNote error={startScan.error} />
+      {history.data && <ScoreTrend scans={history.data} />}
 
       <section className="section">
         <h2>Where {location.name} is named</h2>

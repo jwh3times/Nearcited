@@ -95,6 +95,7 @@ function Cell({ cell }: { cell: MatrixCell }) {
           </span>
         )}
         <span className="rate-latest">Latest: {latest}</span>
+        <History checks={rate.history} />
       </span>
     );
   }
@@ -109,5 +110,21 @@ function Cell({ cell }: { cell: MatrixCell }) {
   }
   return (
     <span className="named">{result.position === null ? "Named" : ordinal(result.position)}</span>
+  );
+}
+
+/**
+ * How this prompt has moved on this surface: one dot per recent scan, oldest on the left. A
+ * filled dot carries the highlighter, as everywhere else the business was named.
+ */
+function History({ checks }: { checks: boolean[] }) {
+  const words = checks.map((named) => (named ? "named" : "not named")).join(", ");
+  return (
+    <span className="history" role="img" aria-label={`Oldest to latest: ${words}`}>
+      {checks.map((named, index) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: dots are positional and never reorder
+        <span key={index} className={named ? "history-hit" : "history-miss"} />
+      ))}
+    </span>
   );
 }

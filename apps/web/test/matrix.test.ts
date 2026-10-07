@@ -53,7 +53,15 @@ describe("buildMatrix", () => {
       {
         size: 7,
         scans: 3,
-        cells: [{ tracked_query_id: "p1", surface: "gemini", checks: 3, mentions: 2 }],
+        cells: [
+          {
+            tracked_query_id: "p1",
+            surface: "gemini",
+            checks: 3,
+            mentions: 2,
+            history: [true, false, true],
+          },
+        ],
       },
     );
     const cells = group?.rows[0]?.cells ?? [];
