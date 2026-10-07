@@ -162,7 +162,47 @@ describe("organizations and locations", () => {
     expect(detail.location.id).toBe(location.id);
     expect(detail.queries.map((q) => q.id)).toEqual([query.id]);
     expect(detail.latest_scan).toBeNull();
+    expect(detail.window).toEqual({ size: 7, scans: 0, cells: [] });
     expect(detail.recommendations).toEqual([]);
+  });
+
+  it("returns how often the business was named over the recent successful scans", async () => {
+    const { location, query } = await seed();
+    const worker = memoryStore(db, null);
+    const result = (mentioned: boolean) => ({
+      tracked_query_id: query.id,
+      surface: "chatgpt" as const,
+      mentioned,
+      position: mentioned ? 1 : null,
+      competitors: [],
+      cited_urls: [],
+      answer_excerpt: null,
+    });
+    for (const mentioned of [true, false, true]) {
+      const scan = await worker.createScan(location.id, "scheduled", null);
+      await worker.markScanRunning(scan.id, true);
+      await worker.completeScan(scan.id, {
+        score: 0,
+        results: [result(mentioned)],
+        recommendations: [],
+      });
+    }
+    // A failed scan and one of the other kind are not counted.
+    const failed = await worker.createScan(location.id, "scheduled", null);
+    await worker.markScanRunning(failed.id, true);
+    await worker.failScan(failed.id, "upstream 503");
+    const real = await worker.createScan(location.id, "scheduled", null);
+    await worker.markScanRunning(real.id, false);
+    await worker.completeScan(real.id, { score: 0, results: [result(false)], recommendations: [] });
+
+    const detail = LocationDetailSchema.parse(
+      await (await call(alice, "GET", `/locations/${location.id}`)).json(),
+    );
+    expect(detail.window).toEqual({
+      size: 7,
+      scans: 3,
+      cells: [{ tracked_query_id: query.id, surface: "chatgpt", checks: 3, mentions: 2 }],
+    });
   });
 
   it("hides another organization's location as a 404, for reads and writes", async () => {

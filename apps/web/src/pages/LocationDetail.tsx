@@ -49,7 +49,7 @@ export function LocationDetail() {
     );
   }
 
-  const { location, queries, latest_scan: scan, recommendations } = detail.data;
+  const { location, queries, latest_scan: scan, window: scanWindow, recommendations } = detail.data;
   const results = scan?.status === "succeeded" ? scan.results : [];
   const competitors = tallyCompetitors(results);
   const excerpts = results.filter((result) => result.answer_excerpt);
@@ -101,9 +101,11 @@ export function LocationDetail() {
           <VisibilityMatrix
             queries={queries}
             results={results}
+            window={scanWindow}
             onRemove={(queryId) => removeQuery.mutate(queryId)}
           />
         )}
+        {results.length > 0 && <WindowNote scans={scanWindow.scans} size={scanWindow.size} />}
         <ErrorNote error={removeQuery.error} />
         <AddQuery locationId={location.id} onAdded={refresh} />
       </section>
@@ -327,6 +329,24 @@ function Sources({ urls }: { urls: string[] }) {
           </a>
         </span>
       ))}
+    </p>
+  );
+}
+
+/** Says what the counts in the grid are counted over, and why a new location has so few. */
+function WindowNote({ scans, size }: { scans: number; size: number }) {
+  if (scans <= 1) {
+    return (
+      <p className="window-note">
+        One scan so far. An assistant can answer the same prompt differently each time, so these
+        become "named in x of y" as more scans come in, up to the last {size}.
+      </p>
+    );
+  }
+  return (
+    <p className="window-note">
+      Counted over the last {scans} scans{scans < size ? `, building up to ${size}` : ""}. The score
+      is counted the same way.
     </p>
   );
 }

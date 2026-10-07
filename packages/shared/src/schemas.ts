@@ -103,8 +103,11 @@ export const ScanSchema = z.object({
   location_id: Id,
   status: ScanStatusSchema,
   trigger: ScanTriggerSchema,
+  /** Scored over the window of recent scans this one closed, not from this scan alone. */
   visibility_score: z.number().nullable(),
   error: z.string().nullable(),
+  /** True when the scan ran on generated sample data. Set by the worker when it starts. */
+  sample_data: z.boolean(),
   created_at: Timestamp,
   started_at: Timestamp.nullable(),
   finished_at: Timestamp.nullable(),
@@ -182,7 +185,7 @@ export const LocationInputSchema = z.object({
     .default("US"),
   google_place_id: optionalText(200),
   primary_category: optionalText(120),
-  scan_frequency: ScanFrequencySchema.default("weekly"),
+  scan_frequency: ScanFrequencySchema.default("daily"),
 });
 export type LocationInput = z.output<typeof LocationInputSchema>;
 export type LocationFormValues = z.input<typeof LocationInputSchema>;
@@ -216,10 +219,28 @@ export const ScanWithResultsSchema = ScanSchema.extend({
 });
 export type ScanWithResults = z.infer<typeof ScanWithResultsSchema>;
 
+/** How often the business was named, counted over a location's most recent successful scans. */
+export const ScanWindowSchema = z.object({
+  /** The most scans a rate is counted over. */
+  size: z.number().int().positive(),
+  /** How many scans it is counted over so far. Fewer than `size` for a new location. */
+  scans: z.number().int().nonnegative(),
+  cells: z.array(
+    z.object({
+      tracked_query_id: Id,
+      surface: SurfaceSchema,
+      checks: z.number().int().positive(),
+      mentions: z.number().int().nonnegative(),
+    }),
+  ),
+});
+export type ScanWindow = z.infer<typeof ScanWindowSchema>;
+
 export const LocationDetailSchema = z.object({
   location: LocationSchema,
   queries: z.array(TrackedQuerySchema),
   latest_scan: ScanWithResultsSchema.nullable(),
+  window: ScanWindowSchema,
   recommendations: z.array(RecommendationSchema),
 });
 export type LocationDetail = z.infer<typeof LocationDetailSchema>;

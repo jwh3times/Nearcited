@@ -58,12 +58,21 @@ export interface Store {
   listScans(locationId: string, limit: number): Promise<Scan[]>;
   getScan(id: string): Promise<Scan | null>;
   listScanResults(scanId: string): Promise<ScanResult[]>;
+  /**
+   * The results of a location's most recent successful scans, one array per scan, newest first.
+   * Only scans of the given kind: sample scans and real ones are never mixed in one window.
+   */
+  listRecentResults(
+    locationId: string,
+    scans: number,
+    sampleData: boolean,
+  ): Promise<ScanResult[][]>;
 
   listRecommendations(locationId: string): Promise<Recommendation[]>;
   setRecommendationStatus(id: string, status: RecommendationStatus): Promise<Recommendation | null>;
 
   // Worker only: these need the secret key.
-  markScanRunning(id: string): Promise<void>;
+  markScanRunning(id: string, sampleData: boolean): Promise<void>;
   completeScan(id: string, outcome: CompletedScan): Promise<void>;
   failScan(id: string, error: string): Promise<void>;
   listLocationsDueForScan(limit: number): Promise<string[]>;

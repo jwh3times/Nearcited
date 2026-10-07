@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { deriveRecommendations } from "../src/recommendations";
 import { LocationInputSchema } from "../src/schemas";
-import { positionWeight, summarizeBySurface, visibilityScore } from "../src/scoring";
+import {
+  poolWindow,
+  positionWeight,
+  summarizeBySurface,
+  summarizeWindow,
+  visibilityScore,
+  windowScore,
+} from "../src/scoring";
 
 describe("visibilityScore", () => {
   it("is null with nothing to score", () => {
@@ -90,7 +97,7 @@ describe("LocationInputSchema", () => {
       website: null,
       phone: null,
       country_code: "US",
-      scan_frequency: "weekly",
+      scan_frequency: "daily",
     });
   });
 
@@ -101,5 +108,81 @@ describe("LocationInputSchema", () => {
       website: "javascript:alert(1)",
     });
     expect(result.success).toBe(false);
+  });
+});
+
+describe("the scan window", () => {
+  const check = (
+    tracked_query_id: string,
+    surface: "chatgpt" | "claude",
+    position: number | null,
+  ) => ({
+    tracked_query_id,
+    surface,
+    mentioned: position !== null,
+    position,
+  });
+  const absent = (tracked_query_id: string, surface: "chatgpt" | "claude") => ({
+    tracked_query_id,
+    surface,
+    mentioned: false,
+    position: null,
+  });
+
+  it("is empty with no scans", () => {
+    expect(poolWindow([])).toEqual([]);
+    expect(summarizeWindow([])).toEqual([]);
+    expect(windowScore([])).toBeNull();
+  });
+
+  it("counts each cell over every scan in the window", () => {
+    const scans = [
+      [check("q1", "chatgpt", 1), absent("q1", "claude")],
+      [absent("q1", "chatgpt"), absent("q1", "claude")],
+      [check("q1", "chatgpt", 2), check("q1", "claude", 4)],
+    ];
+    expect(summarizeWindow(scans)).toEqual([
+      { tracked_query_id: "q1", surface: "chatgpt", checks: 3, mentions: 2 },
+      { tracked_query_id: "q1", surface: "claude", checks: 3, mentions: 1 },
+    ]);
+  });
+
+  it("lets the newest scan decide which cells exist", () => {
+    const scans = [
+      [check("q2", "chatgpt", 1)],
+      [check("q1", "chatgpt", 1), check("q2", "chatgpt", 1), check("q2", "claude", 1)],
+    ];
+    // q1 was removed and Claude is no longer checked: neither counts any more.
+    expect(summarizeWindow(scans)).toEqual([
+      { tracked_query_id: "q2", surface: "chatgpt", checks: 2, mentions: 2 },
+    ]);
+    expect(poolWindow(scans)).toHaveLength(2);
+  });
+
+  it("scores one scan exactly as a single scan was scored before", () => {
+    const scan = [check("q1", "chatgpt", 2), absent("q1", "claude")];
+    expect(windowScore([scan])).toBe(visibilityScore(scan));
+  });
+
+  it("scores from the rate, so one miss in four does not read as absent", () => {
+    const hit = [check("q1", "chatgpt", 1)];
+    const miss = [absent("q1", "chatgpt")];
+    expect(windowScore([miss, hit, hit, hit])).toBe(75);
+    expect(windowScore([hit, miss, miss, miss])).toBe(25);
+  });
+
+  it("weighs a prompt added yesterday the same as one tracked all week", () => {
+    const scans = [
+      [absent("old", "chatgpt"), check("new", "chatgpt", 1)],
+      [absent("old", "chatgpt")],
+      [absent("old", "chatgpt")],
+    ];
+    // "old" is 0 of 3 and "new" is 1 of 1: the mean of the two cells, not 1 hit in 4 checks.
+    expect(windowScore(scans)).toBe(50);
+  });
+
+  it("uses the weights it is given", () => {
+    const flat = { unranked: 1, by_position: [{ through: 10, weight: 0.5 }], beyond: 0 };
+    expect(windowScore([[check("q1", "chatgpt", 3)]], flat)).toBe(50);
   });
 });

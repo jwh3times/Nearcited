@@ -9,8 +9,8 @@ export interface Email {
 }
 
 export function buildScanReportEmail(report: ScanReport, appUrl: string): Email {
-  const { location, score, results } = report;
-  const lines = summarizeBySurface(results).map(
+  const { location, score, window } = report;
+  const lines = summarizeBySurface(window.results).map(
     (summary) =>
       `  ${SURFACE_LABELS[summary.surface]}: named in ${summary.mentions} of ${summary.checks}`,
   );
@@ -23,7 +23,9 @@ export function buildScanReportEmail(report: ScanReport, appUrl: string): Email 
       "",
       `Visibility score: ${score === null ? "not scored" : `${score} of 100`}`,
       "",
-      "Where it was named:",
+      window.scans > 1
+        ? `Where it was named, over the last ${window.scans} scans:`
+        : "Where it was named:",
       ...lines,
       "",
       `Full results: ${link}`,

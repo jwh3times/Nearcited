@@ -104,6 +104,12 @@ the queue or cron settings in `wrangler.jsonc`)
 - Report that `private/README.md` may need the new field described; leave the editing to the
   caller.
 
+**How results are counted or scored changed** (`packages/shared/src/scoring.ts`, the window in
+`apps/api/src/scans/runner.ts`)
+
+- `docs/architecture.md`: "Rates over a window of scans".
+- `README.md`: "How it works".
+
 **A provider added or changed** (`apps/api/src/providers/`)
 
 - `README.md`: the status line at the top, "What is not built", and the
