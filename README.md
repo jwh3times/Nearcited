@@ -50,6 +50,13 @@ the business. A site that is read often in answers that never name the business 
 recommendation, and so does a business website that no answer cites. Each recommendation clears
 by itself when a later scan shows the thing it pointed at has changed. The location page and the
 shareable audit both show the table.
+
+Each scan also reads the business's own home page the way an assistant's crawler would, without
+running scripts: does it load, does `robots.txt` let the assistants' search crawlers in, is it
+free of `noindex`, does it have text, does that text state the business name and city, and does
+it carry structured business details. Each failed check is a recommendation that clears when a
+later scan finds it fixed. The shareable audit shows the whole checklist. The fetch identifies
+itself as `NearcitedBot` and is skipped while the deployment serves sample data.
 How often a location is scanned, and on which assistants, are settings on its organization.
 
 The location page charts the score over time, and each cell of the results grid carries a strip

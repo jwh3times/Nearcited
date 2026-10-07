@@ -1,6 +1,7 @@
 import { type AuditCell, type PublicAudit, SURFACE_LABELS } from "@nearcited/shared";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect } from "react";
+import { SiteChecklist } from "../components/SiteChecklist";
 import { Sources } from "../components/Sources";
 import { SourceTable } from "../components/SourceTable";
 import { ApiRequestError, api } from "../lib/api";
@@ -179,6 +180,13 @@ function Report({ audit }: { audit: PublicAudit }) {
                 is the first place to check the listing.
               </p>
               <SourceTable sources={audit.sources} answers={answers} />
+            </section>
+          )}
+
+          {audit.site && (
+            <section className="section">
+              <h2>Your website</h2>
+              <SiteChecklist site={audit.site} />
             </section>
           )}
 

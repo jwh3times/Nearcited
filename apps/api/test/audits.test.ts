@@ -118,6 +118,58 @@ describe("runAuditPart", () => {
     expect(audit.status).toBe("ready");
   });
 
+  it("checks the business's website once, with the first prompt", async () => {
+    const audit = addAudit();
+    const inspected: string[] = [];
+    const deps = {
+      store: worker,
+      providers: providers().registry,
+      sampleData: false,
+      inspectSite: async (website: string) => {
+        inspected.push(website);
+        return {
+          url: "https://joes.example/",
+          status: 200,
+          html: "<p>Joe's Pizza</p>",
+          robots_txt: "User-agent: *\nDisallow: /\n",
+          noindex_header: false,
+        };
+      },
+    };
+
+    await runAuditPart(auditId, 1, deps);
+    expect(inspected).toEqual([]);
+    expect(audit.parts["1"]?.site).toBeUndefined();
+
+    await runAuditPart(auditId, 0, deps);
+    expect(inspected).toEqual(["https://joes.example"]);
+    const failed = audit.parts["0"]?.site?.checks.filter((check) => !check.passed);
+    expect(failed?.map((check) => check.id)).toEqual([
+      "crawlers_allowed",
+      "text_content",
+      "names_city",
+      "structured_data",
+    ]);
+  });
+
+  it("reports a website that will not load, and skips the check when there is none", async () => {
+    const audit = addAudit();
+    const deps = {
+      store: worker,
+      providers: providers().registry,
+      sampleData: false,
+      inspectSite: async (): Promise<never> => {
+        throw new Error("connection reset");
+      },
+    };
+    expect(await runAuditPart(auditId, 0, deps)).toBe("done");
+    expect(audit.parts["0"]?.site?.checks).toEqual([{ id: "reachable", passed: false }]);
+
+    audit.website = null;
+    await runAuditPart(auditId, 0, deps);
+    expect(audit.parts["0"]?.site).toBeUndefined();
+  });
+
   it("never builds a report from sample data", async () => {
     const audit = addAudit();
     const { registry, chatgpt } = providers();

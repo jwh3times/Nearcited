@@ -255,6 +255,31 @@ export const SourceSummarySchema = z.object({
 });
 export type SourceSummary = z.infer<typeof SourceSummarySchema>;
 
+export const SITE_CHECK_IDS = [
+  "reachable",
+  "crawlers_allowed",
+  "indexable",
+  "text_content",
+  "names_business",
+  "names_city",
+  "structured_data",
+] as const;
+export type SiteCheckId = (typeof SITE_CHECK_IDS)[number];
+
+/** What the on-page check found on a business's own home page. */
+export const SiteCheckSchema = z.object({
+  /** The address that was read, after redirects. */
+  url: z.string(),
+  status: z.number().int().nullable(),
+  /** In a fixed order. Only `reachable` is present when the page did not load. */
+  checks: z.array(z.object({ id: z.enum(SITE_CHECK_IDS), passed: z.boolean() })),
+  /** The assistants' crawlers the site's robots.txt shuts out. */
+  blocked_crawlers: z.array(z.string()),
+  /** How many words the page has before any script runs. */
+  words: z.number().int().nonnegative(),
+});
+export type SiteCheck = z.infer<typeof SiteCheckSchema>;
+
 /** How often the business was named, counted over a location's most recent successful scans. */
 export const ScanWindowSchema = z.object({
   /** The most scans a rate is counted over. */

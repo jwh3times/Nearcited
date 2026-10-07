@@ -772,3 +772,44 @@ mark {
 .audit-note {
   max-width: 60ch;
 }
+
+/* The on-page check: one line per check, the failures with what to do. */
+
+.site-checks {
+  list-style: none;
+  margin: 1rem 0 0;
+  padding: 0;
+  max-width: 44rem;
+}
+
+.site-checks li {
+  display: flex;
+  gap: 0.75rem;
+  padding: 0.65rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.site-checks p {
+  margin: 0.2rem 0 0;
+  color: var(--muted);
+  font-size: var(--step--1);
+}
+
+.site-mark {
+  flex: none;
+  width: 1.25rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+.site-pass strong {
+  font-weight: 400;
+}
+
+.site-pass .site-mark {
+  color: var(--action);
+}
+
+.site-fail .site-mark {
+  color: var(--danger);
+}

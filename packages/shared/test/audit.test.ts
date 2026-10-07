@@ -145,6 +145,21 @@ describe("toPublicAudit", () => {
     expect(toPublicAudit(parsed).sources).toEqual([]);
   });
 
+  it("carries the website check from whichever prompt made it", () => {
+    const site = {
+      url: "https://joes.example/",
+      status: 200,
+      checks: [{ id: "reachable" as const, passed: true }],
+      blocked_crawlers: [],
+      words: 120,
+    };
+    expect(toPublicAudit(stored).site).toBeNull();
+    expect(
+      toPublicAudit({ ...stored, parts: { "1": { cells: [cell] }, "0": { cells: [cell], site } } })
+        .site,
+    ).toEqual(site);
+  });
+
   it("passes on nothing the page does not show", () => {
     expect(Object.keys(toPublicAudit(stored)).sort()).toEqual(
       [
@@ -156,6 +171,7 @@ describe("toPublicAudit", () => {
         "region",
         "samples",
         "score",
+        "site",
         "sources",
         "status",
         "website",

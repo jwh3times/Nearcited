@@ -11,6 +11,7 @@ import type { Env } from "./env";
 import { createProviders, liveScansUnavailable, usesSampleData } from "./providers";
 import { runScan } from "./scans/runner";
 import { enqueueDueScans, failStaleScans } from "./scans/schedule";
+import { fetchSite } from "./site/fetch";
 import { createAdminClient, createSupabaseStore } from "./store/supabase";
 import { activeTuning } from "./tuning";
 
@@ -54,6 +55,7 @@ export default {
             weights: activeTuning.tuning.score,
             sampleData: usesSampleData(env),
             unavailable: liveScansUnavailable(env, activeTuning.source),
+            inspectSite: fetchSite,
           });
           console.log(`Audit ${audit_id} prompt ${prompt_index} ${outcome}`);
           message.ack();
@@ -77,6 +79,8 @@ export default {
           weights: activeTuning.tuning.score,
           unavailable: liveScansUnavailable(env, activeTuning.source),
           sampleData: usesSampleData(env),
+          // A deployment on sample data makes no real requests, so it does not fetch sites either.
+          inspectSite: usesSampleData(env) ? undefined : fetchSite,
           // Without a Resend key there is nobody to tell, so skip the owner lookup too.
           notify: env.RESEND_API_KEY
             ? async (report) => {

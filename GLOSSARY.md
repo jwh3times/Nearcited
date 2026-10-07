@@ -14,3 +14,6 @@ system works; this file only settles vocabulary.
   permission to read the audit. See `docs/adr/0002-audits-are-read-by-token.md`.
 - **Source**: a site an assistant cited in an answer. Counted per answer, with how many of the
   answers that cited it named the business. It says nothing about what the site's pages contain.
+- **On-page check**: reading a business's own home page as an assistant's crawler would, without
+  running scripts, and reporting a fixed list of pass or fail checks. See "The on-page check" in
+  `docs/architecture.md`.
