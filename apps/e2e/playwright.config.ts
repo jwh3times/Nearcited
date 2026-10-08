@@ -30,7 +30,9 @@ export default defineConfig({
   ],
   webServer: [
     {
-      command: "pnpm --filter @nearcited/api dev",
+      // The Worker serves the web app's build output and will not start without the folder, so
+      // a fresh checkout builds it first. The tests themselves use the dev server below.
+      command: "pnpm --filter @nearcited/web build && pnpm --filter @nearcited/api dev",
       // Answers 401 without a session, which is enough to know it is up.
       url: "http://127.0.0.1:8787/api/me",
       reuseExistingServer: !CI,
