@@ -21,37 +21,41 @@ import { stripJsonc } from "./create-audit.mjs";
 /** Shorter than this and a password guards nothing. */
 export const MIN_PASSWORD = 20;
 
-/** Where the account goes and what makes it, from the environment and the Worker's own config. */
+/**
+ * Where the account goes and what makes it, from the environment and the Worker's own config.
+ *
+ * The two secrets are kept in their own object, apart from everything that may be shown, so
+ * nothing that is printed or put in an error can be built from the thing that holds them.
+ */
 export function readSettings(env, root) {
   const file = join("apps", "api", "wrangler.jsonc");
   const vars = JSON.parse(stripJsonc(readFileSync(join(root, file), "utf8"))).vars ?? {};
-  const settings = {
+  const target = {
     supabaseUrl: env.SUPABASE_URL || vars.SUPABASE_URL,
     publishableKey: env.SUPABASE_PUBLISHABLE_KEY || vars.SUPABASE_PUBLISHABLE_KEY,
-    secretKey: env.SUPABASE_SECRET_KEY,
     email: env.TEST_ACCOUNT_EMAIL?.trim().toLowerCase(),
-    password: env.TEST_ACCOUNT_PASSWORD,
   };
+  const secrets = { secretKey: env.SUPABASE_SECRET_KEY, password: env.TEST_ACCOUNT_PASSWORD };
   const missing = [
-    !settings.secretKey && "SUPABASE_SECRET_KEY",
-    !settings.email && "TEST_ACCOUNT_EMAIL",
-    !settings.password && "TEST_ACCOUNT_PASSWORD",
+    !secrets.secretKey && "SUPABASE_SECRET_KEY",
+    !target.email && "TEST_ACCOUNT_EMAIL",
+    !secrets.password && "TEST_ACCOUNT_PASSWORD",
   ].filter(Boolean);
   if (missing.length > 0) throw new Error(`Set ${missing.join(", ")} in the environment.`);
-  if (!settings.supabaseUrl || !settings.publishableKey) {
+  if (!target.supabaseUrl || !target.publishableKey) {
     throw new Error(`${file} does not say where Supabase is.`);
   }
-  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(settings.email)) {
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(target.email)) {
     throw new Error("TEST_ACCOUNT_EMAIL is not an email address.");
   }
-  if (settings.password.length < MIN_PASSWORD) {
+  if (secrets.password.length < MIN_PASSWORD) {
     throw new Error(`TEST_ACCOUNT_PASSWORD must be at least ${MIN_PASSWORD} characters.`);
   }
-  return settings;
+  return { target, secrets };
 }
 
 async function call(ctx, key, path, init = {}) {
-  const response = await ctx.fetch(`${ctx.settings.supabaseUrl}${path}`, {
+  const response = await ctx.fetch(`${ctx.target.supabaseUrl}${path}`, {
     ...init,
     headers: {
       apikey: key,
@@ -73,7 +77,8 @@ async function call(ctx, key, path, init = {}) {
  * was made just now.
  */
 export async function createTestAccount(ctx) {
-  const { email, password, secretKey, publishableKey } = ctx.settings;
+  const { email, publishableKey } = ctx.target;
+  const { password, secretKey } = ctx.secrets;
 
   // Confirmed from the start: nothing is sent to the address, which nobody reads.
   const made = await call(ctx, secretKey, "/auth/v1/admin/users", {
@@ -91,9 +96,9 @@ export async function createTestAccount(ctx) {
     });
     userId = signedIn.ok ? signedIn.body?.user?.id : null;
     if (!userId) {
-      const reason = made.body?.msg ?? made.body?.message ?? `status ${made.status}`;
+      // The status only: what the server wrote back is not ours to vouch for in a log.
       throw new Error(
-        `Could not create ${email} (${reason}), and could not sign in as it with this password. ` +
+        `Could not create the account (status ${made.status}), and could not sign in as it with this password. ` +
           "If it exists with another password, set that one here or change it in the dashboard.",
       );
     }
@@ -117,10 +122,9 @@ export async function createTestAccount(ctx) {
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   try {
     const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-    const settings = readSettings(process.env, root);
-    const { created } = await createTestAccount({ fetch, settings });
+    const { created } = await createTestAccount({ fetch, ...readSettings(process.env, root) });
     console.log(
-      `${created ? "Created" : "Found"} ${settings.email} at ${new URL(settings.supabaseUrl).host}. It has the test role: every organization it creates is a test organization.`,
+      `${created ? "Created" : "Found"} the test account. It has the test role: every organization it creates is a test organization.`,
     );
   } catch (error) {
     console.error(`test account: ${error.message}`);

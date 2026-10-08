@@ -6,13 +6,12 @@ import { createTestAccount, readSettings } from "./create-test-account.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const password = "a-long-enough-password-for-this";
-const settings = {
+const target = {
   supabaseUrl: "https://project.example",
   publishableKey: "sb_publishable",
-  secretKey: "sb_secret",
   email: "smoke@nearcited.example",
-  password,
 };
+const secrets = { secretKey: "sb_secret", password };
 
 /** A fetch that records each call and answers from a list, in order. */
 function fakeFetch(...answers) {
@@ -36,9 +35,12 @@ test("reads where the account goes from the Worker's config, and what makes it f
     },
     root,
   );
-  assert.match(read.supabaseUrl, /^https:\/\//);
-  assert.ok(read.publishableKey);
-  assert.equal(read.email, "smoke@nearcited.example");
+  assert.match(read.target.supabaseUrl, /^https:\/\//);
+  assert.ok(read.target.publishableKey);
+  assert.equal(read.target.email, "smoke@nearcited.example");
+  // The secrets travel apart from everything that may be printed.
+  assert.deepEqual(read.secrets, { secretKey: "sb_secret", password });
+  assert.equal(JSON.stringify(read.target).includes(password), false);
 });
 
 test("lets the environment point it at another stack", () => {
@@ -52,8 +54,8 @@ test("lets the environment point it at another stack", () => {
     },
     root,
   );
-  assert.equal(read.supabaseUrl, "http://127.0.0.1:54321");
-  assert.equal(read.publishableKey, "local");
+  assert.equal(read.target.supabaseUrl, "http://127.0.0.1:54321");
+  assert.equal(read.target.publishableKey, "local");
 });
 
 test("refuses to run without its secrets, a real address, or a password worth having", () => {
@@ -75,11 +77,11 @@ test("creates the account already confirmed, then grants it the test role", asyn
     { status: 200, body: { id: "user-1" } },
     { status: 201, body: null },
   );
-  const result = await createTestAccount({ fetch: impl, settings });
+  const result = await createTestAccount({ fetch: impl, target, secrets });
   assert.deepEqual(result, { userId: "user-1", created: true });
 
   assert.equal(calls[0].url, "https://project.example/auth/v1/admin/users");
-  assert.deepEqual(calls[0].body, { email: settings.email, password, email_confirm: true });
+  assert.deepEqual(calls[0].body, { email: target.email, password, email_confirm: true });
   assert.equal(calls[0].init.headers.Authorization, "Bearer sb_secret");
 
   assert.equal(calls[1].url, "https://project.example/rest/v1/platform_roles?on_conflict=user_id");
@@ -93,7 +95,7 @@ test("finds an account that is already there by signing in as it, and grants the
     { status: 200, body: { user: { id: "user-1" } } },
     { status: 201, body: null },
   );
-  assert.deepEqual(await createTestAccount({ fetch: impl, settings }), {
+  assert.deepEqual(await createTestAccount({ fetch: impl, target, secrets }), {
     userId: "user-1",
     created: false,
   });
@@ -108,11 +110,14 @@ test("says so when the account exists with another password, and grants nothing"
     { status: 422, body: { msg: "already been registered" } },
     { status: 400, body: { msg: "Invalid login credentials" } },
   );
-  await assert.rejects(createTestAccount({ fetch: impl, settings }), /another password/);
+  await assert.rejects(createTestAccount({ fetch: impl, target, secrets }), /another password/);
   assert.equal(calls.length, 2);
 });
 
 test("says so when the role cannot be granted", async () => {
   const { impl } = fakeFetch({ status: 200, body: { id: "user-1" } }, { status: 404, body: null });
-  await assert.rejects(createTestAccount({ fetch: impl, settings }), /migration been applied/);
+  await assert.rejects(
+    createTestAccount({ fetch: impl, target, secrets }),
+    /migration been applied/,
+  );
 });
