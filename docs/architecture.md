@@ -160,7 +160,8 @@ sample. The product reports and scores over a window instead (`SCAN_WINDOW`, sev
 - **The score averages each cell over its own checks, then averages the cells.** A prompt added
   yesterday counts as much as one tracked all week.
 - **The newest scan decides which cells exist.** A retired prompt, or a surface no longer
-  checked, drops out of the rate at once.
+  checked, drops out of the rate at once. A scan that asked only retired prompts adds nothing,
+  and the number of scans the page reports (`scansCounted`) leaves it out.
 - **Prompts are retired, never deleted.** Deleting one would delete every result recorded for
   it. A retired prompt is not scanned; restoring it brings its earlier results back into the
   window where they still fall inside it. Members have no delete permission on the table.
@@ -264,7 +265,7 @@ over an audit's samples, so both pages show the same plan from the same code.
 | `fix_website` | The on-page check failed something, at any answer count; or every check passed (or none was made, or the page could not be loaded) and no answer cited the site, of at least four. | The failed checks, as the reasons, each with its fix. |
 | `get_listed` | A site was cited in at least two answers and none of them named the business. | Up to five such sites, with the page that was read. |
 | `keep_listings` | A site was cited in answers that did name the business. | Up to five, most often first. |
-| `competitors` | The answers named other businesses. | The three named most, linked to their own site when it was one of the pages read. |
+| `competitors` | The answers named other businesses. | The three named most, linked to their own site when it was one of the pages read. Among businesses named equally often, one with such a link comes first. |
 
 Steps are composed by rule, never by a model, and each states the observation it rests on. For
 `fix_website` on a site no answer cited, the title and summary depend on whether a failed check

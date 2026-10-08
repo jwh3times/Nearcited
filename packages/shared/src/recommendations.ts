@@ -1,5 +1,11 @@
 import { hostOf } from "./analysis";
-import { CITING_SURFACES, type SiteCheck, SURFACE_LABELS, type Surface } from "./schemas";
+import {
+  CITING_SURFACES,
+  type SiteCheck,
+  SURFACE_LABELS,
+  SURFACES_BY_KIND,
+  type Surface,
+} from "./schemas";
 import { summarizeBySurface } from "./scoring";
 import { SITE_CHECKS } from "./site";
 import { summarizeSources } from "./sources";
@@ -54,6 +60,7 @@ function mostNamed(results: readonly ResultFacts[], limit: number): string[] {
  * be observed if it changed.
  *
  * - `add_website`, `link_google_profile`: bookkeeping. They clear when the field is filled in.
+ *   The second is raised only once a scan has checked Google, the one place the ID is used.
  * - `absent:<surface>`: clears when any check on that surface names the business.
  * - `source:<host>`: a site the answers keep citing, where no answer that cited it named the
  *   business. Clears when an answer that cites the site names the business.
@@ -78,7 +85,11 @@ export function deriveRecommendations(
     });
   }
 
-  if (!location.google_place_id) {
+  // The place ID only matters to the Google checks, so it is not asked for until one has run.
+  const checkedGoogle = results.some((result) =>
+    SURFACES_BY_KIND.search_keyword.includes(result.surface),
+  );
+  if (!location.google_place_id && checkedGoogle) {
     recommendations.push({
       rule: "link_google_profile",
       title: "Link the Google Business Profile",
@@ -98,9 +109,8 @@ export function deriveRecommendations(
       rule: `absent:${summary.surface}`,
       title: `Not named on ${label}`,
       detail:
-        named.length > 0
-          ? `${location.name} did not appear in any of ${summary.checks} checks on ${label}. Named instead: ${named.join(", ")}.`
-          : `${location.name} did not appear in any of ${summary.checks} checks on ${label}.`,
+        `${location.name} did not appear in ${summary.checks === 1 ? "the 1 check" : `any of ${summary.checks} checks`} on ${label}.` +
+        (named.length > 0 ? ` Named instead: ${named.join(", ")}.` : ""),
     });
   }
 

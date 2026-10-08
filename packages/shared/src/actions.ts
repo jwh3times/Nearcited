@@ -188,17 +188,24 @@ export function buildActionPlan(input: ActionPlanInput): Action[] {
     });
   }
 
-  const named = competitors.slice(0, MAX_COMPETITORS);
+  const ownPage = (name: string) =>
+    input.sources.find((source) => belongsTo(source.host, name))?.urls[0] ?? null;
+  // Among businesses named equally often, one whose own site was read comes first: its link is
+  // the only thing here a reader can follow.
+  const named = competitors
+    .map((competitor) => ({ ...competitor, url: ownPage(competitor.name) }))
+    .sort((a, b) => b.count - a.count || Number(b.url !== null) - Number(a.url !== null))
+    .slice(0, MAX_COMPETITORS);
   if (named.length > 0 && input.answers > 0) {
     actions.push({
       id: "competitors",
       title: "See who is recommended instead",
       summary:
         "The businesses the answers named most. Where their own site was one of the pages read, it is linked: it shows what an assistant found worth quoting.",
-      items: named.map(({ name, count }) => ({
+      items: named.map(({ name, count, url }) => ({
         label: name,
         detail: `Named in ${count} of ${input.answers} answers`,
-        url: input.sources.find((source) => belongsTo(source.host, name))?.urls[0] ?? null,
+        url,
       })),
     });
   }
