@@ -238,6 +238,20 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
       aliceStore.createLocation(organization.id, { ...input, name: "Second Shop" }),
     ).rejects.toMatchObject({ kind: "limit", message: expect.stringContaining("1 location") });
 
+    // The on-page check is kept with the scan that made it. Members read it, a non-member does
+    // not, and it follows the latest successful scan.
+    const check = {
+      url: "https://joes.example/",
+      status: 200,
+      checks: [{ id: "reachable" as const, passed: true }],
+      blocked_crawlers: [],
+      words: 120,
+    };
+    await worker.completeScan(scan.id, { score: 80, results, recommendations: [], site: check });
+    expect(await aliceStore.getSiteCheck(location.id)).toEqual(check);
+    expect(await worker.getSiteCheck(location.id)).toEqual(check);
+    expect(await bobStore.getSiteCheck(location.id)).toBeNull();
+
     // Retiring a prompt keeps its results; a non-member cannot do it.
     expect(await bobStore.setQueryActive(query.id, false)).toBeNull();
     expect(await aliceStore.setQueryActive(query.id, false)).toMatchObject({

@@ -24,10 +24,13 @@ export const MAX_SOURCE_URLS = 3;
 
 const isWebLink = (url: string) => /^https?:\/\//i.test(url);
 
+/**
+ * The most cited sites. The business's own site is kept even when it falls below the cut, so
+ * "your site was not cited" is never said only because the list was shortened.
+ */
 function ranked(sources: Iterable<SourceSummary>, limit: number): SourceSummary[] {
-  return [...sources]
-    .sort((a, b) => b.answers - a.answers || a.host.localeCompare(b.host))
-    .slice(0, limit);
+  const sorted = [...sources].sort((a, b) => b.answers - a.answers || a.host.localeCompare(b.host));
+  return [...sorted.slice(0, limit), ...sorted.slice(limit).filter((source) => source.own)];
 }
 
 /**

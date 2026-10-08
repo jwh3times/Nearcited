@@ -836,3 +836,42 @@ describe("audits", () => {
     await expect(insert("array['a']", 6)).rejects.toThrow(/check constraint/);
   });
 });
+
+describe("the website check on a scan", () => {
+  const check = JSON.stringify({ url: "https://joes.example/", status: 200, checks: [] });
+
+  it("is written by the worker and read by members only", async () => {
+    await as("service_role", null, () =>
+      db.query("update public.scans set site_check = $1::jsonb where id = $2", [check, scanId]),
+    );
+    const mine = await as("authenticated", alice, () =>
+      rows<{ site_check: { status: number } | null }>(
+        "select site_check from public.scans where id = $1",
+        [scanId],
+      ),
+    );
+    expect(mine[0]?.site_check?.status).toBe(200);
+    expect(
+      await as("authenticated", bob, () =>
+        rows("select site_check from public.scans where id = $1", [scanId]),
+      ),
+    ).toEqual([]);
+  });
+
+  it("cannot be attached by a member when queuing a scan, nor changed after", async () => {
+    await expect(
+      as("authenticated", alice, () =>
+        db.query(
+          `insert into public.scans (location_id, trigger, requested_by, site_check)
+           values ($1, 'manual', $2, $3::jsonb)`,
+          [locationId, alice, check],
+        ),
+      ),
+    ).rejects.toThrow(/row-level security/);
+    await expect(
+      as("authenticated", alice, () =>
+        db.query("update public.scans set site_check = null where id = $1", [scanId]),
+      ),
+    ).rejects.toThrow(/permission denied/);
+  });
+});

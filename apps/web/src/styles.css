@@ -813,3 +813,60 @@ mark {
 .site-fail .site-mark {
   color: var(--danger);
 }
+
+/* The action plan: numbered steps, each with the evidence it rests on. */
+
+.plan {
+  margin: 1.25rem 0 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: plan;
+  max-width: 46rem;
+}
+
+.plan > li {
+  counter-increment: plan;
+  position: relative;
+  padding: 1rem 0 1rem 2.75rem;
+  border-top: 1px solid var(--line);
+}
+
+.plan > li::before {
+  content: counter(plan);
+  position: absolute;
+  left: 0;
+  top: 0.95rem;
+  width: 1.75rem;
+  height: 1.75rem;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--ink);
+  color: var(--surface);
+  font-family: var(--display);
+  font-size: var(--step--1);
+  font-weight: 700;
+}
+
+.plan h3 {
+  margin: 0;
+}
+
+.plan p {
+  margin: 0.3rem 0 0;
+}
+
+.plan ul {
+  list-style: none;
+  margin: 0.6rem 0 0;
+  padding: 0;
+}
+
+.plan ul li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.1rem 0.75rem;
+  padding: 0.35rem 0;
+  font-size: var(--step--1);
+  overflow-wrap: anywhere;
+}

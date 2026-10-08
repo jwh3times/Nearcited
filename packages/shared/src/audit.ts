@@ -1,6 +1,13 @@
 import { z } from "zod";
+import { buildActionPlan } from "./actions";
 import type { Finding } from "./analysis";
-import { SiteCheckSchema, SourceSummarySchema, type Surface, SurfaceSchema } from "./schemas";
+import {
+  ActionSchema,
+  SiteCheckSchema,
+  SourceSummarySchema,
+  type Surface,
+  SurfaceSchema,
+} from "./schemas";
 import { positionWeight } from "./scoring";
 import { mergeSources, summarizeSources } from "./sources";
 import { defaultTuning, type ScoreWeights } from "./tuning";
@@ -89,6 +96,8 @@ export const PublicAuditSchema = z.object({
   sources: z.array(SourceSummarySchema),
   /** The on-page check of the business's website. Null when it has none, or was not checked. */
   site: SiteCheckSchema.nullable(),
+  /** What the report's evidence says to do next, most direct first. */
+  actions: z.array(ActionSchema),
   created_at: Timestamp,
   expires_at: Timestamp,
 });
@@ -151,6 +160,9 @@ export function toPublicAudit(stored: StoredAudit): PublicAudit {
     text,
     cells: stored.parts[String(index)]?.cells ?? null,
   }));
+  const cells = prompts.flatMap((prompt) => prompt.cells ?? []);
+  const sources = mergeSources(cells.map((cell) => cell.sources));
+  const site = Object.values(stored.parts).find((part) => part.site)?.site ?? null;
   return {
     business_name: stored.business_name,
     website: stored.website,
@@ -160,10 +172,16 @@ export function toPublicAudit(stored: StoredAudit): PublicAudit {
     samples: stored.samples,
     score: auditScore(prompts.flatMap((prompt) => (prompt.cells ? [{ cells: prompt.cells }] : []))),
     prompts,
-    sources: mergeSources(
-      prompts.flatMap((prompt) => (prompt.cells ?? []).map((cell) => cell.sources)),
-    ),
-    site: Object.values(stored.parts).find((part) => part.site)?.site ?? null,
+    sources,
+    site,
+    actions: buildActionPlan({
+      name: stored.business_name,
+      website: stored.website,
+      answers: cells.reduce((sum, cell) => sum + cell.checks, 0),
+      sources,
+      site,
+      competitors: cells.flatMap((cell) => cell.competitors),
+    }),
     created_at: stored.created_at,
     expires_at: stored.expires_at,
   };

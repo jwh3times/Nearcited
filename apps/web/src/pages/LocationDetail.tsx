@@ -9,8 +9,10 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
+import { ActionPlan } from "../components/ActionPlan";
 import { ErrorNote } from "../components/ErrorNote";
 import { ScoreTrend } from "../components/ScoreTrend";
+import { SiteChecklist } from "../components/SiteChecklist";
 import { Sources } from "../components/Sources";
 import { SourceTable } from "../components/SourceTable";
 import { VisibilityMatrix } from "../components/VisibilityMatrix";
@@ -70,6 +72,8 @@ export function LocationDetail() {
     window: scanWindow,
     surfaces,
     recommendations,
+    site,
+    actions,
   } = detail.data;
   const organization = me.data?.organizations.find(
     (candidate) => candidate.id === location.organization_id,
@@ -79,7 +83,13 @@ export function LocationDetail() {
   const results = scan?.status === "succeeded" ? scan.results : [];
   const competitors = tallyCompetitors(results);
   const excerpts = results.filter((result) => result.answer_excerpt);
-  const open = recommendations.filter((recommendation) => recommendation.status === "open");
+  // The action plan covers what the sources and the website check found, with the evidence
+  // attached, so those recommendations are not listed a second time below it.
+  const inPlan = (rule: string) =>
+    rule.startsWith("source:") || rule.startsWith("site:") || rule === "own_site_uncited";
+  const open = recommendations.filter(
+    (recommendation) => recommendation.status === "open" && !inPlan(recommendation.rule),
+  );
   const scanning = inFlight(scan) || startScan.isPending;
 
   return (
@@ -231,9 +241,28 @@ export function LocationDetail() {
         </section>
       )}
 
+      {actions.length > 0 && (
+        <section className="section">
+          <h2>What to do next</h2>
+          <p className="window-note">
+            Worked out from the answers of the last {scanWindow.scans}{" "}
+            {scanWindow.scans === 1 ? "scan" : "scans"} and the latest check of your website. Each
+            step says what was seen, so later scans show whether it moved.
+          </p>
+          <ActionPlan actions={actions} />
+        </section>
+      )}
+
+      {site && (
+        <section className="section">
+          <h2>Your website</h2>
+          <SiteChecklist site={site} />
+        </section>
+      )}
+
       {open.length > 0 && (
         <section className="section">
-          <h2>Next steps</h2>
+          <h2>Also worth doing</h2>
           <Recommendations items={open} onChanged={refresh} />
         </section>
       )}

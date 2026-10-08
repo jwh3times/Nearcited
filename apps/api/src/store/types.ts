@@ -10,6 +10,7 @@ import type {
   Scan,
   ScanResult,
   ScanTrigger,
+  SiteCheck,
   StoredAudit,
   TrackedQuery,
   TrackedQueryInput,
@@ -35,6 +36,8 @@ export interface CompletedScan {
   score: number | null;
   results: NewScanResult[];
   recommendations: DerivedRecommendation[];
+  /** The on-page check this scan made, or null when it made none. Kept with the scan. */
+  site?: SiteCheck | null;
 }
 
 /**
@@ -74,6 +77,9 @@ export interface Store {
     scans: number,
     sampleData: boolean,
   ): Promise<ScanResult[][]>;
+
+  /** The on-page check from a location's latest successful scan, or null when it made none. */
+  getSiteCheck(locationId: string): Promise<SiteCheck | null>;
 
   listRecommendations(locationId: string): Promise<Recommendation[]>;
   setRecommendationStatus(id: string, status: RecommendationStatus): Promise<Recommendation | null>;

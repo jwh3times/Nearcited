@@ -5,6 +5,7 @@ import {
   RecommendationSchema,
   ScanResultSchema,
   ScanSchema,
+  SiteCheckSchema,
   StoredAuditSchema,
   TrackedQuerySchema,
 } from "@nearcited/shared";
@@ -296,7 +297,27 @@ export function createSupabaseStore(db: SupabaseClient): Store {
       if (error) fail("Mark scan running", error);
     },
 
+    async getSiteCheck(locationId) {
+      const { data, error } = await db
+        .from("scans")
+        .select("site_check")
+        .eq("location_id", locationId)
+        .eq("status", "succeeded")
+        .order("finished_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) fail("Get site check", error);
+      return data?.site_check ? SiteCheckSchema.parse(data.site_check) : null;
+    },
+
     async completeScan(id, outcome) {
+      // Written first: if completing then fails, the scan is retried and this is written again.
+      const saved = await db
+        .from("scans")
+        .update({ site_check: outcome.site ?? null })
+        .eq("id", id);
+      if (saved.error) fail("Save site check", saved.error);
+
       const { error } = await db.rpc("complete_scan", {
         p_scan_id: id,
         p_score: outcome.score,
