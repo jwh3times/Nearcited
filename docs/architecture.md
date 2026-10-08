@@ -264,7 +264,7 @@ over an audit's samples, so both pages show the same plan from the same code.
 | `fix_website` | The on-page check failed something, at any answer count; or every check passed (or none was made, or the page could not be loaded) and no answer cited the site, of at least four. | The failed checks, as the reasons, each with its fix. |
 | `get_listed` | A site was cited in at least two answers and none of them named the business. | Up to five such sites, with the page that was read. |
 | `keep_listings` | A site was cited in answers that did name the business. | Up to five, most often first. |
-| `competitors` | The answers named other businesses. | The three named most, linked to their own site when it was one of the pages read. |
+| `competitors` | The answers named other businesses. | The three named most, linked to their own site when it was one of the pages read. Among businesses named equally often, one with such a link comes first. |
 
 Steps are composed by rule, never by a model, and each states the observation it rests on. For
 `fix_website` on a site no answer cited, the title and summary depend on whether a failed check
