@@ -95,6 +95,11 @@ export interface Store {
   getAudit(id: string): Promise<AuditJob | null>;
   recordAuditPart(id: string, promptIndex: number, part: AuditPart): Promise<void>;
   failAudit(id: string, error: string): Promise<void>;
+  /**
+   * Fails every audit that is still queued and was created before `olderThan`, an ISO timestamp.
+   * Returns how many. The prompts that did report are kept.
+   */
+  failStaleAudits(olderThan: string, error: string): Promise<number>;
   /** Throws a conflict when a different scan for the same location is already in flight. */
   markScanRunning(id: string, sampleData: boolean): Promise<void>;
   completeScan(id: string, outcome: CompletedScan): Promise<void>;

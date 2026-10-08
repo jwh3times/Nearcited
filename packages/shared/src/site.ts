@@ -33,10 +33,20 @@ export interface SiteBusiness {
  * The crawlers the assistants send when they search the web to answer a question. A site that
  * shuts these out cannot be read for an answer. The crawlers that gather training data are a
  * separate choice and are not checked.
+ *
+ * Each name is the robots.txt token its vendor publishes, checked on 2026-10-08:
+ *
+ * - OpenAI, https://developers.openai.com/api/docs/bots: `OAI-SearchBot`.
+ * - Anthropic, https://support.claude.com/en/articles/8896518: `Claude-SearchBot`, `Claude-User`.
+ * - Perplexity, https://docs.perplexity.ai/guides/bots: `PerplexityBot`.
+ *
+ * Left out on purpose: `ChatGPT-User` and `Perplexity-User`, the fetchers that act for one user.
+ * Their vendors say robots.txt may not apply to them, so a rule naming one does not show the site
+ * is shut out. Google has no crawler of its own for AI answers; `Google-Extended` is a control
+ * token that does not affect Search, and AI Overviews read what `Googlebot` indexes.
  */
 export const ANSWER_CRAWLERS = [
   "OAI-SearchBot",
-  "ChatGPT-User",
   "Claude-SearchBot",
   "Claude-User",
   "PerplexityBot",

@@ -36,7 +36,7 @@ export async function enqueueDueScans(
   return messages.length;
 }
 
-/** How long a scan may sit queued or running before it is treated as abandoned. */
+/** How long a scan may sit queued or running, or an audit queued, before it is given up on. */
 export const STALE_AFTER_MS = 30 * 60 * 1000;
 
 const ABANDONED = "The scan did not finish and was abandoned. Run it again.";
@@ -51,4 +51,18 @@ const ABANDONED = "The scan did not finish and was abandoned. Run it again.";
  */
 export async function failStaleScans(store: Store, now: Date = new Date()): Promise<number> {
   return store.failStaleScans(new Date(now.getTime() - STALE_AFTER_MS).toISOString(), ABANDONED);
+}
+
+const UNFINISHED = "Some prompts could not be checked.";
+
+/**
+ * Fails audits that are still waiting on a prompt long after they were made. Returns how many.
+ *
+ * Each prompt is its own queue message. One that runs out of retries never reports, and a later
+ * success from another prompt puts the audit back to queued, so nothing else would end it. The
+ * prompts that did report stay on the audit and the page goes on showing them. If the missing
+ * one does turn up later, the audit becomes ready.
+ */
+export async function failStaleAudits(store: Store, now: Date = new Date()): Promise<number> {
+  return store.failStaleAudits(new Date(now.getTime() - STALE_AFTER_MS).toISOString(), UNFINISHED);
 }

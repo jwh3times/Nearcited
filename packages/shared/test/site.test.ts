@@ -1,13 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { deriveRecommendations } from "../src/recommendations";
 import type { SiteCheck } from "../src/schemas";
-import {
-  ANSWER_CRAWLERS,
-  analyzeSite,
-  blockedCrawlers,
-  type SiteSnapshot,
-  visibleText,
-} from "../src/site";
+import { analyzeSite, blockedCrawlers, type SiteSnapshot, visibleText } from "../src/site";
 
 const filler = Array.from({ length: 60 }, (_, index) => `word${index}`).join(" ");
 const jsonLd = (data: unknown) =>
@@ -53,7 +47,13 @@ describe("blockedCrawlers", () => {
   });
 
   it("finds every crawler shut out by a blanket rule", () => {
-    expect(blockedCrawlers("User-agent: *\nDisallow: /\n")).toEqual([...ANSWER_CRAWLERS]);
+    // Written out, not read from ANSWER_CRAWLERS: these are the names the vendors publish.
+    expect(blockedCrawlers("User-agent: *\nDisallow: /\n")).toEqual([
+      "OAI-SearchBot",
+      "Claude-SearchBot",
+      "Claude-User",
+      "PerplexityBot",
+    ]);
   });
 
   it("follows the group that names a crawler, not the blanket one", () => {
@@ -75,6 +75,11 @@ describe("blockedCrawlers", () => {
 
   it("does not count a crawler that only gathers training data", () => {
     expect(blockedCrawlers("User-agent: GPTBot\nUser-agent: ClaudeBot\nDisallow: /\n")).toEqual([]);
+  });
+
+  it("does not count a fetcher whose vendor says robots.txt may not apply to it", () => {
+    const robots = "User-agent: ChatGPT-User\nUser-agent: Perplexity-User\nDisallow: /\n";
+    expect(blockedCrawlers(robots)).toEqual([]);
   });
 });
 
@@ -136,11 +141,11 @@ describe("analyzeSite", () => {
 
   it("names the crawlers a robots.txt shuts out", () => {
     const check = analyzeSite(
-      snapshot({ robots_txt: "User-agent: ChatGPT-User\nDisallow: /\n" }),
+      snapshot({ robots_txt: "User-agent: Claude-User\nDisallow: /\n" }),
       joes,
     );
     expect(failed(check)).toEqual(["crawlers_allowed"]);
-    expect(check.blocked_crawlers).toEqual(["ChatGPT-User"]);
+    expect(check.blocked_crawlers).toEqual(["Claude-User"]);
   });
 
   it("accepts structured data nested in a graph, and ignores a broken block", () => {
@@ -182,7 +187,7 @@ describe("recommendations from the site check", () => {
     expect(rules(check)).toEqual(["site:crawlers_allowed", "site:indexable"]);
     const [blocked] = deriveRecommendations(location, [], check);
     expect(blocked?.title).toBe("Your website tells assistants to stay out");
-    expect(blocked?.detail).toContain("Blocked: OAI-SearchBot, ChatGPT-User");
+    expect(blocked?.detail).toContain("Blocked: OAI-SearchBot, Claude-SearchBot");
   });
 
   it("clears when the page passes, and says nothing when the page was not checked", () => {

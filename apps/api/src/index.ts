@@ -10,7 +10,7 @@ import { buildScanReportEmail, sendEmail } from "./email/report";
 import type { Env } from "./env";
 import { createProviders, liveScansUnavailable, usesSampleData } from "./providers";
 import { runScan } from "./scans/runner";
-import { enqueueDueScans, failStaleScans } from "./scans/schedule";
+import { enqueueDueScans, failStaleAudits, failStaleScans } from "./scans/schedule";
 import { fetchSite } from "./site/fetch";
 import { createAdminClient, createSupabaseStore } from "./store/supabase";
 import { activeTuning } from "./tuning";
@@ -26,13 +26,15 @@ export default {
   fetch: app.fetch,
 
   /**
-   * Cron. Every run clears abandoned scans; the daily run also queues a scan for every location
-   * that is due. The two schedules are in wrangler.jsonc.
+   * Cron. Every run clears abandoned scans and unfinished audits; the daily run also queues a
+   * scan for every location that is due. The two schedules are in wrangler.jsonc.
    */
   async scheduled(controller, env) {
     const store = createSupabaseStore(createAdminClient(env));
     const abandoned = await failStaleScans(store);
     if (abandoned > 0) console.log(`Failed ${abandoned} abandoned scans`);
+    const unfinished = await failStaleAudits(store);
+    if (unfinished > 0) console.log(`Failed ${unfinished} unfinished audits`);
     if (controller.cron === SWEEP_ONLY_CRON) return;
 
     const queued = await enqueueDueScans(store, env.SCAN_QUEUE);

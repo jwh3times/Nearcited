@@ -8,7 +8,8 @@
   Every other path is served from the web app's build output, with unknown paths falling back to
   `index.html` so client-side routes work. That routing lives in `wrangler.jsonc` under `assets`.
 - **`scheduled`**: two Cron Triggers. Every 15 minutes it fails scans that have been queued or
-  running for more than 30 minutes, so an abandoned scan cannot block its location for long.
+  running for more than 30 minutes, so an abandoned scan cannot block its location for long. It
+  also fails audits still `queued` after 30 minutes (see "Shareable audits").
   Once a day it also asks Postgres which locations are due (`locations_due_for_scan`), creates a
   `scheduled` scan row for each, and puts the scan IDs on the queue.
 - **`queue`**: the consumer. For each scan ID it runs the scan and, for scheduled scans, emails
@@ -229,7 +230,7 @@ same as for providers: `fetchSite` (`apps/api/src/site/fetch.ts`) only fetches a
 | Check | Passes when |
 | --- | --- |
 | `reachable` | The home page answers 200 with HTML. When it does not, this is the only check reported. |
-| `crawlers_allowed` | `robots.txt` does not shut the assistants' search crawlers (`ANSWER_CRAWLERS`) out of the whole site. Crawlers that gather training data are not checked. |
+| `crawlers_allowed` | `robots.txt` does not shut the assistants' search crawlers (`ANSWER_CRAWLERS`) out of the whole site. Crawlers that gather training data are not checked, and neither are the fetchers that act for one user and may ignore `robots.txt` (`ChatGPT-User`, `Perplexity-User`). |
 | `indexable` | No `noindex` in a robots meta tag or the `X-Robots-Tag` header. |
 | `text_content` | The page has at least `MIN_PAGE_WORDS` words with scripts, styles and tags removed. Nothing is rendered, because the crawlers mostly do not run scripts. |
 | `names_business` | The title or text contains the business name, matched the way answers are matched. |
@@ -304,6 +305,11 @@ queue consumer: runAuditPart()
 - **It refuses what a scan refuses.** On sample data, or on the default tuning in live mode, the
   audit is marked failed with a reason and the message is acknowledged. Any other error is
   recorded on the audit and rethrown so the queue redelivers; a later success clears it.
+- **An audit that never finishes is failed.** A prompt that exhausts its retries never reports, and
+  a later prompt's success sets the audit back to `queued`. `failStaleAudits` marks an audit still
+  `queued` 30 minutes after creation as failed ("Some prompts could not be checked."). The prompts
+  that finished stay and the page keeps showing them; if the missing prompt reports later, the
+  audit becomes ready as before.
 - **A revoked audit is skipped.**
 - **No endpoint creates an audit.** A public one would let anyone spend the provider budget, and
   a signed-in one would have to decide whose budget it was. The owner creates audits with the

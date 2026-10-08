@@ -4,6 +4,7 @@ import { createApp } from "../src/app";
 import { runAuditPart } from "../src/audits/runner";
 import type { Env } from "../src/env";
 import type { ProviderRegistry } from "../src/providers";
+import { failStaleAudits, STALE_AFTER_MS } from "../src/scans/schedule";
 import type { Store } from "../src/store/types";
 import { createMemoryDb, type MemoryAudit, type MemoryDb, memoryStore } from "./memory-store";
 
@@ -227,6 +228,47 @@ describe("runAuditPart", () => {
     expect(audit).toMatchObject({ status: "failed", error: "upstream 503", parts: {} });
 
     expect(await runAuditPart(auditId, 0, deps)).toBe("done");
+    expect(audit).toMatchObject({ status: "ready", error: null });
+  });
+});
+
+describe("failStaleAudits", () => {
+  const since = (audit: { created_at: string }, ms: number) =>
+    new Date(Date.parse(audit.created_at) + ms);
+  const deps = () => ({ store: worker, providers: providers().registry, sampleData: false });
+
+  it("fails an audit with a prompt that never reported, and keeps the prompts that did", async () => {
+    const audit = addAudit();
+    await runAuditPart(auditId, 0, deps());
+    expect(await failStaleAudits(worker, since(audit, STALE_AFTER_MS - 60_000))).toBe(0);
+    expect(audit.status).toBe("queued");
+
+    expect(await failStaleAudits(worker, since(audit, STALE_AFTER_MS + 60_000))).toBe(1);
+    expect(audit).toMatchObject({
+      status: "failed",
+      error: "Some prompts could not be checked.",
+    });
+    const shown = await worker.getAuditByToken(token);
+    expect(shown?.status).toBe("failed");
+    expect(Object.keys(shown?.parts ?? {})).toEqual(["0"]);
+  });
+
+  it("leaves a finished audit alone, and one that already failed keeps its own reason", async () => {
+    const ready = addAudit({ status: "ready" });
+    const broken = addAudit({ id: crypto.randomUUID(), token: "cd".repeat(32) });
+    await worker.failAudit(broken.id, "upstream 503");
+
+    expect(await failStaleAudits(worker, since(ready, STALE_AFTER_MS * 10))).toBe(0);
+    expect(ready.status).toBe("ready");
+    expect(broken).toMatchObject({ status: "failed", error: "upstream 503" });
+  });
+
+  it("lets a prompt that reports late finish the audit", async () => {
+    const audit = addAudit();
+    await runAuditPart(auditId, 0, deps());
+    await failStaleAudits(worker, since(audit, STALE_AFTER_MS + 60_000));
+
+    await runAuditPart(auditId, 1, deps());
     expect(audit).toMatchObject({ status: "ready", error: null });
   });
 });
