@@ -10,6 +10,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { ErrorNote } from "../components/ErrorNote";
+import { Labelled } from "../components/Labelled";
 import { RateCell } from "../components/RateCell";
 import { api } from "../lib/api";
 import { formatDate } from "../lib/format";
@@ -35,7 +36,7 @@ export function Locations({ organization }: { organization: Organization }) {
 
   const checked = [...details.values()].find((detail) => detail?.surfaces.length)?.surfaces;
   const surfaces = checked ?? USUAL_SURFACES;
-  const columns = `minmax(170px,1.7fr) 128px 52px ${surfaces.map(() => "76px").join(" ")} minmax(120px,1.1fr) minmax(0,1.5fr)`;
+  const columns = `minmax(10.5rem,1.7fr) 8rem 3.25rem ${surfaces.map(() => "4.75rem").join(" ")} minmax(7.5rem,1.1fr) minmax(0,1.5fr)`;
 
   return (
     <main className="page">
@@ -49,7 +50,7 @@ export function Locations({ organization }: { organization: Organization }) {
           <h1>Locations</h1>
         </div>
         {!adding && (
-          <button type="button" onClick={() => setParams({ add: "1" })}>
+          <button type="button" className="fill-narrow" onClick={() => setParams({ add: "1" })}>
             Add location
           </button>
         )}
@@ -72,8 +73,8 @@ export function Locations({ organization }: { organization: Organization }) {
         <>
           <div className="gtable-scroll">
             <div
-              className="gtable"
-              style={{ "--cols": columns, "--min": `${688 + surfaces.length * 96}px` } as never}
+              className="gtable stacks"
+              style={{ "--cols": columns, "--min": `${43 + surfaces.length * 6}rem` } as never}
             >
               <div className="gtable-head">
                 <span>Location</span>
@@ -142,51 +143,60 @@ function Row({ location, trend, detail, surfaces }: RowProps) {
         </span>
       </span>
 
-      <span className="loc-score">
-        <span className="display">{score ?? "—"}</span>
-        {line && (
-          <svg className="spark" viewBox="0 0 72 24" aria-hidden="true">
-            <path d={line} />
-          </svg>
-        )}
-      </span>
+      <Labelled label="Visibility">
+        <span className="loc-score">
+          <span className="display">{score ?? "—"}</span>
+          {line && (
+            <svg className="spark" viewBox="0 0 72 24" aria-hidden="true">
+              <path d={line} />
+            </svg>
+          )}
+        </span>
+      </Labelled>
 
-      <span
-        className={`change${change && change.by > 0 ? " up" : ""}${change && change.by < 0 ? " down" : ""}`}
-        title={change ? `Compared with ${change.scans} scans ago` : undefined}
-      >
-        {change ? signed(change.by) : "—"}
-      </span>
+      <Labelled label="Change">
+        <span
+          className={`change${change && change.by > 0 ? " up" : ""}${change && change.by < 0 ? " down" : ""}`}
+          title={change ? `Compared with ${change.scans} scans ago` : undefined}
+        >
+          {change ? signed(change.by) : "—"}
+        </span>
+      </Labelled>
 
       {rates.map(({ surface, rate }) => (
-        <RateCell
-          key={surface}
-          rate={scanned ? rate : null}
-          title={`Share of ${SURFACE_LABELS[surface]} answers that named this location`}
-        />
+        <Labelled key={surface} label={SURFACE_LABELS[surface]}>
+          <RateCell
+            rate={scanned ? rate : null}
+            title={`Share of ${SURFACE_LABELS[surface]} answers that named this location`}
+          />
+        </Labelled>
       ))}
 
-      <span className="stack-tight">
-        <span className="ellipsis">{rival?.label ?? "—"}</span>
-        <span className="mono muted ellipsis">
-          {rival ? rival.detail : scanned ? "Nobody else named" : "After the first scan"}
+      <Labelled label="Named most instead" wide>
+        <span className="stack-tight">
+          <span className="ellipsis">{rival?.label ?? "—"}</span>
+          <span className="mono muted ellipsis">
+            {rival ? rival.detail : scanned ? "Nobody else named" : "After the first scan"}
+          </span>
         </span>
-      </span>
+      </Labelled>
 
-      <span className="next-step">
-        {!scanned ? (
-          <span className="muted">Waiting for first scan</span>
-        ) : steps[0] ? (
-          <>
-            <span className="pill">
-              {steps.length} {steps.length === 1 ? "step" : "steps"}
-            </span>
-            <span className="ellipsis">{steps[0].title}</span>
-          </>
-        ) : (
-          <span className="muted">Nothing to do yet</span>
-        )}
-      </span>
+      <Labelled label="Next step" wide>
+        <span className="next-step">
+          {!scanned ? (
+            <span className="muted">Waiting for first scan</span>
+          ) : steps[0] ? (
+            <>
+              <span className="pill">
+                {steps.length} {steps.length === 1 ? "step" : "steps"}
+              </span>
+              <span className="ellipsis">{steps[0].title}</span>
+            </>
+          ) : (
+            <span className="muted">Nothing to do yet</span>
+          )}
+        </span>
+      </Labelled>
     </Link>
   );
 }

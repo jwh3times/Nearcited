@@ -22,7 +22,24 @@
 
   --sans: "Inter Variable", system-ui, -apple-system, "Segoe UI", sans-serif;
 
+  /* The space between the page's content and its edge: tight on a phone, generous on a desk. */
+  --gutter: clamp(1.25rem, 4vw, 3rem);
+
   color-scheme: light;
+}
+
+/*
+ * Everything below is sized in rem, so this one value scales the whole interface: type, buttons,
+ * fields, spacing and widths together. It is the reader's own default size up to a laptop's
+ * width (1440px), then grows in step with the screen to twice the size at 4K (3840px), so a
+ * large monitor shows the same layout larger instead of a small one in a field of empty space.
+ * Written in percent so a larger default set in the browser still counts.
+ */
+html {
+  font-size: clamp(100%, 40% + 0.6667vw, 200%);
+  /* Phones in landscape must not inflate the text on their own. */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 :root[data-theme="dark"] {
@@ -55,7 +72,7 @@ body {
   background: var(--bg);
   color: var(--ink);
   font-family: var(--sans);
-  font-size: 15px;
+  font-size: 0.9375rem;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   font-variant-numeric: tabular-nums;
@@ -84,19 +101,19 @@ h2,
 }
 
 h1 {
-  font-size: 37px;
+  font-size: clamp(1.75rem, 1.5035rem + 1.0112vw, 2.3125rem);
   line-height: 1.05;
   letter-spacing: -0.022em;
 }
 
 h2 {
-  font-size: 25px;
+  font-size: clamp(1.3125rem, 1.2029rem + 0.4494vw, 1.5625rem);
   line-height: 1.15;
   letter-spacing: -0.022em;
 }
 
 h3 {
-  font-size: 16px;
+  font-size: 1rem;
   font-weight: 600;
 }
 
@@ -110,7 +127,7 @@ a:hover {
 }
 
 code {
-  font-size: 13px;
+  font-size: 0.8125rem;
 }
 
 .muted {
@@ -118,23 +135,23 @@ code {
 }
 
 .mono {
-  font-size: 12px;
+  font-size: 0.75rem;
 }
 
 .eyebrow {
-  font-size: 12px;
+  font-size: 0.75rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--muted);
 }
 
 .small {
-  font-size: 13px;
+  font-size: 0.8125rem;
 }
 
 .footnote {
   max-width: 70ch;
-  font-size: 13px;
+  font-size: 0.8125rem;
   color: var(--muted);
 }
 
@@ -144,7 +161,7 @@ code {
 
 .error {
   color: var(--danger);
-  font-size: 14px;
+  font-size: 0.875rem;
 }
 
 :focus-visible {
@@ -165,11 +182,11 @@ button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  height: 42px;
-  padding: 0 18px;
+  gap: 0.5rem;
+  height: 2.625rem;
+  padding: 0 1.125rem;
   border: 1px solid var(--accent);
-  border-radius: 8px;
+  border-radius: 0.5rem;
   background: var(--accent);
   color: var(--onaccent);
   font-weight: 500;
@@ -215,7 +232,7 @@ button.link {
   border: 0;
   background: none;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 0.8125rem;
   font-weight: 400;
 }
 
@@ -226,14 +243,14 @@ button.link:hover {
 
 button.wide {
   width: 100%;
-  height: 46px;
+  height: 2.875rem;
 }
 
 label {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  font-size: 13px;
+  gap: 0.375rem;
+  font-size: 0.8125rem;
   color: var(--muted);
   font-weight: 500;
 }
@@ -241,13 +258,13 @@ label {
 input,
 select {
   width: 100%;
-  height: 42px;
-  padding: 0 12px;
+  height: 2.625rem;
+  padding: 0 0.75rem;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 0.5rem;
   background: var(--surface);
   color: var(--ink);
-  font-size: 15px;
+  font-size: 0.9375rem;
   /* A field sits inside its label, and what is typed is not label text. */
   font-weight: 400;
 }
@@ -258,21 +275,21 @@ input::placeholder {
 }
 
 input.tall {
-  height: 50px;
-  padding: 0 16px;
-  font-size: 17px;
+  height: 3.125rem;
+  padding: 0 1rem;
+  font-size: 1.0625rem;
 }
 
 .card {
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 0.625rem;
 }
 
 .field-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(12.5rem, 1fr));
+  gap: 0.875rem;
 }
 
 .divider {
@@ -287,8 +304,8 @@ input.tall {
 .logo {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
-  font-size: 18px;
+  gap: 0.625rem;
+  font-size: 1.125rem;
   line-height: 1;
   letter-spacing: -0.022em;
   color: var(--ink);
@@ -298,9 +315,9 @@ input.tall {
 
 .logo-mark {
   position: relative;
-  width: 21px;
-  height: 21px;
-  border-radius: 5px;
+  width: 1.3125rem;
+  height: 1.3125rem;
+  border-radius: 0.3125rem;
   background: var(--ink);
   flex: none;
 }
@@ -308,10 +325,10 @@ input.tall {
 .logo-mark::after {
   content: "";
   position: absolute;
-  left: 3px;
-  right: 3px;
-  bottom: 4px;
-  height: 6px;
+  left: 0.1875rem;
+  right: 0.1875rem;
+  bottom: 0.25rem;
+  height: 0.375rem;
   background: var(--mark);
 }
 
@@ -319,30 +336,39 @@ input.tall {
 
 .shell {
   display: grid;
-  grid-template-columns: 256px minmax(0, 1fr);
-  min-height: 100vh;
+  grid-template-columns: 16rem minmax(0, 1fr);
+  min-height: 100dvh;
 }
 
 .sidebar {
   position: sticky;
   top: 0;
-  height: 100vh;
+  height: 100dvh;
   display: flex;
   flex-direction: column;
-  gap: 20px;
-  padding: 22px 14px 16px;
+  gap: 1.25rem;
+  padding: 1.375rem 0.875rem 1rem;
   background: var(--surface);
   border-right: 1px solid var(--line);
 }
 
+/* Everything under the logo. On a small screen this is what the menu button opens. */
+.sidebar-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
 .sidebar .logo {
-  padding: 0 8px;
+  padding: 0 0.5rem;
 }
 
 .org-card {
-  padding: 10px 8px;
+  padding: 0.625rem 0.5rem;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 0.5rem;
 }
 
 .org-card strong {
@@ -354,7 +380,7 @@ input.tall {
 }
 
 .nav-label {
-  font-size: 11px;
+  font-size: 0.6875rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--muted);
@@ -370,17 +396,17 @@ input.tall {
 }
 
 .nav .nav-label {
-  padding: 12px 8px 4px;
+  padding: 0.75rem 0.5rem 0.25rem;
 }
 
 .nav-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  padding: 7px 8px;
-  border-radius: 6px;
-  font-size: 14px;
+  gap: 0.625rem;
+  padding: 0.4375rem 0.5rem;
+  border-radius: 0.375rem;
+  font-size: 0.875rem;
   color: var(--ink);
   text-decoration: none;
 }
@@ -404,7 +430,7 @@ input.tall {
 }
 
 .nav-row .nav-place {
-  font-size: 12px;
+  font-size: 0.75rem;
   color: var(--muted);
 }
 
@@ -414,11 +440,11 @@ input.tall {
 }
 
 .nav-add {
-  margin-top: 8px;
-  padding: 8px;
+  margin-top: 0.5rem;
+  padding: 0.5rem;
   border: 1px dashed var(--line);
-  border-radius: 6px;
-  font-size: 14px;
+  border-radius: 0.375rem;
+  font-size: 0.875rem;
   color: var(--muted);
   text-decoration: none;
 }
@@ -432,16 +458,16 @@ input.tall {
 .sidebar-foot {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding-top: 14px;
+  gap: 0.625rem;
+  padding-top: 0.875rem;
   border-top: 1px solid var(--line);
 }
 
 .account {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 0 4px;
+  gap: 0.625rem;
+  padding: 0 0.25rem;
   min-width: 0;
 }
 
@@ -454,34 +480,34 @@ input.tall {
 
 .account .email {
   max-width: 100%;
-  font-size: 13px;
+  font-size: 0.8125rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .avatar {
-  width: 28px;
-  height: 28px;
+  width: 1.75rem;
+  height: 1.75rem;
   flex: none;
   display: grid;
   place-items: center;
   border-radius: 50%;
   background: var(--soft);
-  font-size: 11px;
+  font-size: 0.6875rem;
   font-weight: 600;
 }
 
 button.theme-toggle {
   width: 100%;
-  height: 34px;
+  height: 2.125rem;
   justify-content: space-between;
-  padding: 0 8px;
+  padding: 0 0.5rem;
   border: 0;
-  border-radius: 6px;
+  border-radius: 0.375rem;
   background: none;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 0.8125rem;
   font-weight: 400;
 }
 
@@ -496,39 +522,39 @@ button.theme-toggle:hover {
 }
 
 .sample-banner {
-  padding: 8px 48px;
+  padding: 0.5rem var(--gutter);
   background: var(--ink);
   color: var(--bg);
-  font-size: 13px;
+  font-size: 0.8125rem;
 }
 
 /* Pages */
 
 .page {
-  max-width: 1280px;
+  max-width: 80rem;
   margin: 0 auto;
-  padding: 44px 48px 120px;
+  padding: 2.75rem var(--gutter) 7.5rem;
   display: flex;
   flex-direction: column;
-  gap: 28px;
+  gap: 1.75rem;
 }
 
 .page-narrow {
-  max-width: 620px;
+  max-width: 38.75rem;
   margin: 0 auto;
-  padding: 64px 24px 96px;
+  padding: clamp(2.5rem, 7vw, 4rem) 1.5rem 6rem;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 1.25rem;
 }
 
 .page-narrow h1 {
-  font-size: 35px;
+  font-size: clamp(1.6875rem, 1.4684rem + 0.8989vw, 2.1875rem);
   line-height: 1.05;
 }
 
 .lede {
-  font-size: 16px;
+  font-size: 1rem;
   color: var(--muted);
 }
 
@@ -536,31 +562,31 @@ button.theme-toggle:hover {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
-  gap: 24px;
+  gap: 1.5rem;
   flex-wrap: wrap;
 }
 
 .page-head > div {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 0.5rem;
 }
 
 .inline-card {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  padding: 22px;
+  gap: 1rem;
+  padding: 1.375rem;
 }
 
 .inline-card h2 {
-  font-size: 22px;
+  font-size: 1.375rem;
 }
 
 .inline-card .row {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 1rem;
   flex-wrap: wrap;
 }
 
@@ -568,9 +594,9 @@ button.theme-toggle:hover {
 
 .rate-cell {
   display: block;
-  padding: 6px 0;
-  border-radius: 6px;
-  font-size: 13px;
+  padding: 0.375rem 0;
+  border-radius: 0.375rem;
+  font-size: 0.8125rem;
   font-weight: 500;
   text-align: center;
   color: var(--ink);
@@ -597,7 +623,7 @@ button.theme-toggle:hover {
 .soft-ok {
   display: inline-block;
   padding: 0.1em 0.5em;
-  border-radius: 6px;
+  border-radius: 0.375rem;
   background: color-mix(in oklch, var(--ok) 18%, transparent);
   color: var(--ok);
   font-weight: 600;
@@ -606,7 +632,7 @@ button.theme-toggle:hover {
 .none {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 0.5rem;
   color: var(--muted);
 }
 
@@ -615,8 +641,8 @@ button.theme-toggle:hover {
 }
 
 .ring {
-  width: 9px;
-  height: 9px;
+  width: 0.5625rem;
+  height: 0.5625rem;
   flex: none;
   border: 1.5px solid currentColor;
   border-radius: 50%;
@@ -624,10 +650,10 @@ button.theme-toggle:hover {
 
 .pill {
   display: inline-block;
-  padding: 2px 8px;
+  padding: 2px 0.5rem;
   border: 1px solid var(--line);
-  border-radius: 999px;
-  font-size: 11px;
+  border-radius: 62.4375rem;
+  font-size: 0.6875rem;
   color: var(--muted);
   white-space: nowrap;
 }
@@ -640,25 +666,25 @@ button.theme-toggle:hover {
 }
 
 .gtable {
-  min-width: var(--min, 560px);
+  min-width: var(--min, 35rem);
 }
 
 .gtable-head,
 .gtable-row {
   display: grid;
   grid-template-columns: var(--cols);
-  gap: 20px;
+  gap: 1.25rem;
   align-items: center;
 }
 
 .gtable-head {
-  padding: 10px 12px;
-  font-size: 12px;
+  padding: 0.625rem 0.75rem;
+  font-size: 0.75rem;
   color: var(--muted);
 }
 
 .gtable-row {
-  padding: 16px 12px;
+  padding: 1rem 0.75rem;
   border-top: 1px solid var(--line);
   color: var(--ink);
   text-decoration: none;
@@ -690,7 +716,7 @@ a.gtable-row:hover {
 /* Locations */
 
 .loc-name {
-  font-size: 17px;
+  font-size: 1.0625rem;
   line-height: 1.15;
   font-weight: 600;
   letter-spacing: -0.022em;
@@ -699,19 +725,19 @@ a.gtable-row:hover {
 .loc-score {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 0.625rem;
 }
 
 .loc-score .display {
-  min-width: 40px;
-  font-size: 24px;
+  min-width: 2.5rem;
+  font-size: 1.5rem;
   line-height: 1;
   letter-spacing: -0.022em;
 }
 
 .spark {
-  width: 72px;
-  height: 24px;
+  width: 4.5rem;
+  height: 1.5rem;
   overflow: visible;
   color: var(--ink);
 }
@@ -725,7 +751,7 @@ a.gtable-row:hover {
 }
 
 .change {
-  font-size: 13px;
+  font-size: 0.8125rem;
   color: var(--muted);
 }
 
@@ -741,23 +767,23 @@ a.gtable-row:hover {
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 10px;
-  font-size: 14px;
+  gap: 0.625rem;
+  font-size: 0.875rem;
 }
 
 /* Location detail */
 
 .detail-head {
-  max-width: 1160px;
+  max-width: 72.5rem;
   margin: 0 auto;
-  padding: 36px 48px 0;
+  padding: 2.25rem var(--gutter) 0;
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 1.125rem;
 }
 
 .breadcrumb {
-  font-size: 13px;
+  font-size: 0.8125rem;
   color: var(--muted);
 }
 
@@ -765,48 +791,48 @@ a.gtable-row:hover {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 24px;
+  gap: 1.5rem;
   flex-wrap: wrap;
 }
 
 .title-row h1 {
-  font-size: 39px;
+  font-size: clamp(1.8125rem, 1.5386rem + 1.1236vw, 2.4375rem);
 }
 
 .title-row > div:first-child {
-  flex: 1 1 320px;
+  flex: 1 1 20rem;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 0.75rem;
   min-width: 0;
 }
 
 .meta-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px 16px;
-  font-size: 14px;
+  gap: 0.375rem 1rem;
+  font-size: 0.875rem;
   color: var(--muted);
 }
 
 .head-actions {
   flex: none;
   display: flex;
-  gap: 10px;
+  gap: 0.625rem;
 }
 
 .scan-bar {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px 16px;
-  font-size: 14px;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  font-size: 0.875rem;
 }
 
 .scan-bar::before {
   content: "";
-  width: 8px;
-  height: 8px;
+  width: 0.5rem;
+  height: 0.5rem;
   flex: none;
   border-radius: 50%;
   background: var(--mark);
@@ -825,29 +851,29 @@ a.gtable-row:hover {
   position: sticky;
   top: 0;
   z-index: 5;
-  margin-top: 20px;
+  margin-top: 1.25rem;
   background: var(--bg);
   border-bottom: 1px solid var(--line);
 }
 
 .tabs {
-  max-width: 1160px;
+  max-width: 72.5rem;
   margin: 0 auto;
-  padding: 0 48px;
+  padding: 0 var(--gutter);
   display: flex;
-  gap: 4px;
+  gap: 0.25rem;
   overflow-x: auto;
 }
 
 button.tab {
   height: auto;
-  padding: 14px 12px 12px;
+  padding: 0.875rem 0.75rem 0.75rem;
   border: 0;
   border-bottom: 2px solid transparent;
   border-radius: 0;
   background: none;
   color: var(--muted);
-  font-size: 14px;
+  font-size: 0.875rem;
   font-weight: 400;
 }
 
@@ -863,11 +889,11 @@ button.tab[aria-selected="true"] {
 }
 
 .badge {
-  padding: 3px 6px;
-  border-radius: 999px;
+  padding: 0.1875rem 0.375rem;
+  border-radius: 62.4375rem;
   background: var(--soft);
   color: var(--muted);
-  font-size: 11px;
+  font-size: 0.6875rem;
   font-weight: 400;
   line-height: 1;
 }
@@ -878,23 +904,23 @@ button.tab[aria-selected="true"] {
 }
 
 .tab-body {
-  max-width: 1160px;
+  max-width: 72.5rem;
   margin: 0 auto;
-  padding: 32px 48px 140px;
+  padding: 2rem var(--gutter) 8.75rem;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 1.25rem;
 }
 
 .tab-body.narrow > * {
-  max-width: 860px;
+  max-width: 53.75rem;
 }
 
 .section-head {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 16px;
+  gap: 1rem;
   flex-wrap: wrap;
 }
 
@@ -905,7 +931,7 @@ button.tab[aria-selected="true"] {
 
 .intro {
   max-width: 70ch;
-  font-size: 14px;
+  font-size: 0.875rem;
   color: var(--muted);
 }
 
@@ -913,8 +939,8 @@ button.tab[aria-selected="true"] {
 
 .overview {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
-  gap: 24px;
+  grid-template-columns: repeat(auto-fit, minmax(21.25rem, 1fr));
+  gap: 1.5rem;
   align-items: start;
 }
 
@@ -922,19 +948,19 @@ button.tab[aria-selected="true"] {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 1rem;
 }
 
 .steps {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 0.625rem;
 }
 
 .step {
   display: flex;
-  gap: 16px;
-  padding: 18px 20px;
+  gap: 1rem;
+  padding: 1.125rem 1.25rem;
 }
 
 .step.done {
@@ -946,15 +972,15 @@ button.tab[aria-selected="true"] {
 }
 
 button.check {
-  width: 26px;
-  height: 26px;
+  width: 1.625rem;
+  height: 1.625rem;
   flex: none;
   padding: 0;
   border: 1.5px solid var(--ink);
   border-radius: 50%;
   background: none;
   color: var(--onaccent);
-  font-size: 13px;
+  font-size: 0.8125rem;
 }
 
 button.check[aria-pressed="true"] {
@@ -966,36 +992,36 @@ button.check[aria-pressed="true"] {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 0.5rem;
 }
 
 .step-title {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 12px;
+  gap: 0.75rem;
   flex-wrap: wrap;
 }
 
 .kind {
-  font-size: 11px;
+  font-size: 0.6875rem;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--muted);
 }
 
 .step-body > p {
-  font-size: 14px;
+  font-size: 0.875rem;
   color: var(--muted);
 }
 
 .step-items li {
   display: flex;
   flex-wrap: wrap;
-  gap: 2px 12px;
-  padding: 7px 0;
+  gap: 2px 0.75rem;
+  padding: 0.4375rem 0;
   border-top: 1px solid var(--line);
-  font-size: 14px;
+  font-size: 0.875rem;
 }
 
 .step-items a,
@@ -1010,7 +1036,7 @@ button.go {
   border: 0;
   background: none;
   color: var(--ink);
-  font-size: 13px;
+  font-size: 0.8125rem;
   font-weight: 500;
   text-decoration: underline;
   text-underline-offset: 0.18em;
@@ -1018,56 +1044,61 @@ button.go {
 
 .also {
   display: flex;
-  gap: 16px;
+  flex-wrap: wrap;
+  gap: 1rem;
   align-items: flex-start;
   justify-content: space-between;
-  padding: 16px 20px;
+  padding: 1rem 1.25rem;
+}
+
+.also > div:first-child {
+  flex: 1 1 14rem;
 }
 
 .also p {
-  font-size: 14px;
+  font-size: 0.875rem;
   color: var(--muted);
 }
 
 .also .row-actions {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 0.875rem;
   flex: none;
 }
 
 .also button.secondary {
-  height: 36px;
-  padding: 0 12px;
-  font-size: 13px;
+  height: 2.25rem;
+  padding: 0 0.75rem;
+  font-size: 0.8125rem;
 }
 
 .score-card,
 .bars-card {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  padding: 22px;
+  gap: 0.875rem;
+  padding: 1.375rem;
 }
 
 .score-card .top {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
-  font-size: 14px;
+  gap: 0.75rem;
+  font-size: 0.875rem;
   color: var(--muted);
 }
 
 .score-big {
-  font-size: 72px;
+  font-size: clamp(3.5rem, 3.0618rem + 1.7978vw, 4.5rem);
   line-height: 0.85;
   letter-spacing: -0.022em;
   font-weight: 600;
 }
 
 .score-big span {
-  margin-left: 8px;
-  font-size: 15px;
+  margin-left: 0.5rem;
+  font-size: 0.9375rem;
   font-weight: 400;
   letter-spacing: 0;
   color: var(--muted);
@@ -1107,7 +1138,7 @@ button.go {
 .chart-dates {
   display: flex;
   justify-content: space-between;
-  font-size: 11px;
+  font-size: 0.6875rem;
   color: var(--muted);
 }
 
@@ -1115,33 +1146,33 @@ button.go {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
-  gap: 12px;
-  font-size: 14px;
+  gap: 0.75rem;
+  font-size: 0.875rem;
 }
 
 details.as-table summary {
   cursor: pointer;
-  font-size: 13px;
+  font-size: 0.8125rem;
   color: var(--muted);
 }
 
 details.as-table table {
   width: 100%;
-  margin-top: 8px;
+  margin-top: 0.5rem;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: 0.8125rem;
 }
 
 details.as-table th,
 details.as-table td {
-  padding: 5px 0;
+  padding: 0.3125rem 0;
   border-top: 1px solid var(--line);
   text-align: left;
   font-weight: 400;
 }
 
 .card-title {
-  font-size: 13px;
+  font-size: 0.8125rem;
   font-weight: 400;
   line-height: 1.5;
   letter-spacing: 0;
@@ -1150,11 +1181,11 @@ details.as-table td {
 
 .bars li {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 90px auto;
-  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) 5.625rem auto;
+  gap: 0.75rem;
   align-items: center;
-  padding: 6px 0;
-  font-size: 14px;
+  padding: 0.375rem 0;
+  font-size: 0.875rem;
 }
 
 .bars li.you {
@@ -1162,8 +1193,8 @@ details.as-table td {
 }
 
 .bar {
-  height: 6px;
-  border-radius: 3px;
+  height: 0.375rem;
+  border-radius: 0.1875rem;
   background: var(--soft);
   overflow: hidden;
 }
@@ -1171,7 +1202,7 @@ details.as-table td {
 .bar i {
   display: block;
   height: 100%;
-  border-radius: 3px;
+  border-radius: 0.1875rem;
   background: var(--muted);
   print-color-adjust: exact;
   -webkit-print-color-adjust: exact;
@@ -1192,21 +1223,21 @@ details.as-table td {
 }
 
 .pgrid {
-  min-width: 700px;
+  min-width: 43.75rem;
 }
 
 .pgrid-head,
 .pgrid-row {
   display: grid;
   grid-template-columns: var(--cols);
-  gap: 16px;
+  gap: 1rem;
   align-items: start;
 }
 
 .pgrid-head {
-  padding: 10px 20px;
+  padding: 0.625rem 1.25rem;
   background: var(--bg);
-  font-size: 12px;
+  font-size: 0.75rem;
   color: var(--muted);
 }
 
@@ -1215,7 +1246,7 @@ details.as-table td {
 }
 
 .pgrid-row {
-  padding: 16px 20px;
+  padding: 1rem 1.25rem;
   border-top: 1px solid var(--line);
 }
 
@@ -1223,31 +1254,31 @@ details.as-table td {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 6px;
+  gap: 0.375rem;
 }
 
 .acell .top {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 12px;
+  gap: 0.5rem;
+  font-size: 0.75rem;
   color: var(--muted);
 }
 
 .acell .none {
-  font-size: 13px;
+  font-size: 0.8125rem;
 }
 
 /* One dot per recent scan in a results cell, oldest on the left. */
 .history {
   display: inline-flex;
-  gap: 3px;
+  gap: 0.1875rem;
 }
 
 .history-hit,
 .history-miss {
-  width: 9px;
-  height: 9px;
+  width: 0.5625rem;
+  height: 0.5625rem;
   border-radius: 50%;
   border: 1.5px solid var(--line);
 }
@@ -1264,16 +1295,16 @@ details.as-table td {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-end;
-  gap: 12px;
+  gap: 0.75rem;
 }
 
 .add-row label:first-child {
-  width: 190px;
+  width: 11.875rem;
 }
 
 .add-row .grow {
   flex: 1;
-  min-width: 240px;
+  min-width: 15rem;
 }
 
 .add-row .mono {
@@ -1286,12 +1317,12 @@ details.as-table td {
 .cited {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 0.75rem;
 }
 
 .cited .bar {
   flex: 1;
-  max-width: 220px;
+  max-width: 13.75rem;
 }
 
 .cited .mono {
@@ -1303,11 +1334,11 @@ details.as-table td {
 
 .checks li {
   display: grid;
-  grid-template-columns: 20px minmax(0, 1fr);
-  gap: 8px;
-  padding: 11px 0;
+  grid-template-columns: 1.25rem minmax(0, 1fr);
+  gap: 0.5rem;
+  padding: 0.6875rem 0;
   border-top: 1px solid var(--line);
-  font-size: 14px;
+  font-size: 0.875rem;
 }
 
 .checks li:last-child {
@@ -1329,13 +1360,13 @@ details.as-table td {
 
 .checks p {
   margin-top: 2px;
-  font-size: 13px;
+  font-size: 0.8125rem;
   color: var(--muted);
 }
 
 .notice {
-  padding: 16px 20px;
-  font-size: 14px;
+  padding: 1rem 1.25rem;
+  font-size: 0.875rem;
   color: var(--muted);
 }
 
@@ -1344,18 +1375,18 @@ details.as-table td {
 .quotes {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 0.875rem;
 }
 
 .quote {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 18px 20px;
+  gap: 0.625rem;
+  padding: 1.125rem 1.25rem;
 }
 
 .quote figcaption {
-  font-size: 12px;
+  font-size: 0.75rem;
   color: var(--muted);
 }
 
@@ -1366,7 +1397,7 @@ details.as-table td {
 
 .quote-text {
   margin: 0;
-  font-size: 17px;
+  font-size: 1.0625rem;
   line-height: 1.45;
 }
 
@@ -1380,7 +1411,7 @@ mark {
 }
 
 .sources {
-  font-size: 12px;
+  font-size: 0.75rem;
   color: var(--muted);
 }
 
@@ -1389,36 +1420,36 @@ mark {
 .settings {
   display: flex;
   flex-wrap: wrap;
-  gap: 24px;
+  gap: 1.5rem;
   align-items: flex-start;
 }
 
 .settings-main {
-  flex: 2 1 520px;
+  flex: 2 1 32.5rem;
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 18px;
-  padding: 24px;
+  gap: 1.125rem;
+  padding: 1.5rem;
 }
 
 .settings-side {
-  flex: 1 1 300px;
+  flex: 1 1 18.75rem;
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 1rem;
 }
 
 .settings-main h2 {
-  font-size: 22px;
+  font-size: 1.375rem;
 }
 
 .side-card {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 22px;
+  gap: 0.75rem;
+  padding: 1.375rem;
 }
 
 .side-card.danger {
@@ -1426,17 +1457,17 @@ mark {
 }
 
 .side-card p {
-  font-size: 14px;
+  font-size: 0.875rem;
   color: var(--muted);
 }
 
 .side-card li {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
-  padding: 8px 0;
+  gap: 0.75rem;
+  padding: 0.5rem 0;
   border-top: 1px solid var(--line);
-  font-size: 14px;
+  font-size: 0.875rem;
 }
 
 .side-card button {
@@ -1445,18 +1476,18 @@ mark {
 
 .segmented {
   display: inline-flex;
-  gap: 4px;
-  padding: 3px;
+  gap: 0.25rem;
+  padding: 0.1875rem;
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: 62.4375rem;
   align-self: flex-start;
 }
 
 .segmented button {
-  height: 36px;
-  padding: 0 16px;
+  height: 2.25rem;
+  padding: 0 1rem;
   border: 0;
-  border-radius: 999px;
+  border-radius: 62.4375rem;
   background: none;
   color: var(--muted);
 }
@@ -1473,37 +1504,37 @@ mark {
 /* Sign in */
 
 .signin {
-  min-height: 100vh;
+  min-height: 100dvh;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(23.75rem, 1fr));
 }
 
 .signin-panel {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  gap: 48px;
-  padding: 48px 56px;
+  gap: 3rem;
+  padding: clamp(2rem, 5vw, 3rem) clamp(1.5rem, 5vw, 3.5rem);
   background: var(--soft);
   border-right: 1px solid var(--line);
 }
 
 .hero {
-  font-size: clamp(33px, 3.8vw, 49px);
+  font-size: clamp(2.0625rem, 1rem + 3.4vw, 3.0625rem);
   line-height: 1.02;
   text-wrap: balance;
 }
 
 .sample-card {
-  max-width: 460px;
+  max-width: 28.75rem;
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 18px 20px;
+  gap: 0.75rem;
+  padding: 1.125rem 1.25rem;
 }
 
 .sample-card .display {
-  font-size: 17px;
+  font-size: 1.0625rem;
   line-height: 1.35;
   font-weight: 400;
 }
@@ -1511,32 +1542,32 @@ mark {
 .signin-form {
   display: grid;
   place-items: center;
-  padding: 48px 24px;
+  padding: 3rem 1.5rem;
 }
 
 .signin-form > div {
   width: 100%;
-  max-width: 380px;
+  max-width: 23.75rem;
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 1.125rem;
 }
 
 .signin-form form {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 0.875rem;
 }
 
 .signin-form input {
-  height: 46px;
+  height: 2.875rem;
 }
 
 .sent-card {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 20px;
+  gap: 0.5rem;
+  padding: 1.25rem;
 }
 
 /* Onboarding */
@@ -1545,25 +1576,25 @@ mark {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 24px;
+  gap: 1.5rem;
   flex-wrap: wrap;
-  padding: 20px 32px;
+  padding: 1.25rem var(--gutter);
   border-bottom: 1px solid var(--line);
 }
 
 .stepper {
   display: flex;
-  gap: 6px;
+  gap: 0.375rem;
   flex-wrap: wrap;
 }
 
 .stepper li {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 5px 12px 5px 6px;
-  border-radius: 999px;
-  font-size: 13px;
+  gap: 0.5rem;
+  padding: 0.3125rem 0.75rem 0.3125rem 0.375rem;
+  border-radius: 62.4375rem;
+  font-size: 0.8125rem;
   color: var(--muted);
 }
 
@@ -1573,13 +1604,13 @@ mark {
 }
 
 .stepper .num {
-  width: 22px;
-  height: 22px;
+  width: 1.375rem;
+  height: 1.375rem;
   display: grid;
   place-items: center;
   border: 1px solid var(--line);
   border-radius: 50%;
-  font-size: 11px;
+  font-size: 0.6875rem;
 }
 
 .stepper .done .num {
@@ -1589,29 +1620,29 @@ mark {
 }
 
 .onb-body {
-  max-width: 620px;
+  max-width: 38.75rem;
   margin: 0 auto;
-  padding: 64px 24px 96px;
+  padding: clamp(2.5rem, 7vw, 4rem) 1.5rem 6rem;
   display: flex;
   flex-direction: column;
-  gap: 32px;
+  gap: 2rem;
 }
 
 .onb-body header {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 0.75rem;
 }
 
 .onb-body h1 {
-  font-size: 35px;
+  font-size: clamp(1.6875rem, 1.4684rem + 0.8989vw, 2.1875rem);
   line-height: 1.05;
 }
 
 .two-col {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(13.75rem, 1fr));
+  gap: 0.875rem;
 }
 
 .choices li {
@@ -1625,23 +1656,23 @@ mark {
 .choices label {
   flex-direction: row;
   align-items: center;
-  gap: 14px;
-  padding: 14px 0;
-  font-size: 16px;
+  gap: 0.875rem;
+  padding: 0.875rem 0;
+  font-size: 1rem;
   color: var(--ink);
   cursor: pointer;
 }
 
 .choices input {
   appearance: none;
-  width: 20px;
-  height: 20px;
+  width: 1.25rem;
+  height: 1.25rem;
   flex: none;
   padding: 0;
   display: grid;
   place-items: center;
   border: 1px solid var(--muted);
-  border-radius: 4px;
+  border-radius: 0.25rem;
   background: var(--surface);
 }
 
@@ -1653,20 +1684,20 @@ mark {
 .choices input:checked::after {
   content: "✓";
   color: var(--bg);
-  font-size: 13px;
+  font-size: 0.8125rem;
   line-height: 1;
 }
 
 .summary-card {
-  padding: 4px 20px;
+  padding: 0.25rem 1.25rem;
 }
 
 .summary-card li {
   display: grid;
-  grid-template-columns: 120px minmax(0, 1fr);
-  gap: 16px;
-  padding: 14px 0;
-  font-size: 15px;
+  grid-template-columns: 7.5rem minmax(0, 1fr);
+  gap: 1rem;
+  padding: 0.875rem 0;
+  font-size: 0.9375rem;
 }
 
 .summary-card li + li {
@@ -1674,7 +1705,7 @@ mark {
 }
 
 .summary-card li > span:first-child {
-  font-size: 13px;
+  font-size: 0.8125rem;
   color: var(--muted);
 }
 
@@ -1682,12 +1713,12 @@ mark {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: 1rem;
 }
 
 .onb-foot button:not(.link) {
-  height: 46px;
-  padding: 0 24px;
+  height: 2.875rem;
+  padding: 0 1.5rem;
   margin-left: auto;
 }
 
@@ -1697,98 +1728,98 @@ mark {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: 1rem;
   flex-wrap: wrap;
-  padding: 18px 40px;
+  padding: 1.125rem var(--gutter);
   border-bottom: 1px solid var(--line);
-  font-size: 13px;
+  font-size: 0.8125rem;
   color: var(--muted);
 }
 
 .audit-body {
-  max-width: 980px;
+  max-width: 61.25rem;
   margin: 0 auto;
-  padding: 64px 40px 120px;
+  padding: clamp(2.5rem, 6vw, 4rem) var(--gutter) 7.5rem;
   display: flex;
   flex-direction: column;
-  gap: 64px;
+  gap: clamp(2.5rem, 6vw, 4rem);
 }
 
 .audit-hero {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-  gap: 40px;
+  grid-template-columns: repeat(auto-fit, minmax(18.75rem, 1fr));
+  gap: 2.5rem;
   align-items: center;
 }
 
 .audit-hero > div:first-child {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 1.125rem;
 }
 
 .audit-hero h1 {
-  font-size: clamp(32px, 3.8vw, 46px);
+  font-size: clamp(1.875rem, 1rem + 3.2vw, 2.875rem);
   line-height: 1.02;
   text-wrap: balance;
 }
 
 .audit-hero .explain {
-  font-size: 17px;
+  font-size: 1.0625rem;
   color: var(--muted);
 }
 
 .audit-score {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  padding: 28px;
+  gap: 1rem;
+  padding: 1.75rem;
 }
 
 .audit-score .score-big {
-  font-size: 86px;
+  font-size: clamp(4rem, 3.3975rem + 2.4719vw, 5.375rem);
   line-height: 0.8;
 }
 
 .audit-score .bar {
-  height: 8px;
-  border-radius: 4px;
+  height: 0.5rem;
+  border-radius: 0.25rem;
 }
 
 .audit-score p {
-  font-size: 14px;
+  font-size: 0.875rem;
   color: var(--muted);
 }
 
 .audit-body section {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 1.125rem;
 }
 
 .audit-step {
   display: grid;
-  grid-template-columns: 48px minmax(0, 1fr);
-  gap: 16px;
-  padding: 20px 0;
+  grid-template-columns: 3rem minmax(0, 1fr);
+  gap: 1rem;
+  padding: 1.25rem 0;
   border-top: 1px solid var(--line);
 }
 
 .audit-steps .numeral {
-  font-size: 29px;
+  font-size: 1.8125rem;
   line-height: 1;
   font-weight: 600;
   letter-spacing: -0.022em;
 }
 
 .audit-steps .step-body > p {
-  font-size: 15px;
+  font-size: 0.9375rem;
 }
 
 .audit-pair {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-  gap: 40px;
+  grid-template-columns: repeat(auto-fit, minmax(18.75rem, 1fr));
+  gap: 2.5rem;
   align-items: start;
 }
 
@@ -1800,82 +1831,34 @@ mark {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 24px;
+  gap: 1.5rem;
   flex-wrap: wrap;
-  padding: 36px 40px;
-  border-radius: 12px;
+  padding: clamp(1.5rem, 5vw, 2.25rem) clamp(1.5rem, 5vw, 2.5rem);
+  border-radius: 0.75rem;
   background: var(--ink);
   color: var(--bg);
 }
 
 .audit-cta h2 {
-  font-size: 21px;
+  font-size: 1.3125rem;
 }
 
 .audit-cta-note {
-  margin-top: 8px;
-  font-size: 14px;
+  margin-top: 0.5rem;
+  font-size: 0.875rem;
   opacity: 0.7;
 }
 
 .audit-cta a {
   display: inline-flex;
   align-items: center;
-  height: 46px;
-  padding: 0 24px;
-  border-radius: 8px;
+  height: 2.875rem;
+  padding: 0 1.5rem;
+  border-radius: 0.5rem;
   background: var(--mark);
   color: var(--onmark);
   font-weight: 500;
   text-decoration: none;
-}
-
-/* Narrow screens: the sidebar becomes a block above the page. */
-
-@media (max-width: 900px) {
-  .shell {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .sidebar {
-    position: static;
-    height: auto;
-    border-right: 0;
-    border-bottom: 1px solid var(--line);
-  }
-
-  .nav {
-    max-height: 40vh;
-  }
-
-  .page,
-  .detail-head,
-  .tab-body {
-    padding-inline: 20px;
-  }
-
-  .tabs {
-    padding-inline: 8px;
-  }
-
-  .sample-banner {
-    padding-inline: 20px;
-  }
-
-  h1,
-  .title-row h1 {
-    font-size: 32px;
-  }
-
-  .signin-panel {
-    padding: 32px 24px;
-    border-right: 0;
-  }
-
-  .audit-head,
-  .audit-body {
-    padding-inline: 20px;
-  }
 }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -1892,15 +1875,15 @@ mark {
 /* Heading sizes the sign-in and audit pages use beside the app's own. */
 
 .h-lg {
-  font-size: 27px;
+  font-size: clamp(1.375rem, 1.2381rem + 0.5618vw, 1.6875rem);
 }
 
 .h-sm {
-  font-size: 22px;
+  font-size: clamp(1.1875rem, 1.1053rem + 0.3371vw, 1.375rem);
 }
 
 .side-title {
-  font-size: 15px;
+  font-size: 0.9375rem;
 }
 
 .side-title.bad {
@@ -1908,14 +1891,204 @@ mark {
 }
 
 .step-name {
-  font-size: 17px;
+  font-size: 1.0625rem;
 }
 
 .quote-lg {
-  font-size: 19px;
+  font-size: clamp(1.0625rem, 1.0077rem + 0.2247vw, 1.1875rem);
   line-height: 1.35;
 }
 
 .logo-lg {
-  font-size: 19px;
+  font-size: 1.1875rem;
+}
+
+/* Touch: every control is at least a fingertip tall, and small ones get a larger hit area. */
+
+@media (pointer: coarse) {
+  button,
+  input,
+  select {
+    min-height: 2.75rem;
+  }
+
+  button.link,
+  button.go {
+    min-height: 0;
+    padding-block: 0.625rem;
+  }
+
+  button.check {
+    position: relative;
+    min-height: 0;
+  }
+
+  button.check::after {
+    content: "";
+    position: absolute;
+    inset: -0.625rem;
+  }
+
+  .segmented button,
+  .also button.secondary {
+    min-height: 2.75rem;
+  }
+
+  .nav-row,
+  .nav-add {
+    padding-block: 0.625rem;
+  }
+}
+
+/* The sidebar's menu button and the labels for stacked table cells exist only on small screens. */
+
+.menu-button,
+.cell-label {
+  display: none;
+}
+
+/* Tablets and phones: the sidebar folds into a bar across the top with a menu. */
+
+@media (max-width: 900px) {
+  .shell {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto 1fr;
+  }
+
+  .sidebar {
+    position: static;
+    height: auto;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.75rem var(--gutter);
+    padding-top: max(0.75rem, env(safe-area-inset-top));
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .sidebar .logo {
+    padding: 0;
+  }
+
+  button.menu-button {
+    display: inline-flex;
+    height: 2.75rem;
+    padding: 0 0.875rem;
+  }
+
+  .sidebar-body {
+    display: none;
+    flex-basis: 100%;
+    flex-direction: column;
+    gap: 1rem;
+    padding-bottom: 0.5rem;
+  }
+
+  .sidebar.open .sidebar-body {
+    display: flex;
+  }
+
+  .nav {
+    flex: none;
+    max-height: 50dvh;
+  }
+
+  /* iOS zooms the page when a field's text is under 16px. */
+  input,
+  select {
+    font-size: 1rem;
+  }
+
+  .signin-panel {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .page,
+  .tab-body,
+  .audit-body,
+  .onb-body {
+    padding-bottom: max(5rem, calc(3rem + env(safe-area-inset-bottom)));
+  }
+}
+
+/* Phones: a wide table becomes a card per row, each figure under its own label. */
+
+@media (max-width: 700px) {
+  .gtable.stacks,
+  .pgrid {
+    min-width: 0;
+  }
+
+  .stacks .gtable-head,
+  .pgrid-head > span:not(:first-child) {
+    display: none;
+  }
+
+  .stacks .gtable-row,
+  .pgrid-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 0.875rem 1.25rem;
+  }
+
+  .pgrid-row > :first-child {
+    flex-basis: 100%;
+  }
+
+  .stacks .gtable-row > :first-child {
+    flex-basis: 100%;
+  }
+
+  .cell {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    min-width: 4.5rem;
+  }
+
+  .cell.wide {
+    flex-basis: 100%;
+  }
+
+  .cell-label {
+    display: block;
+    font-size: 0.6875rem;
+    color: var(--muted);
+  }
+
+  .pgrid-row > button.link {
+    margin-left: auto;
+  }
+
+  .head-actions,
+  .fill-narrow {
+    width: 100%;
+  }
+
+  .also {
+    flex-direction: column;
+  }
+
+  .summary-card li {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.25rem;
+  }
+
+  .stepper li:not([aria-current="step"]) {
+    padding-right: 0.375rem;
+    font-size: 0;
+  }
+
+  .stepper .num {
+    font-size: 0.6875rem;
+  }
+
+  .onb-foot button:not(.link) {
+    flex: 1;
+  }
 }

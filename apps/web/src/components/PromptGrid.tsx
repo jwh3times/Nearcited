@@ -7,6 +7,7 @@ import {
   type TrackedQuery,
 } from "@nearcited/shared";
 import { buildMatrix, type MatrixCell, ordinal } from "../lib/matrix";
+import { Labelled } from "./Labelled";
 import { RateCell } from "./RateCell";
 
 const GROUP_HEADINGS: Record<QueryKind, string> = {
@@ -29,11 +30,11 @@ export function PromptGrid({ queries, results, window, surfaces, onRetire }: Pro
     <div className="card pcard">
       <div className="pgrid">
         {buildMatrix(queries, results, window, surfaces).map((group) => {
-          const columns = `minmax(220px,1fr) ${
+          const columns = `minmax(13.75rem,1fr) ${
             group.surfaces.length > 0
-              ? group.surfaces.map(() => "minmax(150px,190px)").join(" ")
-              : "380px"
-          } 64px`;
+              ? group.surfaces.map(() => "minmax(9.5rem,11.875rem)").join(" ")
+              : "23.75rem"
+          } 4rem`;
           return (
             <div key={group.kind} style={{ "--cols": columns } as never}>
               <div className="pgrid-head">
@@ -48,7 +49,9 @@ export function PromptGrid({ queries, results, window, surfaces, onRetire }: Pro
                 <div key={row.query.id} className="pgrid-row">
                   <span>“{row.query.text}”</span>
                   {row.cells.map((cell) => (
-                    <Cell key={cell.surface} cell={cell} />
+                    <Labelled key={cell.surface} label={SURFACE_LABELS[cell.surface]}>
+                      <Cell cell={cell} />
+                    </Labelled>
                   ))}
                   {row.cells.length === 0 && (
                     <span className="small muted">

@@ -155,6 +155,7 @@ export function LocationDetail() {
           <div className="head-actions">
             <button
               type="button"
+              className="fill-narrow"
               onClick={() => startScan.mutate()}
               disabled={scanning || active.length === 0}
             >
@@ -501,7 +502,11 @@ function AddQuery({
             onChange={(event) => setText(event.target.value)}
           />
         </label>
-        <button type="submit" className="outline" disabled={create.isPending || atLimit}>
+        <button
+          type="submit"
+          className="outline fill-narrow"
+          disabled={create.isPending || atLimit}
+        >
           {kind === "ai_prompt" ? "Add prompt" : "Add keyword"}
         </button>
         {allowed !== undefined && (

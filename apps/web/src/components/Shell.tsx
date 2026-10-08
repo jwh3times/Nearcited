@@ -1,6 +1,6 @@
 import type { Me, Organization } from "@nearcited/shared";
 import { useQuery } from "@tanstack/react-query";
-import type { ReactNode } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { Link, useLocation, useMatch } from "react-router";
 import { api } from "../lib/api";
 import { placeOf, useTrends } from "../lib/locations";
@@ -17,7 +17,11 @@ interface ShellProps {
 /** The signed-in frame: every location in the sidebar, the page beside it. */
 export function Shell({ me, organization, children }: ShellProps) {
   const [theme, toggleTheme] = useTheme();
-  const { search } = useLocation();
+  const { search, pathname } = useLocation();
+  // On a small screen the sidebar is a bar with a menu. Going somewhere closes it.
+  const [menuOpen, setMenuOpen] = useState(false);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the page changing is the trigger
+  useEffect(() => setMenuOpen(false), [pathname, search]);
   const open = useMatch("/locations/:id")?.params.id;
   const locations = useQuery({
     queryKey: ["locations", organization.id],
@@ -28,70 +32,81 @@ export function Shell({ me, organization, children }: ShellProps) {
 
   return (
     <div className="shell">
-      <aside className="sidebar">
+      <aside className={menuOpen ? "sidebar open" : "sidebar"}>
         <Logo />
-        <div className="org-card">
-          <span className="nav-label">Organization</span>
-          <strong>{organization.name}</strong>
-        </div>
-
-        <nav className="nav" aria-label="Locations">
-          <Link to="/" className="nav-row" aria-current={open ? undefined : "page"}>
-            <span>All locations</span>
-            {locations.data && (
-              <span className="mono">
-                {locations.data.length}/{organization.max_locations}
-              </span>
-            )}
-          </Link>
-          <span className="nav-label">Locations</span>
-          {locations.data?.map((location) => {
-            const trend = trends.get(location.id) ?? [];
-            const score = trend[trend.length - 1]?.score;
-            return (
-              <Link
-                key={location.id}
-                // The tab stays put when moving between locations.
-                to={`/locations/${location.id}${open ? search : ""}`}
-                className="nav-row"
-                aria-current={open === location.id ? "page" : undefined}
-              >
-                <span>
-                  <span className="nav-name">{location.name}</span>
-                  <span className="nav-place">{placeOf(location)}</span>
-                </span>
-                <span className="mono">{score ?? "—"}</span>
-              </Link>
-            );
-          })}
-          <Link to="/?add=1" className="nav-add">
-            + Add location
-          </Link>
-        </nav>
-
-        <div className="sidebar-foot">
-          <div className="account">
-            <span className="avatar" aria-hidden="true">
-              {initials}
-            </span>
-            <div>
-              <span className="email">{me.email}</span>
-              <button type="button" className="link" onClick={() => supabase?.auth.signOut()}>
-                Sign out
-              </button>
-            </div>
+        <button
+          type="button"
+          className="secondary menu-button"
+          aria-expanded={menuOpen}
+          aria-controls="sidebar-body"
+          onClick={() => setMenuOpen((open) => !open)}
+        >
+          {menuOpen ? "Close" : "Menu"}
+        </button>
+        <div className="sidebar-body" id="sidebar-body">
+          <div className="org-card">
+            <span className="nav-label">Organization</span>
+            <strong>{organization.name}</strong>
           </div>
-          <button type="button" className="theme-toggle" onClick={toggleTheme}>
-            {theme === "dark" ? (
-              <>
-                Light mode <span aria-hidden="true">☀</span>
-              </>
-            ) : (
-              <>
-                Dark mode <span aria-hidden="true">☾</span>
-              </>
-            )}
-          </button>
+
+          <nav className="nav" aria-label="Locations">
+            <Link to="/" className="nav-row" aria-current={open ? undefined : "page"}>
+              <span>All locations</span>
+              {locations.data && (
+                <span className="mono">
+                  {locations.data.length}/{organization.max_locations}
+                </span>
+              )}
+            </Link>
+            <span className="nav-label">Locations</span>
+            {locations.data?.map((location) => {
+              const trend = trends.get(location.id) ?? [];
+              const score = trend[trend.length - 1]?.score;
+              return (
+                <Link
+                  key={location.id}
+                  // The tab stays put when moving between locations.
+                  to={`/locations/${location.id}${open ? search : ""}`}
+                  className="nav-row"
+                  aria-current={open === location.id ? "page" : undefined}
+                >
+                  <span>
+                    <span className="nav-name">{location.name}</span>
+                    <span className="nav-place">{placeOf(location)}</span>
+                  </span>
+                  <span className="mono">{score ?? "—"}</span>
+                </Link>
+              );
+            })}
+            <Link to="/?add=1" className="nav-add">
+              + Add location
+            </Link>
+          </nav>
+
+          <div className="sidebar-foot">
+            <div className="account">
+              <span className="avatar" aria-hidden="true">
+                {initials}
+              </span>
+              <div>
+                <span className="email">{me.email}</span>
+                <button type="button" className="link" onClick={() => supabase?.auth.signOut()}>
+                  Sign out
+                </button>
+              </div>
+            </div>
+            <button type="button" className="theme-toggle" onClick={toggleTheme}>
+              {theme === "dark" ? (
+                <>
+                  Light mode <span aria-hidden="true">☀</span>
+                </>
+              ) : (
+                <>
+                  Dark mode <span aria-hidden="true">☾</span>
+                </>
+              )}
+            </button>
+          </div>
         </div>
       </aside>
 

@@ -1,4 +1,5 @@
 import type { SourceSummary } from "@nearcited/shared";
+import { Labelled } from "./Labelled";
 
 interface SourceTableProps {
   sources: SourceSummary[];
@@ -11,10 +12,10 @@ interface SourceTableProps {
  * providers' terms require to be shown wherever their answers are used.
  */
 export function SourceTable({ sources, answers }: SourceTableProps) {
-  const columns = "minmax(160px,1fr) minmax(200px,1.4fr) 150px";
+  const columns = "minmax(10rem,1fr) minmax(12.5rem,1.4fr) 9.5rem";
   return (
     <div className="gtable-scroll">
-      <div className="gtable" style={{ "--cols": columns, "--min": "560px" } as never}>
+      <div className="gtable stacks" style={{ "--cols": columns, "--min": "35rem" } as never}>
         <div className="gtable-head">
           <span>Site</span>
           <span>Cited in</span>
@@ -37,15 +38,19 @@ export function SourceTable({ sources, answers }: SourceTableProps) {
               )}
               {source.own && <span className="mono muted">your site</span>}
             </span>
-            <span className="cited">
-              <span className="bar ink">
-                <i style={{ width: `${answers === 0 ? 0 : (source.answers / answers) * 100}%` }} />
+            <Labelled label="Cited in" wide>
+              <span className="cited">
+                <span className="bar ink">
+                  <i
+                    style={{ width: `${answers === 0 ? 0 : (source.answers / answers) * 100}%` }}
+                  />
+                </span>
+                <span className="mono">
+                  {source.answers} of {answers}
+                </span>
               </span>
-              <span className="mono">
-                {source.answers} of {answers}
-              </span>
-            </span>
-            <span>
+            </Labelled>
+            <Labelled label="Named you">
               {source.named > 0 ? (
                 <span className="soft-ok">
                   In {source.named} of {source.answers}
@@ -56,7 +61,7 @@ export function SourceTable({ sources, answers }: SourceTableProps) {
                   In none of {source.answers}
                 </span>
               )}
-            </span>
+            </Labelled>
           </div>
         ))}
       </div>

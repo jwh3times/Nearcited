@@ -2,6 +2,7 @@ import { type AuditCell, type PublicAudit, SURFACE_LABELS } from "@nearcited/sha
 import { useQuery } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { StepItems } from "../components/ActionPlan";
+import { Labelled } from "../components/Labelled";
 import { Logo } from "../components/Logo";
 import { Quote } from "../components/Quote";
 import { RateCell } from "../components/RateCell";
@@ -91,7 +92,7 @@ function Report({ audit }: { audit: PublicAudit }) {
   const place = [audit.city, audit.region].filter(Boolean).join(", ");
   const assistants = listOf(surfaces.map((surface) => SURFACE_LABELS[surface]));
 
-  const columns = `minmax(220px,1fr) ${surfaces.map(() => "minmax(200px,260px)").join(" ")}`;
+  const columns = `minmax(13.75rem,1fr) ${surfaces.map(() => "minmax(12.5rem,16.25rem)").join(" ")}`;
   const named = audit.prompts.reduce(
     (sum, prompt) => sum + (prompt.cells ?? []).reduce((inner, cell) => inner + cell.mentions, 0),
     0,
@@ -153,8 +154,10 @@ function Report({ audit }: { audit: PublicAudit }) {
             )}
             <div className="gtable-scroll">
               <div
-                className="gtable"
-                style={{ "--cols": columns, "--min": `${240 + surfaces.length * 220}px` } as never}
+                className="gtable stacks"
+                style={
+                  { "--cols": columns, "--min": `${15 + surfaces.length * 13.75}rem` } as never
+                }
               >
                 <div className="gtable-head">
                   <span>Question</span>
@@ -167,11 +170,12 @@ function Report({ audit }: { audit: PublicAudit }) {
                   <div key={index} className="gtable-row">
                     <span>“{prompt.text}”</span>
                     {surfaces.map((surface) => (
-                      <Rate
-                        key={surface}
-                        cell={prompt.cells?.find((cell) => cell.surface === surface)}
-                        waiting={pending && prompt.cells === null}
-                      />
+                      <Labelled key={surface} label={SURFACE_LABELS[surface]}>
+                        <Rate
+                          cell={prompt.cells?.find((cell) => cell.surface === surface)}
+                          waiting={pending && prompt.cells === null}
+                        />
+                      </Labelled>
                     ))}
                   </div>
                 ))}
