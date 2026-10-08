@@ -20,7 +20,7 @@ export function App() {
 
   if (!supabase) {
     return (
-      <main className="page page-narrow">
+      <main className="page-narrow">
         <h1>Supabase is not configured</h1>
         <p>
           Set <code>VITE_SUPABASE_URL</code> and <code>VITE_SUPABASE_PUBLISHABLE_KEY</code> in{" "}
@@ -29,7 +29,7 @@ export function App() {
       </main>
     );
   }
-  if (session === undefined) return <p className="page status">Loading</p>;
+  if (session === undefined) return <p className="page-narrow status">Loading</p>;
   if (!session) return <SignIn />;
   return <SignedIn />;
 }
@@ -37,29 +37,27 @@ export function App() {
 function SignedIn() {
   const me = useQuery({ queryKey: ["me"], queryFn: api.me });
 
-  if (me.isPending) return <p className="page status">Loading</p>;
+  if (me.isPending) return <p className="page-narrow status">Loading</p>;
   if (me.isError) {
     return (
-      <main className="page page-narrow">
+      <main className="page-narrow">
         <ErrorNote error={me.error} />
       </main>
     );
   }
 
-  // One organization per user for now. A switcher belongs in the header when that changes.
+  // One organization per user for now. A switcher belongs in the sidebar when that changes.
   const organization = me.data.organizations[0];
+  // The first run has nothing to put in a sidebar, so it gets the whole page.
+  if (!organization) return <Onboarding sampleData={me.data.sample_data} />;
 
   return (
     <Shell me={me.data} organization={organization}>
-      {organization ? (
-        <Routes>
-          <Route index element={<Locations organization={organization} />} />
-          <Route path="locations/:id" element={<LocationDetail />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      ) : (
-        <Onboarding />
-      )}
+      <Routes>
+        <Route index element={<Locations organization={organization} />} />
+        <Route path="locations/:id" element={<LocationDetail />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
     </Shell>
   );
 }

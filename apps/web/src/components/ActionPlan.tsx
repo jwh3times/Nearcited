@@ -1,34 +1,80 @@
 import type { Action } from "@nearcited/shared";
+import { stepKey, useDone } from "../lib/done";
+import { ACTION_PLACE, type Tab } from "../lib/tabs";
 
-/**
- * The action plan. Each step states the observation it rests on; the links are pages the
- * assistants cited, which the providers' terms require to be shown as links.
- */
-export function ActionPlan({ actions }: { actions: Action[] }) {
+interface ActionPlanProps {
+  locationId: string;
+  actions: Action[];
+  onOpenTab: (tab: Tab) => void;
+}
+
+/** A step's evidence. The links are pages the assistants cited, which their terms require shown. */
+export function StepItems({ items }: { items: Action["items"] }) {
+  if (items.length === 0) return null;
   return (
-    <ol className="plan">
-      {actions.map((action) => (
-        <li key={action.id}>
-          <h3>{action.title}</h3>
-          <p>{action.summary}</p>
-          {action.items.length > 0 && (
-            <ul>
-              {action.items.map((item) => (
-                <li key={item.label}>
-                  {item.url ? (
-                    <a href={item.url} target="_blank" rel="noopener noreferrer nofollow">
-                      {item.label}
-                    </a>
-                  ) : (
-                    <strong>{item.label}</strong>
-                  )}
-                  <span className="muted">{item.detail}</span>
-                </li>
-              ))}
-            </ul>
+    <ul className="step-items">
+      {items.map((item) => (
+        <li key={item.label}>
+          {item.url ? (
+            <a href={item.url} target="_blank" rel="noopener noreferrer nofollow">
+              {item.label}
+            </a>
+          ) : (
+            <strong>{item.label}</strong>
           )}
+          <span className="muted">{item.detail}</span>
         </li>
       ))}
-    </ol>
+    </ul>
+  );
+}
+
+/**
+ * The action plan as a checklist. Each step states the observation it rests on and points to the
+ * tab where that evidence is set out. Ticking a step is a note in this browser, nothing more.
+ */
+export function ActionPlan({ locationId, actions, onOpenTab }: ActionPlanProps) {
+  const [done, toggle] = useDone(locationId);
+  const finished = actions.filter((action) => done.has(stepKey(action))).length;
+
+  return (
+    <>
+      <div className="section-head">
+        <h2>What to do next</h2>
+        <span className="mono">
+          {finished} of {actions.length} done
+        </span>
+      </div>
+      <ol className="steps">
+        {actions.map((action) => {
+          const place = ACTION_PLACE[action.id];
+          const ticked = done.has(stepKey(action));
+          return (
+            <li key={action.id} className={`card step${ticked ? " done" : ""}`}>
+              <button
+                type="button"
+                className="check"
+                aria-pressed={ticked}
+                aria-label={`Mark "${action.title}" as done`}
+                onClick={() => toggle(stepKey(action))}
+              >
+                {ticked ? "✓" : ""}
+              </button>
+              <div className="step-body">
+                <div className="step-title">
+                  <h3>{action.title}</h3>
+                  <span className="kind">{place.kind}</span>
+                </div>
+                <p>{action.summary}</p>
+                <StepItems items={action.items} />
+                <button type="button" className="go" onClick={() => onOpenTab(place.tab)}>
+                  {place.link} →
+                </button>
+              </div>
+            </li>
+          );
+        })}
+      </ol>
+    </>
   );
 }

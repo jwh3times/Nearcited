@@ -1,14 +1,16 @@
 import { type AuditCell, type PublicAudit, SURFACE_LABELS } from "@nearcited/shared";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect } from "react";
-import { ActionPlan } from "../components/ActionPlan";
+import { StepItems } from "../components/ActionPlan";
+import { Logo } from "../components/Logo";
+import { Quote } from "../components/Quote";
+import { RateCell } from "../components/RateCell";
 import { SiteChecklist } from "../components/SiteChecklist";
-import { Sources } from "../components/Sources";
 import { SourceTable } from "../components/SourceTable";
 import { ApiRequestError, api } from "../lib/api";
 import { auditAnswers, auditCompetitors, auditPending, auditSurfaces } from "../lib/audit";
-import { listOf, plainText } from "../lib/format";
-import { markName } from "../lib/matrix";
+import { listOf } from "../lib/format";
+import { useTheme } from "../lib/theme";
 
 const day = new Intl.DateTimeFormat(undefined, { dateStyle: "long" });
 
@@ -44,14 +46,18 @@ export function Audit({ token }: { token: string }) {
     };
   }, [name]);
 
+  // The report follows the reader's device, or the choice they made in the app.
+  useTheme();
+
   return (
     <>
-      <header className="topbar">
-        <a href="/" className="wordmark">
-          Nearcited
-        </a>
+      <header className="audit-head">
+        <Logo plain />
+        {audit.data && (
+          <span>AI visibility report · {day.format(new Date(audit.data.created_at))}</span>
+        )}
       </header>
-      <main className="page audit">
+      <main className="audit-body">
         {audit.isPending && <p className="status">Loading</p>}
         {audit.isError && <Unavailable error={audit.error} />}
         {audit.data && <Report audit={audit.data} />}
@@ -63,13 +69,15 @@ export function Audit({ token }: { token: string }) {
 function Unavailable({ error }: { error: unknown }) {
   const gone = error instanceof ApiRequestError && error.status === 404;
   return (
-    <div className="page-narrow">
-      <h1>{gone ? "This report is no longer available" : "This report could not be loaded"}</h1>
-      <p className="lede">
-        {gone
-          ? "Reports are kept for 30 days, and the link may have been withdrawn. Ask whoever sent it for a new one."
-          : "Something went wrong on our side. Try again in a minute."}
-      </p>
+    <div className="audit-hero">
+      <div>
+        <h1>{gone ? "This report is no longer available" : "This report could not be loaded"}</h1>
+        <p className="lede">
+          {gone
+            ? "Reports are kept for 30 days, and the link may have been withdrawn. Ask whoever sent it for a new one."
+            : "Something went wrong on our side. Try again in a minute."}
+        </p>
+      </div>
     </div>
   );
 }
@@ -83,111 +91,151 @@ function Report({ audit }: { audit: PublicAudit }) {
   const place = [audit.city, audit.region].filter(Boolean).join(", ");
   const assistants = listOf(surfaces.map((surface) => SURFACE_LABELS[surface]));
 
+  const columns = `minmax(220px,1fr) ${surfaces.map(() => "minmax(200px,260px)").join(" ")}`;
+  const named = audit.prompts.reduce(
+    (sum, prompt) => sum + (prompt.cells ?? []).reduce((inner, cell) => inner + cell.mentions, 0),
+    0,
+  );
+
   return (
     <>
-      <p className="breadcrumb">AI visibility report · {day.format(new Date(audit.created_at))}</p>
-      <h1>
-        Do AI assistants recommend {audit.business_name} in {place}?
-      </h1>
-
-      {answers === 0 ? (
-        <p className="lede" role="status">
-          {pending
-            ? "We are asking the assistants now. This page fills in by itself, usually within a couple of minutes."
-            : "The assistants could not be reached, so there is nothing to show. Ask whoever sent this link to run it again."}
-        </p>
-      ) : (
-        <>
-          <p className="lede">
-            We asked {assistants} the questions a customer would ask, {audit.samples} times each,
-            and counted how often {audit.business_name} was named. An assistant can give a different
-            answer every time, so one answer on its own says little.
-          </p>
-
-          <div className="audit-score">
-            <p className="audit-score-number">
-              {audit.score ?? 0}
-              <span> / 100</span>
-            </p>
-            <p>
-              <strong>Visibility score.</strong> 0 means never named. 100 means named first in every
-              answer. Being named lower in a list counts for less.
-            </p>
-          </div>
-
-          {(pending || unfinished) && (
-            <p className="window-note" role="status">
+      <div className="audit-hero">
+        <div>
+          <p className="eyebrow">Prepared for {audit.business_name}</p>
+          <h1>
+            Do AI assistants recommend {audit.business_name} in {place}?
+          </h1>
+          {answers === 0 ? (
+            <p className="explain" role="status">
               {pending
-                ? "Still asking. The rest fills in by itself."
-                : "Some questions could not be checked, so this report covers only the ones below that have results."}
+                ? "We are asking the assistants now. This page fills in by itself, usually within a couple of minutes."
+                : "The assistants could not be reached, so there is nothing to show. Ask whoever sent this link to run it again."}
+            </p>
+          ) : (
+            <p className="explain">
+              We asked {assistants} the questions a customer would ask, {audit.samples} times each,
+              and counted how often {audit.business_name} was named. An assistant can give a
+              different answer every time, so one answer on its own says little.
             </p>
           )}
+        </div>
+        {answers > 0 && (
+          <div className="card audit-score">
+            <p className="score-big">
+              {audit.score ?? 0}
+              <span>/ 100</span>
+            </p>
+            <div className="bar ink">
+              <i style={{ width: `${audit.score ?? 0}%` }} />
+            </div>
+            <p>
+              Named in{" "}
+              <span className="soft-ok">
+                {named} of {answers}
+              </span>{" "}
+              answers. 0 means never named; 100 means named first every time. Being named lower in a
+              list counts for less.
+            </p>
+          </div>
+        )}
+      </div>
 
-          <section className="section">
-            <h2>How often it was named</h2>
-            <div className="matrix-scroll">
-              <table className="matrix">
-                <thead>
-                  <tr>
-                    <td />
-                    {surfaces.map((surface) => (
-                      <th key={surface} scope="col">
-                        {SURFACE_LABELS[surface]}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {audit.prompts.map((prompt, index) => (
-                    // biome-ignore lint/suspicious/noArrayIndexKey: prompts are a fixed, ordered list, and two may read the same.
-                    <tr key={index}>
-                      <th scope="row">{prompt.text}</th>
-                      {surfaces.map((surface) => (
-                        <td key={surface}>
-                          <Rate
-                            cell={prompt.cells?.find((cell) => cell.surface === surface)}
-                            waiting={pending && prompt.cells === null}
-                          />
-                        </td>
-                      ))}
-                    </tr>
+      {answers > 0 && (
+        <>
+          <section>
+            <h2>How often you were named</h2>
+            {(pending || unfinished) && (
+              <p className="intro" role="status">
+                {pending
+                  ? "Still asking. The rest fills in by itself."
+                  : "Some questions could not be checked, so this report covers only the ones below that have results."}
+              </p>
+            )}
+            <div className="gtable-scroll">
+              <div
+                className="gtable"
+                style={{ "--cols": columns, "--min": `${240 + surfaces.length * 220}px` } as never}
+              >
+                <div className="gtable-head">
+                  <span>Question</span>
+                  {surfaces.map((surface) => (
+                    <span key={surface}>{SURFACE_LABELS[surface]}</span>
                   ))}
-                </tbody>
-              </table>
+                </div>
+                {audit.prompts.map((prompt, index) => (
+                  // biome-ignore lint/suspicious/noArrayIndexKey: prompts are a fixed, ordered list, and two may read the same.
+                  <div key={index} className="gtable-row">
+                    <span>“{prompt.text}”</span>
+                    {surfaces.map((surface) => (
+                      <Rate
+                        key={surface}
+                        cell={prompt.cells?.find((cell) => cell.surface === surface)}
+                        waiting={pending && prompt.cells === null}
+                      />
+                    ))}
+                  </div>
+                ))}
+              </div>
             </div>
           </section>
 
           {audit.actions.length > 0 && (
-            <section className="section">
+            <section>
               <h2>What to do next</h2>
-              <p className="muted audit-note">
+              <p className="intro">
                 Worked out from the answers and from a check of the website, both set out below.
                 Nothing here is guaranteed to change an answer; each step says what was seen, so a
                 later report can show whether it moved.
               </p>
-              <ActionPlan actions={audit.actions} />
+              <ol className="audit-steps">
+                {audit.actions.map((action, index) => (
+                  <li key={action.id} className="audit-step">
+                    <span className="numeral" aria-hidden="true">
+                      {index + 1}
+                    </span>
+                    <div className="step-body">
+                      <h3>{action.title}</h3>
+                      <p>{action.summary}</p>
+                      <StepItems items={action.items} />
+                    </div>
+                  </li>
+                ))}
+              </ol>
             </section>
           )}
 
-          {competitors.length > 0 && (
-            <section className="section">
-              <h2>Who else was named</h2>
-              <p className="muted">Out of {answers} answers.</p>
-              <ul className="tally">
-                {competitors.map((competitor) => (
-                  <li key={competitor.name}>
-                    <span>{competitor.name}</span>
-                    <span className="muted">{competitor.count}</span>
-                  </li>
-                ))}
-              </ul>
-            </section>
+          {(competitors.length > 0 || audit.site) && (
+            <div className="audit-pair">
+              {competitors.length > 0 && (
+                <section>
+                  <h2>Who else was named</h2>
+                  <ul className="bars">
+                    {competitors.map((competitor) => (
+                      <li key={competitor.name}>
+                        <span className="ellipsis">{competitor.name}</span>
+                        <span className="bar">
+                          <i style={{ width: `${(competitor.count / answers) * 100}%` }} />
+                        </span>
+                        <span className="mono">{competitor.count}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="small muted">Out of {answers} answers.</p>
+                </section>
+              )}
+              {audit.site && (
+                <section>
+                  <h2>Your website</h2>
+                  <SiteChecklist site={audit.site} />
+                </section>
+              )}
+            </div>
           )}
 
           {audit.sources.length > 0 && (
-            <section className="section">
+            <section>
               <h2>Where the answers came from</h2>
-              <p className="muted audit-note">
+              <p className="intro">
                 The sites the assistants read before answering. They mostly repeat what these pages
                 say, so a site that is read often, in answers that never name {audit.business_name},
                 is the first place to check the listing.
@@ -196,47 +244,43 @@ function Report({ audit }: { audit: PublicAudit }) {
             </section>
           )}
 
-          {audit.site && (
-            <section className="section">
-              <h2>Your website</h2>
-              <SiteChecklist site={audit.site} />
-            </section>
-          )}
-
           <Answers audit={audit} />
         </>
       )}
 
-      <footer className="audit-footer">
-        <p>
-          Nearcited asks these questions every day and shows whether the answer is changing.{" "}
-          <a href="/">See how it works</a>.
-        </p>
-        <p className="muted">
-          This report is available until {day.format(new Date(audit.expires_at))}.
-        </p>
+      <footer className="audit-cta">
+        <div>
+          <h2>Watch this change, every day.</h2>
+          <p className="audit-cta-note">
+            Nearcited asks these questions every day and shows whether the answer is changing. This
+            report is available until {day.format(new Date(audit.expires_at))}.
+          </p>
+        </div>
+        <a href="/">Track {audit.business_name}</a>
       </footer>
     </>
   );
 }
 
 function Rate({ cell, waiting }: { cell: AuditCell | undefined; waiting: boolean }) {
-  if (!cell) return <span className="unchecked">{waiting ? "Asking" : "Not checked"}</span>;
+  if (!cell) return <span className="small muted">{waiting ? "Asking" : "Not checked"}</span>;
   if (cell.mentions === 0) {
     return (
-      <span className="absent">
-        <span className="absent-ring" aria-hidden="true" />
+      <span className="none mono">
+        <span className="ring" aria-hidden="true" />
         Not named in {cell.checks}
       </span>
     );
   }
   const best = cell.positions.length > 0 ? Math.min(...cell.positions) : null;
   return (
-    <span className="rate">
-      <span className="named">
-        Named in {cell.mentions} of {cell.checks}
+    <span className="acell">
+      <span className="top">
+        <RateCell rate={cell.mentions / cell.checks} chip>
+          {`Named in ${cell.mentions} of ${cell.checks}`}
+        </RateCell>
+        {best !== null && `As high as #${best}`}
       </span>
-      {best !== null && <span className="rate-latest">As high as #{best}</span>}
     </span>
   );
 }
@@ -250,30 +294,21 @@ function Answers({ audit }: { audit: PublicAudit }) {
   );
   if (quotes.length === 0) return null;
   return (
-    <section className="section">
+    <section>
       <h2>What they said</h2>
-      <p className="muted">One answer of the {audit.samples} for each question and assistant.</p>
-      <ul className="excerpts">
+      <p className="intro">One answer of the {audit.samples} for each question and assistant.</p>
+      <div className="quotes">
         {quotes.map(({ key, prompt, cell }) => (
-          <li key={key}>
-            <h3>
-              {SURFACE_LABELS[cell.surface]}
-              <span className="muted">{prompt}</span>
-            </h3>
-            <p>
-              {markName(plainText(cell.excerpt ?? ""), audit.business_name).map((part, index) =>
-                part.marked ? (
-                  // biome-ignore lint/suspicious/noArrayIndexKey: parts are positional and never reorder
-                  <mark key={index}>{part.text}</mark>
-                ) : (
-                  part.text
-                ),
-              )}
-            </p>
-            <Sources urls={cell.cited_urls} />
-          </li>
+          <Quote
+            key={key}
+            assistant={SURFACE_LABELS[cell.surface]}
+            prompt={prompt}
+            excerpt={cell.excerpt ?? ""}
+            name={audit.business_name}
+            citedUrls={cell.cited_urls}
+          />
         ))}
-      </ul>
+      </div>
     </section>
   );
 }

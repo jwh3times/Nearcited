@@ -1,48 +1,67 @@
-import type { Location, LocationFormValues } from "@nearcited/shared";
+import type { Location, LocationFormValues, ScanFrequency } from "@nearcited/shared";
 import { useMutation } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
 import { api } from "../lib/api";
-import { locationFormValues, SCAN_FREQUENCY_LABELS } from "../lib/location";
+import { cadence } from "../lib/format";
+import { locationFormValues } from "../lib/location";
 import { ErrorNote } from "./ErrorNote";
 
 type TextField = Exclude<keyof LocationFormValues, "scan_frequency">;
 
-/** The form that changes a location's details. Closed until asked for. */
-export function LocationEditor({ location, onSaved }: { location: Location; onSaved: () => void }) {
-  const [form, setForm] = useState<Required<LocationFormValues> | null>(null);
+const FREQUENCIES: { value: ScanFrequency; label: string }[] = [
+  { value: "daily", label: "Daily" },
+  { value: "weekly", label: "Weekly" },
+  { value: "off", label: "Off" },
+];
+
+interface LocationEditorProps {
+  location: Location;
+  /** How many days apart the organization's plan scans. Undefined until it has loaded. */
+  planDays: number | undefined;
+  onSaved: () => void;
+}
+
+/** What "Daily" and "Weekly" come to on this plan. The plan sets the fastest pace. */
+function frequencyNote(frequency: ScanFrequency, planDays: number | undefined): string {
+  if (frequency === "off") return "No scheduled scans. You can still run one by hand.";
+  if (planDays === undefined) return "Scanned on a schedule.";
+  const pace = cadence(planDays, frequency);
+  return frequency === "daily"
+    ? `Scanned ${pace}, as often as your plan allows.`
+    : `Scanned ${pace}. A location can ask for less than its plan allows, never more.`;
+}
+
+/** The form that changes a location's details and how often it is scanned. */
+export function LocationEditor({ location, planDays, onSaved }: LocationEditorProps) {
+  const [form, setForm] = useState<Required<LocationFormValues>>(() =>
+    locationFormValues(location),
+  );
   const save = useMutation({
     mutationFn: (values: LocationFormValues) => api.updateLocation(location.id, values),
-    onSuccess: () => {
-      setForm(null);
+    onSuccess: (saved) => {
+      // The server tidies what it stores (trimmed text, an upper-case country), so show that.
+      setForm(locationFormValues(saved));
       onSaved();
     },
   });
 
-  if (!form) {
-    return (
-      <button
-        type="button"
-        className="secondary"
-        onClick={() => setForm(locationFormValues(location))}
-      >
-        Edit details
-      </button>
-    );
-  }
-
   function submit(event: FormEvent) {
     event.preventDefault();
-    if (form) save.mutate(form);
+    save.mutate(form);
   }
   const field = (name: TextField) => ({
     value: form[name] ?? "",
     onChange: (event: { target: { value: string } }) =>
-      setForm((current) => current && { ...current, [name]: event.target.value }),
+      setForm((current) => ({ ...current, [name]: event.target.value })),
   });
 
   return (
-    <>
-      <form onSubmit={submit} className="grid-form">
+    <form onSubmit={submit} className="card settings-main">
+      <div>
+        <h2>Business details</h2>
+        <p className="small muted">Scans ask about the business by this name, in this city.</p>
+      </div>
+      <div className="field-grid">
         <label>
           Business name
           <input required maxLength={120} {...field("name")} />
@@ -83,43 +102,34 @@ export function LocationEditor({ location, onSaved }: { location: Location; onSa
           Google place ID
           <input maxLength={200} {...field("google_place_id")} />
         </label>
-        <label>
-          Scheduled scans
-          <select
-            value={form.scan_frequency}
-            onChange={(event) =>
-              setForm(
-                (current) =>
-                  current && {
-                    ...current,
-                    scan_frequency: event.target.value as typeof current.scan_frequency,
-                  },
-              )
-            }
+      </div>
+
+      <hr className="divider" />
+      <h3>Scheduled scans</h3>
+      {/* biome-ignore lint/a11y/useSemanticElements: a fieldset cannot be laid out as a pill group */}
+      <div className="segmented" role="group" aria-label="Scheduled scans">
+        {FREQUENCIES.map(({ value, label }) => (
+          <button
+            key={value}
+            type="button"
+            aria-pressed={form.scan_frequency === value}
+            onClick={() => setForm((current) => ({ ...current, scan_frequency: value }))}
           >
-            {(["daily", "weekly", "off"] as const).map((frequency) => (
-              <option key={frequency} value={frequency}>
-                {SCAN_FREQUENCY_LABELS[frequency]}
-              </option>
-            ))}
-          </select>
-        </label>
-        <button type="submit" disabled={save.isPending}>
-          {save.isPending ? "Saving" : "Save details"}
-        </button>
-        <button
-          type="button"
-          className="secondary"
-          disabled={save.isPending}
-          onClick={() => {
-            save.reset();
-            setForm(null);
-          }}
-        >
-          Cancel
-        </button>
-      </form>
+            {label}
+          </button>
+        ))}
+      </div>
+      <p className="small muted">{frequencyNote(form.scan_frequency, planDays)}</p>
+
+      <button type="submit" disabled={save.isPending}>
+        {save.isPending ? "Saving" : "Save changes"}
+      </button>
+      {save.isSuccess && !save.isPending && (
+        <p className="small muted" role="status">
+          Saved.
+        </p>
+      )}
       <ErrorNote error={save.error} />
-    </>
+    </form>
   );
 }

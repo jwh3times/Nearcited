@@ -3,9 +3,21 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="color-scheme" content="light" />
+    <meta name="color-scheme" content="light dark" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <title>Nearcited</title>
+    <script>
+      // Set the theme before the first paint, by the same rule as src/lib/theme.ts.
+      (() => {
+        let saved = null;
+        try {
+          saved = localStorage.getItem("nearcited:theme");
+        } catch {}
+        const dark = matchMedia("(prefers-color-scheme: dark)").matches;
+        document.documentElement.dataset.theme =
+          saved === "light" || saved === "dark" ? saved : dark ? "dark" : "light";
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

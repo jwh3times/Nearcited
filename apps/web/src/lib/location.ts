@@ -1,11 +1,4 @@
-import type { Location, LocationFormValues, ScanFrequency } from "@nearcited/shared";
-
-/** How a location's scan frequency reads in the edit form. The plan sets the fastest pace. */
-export const SCAN_FREQUENCY_LABELS: Record<ScanFrequency, string> = {
-  daily: "As often as the plan allows",
-  weekly: "Weekly at most",
-  off: "Paused",
-};
+import type { Location, LocationFormValues } from "@nearcited/shared";
 
 /** A location as the edit form starts: every field a user may set, blank where none is on file. */
 export function locationFormValues(location: Location): Required<LocationFormValues> {

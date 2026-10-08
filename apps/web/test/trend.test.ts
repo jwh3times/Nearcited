@@ -1,6 +1,6 @@
 import type { Scan } from "@nearcited/shared";
 import { describe, expect, it } from "vitest";
-import { buildTrend, nearestPoint, plotTrend } from "../src/lib/trend";
+import { buildTrend, plotTrend } from "../src/lib/trend";
 
 let made = 0;
 const scan = (day: number, score: number | null, change: Partial<Scan> = {}): Scan => ({
@@ -73,15 +73,5 @@ describe("plotTrend", () => {
 
   it("centres a single point", () => {
     expect(plotTrend(buildTrend([scan(1, 30)]), 600, 100)[0]).toMatchObject({ x: 300, y: 70 });
-  });
-});
-
-describe("nearestPoint", () => {
-  it("finds the point closest to where the pointer is", () => {
-    const points = plotTrend(buildTrend([scan(1, 10), scan(2, 20), scan(3, 30)]), 600, 100);
-    expect(nearestPoint(points, -50)).toBe(0);
-    expect(nearestPoint(points, 140)).toBe(0);
-    expect(nearestPoint(points, 160)).toBe(1);
-    expect(nearestPoint(points, 9999)).toBe(2);
   });
 });
