@@ -54,6 +54,8 @@
     // live: scans call the real providers whose keys are set, and each check costs money.
     "PROVIDER_MODE": "live",
     "APP_URL": "https://nearcited.com",
-    "EMAIL_FROM": "Nearcited <reports@nearcited.com>"
+    "EMAIL_FROM": "Nearcited <reports@nearcited.com>",
+    // Nobody reads the sender's mailbox, so a reply to a report goes here instead.
+    "EMAIL_REPLY_TO": "support@nearcited.com"
   }
 }

@@ -16,6 +16,8 @@ export interface Env {
   PROVIDER_MODE: string;
   APP_URL: string;
   EMAIL_FROM: string;
+  /** Optional. Where a reply to a scan report goes. Without it, replies go to `EMAIL_FROM`. */
+  EMAIL_REPLY_TO?: string;
   /** Optional secret. With it, live scans check ChatGPT; without it that surface is skipped. */
   OPENAI_API_KEY?: string;
   /** Optional secret. With it, live scans check Claude; without it that surface is skipped. */

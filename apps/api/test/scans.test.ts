@@ -1,6 +1,6 @@
 import { type Observation, type ScanMessage, SURFACES } from "@nearcited/shared";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { buildScanReportEmail } from "../src/email/report";
+import { buildScanReportEmail, emailMessage } from "../src/email/report";
 import { liveScansUnavailable, type ProviderRegistry } from "../src/providers";
 import { createMockProviders } from "../src/providers/mock";
 import { runScan, type ScanReport } from "../src/scans/runner";
@@ -237,6 +237,36 @@ describe("mock providers", () => {
       "gemini",
       "perplexity",
     ]);
+  });
+});
+
+describe("emailMessage", () => {
+  const email = { subject: "Joe's Pizza: visibility 80 of 100", text: "Latest scan" };
+  const from = "Nearcited <reports@nearcited.example>";
+
+  it("sends replies to the address that is read, when one is set", () => {
+    const sent = emailMessage(
+      { EMAIL_FROM: from, EMAIL_REPLY_TO: "support@nearcited.example" },
+      ["owner@joes.example"],
+      email,
+    );
+    expect(sent).toEqual({
+      from,
+      to: ["owner@joes.example"],
+      replyTo: "support@nearcited.example",
+      ...email,
+    });
+  });
+
+  it("leaves replies to go to the sender when none is set", () => {
+    for (const EMAIL_REPLY_TO of [undefined, "", "   "]) {
+      const sent = emailMessage(
+        { EMAIL_FROM: from, EMAIL_REPLY_TO },
+        ["owner@joes.example"],
+        email,
+      );
+      expect(sent).toEqual({ from, to: ["owner@joes.example"], ...email });
+    }
   });
 });
 
