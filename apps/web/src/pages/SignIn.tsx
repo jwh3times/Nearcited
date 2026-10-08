@@ -1,5 +1,6 @@
 import { type FormEvent, useState } from "react";
 import { ErrorNote } from "../components/ErrorNote";
+import { Logo } from "../components/Logo";
 import { supabase } from "../lib/supabase";
 
 export function SignIn() {
@@ -23,36 +24,70 @@ export function SignIn() {
   }
 
   return (
-    <main className="page page-narrow signin">
-      <p className="wordmark">Nearcited</p>
-      <h1>See where your business gets named</h1>
-      <p className="lede">
-        Track whether a location shows up when people ask an assistant or search Google for what it
-        sells, and who shows up instead.
-      </p>
-
-      {sentTo ? (
-        <p className="confirmation" role="status">
-          Sign-in link sent to {sentTo}. Open it on this device.
+    <main className="signin">
+      <div className="signin-panel">
+        <Logo plain large />
+        <h1 className="hero">
+          When people ask AI who to call, <em>is it you?</em>
+        </h1>
+        {/* An illustration of what the product shows, with an invented business. It says so. */}
+        <figure className="card sample-card">
+          <figcaption className="mono muted">
+            Example · ChatGPT · “best emergency plumber in Asheville”
+          </figcaption>
+          <p className="display">
+            For a burst pipe at night I'd start with <mark>Blue Ridge Plumbing</mark>, which answers
+            around the clock and has the most recent reviews.
+          </p>
+          <div className="split small muted">
+            <span>Named in 5 of the last 7 answers</span>
+            <span className="mono">Best #2</span>
+          </div>
+        </figure>
+        <p className="small muted">
+          Nearcited asks the assistants what your customers ask, every day, and shows whether your
+          business is named, who is named instead, and where the answers come from.
         </p>
-      ) : (
-        <form onSubmit={submit} className="stack">
-          <label>
-            Work email
-            <input
-              type="email"
-              required
-              autoComplete="email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-            />
-          </label>
-          <button type="submit" disabled={sending}>
-            {sending ? "Sending link" : "Email me a sign-in link"}
-          </button>
-          <ErrorNote error={error} />
-        </form>
-      )}
+      </div>
+
+      <div className="signin-form">
+        <div>
+          {sentTo ? (
+            <div className="card sent-card" role="status">
+              <h2 className="h-sm">Check your inbox</h2>
+              <p>
+                We sent a sign-in link to <strong>{sentTo}</strong>. Open it on this device.
+              </p>
+              <button type="button" className="go" onClick={() => setSentTo(null)}>
+                Use another email
+              </button>
+            </div>
+          ) : (
+            <>
+              <div>
+                <h2 className="h-lg">Sign in</h2>
+                <p className="muted">We'll email you a link. No password.</p>
+              </div>
+              <form onSubmit={submit}>
+                <label>
+                  Work email
+                  <input
+                    type="email"
+                    required
+                    autoComplete="email"
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
+                  />
+                </label>
+                <button type="submit" className="wide" disabled={sending}>
+                  {sending ? "Sending link" : "Email me a sign-in link"}
+                </button>
+                <ErrorNote error={error} />
+              </form>
+            </>
+          )}
+        </div>
+      </div>
     </main>
   );
 }

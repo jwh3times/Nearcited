@@ -51,14 +51,3 @@ export function plotTrend(
     y: height - (point.score / 100) * height,
   }));
 }
-
-/** The index of the point nearest to x. */
-export function nearestPoint(points: readonly PlottedPoint[], x: number): number {
-  let best = 0;
-  for (let index = 1; index < points.length; index++) {
-    const candidate = points[index];
-    const current = points[best];
-    if (candidate && current && Math.abs(candidate.x - x) < Math.abs(current.x - x)) best = index;
-  }
-  return best;
-}

@@ -68,6 +68,12 @@ How often a location is scanned, and on which assistants, are settings on its or
 The location page charts the score over time, and each cell of the results grid carries a strip
 of dots, one per recent scan, showing how that prompt has moved on that assistant.
 
+The app has a sidebar listing every location and a light or dark theme, kept in the browser. The
+locations page is a table of score, change, rate per assistant, top competitor and next step,
+built from each location's own endpoints. The location page has tabs (Overview, Prompts, Sources,
+Website, Answers, Settings); ticking a step of the action plan is remembered in the browser only.
+A new user is walked through four steps, and nothing is created until the last.
+
 Scans start from the "Run scan" button or from a daily schedule, and run on a queue. A scheduled
 scan emails its result to the organization's owners.
 
@@ -280,7 +286,8 @@ reader gets one audit only by its token, through the `get_audit()` function.
   scheduler, the audit runner, the site fetch (what it refuses and how it follows redirects), and
   the mock providers.
 - **`apps/web`**: the logic that lays results out as a grid, the logic behind the chart of the
-  score over time, the logic behind the audit page, and the logic that fills the location edit form.
+  score over time, the logic behind the audit page, the logic that fills the location edit form,
+  the locations table's summary figures, the onboarding suggestions, and the location page's tabs.
 - **`scripts`**: `pnpm test:scripts` runs the tests for the private-companion, tuning,
   audit-creation and branch-sync scripts.
 

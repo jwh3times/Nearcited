@@ -1,4 +1,5 @@
 import type { SourceSummary } from "@nearcited/shared";
+import { Labelled } from "./Labelled";
 
 interface SourceTableProps {
   sources: SourceSummary[];
@@ -11,48 +12,59 @@ interface SourceTableProps {
  * providers' terms require to be shown wherever their answers are used.
  */
 export function SourceTable({ sources, answers }: SourceTableProps) {
+  const columns = "minmax(10rem,1fr) minmax(12.5rem,1.4fr) 9.5rem";
   return (
-    <div className="matrix-scroll">
-      <table className="matrix source-table">
-        <thead>
-          <tr>
-            <th scope="col">Site</th>
-            <th scope="col">Cited in</th>
-            <th scope="col">Named you</th>
-          </tr>
-        </thead>
-        <tbody>
-          {sources.map((source) => (
-            <tr key={source.host}>
-              <th scope="row">
-                {source.urls[0] ? (
-                  <a href={source.urls[0]} target="_blank" rel="noopener noreferrer nofollow">
-                    {source.host}
-                  </a>
-                ) : (
-                  source.host
-                )}
-                {source.own && <span className="muted"> · your site</span>}
-              </th>
-              <td>
-                {source.answers} of {answers} answers
-              </td>
-              <td>
-                {source.named > 0 ? (
-                  <span className="named">
-                    In {source.named} of {source.answers}
-                  </span>
-                ) : (
-                  <span className="absent">
-                    <span className="absent-ring" aria-hidden="true" />
-                    In none of {source.answers}
-                  </span>
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div className="gtable-scroll">
+      <div className="gtable stacks" style={{ "--cols": columns, "--min": "35rem" } as never}>
+        <div className="gtable-head">
+          <span>Site</span>
+          <span>Cited in</span>
+          <span>Named you</span>
+        </div>
+        {sources.map((source) => (
+          <div key={source.host} className="gtable-row">
+            <span className="stack-tight">
+              {source.urls[0] ? (
+                <a
+                  className="ellipsis"
+                  href={source.urls[0]}
+                  target="_blank"
+                  rel="noopener noreferrer nofollow"
+                >
+                  {source.host}
+                </a>
+              ) : (
+                <span className="ellipsis">{source.host}</span>
+              )}
+              {source.own && <span className="mono muted">your site</span>}
+            </span>
+            <Labelled label="Cited in" wide>
+              <span className="cited">
+                <span className="bar ink">
+                  <i
+                    style={{ width: `${answers === 0 ? 0 : (source.answers / answers) * 100}%` }}
+                  />
+                </span>
+                <span className="mono">
+                  {source.answers} of {answers}
+                </span>
+              </span>
+            </Labelled>
+            <Labelled label="Named you">
+              {source.named > 0 ? (
+                <span className="soft-ok">
+                  In {source.named} of {source.answers}
+                </span>
+              ) : (
+                <span className="none bad">
+                  <span className="ring" aria-hidden="true" />
+                  In none of {source.answers}
+                </span>
+              )}
+            </Labelled>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

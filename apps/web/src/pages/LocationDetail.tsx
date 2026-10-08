@@ -7,29 +7,39 @@ import {
   SURFACE_LABELS,
 } from "@nearcited/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { type FormEvent, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router";
+import { type FormEvent, type KeyboardEvent, useRef, useState } from "react";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { ActionPlan } from "../components/ActionPlan";
 import { ErrorNote } from "../components/ErrorNote";
 import { LocationEditor } from "../components/LocationEditor";
-import { ScoreTrend } from "../components/ScoreTrend";
+import { NamedInstead } from "../components/NamedInstead";
+import { PromptGrid } from "../components/PromptGrid";
+import { Quote } from "../components/Quote";
+import { ScoreCard } from "../components/ScoreCard";
 import { SiteChecklist } from "../components/SiteChecklist";
-import { Sources } from "../components/Sources";
 import { SourceTable } from "../components/SourceTable";
-import { VisibilityMatrix } from "../components/VisibilityMatrix";
 import { api } from "../lib/api";
-import { cadence, formatDate, listOf, plainText } from "../lib/format";
-import { markName, tallyCompetitors } from "../lib/matrix";
+import { cadence, formatDate, listOf } from "../lib/format";
+import { locationKey, placeOf, scansKey } from "../lib/locations";
+import { tallyCompetitors } from "../lib/matrix";
+import { windowRate } from "../lib/summary";
+import { neighbour, TAB_LABELS, TABS, type Tab, tabFrom } from "../lib/tabs";
+import { buildTrend } from "../lib/trend";
 
 const inFlight = (scan: ScanWithResults | null) =>
   scan?.status === "queued" || scan?.status === "running";
+
+const scans = (count: number) => `${count} ${count === 1 ? "scan" : "scans"}`;
 
 export function LocationDetail() {
   const { id = "" } = useParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const queryKey = ["location", id];
-  const historyKey = ["location-scans", id];
+  const [params, setParams] = useSearchParams();
+  const tab = tabFrom(params.get("tab"));
+  const tabbar = useRef<HTMLDivElement>(null);
+  const queryKey = locationKey(id);
+  const historyKey = scansKey(id);
   const refresh = () => {
     queryClient.invalidateQueries({ queryKey });
     queryClient.invalidateQueries({ queryKey: historyKey });
@@ -53,16 +63,19 @@ export function LocationDetail() {
   });
   const removeLocation = useMutation({
     mutationFn: () => api.deleteLocation(id),
-    onSuccess: () => navigate("/"),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["locations"] });
+      navigate("/");
+    },
   });
 
-  if (detail.isPending) return <p className="status">Loading location</p>;
+  if (detail.isPending) return <p className="page status">Loading location</p>;
   if (detail.isError) {
     return (
-      <>
+      <main className="page">
         <ErrorNote error={detail.error} />
         <Link to="/">Back to locations</Link>
-      </>
+      </main>
     );
   }
 
@@ -82,8 +95,9 @@ export function LocationDetail() {
   const active = queries.filter((query) => query.is_active);
   const retired = queries.filter((query) => !query.is_active);
   const results = scan?.status === "succeeded" ? scan.results : [];
-  const competitors = tallyCompetitors(results);
   const excerpts = results.filter((result) => result.answer_excerpt);
+  const trend = buildTrend(history.data ?? []);
+  const failedChecks = site?.checks.filter((check) => !check.passed).length ?? 0;
   // The action plan covers what the sources and the website check found, with the evidence
   // attached, so those recommendations are not listed a second time below it.
   const inPlan = (rule: string) =>
@@ -92,236 +106,343 @@ export function LocationDetail() {
     (recommendation) => recommendation.status === "open" && !inPlan(recommendation.rule),
   );
   const scanning = inFlight(scan) || startScan.isPending;
+  const assistants = listOf(surfaces.map((surface) => SURFACE_LABELS[surface]));
+
+  /** Swaps the tab in place. If the bar is stuck to the top, the new tab starts at the top. */
+  function openTab(next: Tab) {
+    setParams(next === "overview" ? {} : { tab: next }, {
+      replace: true,
+      preventScrollReset: true,
+    });
+    const top = tabbar.current?.offsetTop ?? 0;
+    if (window.scrollY > top) window.scrollTo({ top });
+  }
+
+  function onTabKey(event: KeyboardEvent) {
+    const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : null;
+    if (step === null) return;
+    event.preventDefault();
+    const next = neighbour(tab, step);
+    openTab(next);
+    document.getElementById(`tab-${next}`)?.focus();
+  }
 
   return (
-    <>
-      <p className="breadcrumb">
-        <Link to="/">Locations</Link>
-      </p>
-      <div className="title-row">
-        <div>
-          <h1>{location.name}</h1>
-          <p className="muted">
-            {[location.city, location.region].filter(Boolean).join(", ")}
-            {location.website && (
-              <>
-                {", "}
+    <main>
+      <div className="detail-head">
+        <p className="breadcrumb">
+          <Link to="/">Locations</Link> / {location.name}
+        </p>
+        <div className="title-row">
+          <div>
+            <h1>{location.name}</h1>
+            <p className="meta-row">
+              <span>{placeOf(location)}</span>
+              {location.website && (
                 <a href={location.website} rel="noreferrer">
                   {hostOf(location.website) ?? location.website}
                 </a>
-              </>
-            )}
-          </p>
+              )}
+              <ScanLine detail={detail.data} />
+              {organization && location.scan_frequency !== "off" && surfaces.length > 0 && (
+                <span>
+                  Scanned {cadence(organization.scan_every_days, location.scan_frequency)} on{" "}
+                  {assistants}
+                </span>
+              )}
+            </p>
+          </div>
+          <div className="head-actions">
+            <button
+              type="button"
+              className="fill-narrow"
+              onClick={() => startScan.mutate()}
+              disabled={scanning || active.length === 0}
+            >
+              {scanning ? "Scanning…" : "Run scan"}
+            </button>
+          </div>
         </div>
-        <div className="title-actions">
-          <button
-            type="button"
-            onClick={() => startScan.mutate()}
-            disabled={scanning || active.length === 0}
-          >
-            {scanning ? "Scan under way" : "Run scan"}
-          </button>
+        {scanning && (
+          <p className="card scan-bar" role="status">
+            Asking {assistants || "the assistants"} your {active.length}{" "}
+            {active.length === 1 ? "prompt" : "prompts"}. This page updates when the scan finishes.
+          </p>
+        )}
+        {!scanning && scan?.status === "failed" && (
+          <p className="card scan-bar failed" role="alert">
+            The last scan failed: {scan.error ?? "no reason was recorded."}
+          </p>
+        )}
+        <ErrorNote error={startScan.error} />
+      </div>
+
+      <div className="tabbar" ref={tabbar}>
+        <div className="tabs" role="tablist" aria-label={location.name} onKeyDown={onTabKey}>
+          {TABS.map((name) => (
+            <button
+              key={name}
+              type="button"
+              role="tab"
+              id={`tab-${name}`}
+              className="tab"
+              aria-selected={tab === name}
+              aria-controls="tabpanel"
+              tabIndex={tab === name ? 0 : -1}
+              onClick={() => openTab(name)}
+            >
+              {TAB_LABELS[name]}
+              {name === "prompts" && active.length > 0 && (
+                <span className="badge">{active.length}</span>
+              )}
+              {name === "website" && failedChecks > 0 && (
+                <span className="badge bad">{failedChecks}</span>
+              )}
+            </button>
+          ))}
         </div>
       </div>
 
-      <ScanStatus detail={detail.data} />
-      {organization && location.scan_frequency !== "off" && surfaces.length > 0 && (
-        <p className="window-note">
-          Scanned {cadence(organization.scan_every_days, location.scan_frequency)} on{" "}
-          {listOf(surfaces.map((surface) => SURFACE_LABELS[surface]))}.
-        </p>
-      )}
-      <ErrorNote error={startScan.error} />
-      {history.data && <ScoreTrend scans={history.data} />}
+      <div
+        id="tabpanel"
+        role="tabpanel"
+        aria-labelledby={`tab-${tab}`}
+        className={`tab-body${tab === "website" || tab === "answers" ? " narrow" : ""}`}
+      >
+        {tab === "overview" &&
+          (trend.length === 0 && results.length === 0 ? (
+            <FirstScan hasPrompts={active.length > 0} onOpenTab={openTab} />
+          ) : (
+            <div className="overview">
+              <div>
+                {actions.length > 0 ? (
+                  <>
+                    <ActionPlan locationId={location.id} actions={actions} onOpenTab={openTab} />
+                    <p className="footnote">
+                      Worked out by rule from the answers of the last {scans(scanWindow.scans)} and
+                      the latest check of your website. Each step says what was seen, so later scans
+                      show whether it moved.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <h2>What to do next</h2>
+                    <p className="lede">
+                      Nothing yet. Steps appear here once the answers and the website check give a
+                      reason for one.
+                    </p>
+                  </>
+                )}
+                {open.length > 0 && <Recommendations items={open} onChanged={refresh} />}
+              </div>
+              <div>
+                <ScoreCard trend={trend} named={windowRate(scanWindow.cells)} />
+                {results.length > 0 && (
+                  <NamedInstead
+                    mentions={results.filter((result) => result.mentioned).length}
+                    checks={results.length}
+                    competitors={tallyCompetitors(results, 6)}
+                  />
+                )}
+              </div>
+            </div>
+          ))}
 
-      <section className="section">
-        <h2>Where {location.name} is named</h2>
-        {active.length === 0 ? (
-          <p className="lede">
-            Nothing to check yet. Add a prompt someone would ask an assistant, or a keyword they
-            would search on Google, then run a scan.
-          </p>
-        ) : (
-          <VisibilityMatrix
-            queries={active}
-            results={results}
-            window={scanWindow}
-            surfaces={surfaces}
-            onRetire={(id) => setQueryActive.mutate({ id, active: false })}
-          />
+        {tab === "prompts" && (
+          <>
+            <div className="section-head">
+              <h2>Where you're named</h2>
+              {results.length > 0 && (
+                <span className="small">
+                  {scanWindow.scans <= 1
+                    ? `One scan so far. These become "named in x of y" as more come in, up to the last ${scanWindow.size}.`
+                    : `Counted over the last ${scans(scanWindow.scans)}${scanWindow.scans < scanWindow.size ? `, building up to ${scanWindow.size}` : ""}. The score is counted the same way.`}
+                </span>
+              )}
+            </div>
+            {active.length === 0 ? (
+              <p className="lede">
+                Nothing to check yet. Add a prompt someone would ask an assistant, or a keyword they
+                would search on Google, then run a scan.
+              </p>
+            ) : (
+              <PromptGrid
+                queries={active}
+                results={results}
+                window={scanWindow}
+                surfaces={surfaces}
+                onRetire={(queryId) => setQueryActive.mutate({ id: queryId, active: false })}
+              />
+            )}
+            <ErrorNote error={setQueryActive.error} />
+            <AddQuery
+              locationId={location.id}
+              onAdded={refresh}
+              used={active.length}
+              allowed={organization?.max_queries_per_location}
+            />
+          </>
         )}
-        {results.length > 0 && <WindowNote scans={scanWindow.scans} size={scanWindow.size} />}
-        <ErrorNote error={setQueryActive.error} />
-        <AddQuery
-          locationId={location.id}
-          onAdded={refresh}
-          used={active.length}
-          allowed={organization?.max_queries_per_location}
-        />
-        {retired.length > 0 && (
-          <div className="retired">
-            <h3>Retired</h3>
-            <p className="window-note">
-              No longer scanned and not counted in the score. Their results are kept, and count
-              again if you restore them.
-            </p>
-            <ul>
-              {retired.map((query) => (
-                <li key={query.id}>
-                  <span>{query.text}</span>
-                  <button
-                    type="button"
-                    className="link"
-                    aria-label={`Restore "${query.text}"`}
-                    onClick={() => setQueryActive.mutate({ id: query.id, active: true })}
-                  >
-                    Restore
-                  </button>
-                </li>
-              ))}
-            </ul>
+
+        {tab === "sources" && (
+          <>
+            <h2>Where the answers come from</h2>
+            {scanWindow.sources.length > 0 ? (
+              <>
+                <p className="intro">
+                  The sites the assistants read before answering, over the last{" "}
+                  {scans(scanWindow.scans)}. A site read often in answers that never name you is the
+                  first place to check your listing.
+                </p>
+                <SourceTable sources={scanWindow.sources} answers={scanWindow.answers} />
+              </>
+            ) : (
+              <p className="lede">
+                No sources yet. They appear once a scan's answers say which sites they read.
+              </p>
+            )}
+          </>
+        )}
+
+        {tab === "website" && (
+          <>
+            <div className="section-head">
+              <h2>Your website</h2>
+              {site && site.checks.length > 0 && (
+                <span className="mono">
+                  {site.checks.length - failedChecks} of {site.checks.length} passed
+                </span>
+              )}
+            </div>
+            {site ? (
+              <SiteChecklist site={site} />
+            ) : (
+              <p className="lede">
+                {location.website
+                  ? "The website has not been checked yet. It is read as part of the next scan."
+                  : "There is no website on file for this location. Add one under Settings and the next scan will read it."}
+              </p>
+            )}
+          </>
+        )}
+
+        {tab === "answers" && (
+          <>
+            <h2>What the answers said</h2>
+            {excerpts.length > 0 ? (
+              <div className="quotes">
+                {excerpts.map((result) => (
+                  <Quote
+                    key={result.id}
+                    assistant={SURFACE_LABELS[result.surface]}
+                    prompt={queries.find((query) => query.id === result.tracked_query_id)?.text}
+                    excerpt={result.answer_excerpt ?? ""}
+                    name={location.name}
+                    citedUrls={result.cited_urls}
+                  />
+                ))}
+              </div>
+            ) : (
+              <p className="lede">No answers yet. They appear here after the next scan.</p>
+            )}
+          </>
+        )}
+
+        {tab === "settings" && (
+          <div className="settings">
+            <LocationEditor
+              // Another location starts the form from what is on file for it.
+              key={location.id}
+              location={location}
+              planDays={organization?.scan_every_days}
+              onSaved={async () => {
+                refresh();
+                await queryClient.invalidateQueries({ queryKey: ["locations"] });
+              }}
+            />
+            <div className="settings-side">
+              <div className="card side-card">
+                <h3 className="side-title">Retired prompts</h3>
+                <p>
+                  Retired prompts keep their history but aren't asked anymore. Their results count
+                  again if you restore them.
+                </p>
+                {retired.length === 0 ? (
+                  <p>None retired.</p>
+                ) : (
+                  <ul>
+                    {retired.map((query) => (
+                      <li key={query.id}>
+                        <span>{query.text}</span>
+                        <button
+                          type="button"
+                          className="link"
+                          aria-label={`Restore "${query.text}"`}
+                          onClick={() => setQueryActive.mutate({ id: query.id, active: true })}
+                        >
+                          Restore
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <ErrorNote error={setQueryActive.error} />
+              </div>
+              <div className="card side-card danger">
+                <h3 className="side-title bad">Delete this location</h3>
+                <p>Removes the location, its prompts and keywords, and every scan.</p>
+                <button
+                  type="button"
+                  className="danger"
+                  disabled={removeLocation.isPending}
+                  onClick={() => {
+                    if (window.confirm(`Delete ${location.name} and all of its scans?`)) {
+                      removeLocation.mutate();
+                    }
+                  }}
+                >
+                  Delete location
+                </button>
+                <ErrorNote error={removeLocation.error} />
+              </div>
+            </div>
           </div>
         )}
-      </section>
-
-      {competitors.length > 0 && (
-        <section className="section">
-          <h2>Named instead</h2>
-          <ol className="tally">
-            {competitors.map(({ name, count }) => (
-              <li key={name}>
-                <span>{name}</span>
-                <span className="muted">
-                  {count} of {results.length} checks
-                </span>
-              </li>
-            ))}
-          </ol>
-        </section>
-      )}
-
-      {scanWindow.sources.length > 0 && (
-        <section className="section">
-          <h2>Where the answers come from</h2>
-          <p className="window-note">
-            The sites the assistants read before answering, over the last {scanWindow.scans}{" "}
-            {scanWindow.scans === 1 ? "scan" : "scans"}. A site that is read often, in answers that
-            never name {location.name}, is the first place to check your listing.
-          </p>
-          <SourceTable sources={scanWindow.sources} answers={scanWindow.answers} />
-        </section>
-      )}
-
-      {excerpts.length > 0 && (
-        <section className="section">
-          <h2>What the answers said</h2>
-          <ul className="excerpts">
-            {excerpts.map((result) => (
-              <li key={result.id}>
-                <h3>
-                  {SURFACE_LABELS[result.surface]}
-                  <span className="muted">
-                    {queries.find((query) => query.id === result.tracked_query_id)?.text}
-                  </span>
-                </h3>
-                <p>
-                  {markName(plainText(result.answer_excerpt ?? ""), location.name).map(
-                    (part, index) =>
-                      part.marked ? (
-                        // biome-ignore lint/suspicious/noArrayIndexKey: parts are positional and never reorder
-                        <mark key={index}>{part.text}</mark>
-                      ) : (
-                        part.text
-                      ),
-                  )}
-                </p>
-                <Sources urls={result.cited_urls} />
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
-      {actions.length > 0 && (
-        <section className="section">
-          <h2>What to do next</h2>
-          <p className="window-note">
-            Worked out from the answers of the last {scanWindow.scans}{" "}
-            {scanWindow.scans === 1 ? "scan" : "scans"} and the latest check of your website. Each
-            step says what was seen, so later scans show whether it moved.
-          </p>
-          <ActionPlan actions={actions} />
-        </section>
-      )}
-
-      {site && (
-        <section className="section">
-          <h2>Your website</h2>
-          <SiteChecklist site={site} />
-        </section>
-      )}
-
-      {open.length > 0 && (
-        <section className="section">
-          <h2>Also worth doing</h2>
-          <Recommendations items={open} onChanged={refresh} />
-        </section>
-      )}
-
-      <section className="section">
-        <h2>Location details</h2>
-        <p className="muted">
-          The name, address and website on file. Scans ask about the business by this name, in this
-          city.
-        </p>
-        <LocationEditor location={location} onSaved={refresh} />
-      </section>
-
-      <section className="section">
-        <h2>Delete this location</h2>
-        <p className="muted">Removes the location, its prompts and keywords, and every scan.</p>
-        <button
-          type="button"
-          className="secondary danger"
-          disabled={removeLocation.isPending}
-          onClick={() => {
-            if (window.confirm(`Delete ${location.name} and all of its scans?`)) {
-              removeLocation.mutate();
-            }
-          }}
-        >
-          Delete location
-        </button>
-        <ErrorNote error={removeLocation.error} />
-      </section>
-    </>
+      </div>
+    </main>
   );
 }
 
-function ScanStatus({ detail }: { detail: Detail }) {
+/** When the location was last scanned, for the line under its name. */
+function ScanLine({ detail }: { detail: Detail }) {
   const scan = detail.latest_scan;
-  if (!scan) return <p className="scan-status">No scans yet.</p>;
-  if (scan.status === "queued" || scan.status === "running") {
-    return (
-      <p className="scan-status" role="status">
-        Scan under way. This page updates when it finishes.
-      </p>
-    );
-  }
-  if (scan.status === "failed") {
-    return (
-      <p className="scan-status error" role="alert">
-        The last scan failed: {scan.error ?? "no reason was recorded."}
-      </p>
-    );
-  }
-  const named = scan.results.filter((result) => result.mentioned).length;
+  if (!scan) return <span>No scans yet</span>;
+  if (scan.status !== "succeeded") return null;
+  return <span>Scanned {formatDate(scan.finished_at ?? scan.created_at)}</span>;
+}
+
+/** The Overview of a location that has never been scanned. */
+function FirstScan({
+  hasPrompts,
+  onOpenTab,
+}: {
+  hasPrompts: boolean;
+  onOpenTab: (tab: Tab) => void;
+}) {
   return (
-    <p className="scan-status">
-      Scanned {formatDate(scan.finished_at ?? scan.created_at)}. Named in {named} of{" "}
-      {scan.results.length} checks
-      {scan.visibility_score !== null && `, visibility ${scan.visibility_score} of 100`}.
-    </p>
+    <>
+      <h2>No scans yet</h2>
+      <p className="lede">
+        {hasPrompts
+          ? "Run a scan to see how often this location is named, who is named instead, and what to do about it."
+          : "Add a prompt a customer would ask an assistant, then run a scan."}
+      </p>
+      {!hasPrompts && (
+        <button type="button" className="go" onClick={() => onOpenTab("prompts")}>
+          Add prompts →
+        </button>
+      )}
+    </>
   );
 }
 
@@ -356,7 +477,7 @@ function AddQuery({
 
   return (
     <>
-      <form onSubmit={submit} className="inline-form">
+      <form onSubmit={submit} className="add-row">
         <label>
           Type
           <select value={kind} onChange={(event) => setKind(event.target.value as QueryKind)}>
@@ -374,26 +495,32 @@ function AddQuery({
             maxLength={300}
             value={text}
             placeholder={
-              kind === "ai_prompt" ? "Who makes the best pizza in Raleigh?" : "pizza near me"
+              kind === "ai_prompt"
+                ? "What would a customer ask? e.g. Who makes the best pizza in Raleigh?"
+                : "pizza near me"
             }
             onChange={(event) => setText(event.target.value)}
           />
         </label>
-        <button type="submit" className="secondary" disabled={create.isPending || atLimit}>
+        <button
+          type="submit"
+          className="outline fill-narrow"
+          disabled={create.isPending || atLimit}
+        >
           {kind === "ai_prompt" ? "Add prompt" : "Add keyword"}
         </button>
+        {allowed !== undefined && (
+          <span className="mono">
+            {used} of {allowed} used{atLimit && ". Retire one to add another."}
+          </span>
+        )}
       </form>
-      {allowed !== undefined && (
-        <p className="window-note">
-          {used} of {allowed} active prompts used.
-          {atLimit && " Retire one to add another."}
-        </p>
-      )}
       <ErrorNote error={create.error} />
     </>
   );
 }
 
+/** Recommendations the plan does not cover: bookkeeping, and assistants that never named it. */
 function Recommendations({
   items,
   onChanged,
@@ -409,9 +536,10 @@ function Recommendations({
 
   return (
     <>
-      <ul className="rows recommendations">
+      <h3>Also worth doing</h3>
+      <ul className="steps">
         {items.map((item) => (
-          <li key={item.id}>
+          <li key={item.id} className="card also">
             <div>
               <h3>{item.title}</h3>
               <p>{item.detail}</p>
@@ -439,23 +567,5 @@ function Recommendations({
       </ul>
       <ErrorNote error={update.error} />
     </>
-  );
-}
-
-/** Says what the counts in the grid are counted over, and why a new location has so few. */
-function WindowNote({ scans, size }: { scans: number; size: number }) {
-  if (scans <= 1) {
-    return (
-      <p className="window-note">
-        One scan so far. An assistant can answer the same prompt differently each time, so these
-        become "named in x of y" as more scans come in, up to the last {size}.
-      </p>
-    );
-  }
-  return (
-    <p className="window-note">
-      Counted over the last {scans} scans{scans < size ? `, building up to ${size}` : ""}. The score
-      is counted the same way.
-    </p>
   );
 }

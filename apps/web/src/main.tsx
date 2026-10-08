@@ -1,5 +1,7 @@
-import "@fontsource-variable/bricolage-grotesque";
-import "@fontsource-variable/public-sans";
+// The files with the optical-size axis, so large headings get Inter's display cut.
+import "@fontsource-variable/inter/opsz.css";
+// The italic is used once, for the emphasis in the sign-in headline.
+import "@fontsource-variable/inter/opsz-italic.css";
 import "./styles.css";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StrictMode } from "react";
