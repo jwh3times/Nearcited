@@ -87,6 +87,13 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
     expect(await bobStore.getLocation(location.id)).toBeNull();
     expect(await bobStore.listLocations(organization.id)).toEqual([]);
     expect(await bobStore.deleteLocation(location.id)).toBe(false);
+    // An edit replaces what a user may set; a stranger's edit finds no row and changes nothing.
+    const { id: _locationId, organization_id, last_scanned_at, created_at, ...fields } = location;
+    expect(await bobStore.updateLocation(location.id, { ...fields, name: "Defaced" })).toBeNull();
+    expect(
+      await aliceStore.updateLocation(location.id, { ...fields, phone: "919-555-0100" }),
+    ).toEqual({ ...location, phone: "919-555-0100" });
+    expect(await aliceStore.updateLocation(location.id, fields)).toEqual(location);
     await expect(
       bobStore.createLocation(organization.id, { ...location, name: "Planted" }),
     ).rejects.toMatchObject({ kind: "forbidden" });

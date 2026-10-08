@@ -153,6 +153,12 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
       return visibleLocation(id) ?? null;
     },
 
+    async updateLocation(id, input) {
+      const location = visibleLocation(id);
+      if (!location) return null;
+      return Object.assign(location, input);
+    },
+
     async deleteLocation(id) {
       if (!seesLocation(id)) return false;
       db.locations = db.locations.filter((location) => location.id !== id);

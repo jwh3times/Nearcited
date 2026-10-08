@@ -305,6 +305,7 @@ describe("organizations and locations", () => {
     const { location, query } = await seed();
     for (const [method, path, body] of [
       ["GET", `/locations/${location.id}`, undefined],
+      ["PATCH", `/locations/${location.id}`, { name: "Defaced", city: "Raleigh" }],
       ["DELETE", `/locations/${location.id}`, undefined],
       ["POST", `/locations/${location.id}/queries`, { kind: "ai_prompt", text: "x" }],
       ["PATCH", `/queries/${query.id}`, { is_active: false }],
@@ -315,6 +316,7 @@ describe("organizations and locations", () => {
       expect(response.status, `${method} ${path}`).toBe(404);
     }
     expect(db.locations).toHaveLength(1);
+    expect(db.locations[0]?.name).toBe(location.name);
     expect(db.queries).toHaveLength(1);
     expect(sent).toEqual([]);
   });
@@ -403,6 +405,49 @@ describe("organizations and locations", () => {
     const restore = await call(alice, "PATCH", `/queries/${query.id}`, { is_active: true });
     expect(restore.status).toBe(409);
     expect(await errorCode(restore)).toBe("limit_reached");
+  });
+
+  it("edits every field of a location, and the change shows on the next load", async () => {
+    const { location } = await seed();
+    const edit = {
+      name: "  Joe's Pizzeria ",
+      website: "https://joespizzeria.example",
+      phone: "919-555-0100",
+      address_line: "12 Fayetteville St",
+      city: "Durham",
+      region: "NC",
+      postal_code: "27701",
+      country_code: "ca",
+      google_place_id: "ChIJ-example",
+      primary_category: "Pizza restaurant",
+      scan_frequency: "weekly",
+    };
+    const response = await call(alice, "PATCH", `/locations/${location.id}`, edit);
+    expect(response.status).toBe(200);
+    const saved = { ...edit, name: "Joe's Pizzeria", country_code: "CA" };
+    expect(LocationSchema.parse(await response.json())).toEqual({ ...location, ...saved });
+
+    const loaded = LocationDetailSchema.parse(
+      await (await call(alice, "GET", `/locations/${location.id}`)).json(),
+    );
+    expect(loaded.location).toMatchObject(saved);
+  });
+
+  it("clears a field left blank, and refuses an edit that would not pass as a new location", async () => {
+    const { location } = await seed();
+    const cleared = await call(alice, "PATCH", `/locations/${location.id}`, {
+      name: location.name,
+      city: location.city,
+      website: "",
+    });
+    expect(LocationSchema.parse(await cleared.json()).website).toBeNull();
+
+    const invalid = await call(alice, "PATCH", `/locations/${location.id}`, {
+      name: "",
+      city: location.city,
+    });
+    expect(invalid.status).toBe(422);
+    expect(db.locations[0]?.name).toBe(location.name);
   });
 
   it("deletes a location", async () => {
