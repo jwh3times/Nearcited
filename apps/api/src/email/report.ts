@@ -33,9 +33,22 @@ export function buildScanReportEmail(report: ScanReport, appUrl: string): Email 
   };
 }
 
+/**
+ * An email as it is handed to the mail service. The sender is an address nobody reads, so a
+ * reply is pointed at one that is, when the deployment names it.
+ */
+export function emailMessage(
+  env: Pick<Env, "EMAIL_FROM" | "EMAIL_REPLY_TO">,
+  to: string[],
+  email: Email,
+) {
+  const replyTo = env.EMAIL_REPLY_TO?.trim();
+  return { from: env.EMAIL_FROM, to, ...(replyTo ? { replyTo } : {}), ...email };
+}
+
 export async function sendEmail(env: Env, to: string[], email: Email): Promise<void> {
   if (!env.RESEND_API_KEY || to.length === 0) return;
   const resend = new Resend(env.RESEND_API_KEY);
-  const { error } = await resend.emails.send({ from: env.EMAIL_FROM, to, ...email });
+  const { error } = await resend.emails.send(emailMessage(env, to, email));
   if (error) throw new Error(`Resend rejected the email: ${error.message}`);
 }

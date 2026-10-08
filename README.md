@@ -180,6 +180,7 @@ The Worker reads its settings from `vars` in `apps/api/wrangler.jsonc`. Locally,
 | `PROVIDER_MODE` | no | Exactly `mock` serves generated data. Any other value is live. |
 | `APP_URL` | no | Where the web app is served. |
 | `EMAIL_FROM` | no | The sender of scan reports. |
+| `EMAIL_REPLY_TO` | no | Optional. Where a reply to a scan report goes. Without it, replies go to `EMAIL_FROM`. |
 | `OPENAI_API_KEY` | yes | Optional. In live mode, scans check ChatGPT when it is set and skip that surface when it is not. |
 | `ANTHROPIC_API_KEY` | yes | Optional. The same, for Claude. |
 | `RESEND_API_KEY` | yes | Optional. Without it, scheduled scans finish without sending a report. |
