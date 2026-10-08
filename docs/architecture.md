@@ -8,7 +8,8 @@
   Every other path is served from the web app's build output, with unknown paths falling back to
   `index.html` so client-side routes work. That routing lives in `wrangler.jsonc` under `assets`.
 - **`scheduled`**: two Cron Triggers. Every 15 minutes it fails scans that have been queued or
-  running for more than 30 minutes, so an abandoned scan cannot block its location for long.
+  running for more than 30 minutes, so an abandoned scan cannot block its location for long. It
+  also fails audits still `queued` after 30 minutes (see "Shareable audits").
   Once a day it also asks Postgres which locations are due (`locations_due_for_scan`), creates a
   `scheduled` scan row for each, and puts the scan IDs on the queue.
 - **`queue`**: the consumer. For each scan ID it runs the scan and, for scheduled scans, emails
@@ -299,6 +300,11 @@ queue consumer: runAuditPart()
 - **It refuses what a scan refuses.** On sample data, or on the default tuning in live mode, the
   audit is marked failed with a reason and the message is acknowledged. Any other error is
   recorded on the audit and rethrown so the queue redelivers; a later success clears it.
+- **An audit that never finishes is failed.** A prompt that exhausts its retries never reports, and
+  a later prompt's success sets the audit back to `queued`. `failStaleAudits` marks an audit still
+  `queued` 30 minutes after creation as failed ("Some prompts could not be checked."). The prompts
+  that finished stay and the page keeps showing them; if the missing prompt reports later, the
+  audit becomes ready as before.
 - **A revoked audit is skipped.**
 - **No endpoint creates an audit.** A public one would let anyone spend the provider budget, and
   a signed-in one would have to decide whose budget it was. The owner creates audits with the

@@ -284,6 +284,17 @@ export function createSupabaseStore(db: SupabaseClient): Store {
       if (error) fail("Fail audit", error);
     },
 
+    async failStaleAudits(olderThan, message) {
+      const { data, error } = await db
+        .from("audits")
+        .update({ status: "failed", error: message.slice(0, 500) })
+        .eq("status", "queued")
+        .lt("created_at", olderThan)
+        .select("id");
+      if (error) fail("Fail stale audits", error);
+      return data?.length ?? 0;
+    },
+
     async markScanRunning(id, sampleData) {
       const { error } = await db
         .from("scans")
