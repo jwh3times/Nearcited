@@ -78,6 +78,22 @@ async function get(start: URL, fetchImpl: Fetch): Promise<{ url: URL; response: 
   return null;
 }
 
+/** A status that often clears by itself: the server was busy, or faulted. */
+const passing = (status: number) => status === 429 || status >= 500;
+
+/**
+ * The home page, asked for a second time when the first try got no answer or a passing fault. One
+ * miss from one place is weak evidence about a site, and the check is shown to its owner.
+ */
+async function getPage(start: URL, fetchImpl: Fetch) {
+  try {
+    const first = await get(start, fetchImpl);
+    if (!first || !passing(first.response.status)) return first;
+    await first.response.body?.cancel().catch(() => {});
+  } catch {}
+  return get(start, fetchImpl);
+}
+
 export async function fetchSite(website: string, fetchImpl: Fetch = fetch): Promise<SiteSnapshot> {
   const start = safeSiteUrl(website);
   const nothing = (url: string, status: number | null = null): SiteSnapshot => ({
@@ -90,7 +106,7 @@ export async function fetchSite(website: string, fetchImpl: Fetch = fetch): Prom
   if (!start) return nothing(website);
 
   try {
-    const page = await get(start, fetchImpl);
+    const page = await getPage(start, fetchImpl);
     if (!page) return nothing(start.href);
     const { url, response } = page;
     const isHtml = /html/i.test(response.headers.get("Content-Type") ?? "");
