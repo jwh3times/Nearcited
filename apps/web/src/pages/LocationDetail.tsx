@@ -5,12 +5,14 @@ import {
   type QueryKind,
   type ScanWithResults,
   SURFACE_LABELS,
+  TrackedQueryInputSchema,
 } from "@nearcited/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, type KeyboardEvent, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { ActionPlan } from "../components/ActionPlan";
 import { ErrorNote } from "../components/ErrorNote";
+import { Field } from "../components/Field";
 import { LocationEditor } from "../components/LocationEditor";
 import { NamedInstead } from "../components/NamedInstead";
 import { PromptGrid } from "../components/PromptGrid";
@@ -19,6 +21,7 @@ import { ScoreCard } from "../components/ScoreCard";
 import { SiteChecklist } from "../components/SiteChecklist";
 import { SourceTable } from "../components/SourceTable";
 import { api } from "../lib/api";
+import { useFormErrors } from "../lib/form";
 import { cadence, formatDate, listOf } from "../lib/format";
 import { locationKey, placeOf, scansKey } from "../lib/locations";
 import { tallyCompetitors } from "../lib/matrix";
@@ -466,18 +469,21 @@ function AddQuery({
     mutationFn: () => api.createQuery(locationId, { kind, text }),
     onSuccess: () => {
       setText("");
+      form$.reset();
       return onAdded();
     },
   });
 
+  const form$ = useFormErrors(TrackedQueryInputSchema, { kind, text });
+
   function submit(event: FormEvent) {
     event.preventDefault();
-    create.mutate();
+    if (form$.check()) create.mutate();
   }
 
   return (
     <>
-      <form onSubmit={submit} className="add-row">
+      <form onSubmit={submit} className="add-row" noValidate>
         <label>
           Type
           <select value={kind} onChange={(event) => setKind(event.target.value as QueryKind)}>
@@ -488,12 +494,13 @@ function AddQuery({
             ))}
           </select>
         </label>
-        <label className="grow">
-          {kind === "ai_prompt" ? "Prompt" : "Keyword"}
-          <input
+        <div className="grow">
+          <Field
+            label={kind === "ai_prompt" ? "Prompt" : "Keyword"}
             required
             maxLength={300}
             value={text}
+            error={form$.error("text")}
             placeholder={
               kind === "ai_prompt"
                 ? "What would a customer ask? e.g. Who makes the best pizza in Raleigh?"
@@ -501,7 +508,7 @@ function AddQuery({
             }
             onChange={(event) => setText(event.target.value)}
           />
-        </label>
+        </div>
         <button
           type="submit"
           className="outline fill-narrow"

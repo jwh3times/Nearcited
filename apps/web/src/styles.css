@@ -281,6 +281,20 @@ input.tall {
   font-size: 1.0625rem;
 }
 
+input[aria-invalid="true"] {
+  border-color: var(--danger);
+}
+
+.field-error,
+.field-hint {
+  font-size: 0.8125rem;
+  font-weight: 400;
+}
+
+.field-error {
+  color: var(--danger);
+}
+
 .card {
   background: var(--surface);
   border: 1px solid var(--line);

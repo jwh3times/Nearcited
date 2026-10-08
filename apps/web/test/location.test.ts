@@ -37,6 +37,12 @@ describe("locationFormValues", () => {
     });
   });
 
+  it("shows a stored phone number the way it is written, and saves it back as it was", () => {
+    const withPhone = { ...location, phone: "+19195550100" };
+    expect(locationFormValues(withPhone).phone).toBe("(919) 555-0100");
+    expect(LocationInputSchema.parse(locationFormValues(withPhone)).phone).toBe("+19195550100");
+  });
+
   it("saves back unchanged as the location it was read from", () => {
     expect({ ...location, ...LocationInputSchema.parse(locationFormValues(location)) }).toEqual(
       location,

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isCountry, normalizePhone, normalizePostalCode, normalizeWebsite } from "./inputs";
 
 /**
  * Wire types shared by the API and the web app. Field names stay snake_case end to end so
@@ -169,46 +170,98 @@ const optionalText = (max: number) =>
     .nullish()
     .transform((value) => (value ? value : null));
 
-function isHttpUrl(value: string): boolean {
-  try {
-    const url = new URL(value);
-    return url.protocol === "http:" || url.protocol === "https:";
-  } catch {
-    return false;
-  }
-}
+/** Required text that has to say something: a name is not a row of digits or punctuation. */
+const named = (max: number, missing: string, empty: string) =>
+  z
+    .string()
+    .trim()
+    .min(1, missing)
+    .max(max, `Use at most ${max} characters`)
+    .refine((value) => /\p{L}/u.test(value), empty);
 
 export const OrganizationInputSchema = z.object({
-  name: z.string().trim().min(1, "Name is required").max(120),
+  name: named(120, "Name is required", "Enter the organization's name"),
 });
 export type OrganizationInput = z.output<typeof OrganizationInputSchema>;
 
-export const LocationInputSchema = z.object({
-  name: z.string().trim().min(1, "Name is required").max(120),
-  website: optionalText(200).refine((value) => value === null || isHttpUrl(value), {
-    message: "Website must start with http:// or https://",
-  }),
-  phone: optionalText(40),
-  address_line: optionalText(200),
-  city: z.string().trim().min(1, "City is required").max(80),
-  region: optionalText(80),
-  postal_code: optionalText(20),
-  country_code: z
-    .string()
-    .trim()
-    .toUpperCase()
-    .regex(/^[A-Z]{2}$/, "Use a two-letter country code")
-    .default("US"),
-  google_place_id: optionalText(200),
-  primary_category: optionalText(120),
-  scan_frequency: ScanFrequencySchema.default("daily"),
-});
+/** Whether the fields a cross-field check reads came through their own checks. */
+const sound =
+  (...fields: string[]) =>
+  (payload: { issues: readonly { path?: readonly PropertyKey[] }[] }) =>
+    payload.issues.every((issue) => !fields.includes(String(issue.path?.[0])));
+
+export const LocationInputSchema = z
+  .object({
+    name: named(120, "Name is required", "Enter the business's name"),
+    website: optionalText(200).transform((typed, context) => {
+      if (typed === null) return null;
+      const website = normalizeWebsite(typed);
+      if (website === null) {
+        context.addIssue({ code: "custom", message: "Enter a web address, like joespizza.com" });
+        return z.NEVER;
+      }
+      return website;
+    }),
+    phone: optionalText(40),
+    address_line: optionalText(200),
+    city: named(80, "City is required", "Enter the city's name"),
+    region: optionalText(80),
+    postal_code: optionalText(20),
+    country_code: z
+      .string()
+      .trim()
+      .toUpperCase()
+      .refine(isCountry, "Use a two-letter country code, like US")
+      .default("US"),
+    google_place_id: optionalText(200).refine(
+      (value) => value === null || /^[A-Za-z0-9_-]{20,}$/.test(value),
+      "Paste the place ID as Google gives it: letters, digits, - and _",
+    ),
+    primary_category: optionalText(120),
+    scan_frequency: ScanFrequencySchema.default("daily"),
+  })
+  // The phone number and the postal code are read in the location's own country. These run even
+  // when another field is wrong, so a form can show every problem at once.
+  .refine(({ phone, country_code }) => !phone || normalizePhone(phone, country_code) !== null, {
+    path: ["phone"],
+    message: "Enter a full phone number, with the area code",
+    when: sound("phone", "country_code"),
+  })
+  .refine(
+    ({ postal_code, country_code }) =>
+      !postal_code || "code" in normalizePostalCode(postal_code, country_code),
+    {
+      path: ["postal_code"],
+      error: (issue) => {
+        const { postal_code, country_code } = issue.input as Record<string, string>;
+        const result = normalizePostalCode(postal_code ?? "", country_code ?? "");
+        return "error" in result ? result.error : "Enter a postal code";
+      },
+      when: sound("postal_code", "country_code"),
+    },
+  )
+  // Once everything is sound, both are put in the form they are stored in.
+  .transform((location) => {
+    const postal = location.postal_code
+      ? normalizePostalCode(location.postal_code, location.country_code)
+      : null;
+    return {
+      ...location,
+      phone: location.phone ? normalizePhone(location.phone, location.country_code) : null,
+      postal_code: postal && "code" in postal ? postal.code : null,
+    };
+  });
 export type LocationInput = z.output<typeof LocationInputSchema>;
 export type LocationFormValues = z.input<typeof LocationInputSchema>;
 
 export const TrackedQueryInputSchema = z.object({
   kind: QueryKindSchema,
-  text: z.string().trim().min(1, "Enter a prompt or keyword").max(300),
+  text: z
+    .string()
+    .trim()
+    .min(1, "Enter a prompt or keyword")
+    .max(300, "Use at most 300 characters")
+    .refine((value) => (value.match(/\p{L}/gu)?.length ?? 0) >= 3, "Use at least three letters"),
 });
 export type TrackedQueryInput = z.output<typeof TrackedQueryInputSchema>;
 

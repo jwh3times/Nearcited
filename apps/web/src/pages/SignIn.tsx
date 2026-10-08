@@ -1,7 +1,18 @@
 import { type FormEvent, useState } from "react";
+import { z } from "zod";
 import { ErrorNote } from "../components/ErrorNote";
+import { Field } from "../components/Field";
 import { Logo } from "../components/Logo";
+import { useFormErrors } from "../lib/form";
 import { supabase } from "../lib/supabase";
+
+const EmailSchema = z.object({
+  email: z
+    .string()
+    .trim()
+    .min(1, "Enter your email address")
+    .pipe(z.email("Enter an email address, like you@company.com")),
+});
 
 export function SignIn() {
   const [email, setEmail] = useState("");
@@ -9,9 +20,11 @@ export function SignIn() {
   const [error, setError] = useState<Error | null>(null);
   const [sending, setSending] = useState(false);
 
+  const form$ = useFormErrors(EmailSchema, { email });
+
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (!supabase) return;
+    if (!supabase || !form$.check()) return;
     setSending(true);
     setError(null);
     const { error: failure } = await supabase.auth.signInWithOtp({
@@ -68,17 +81,17 @@ export function SignIn() {
                 <h2 className="h-lg">Sign in</h2>
                 <p className="muted">We'll email you a link. No password.</p>
               </div>
-              <form onSubmit={submit}>
-                <label>
-                  Work email
-                  <input
-                    type="email"
-                    required
-                    autoComplete="email"
-                    value={email}
-                    onChange={(event) => setEmail(event.target.value)}
-                  />
-                </label>
+              <form onSubmit={submit} noValidate>
+                <Field
+                  label="Work email"
+                  type="email"
+                  required
+                  autoComplete="email"
+                  value={email}
+                  error={form$.error("email")}
+                  onBlur={() => form$.touch("email")}
+                  onChange={(event) => setEmail(event.target.value)}
+                />
                 <button type="submit" className="wide" disabled={sending}>
                   {sending ? "Sending link" : "Email me a sign-in link"}
                 </button>
