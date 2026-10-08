@@ -117,7 +117,7 @@ export function Shell({ me, organization, children }: ShellProps) {
       </aside>
 
       <div className="main">
-        {me.sample_data && (
+        {(me.sample_data || organization.is_test) && (
           <p className="sample-banner">
             Scans are returning generated sample data, not real measurements.
           </p>

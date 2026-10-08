@@ -63,7 +63,12 @@ pass `pnpm check` and run in mock mode without it.
   tuning module but types, because its bundle is public.
 - **Mock data must never pass as real.** `PROVIDER_MODE` is mock only when it is exactly `"mock"`,
   and the UI shows a banner while it is. Keep both. For the same reason live scans refuse to run on
-  the default tuning (`liveScansUnavailable`); keep that too.
+  the default tuning (`liveScansUnavailable`); keep that too. A test organization's scans are
+  generated in any deployment (`docs/adr/0003-platform-roles-and-test-accounts.md`): they are
+  recorded as `sample_data` and shown under the same banner, so code that asks "is this sample
+  data?" asks about the organization as well as the deployment.
+- **Platform roles are set only with the secret key.** `platform_roles` and
+  `organizations.is_test` have no write path from a request. Do not add one.
 - **The code is AGPL-3.0-only and the repo is public.** A new dependency must be under a license
   that can be combined with it; MIT, ISC, BSD, Apache-2.0 and MPL-2.0 are fine, anything else
   needs checking first. Outside pull requests are not merged (see `CONTRIBUTING.md`).

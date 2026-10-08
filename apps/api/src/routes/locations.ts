@@ -6,6 +6,7 @@ import {
   poolWindow,
   RecommendationUpdateSchema,
   SCAN_WINDOW,
+  SURFACES,
   scansCounted,
   summarizeSources,
   summarizeWindow,
@@ -32,12 +33,15 @@ locationRoutes.get("/locations/:id", async (c) => {
   const store = c.get("store");
   const location = await requireLocation(store, uuidParam(c, "id", "Location"));
 
-  const [organization, queries, [latest], recommendations, recent, site] = await Promise.all([
-    store.getOrganization(location.organization_id),
+  const organization = await store.getOrganization(location.organization_id);
+  // Generated and real results never share a window, so which one to read is decided first. A
+  // test organization's are generated even in a live deployment.
+  const sample = usesSampleData(c.env) || organization?.is_test === true;
+  const [queries, [latest], recommendations, recent, site] = await Promise.all([
     store.listQueries(location.id),
     store.listScans(location.id, 1),
     store.listRecommendations(location.id),
-    store.listRecentResults(location.id, SCAN_WINDOW, usesSampleData(c.env)),
+    store.listRecentResults(location.id, SCAN_WINDOW, sample),
     store.getSiteCheck(location.id),
   ]);
 
@@ -69,7 +73,10 @@ locationRoutes.get("/locations/:id", async (c) => {
         answer.competitors.map((name) => ({ name, count: 1 })),
       ),
     }),
-    surfaces: planSurfaces(checkedSurfaces(c.env), organization?.surfaces ?? null),
+    surfaces: planSurfaces(
+      sample ? [...SURFACES] : checkedSurfaces(c.env),
+      organization?.surfaces ?? null,
+    ),
     recommendations,
   };
   return c.json(detail);

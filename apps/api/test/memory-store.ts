@@ -29,6 +29,8 @@ export interface MemoryDb {
   /** IDs of scans a member asked for, which is what the manual-scan limit counts. */
   requestedBy: Set<string>;
   audits: MemoryAudit[];
+  /** Accounts with the `test` platform role. Every organization one creates is a test one. */
+  testAccounts: Set<string>;
   /** The on-page check each scan made, by scan ID. */
   siteChecks: Map<string, SiteCheck | null>;
 }
@@ -43,6 +45,7 @@ export interface MemoryAudit extends AuditJob {
 
 export function createMemoryDb(): MemoryDb {
   return {
+    testAccounts: new Set(),
     organizations: [],
     memberships: [],
     locations: [],
@@ -123,6 +126,7 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         id: crypto.randomUUID(),
         name,
         ...DEFAULT_LIMITS,
+        is_test: db.testAccounts.has(userId),
         created_at: timestamp(),
       };
       db.organizations.push(organization);

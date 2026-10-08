@@ -240,6 +240,76 @@ describe("mock providers", () => {
   });
 });
 
+describe("a test organization's scans", () => {
+  const robot = "e0000000-0000-4000-8000-000000000005";
+  const sampleProviders = createMockProviders();
+  let testLocationId: string;
+
+  beforeEach(async () => {
+    db.testAccounts.add(robot);
+    db.emails.set(robot, "e2e@example.com");
+    const account = memoryStore(db, robot);
+    const organization = await account.createOrganization("Smoke test");
+    expect(organization.is_test).toBe(true);
+    const location = await account.createLocation(organization.id, {
+      name: "Joe's Pizza",
+      website: "https://joes.example",
+      phone: null,
+      address_line: null,
+      city: "Raleigh",
+      region: "NC",
+      postal_code: null,
+      country_code: "US",
+      google_place_id: null,
+      primary_category: null,
+      scan_frequency: "daily",
+    });
+    testLocationId = location.id;
+    await account.createQuery(testLocationId, { kind: "ai_prompt", text: "best pizza in Raleigh" });
+  });
+
+  it("run on generated data in a live deployment, and say so on the scan", async () => {
+    const real = vi.fn(providers.chatgpt?.observe);
+    const inspectSite = vi.fn();
+    const notify = vi.fn();
+    const scan = await worker.createScan(testLocationId, "scheduled", null);
+
+    const outcome = await runScan(scan.id, {
+      store: worker,
+      providers: { chatgpt: { surface: "chatgpt", observe: real } },
+      sampleProviders,
+      sampleData: false,
+      // Even a build that cannot run live scans can run these: they ask nobody anything.
+      unavailable: "This build cannot run live scans.",
+      inspectSite,
+      notify,
+    });
+
+    expect(outcome).toBe("succeeded");
+    expect(await worker.getScan(scan.id)).toMatchObject({ status: "succeeded", sample_data: true });
+    // Nothing real was asked, fetched or emailed.
+    expect(real).not.toHaveBeenCalled();
+    expect(inspectSite).not.toHaveBeenCalled();
+    expect(notify).not.toHaveBeenCalled();
+    // Generated data covers every surface, which is how these are told from a live scan's.
+    const surfaces = new Set((await worker.listScanResults(scan.id)).map((r) => r.surface));
+    expect(surfaces.size).toBeGreaterThan(2);
+  });
+
+  it("leave a real organization's scans in the same deployment real", async () => {
+    const scan = await queueScan();
+    await runScan(scan.id, { store: worker, providers, sampleProviders, sampleData: false });
+    expect(await worker.getScan(scan.id)).toMatchObject({
+      status: "succeeded",
+      sample_data: false,
+    });
+    expect((await worker.listScanResults(scan.id)).map((result) => result.surface)).toEqual([
+      "chatgpt",
+      "gemini",
+    ]);
+  });
+});
+
 describe("emailMessage", () => {
   const email = { subject: "Joe's Pizza: visibility 80 of 100", text: "Latest scan" };
   const from = "Nearcited <reports@nearcited.example>";

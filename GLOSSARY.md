@@ -19,3 +19,12 @@ system works; this file only settles vocabulary.
   `docs/architecture.md`.
 - **Action plan**: the ordered steps shown as "What to do next", composed by rule from the sources
   and the on-page check. A step states an observation; it does not promise a result.
+- **Organization role**: what a person may do inside one organization: owner, admin or member.
+  Whoever creates an organization is its owner. It says nothing about the product as a whole.
+- **Platform role**: what an account is to Nearcited itself, apart from any organization. Most
+  accounts have none. Never called "owner", which is an organization role.
+- **Operator**: the platform role of the person who runs Nearcited.
+- **Test account**: an account held by automation, not by a person, used to exercise the product.
+  Its platform role is `test`.
+- **Test organization**: an organization created by a test account. Its scans run on generated
+  sample data and say so, and it is never a customer.
