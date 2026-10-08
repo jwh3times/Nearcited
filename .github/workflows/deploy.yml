@@ -4,7 +4,9 @@ name: Deploy
 # service account that can read only that vault. Before the first run:
 #   secret:    OP_SERVICE_ACCOUNT_TOKEN (the only credential GitHub holds)
 #   variables: VITE_SUPABASE_URL, VITE_SUPABASE_PUBLISHABLE_KEY (public values)
-#   vault:     the items named by the op:// references in the "Load credentials" step
+#   vault:     the items named by the op:// references in the "Load credentials" steps
+# The smoke test after the deploy runs once the deployment has a test account (see the README's
+# "Deploy" section): set the repository variable SMOKE_TEST to "on" when it does.
 # Worker secrets (SUPABASE_SECRET_KEY, RESEND_API_KEY) are set once with `wrangler secret put`.
 on:
   workflow_dispatch:
@@ -55,3 +57,53 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ steps.op.outputs.CLOUDFLARE_ACCOUNT_ID }}
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
+
+  # Signs in to what was just deployed as its test account and uses it the way a person would:
+  # add a location, scan it, read the results, remove it. A test organization's scans are
+  # generated, so this asks no assistant and costs nothing
+  # (docs/adr/0003-platform-roles-and-test-accounts.md).
+  smoke:
+    name: Smoke test the deployment
+    needs: deploy
+    if: vars.SMOKE_TEST == 'on'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: Load the test account from 1Password
+        id: op
+        uses: 1password/load-secrets-action@v5
+        env:
+          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
+          TEST_ACCOUNT_EMAIL: op://Nearcited/Smoke test/username
+          TEST_ACCOUNT_PASSWORD: op://Nearcited/Smoke test/password
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Install the browser
+        run: pnpm --filter @nearcited/e2e exec playwright install --with-deps chromium
+      # The address is read from the Worker's own config, so this tests what was deployed.
+      - name: Find the deployment
+        run: >-
+          node --input-type=module -e
+          "import { readDeployment } from './scripts/create-audit.mjs';
+          console.log('E2E_APP_URL=' + readDeployment(process.cwd()).appUrl)"
+          >> "$GITHUB_ENV"
+      - run: pnpm smoke
+        env:
+          E2E_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+          E2E_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
+          TEST_ACCOUNT_EMAIL: ${{ steps.op.outputs.TEST_ACCOUNT_EMAIL }}
+          TEST_ACCOUNT_PASSWORD: ${{ steps.op.outputs.TEST_ACCOUNT_PASSWORD }}
+      - name: Keep the report when the smoke test fails
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: smoke-report
+          path: |
+            apps/e2e/playwright-report
+            apps/e2e/test-results
+          retention-days: 7

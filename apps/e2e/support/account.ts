@@ -34,6 +34,24 @@ export async function createAccount(): Promise<Account> {
   return { email, session };
 }
 
+/**
+ * Signs in as an account that already exists, with its password. This is how the deployment's
+ * test account gets in: it has no mailbox to read a link from.
+ */
+export async function signInWithPassword(email: string, password: string): Promise<Account> {
+  const response = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
+    method: "POST",
+    headers: { apikey: PUBLISHABLE_KEY, "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  const session = (await response.json()) as Account["session"];
+  if (!response.ok || !session.access_token) {
+    // Never the body: a failed sign-in's reply is not worth a secret ending up in a log.
+    throw new Error(`Could not sign in as ${email}: status ${response.status}.`);
+  }
+  return { email, session };
+}
+
 /** Opens the app already signed in as the account. */
 export async function signIn(page: Page, account: Account, path = "/"): Promise<void> {
   await page.addInitScript(

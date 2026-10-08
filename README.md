@@ -208,6 +208,8 @@ templates.
 | `pnpm test` | Every unit test, including the row-level security tests |
 | `pnpm build` | Build the web app |
 | `pnpm e2e` | End-to-end tests in a browser (needs `supabase start` and the env files; `pnpm check` does not run them) |
+| `pnpm smoke` | Smoke test against a deployment (`E2E_APP_URL`, `E2E_SUPABASE_URL`, `E2E_SUPABASE_PUBLISHABLE_KEY`, `TEST_ACCOUNT_EMAIL`, `TEST_ACCOUNT_PASSWORD`) |
+| `pnpm test-account:create` | Make the deployment's test account and grant it the `test` platform role; safe to run again (needs `SUPABASE_SECRET_KEY`, `TEST_ACCOUNT_EMAIL`, `TEST_ACCOUNT_PASSWORD`) |
 | `pnpm local:env` | Write `apps/api/.dev.vars` and `apps/web/.env.local` from the examples and `supabase status` (`--force` replaces existing files) |
 | `pnpm cf:deploy` | Build, then `wrangler deploy` |
 | `pnpm db:types` | Generate TypeScript types from the local Supabase database |
@@ -301,9 +303,12 @@ reader gets one audit only by its token, through the `get_audit()` function.
 - **`apps/e2e`**: `pnpm e2e` drives the real web app and Worker in Chromium against the local
   Supabase stack, in mock mode: sign-in by the emailed link, onboarding through the first scan, the
   location page, account settings, the public pages and one phone-sized run. It starts the Worker
-  and web app itself, or reuses them if `pnpm dev` is up.
+  and web app itself, or reuses them if `pnpm dev` is up. `pnpm smoke` is a separate run against a
+  real deployment: it signs in as the test account, refuses to go on unless that account's
+  organization is a test one, then adds a location and a prompt, runs a scan (generated data), reads
+  the results and deletes the location.
 - **`scripts`**: `pnpm test:scripts` runs the tests for the private-companion, tuning,
-  local-env, audit-creation and branch-sync scripts.
+  local-env, audit-creation, test-account and branch-sync scripts.
 
 ### Integration tests
 
@@ -354,6 +359,11 @@ The `integration` job in `.github/workflows/ci.yml` is a working example.
 service account that can read only that vault. The vault items it expects are named at the top
 of that file.
 
+The same workflow can smoke-test what it deployed. To set that up: add a 1Password item `Smoke test`
+to the vault with the test account's `username` (an email) and `password`; run
+`pnpm test-account:create` with `SUPABASE_SECRET_KEY`, `TEST_ACCOUNT_EMAIL` and
+`TEST_ACCOUNT_PASSWORD` in the environment; then set the repository variable `SMOKE_TEST` to `on`.
+
 `PROVIDER_MODE` in `apps/api/wrangler.jsonc` is `live`, so the deployed Worker runs real checks.
 Exactly `mock` serves generated data instead, which is what `.dev.vars.example` sets for local
 development. Any other value means live. A live build needs the private
@@ -376,7 +386,8 @@ no key set at all, scans fail with "No data provider is configured".
   arrive separately. Dependabot alerts and security updates are on.
 - **Secret scanning with push protection** and **private vulnerability reporting** are on. See
   [SECURITY.md](SECURITY.md) for how to report a problem.
-- **Deploy** (`.github/workflows/deploy.yml`) is manual.
+- **Deploy** (`.github/workflows/deploy.yml`) is manual. When the repository variable `SMOKE_TEST`
+  is `on`, a second job, `Smoke test the deployment`, runs `pnpm smoke` against the result.
 
 ## Private companion
 
