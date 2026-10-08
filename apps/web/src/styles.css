@@ -285,10 +285,20 @@ input[aria-invalid="true"] {
   border-color: var(--danger);
 }
 
-.field-error,
-.field-hint {
+.field {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+/* The line under a field. It keeps its height when empty, so a message never moves the form. */
+.field-note {
+  min-height: 1.2rem;
   font-size: 0.8125rem;
   font-weight: 400;
+  line-height: 1.2rem;
+  color: var(--muted);
 }
 
 .field-error {
@@ -304,7 +314,7 @@ input[aria-invalid="true"] {
 .field-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(12.5rem, 1fr));
-  gap: 0.875rem;
+  gap: 0.25rem 0.875rem;
 }
 
 .divider {
@@ -1676,7 +1686,7 @@ mark {
 .two-col {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(13.75rem, 1fr));
-  gap: 0.875rem;
+  gap: 0.25rem 0.875rem;
 }
 
 .choices li {

@@ -101,8 +101,8 @@ current state. Where the two disagree, current state wins.
 Then make this machine runnable: `npm run bootstrap:private` when the doc
 points into `private/` and it is absent here, `pnpm install`, and confirm `apps/api/.dev.vars`
 and `apps/web/.env.local` exist. Both are gitignored, so they never arrive with
-the handoff; recreate a missing one from its `.example` file and the values
-`pnpm dlx supabase status` prints.
+the handoff; recreate missing ones with `pnpm local:env`, which fills them from
+the `.example` files and `supabase status`.
 
 Brief the user: what the doc says comes next, any work it flagged as not merged
 to main (uncommitted work it lists stays on the other machine), and every

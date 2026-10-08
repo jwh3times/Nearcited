@@ -8,7 +8,7 @@ import {
   TrackedQueryInputSchema,
 } from "@nearcited/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { type FormEvent, type KeyboardEvent, useRef, useState } from "react";
+import { type FormEvent, type KeyboardEvent, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { ActionPlan } from "../components/ActionPlan";
 import { ErrorNote } from "../components/ErrorNote";
@@ -56,6 +56,13 @@ export function LocationDetail() {
   });
 
   const history = useQuery({ queryKey: historyKey, queryFn: () => api.listScans(id) });
+  // The page above polls while a scan is under way. When it sees the scan end, the list of scans
+  // behind the score and its chart is stale too, here and in the sidebar, so it is fetched again.
+  const latestScan = detail.data?.latest_scan;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the scan changing state is the trigger
+  useEffect(() => {
+    queryClient.invalidateQueries({ queryKey: scansKey(id) });
+  }, [id, latestScan?.id, latestScan?.status]);
   // Already loaded by the page shell, so this reads the cache.
   const me = useQuery({ queryKey: ["me"], queryFn: api.me });
 

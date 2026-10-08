@@ -113,6 +113,7 @@ Worker imposes, and the known gaps.
 apps/
   api/          The Worker. src/index.ts exports fetch, scheduled and queue.
   web/          The React app. Its build output is served by the Worker as static assets.
+  e2e/          Playwright tests that drive the app and Worker in a browser, in mock mode.
 packages/
   shared/       Zod schemas for every wire type, plus the logic that decides whether a business
                 was named, the visibility score, the rule-based recommendations, the audit,
@@ -125,6 +126,7 @@ scripts/        integration-db.sh prepares a plain Postgres for the store integr
                 create-audit.mjs creates and revokes shareable audits.
                 bootstrap-private.mjs and sync-main.mjs manage the private companion checkout.
                 prepare-tuning.mjs writes the tuning file the Worker bundles.
+                local-env.mjs writes the two local env files from `supabase status`.
 private/        The private companion, when checked out. Ignored here; its own repository.
 docs/           architecture.md: how a scan flows, the tenancy model, and known gaps.
                 adr/: decisions that are hard to reverse, and why they were made.
@@ -146,9 +148,8 @@ pnpm install
 # 1. Start Supabase. This applies supabase/migrations and prints the URL and keys.
 pnpm dlx supabase start
 
-# 2. Configure both apps with the values from `supabase status`.
-cp apps/api/.dev.vars.example apps/api/.dev.vars
-cp apps/web/.env.example apps/web/.env.local
+# 2. Write both apps' env files from the example files and the keys `supabase status` reports.
+pnpm local:env
 
 # 3. Build the web app once. The Worker's config points at apps/web/dist.
 pnpm build
@@ -206,6 +207,8 @@ templates.
 | `pnpm typecheck` | `tsc` in every package |
 | `pnpm test` | Every unit test, including the row-level security tests |
 | `pnpm build` | Build the web app |
+| `pnpm e2e` | End-to-end tests in a browser (needs `supabase start` and the env files; `pnpm check` does not run them) |
+| `pnpm local:env` | Write `apps/api/.dev.vars` and `apps/web/.env.local` from the examples and `supabase status` (`--force` replaces existing files) |
 | `pnpm cf:deploy` | Build, then `wrangler deploy` |
 | `pnpm db:types` | Generate TypeScript types from the local Supabase database |
 | `pnpm --filter @nearcited/api test` | One package's tests (`api`, `web`, `shared` or `db`) |
@@ -295,8 +298,12 @@ reader gets one audit only by its token, through the `get_audit()` function.
 - **`apps/web`**: the logic that lays results out as a grid, the logic behind the chart of the
   score over time, the logic behind the audit page, the logic that fills the location edit form,
   the locations table's summary figures, the onboarding suggestions, and the location page's tabs.
+- **`apps/e2e`**: `pnpm e2e` drives the real web app and Worker in Chromium against the local
+  Supabase stack, in mock mode: sign-in by the emailed link, onboarding through the first scan, the
+  location page, account settings, the public pages and one phone-sized run. It starts the Worker
+  and web app itself, or reuses them if `pnpm dev` is up.
 - **`scripts`**: `pnpm test:scripts` runs the tests for the private-companion, tuning,
-  audit-creation and branch-sync scripts.
+  local-env, audit-creation and branch-sync scripts.
 
 ### Integration tests
 
@@ -359,7 +366,8 @@ no key set at all, scans fail with "No data provider is configured".
 
 - **CI** (`.github/workflows/ci.yml`) runs on every pull request and on `main`. Its three jobs are
   the required checks: `Lint, typecheck, test, build`, `Store against Postgres and PostgREST`, and
-  `Verify generated agent config`.
+  `Verify generated agent config`. A fourth job, `End-to-end in a browser`, runs `pnpm e2e` against
+  a local Supabase stack; it is not required.
 - **`main` is protected by a ruleset.** Changes arrive by pull request with the required checks
   passing on an up-to-date branch and review threads resolved. Force pushes and deleting the
   branch are blocked. CodeQL alerts block the merge, and Copilot reviews each push.
