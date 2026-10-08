@@ -162,6 +162,27 @@ export const RecommendationSchema = z.object({
 });
 export type Recommendation = z.infer<typeof RecommendationSchema>;
 
+/**
+ * What one scan or one prompt of an audit used on one surface with one model, added up over its
+ * calls. Counts as the provider reported them. It holds no price: a count is turned into money
+ * only on the server, from rates kept outside this repository.
+ */
+export const ProviderUsageSchema = z.object({
+  surface: SurfaceSchema,
+  /** The model that answered. */
+  model: z.string(),
+  /** How many calls the counts below are added up over. */
+  calls: z.number().int().positive(),
+  /** Input tokens charged at the full rate. */
+  input_tokens: z.number().int().nonnegative(),
+  /** Input tokens read from the provider's cache, charged at a lower rate. */
+  cached_input_tokens: z.number().int().nonnegative(),
+  output_tokens: z.number().int().nonnegative(),
+  /** Web searches the provider ran and charges for. */
+  searches: z.number().int().nonnegative(),
+});
+export type ProviderUsage = z.infer<typeof ProviderUsageSchema>;
+
 // ---------------------------------------------------------------------------
 // Inputs
 // ---------------------------------------------------------------------------

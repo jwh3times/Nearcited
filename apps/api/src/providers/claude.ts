@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { type Observation, renderPrompt, type Tuning } from "@nearcited/shared";
 import { z } from "zod";
-import type { ObserveInput, SurfaceProvider } from "./types";
+import type { CallUsage, ObserveInput, SurfaceProvider } from "./types";
 
 /**
  * Claude, through Anthropic's Messages API with the web search tool turned on.
@@ -100,8 +100,21 @@ export interface ClaudeOptions {
   tuning: Pick<Tuning, "prompts" | "claude">;
   /** Replaceable in tests. */
   fetch?: typeof fetch;
-  /** Called with what each successful scan used, for measuring cost. */
-  onUsage?: (used: { model: string; usage: unknown }) => void;
+}
+
+/**
+ * What a response says it used. Anthropic reports cached tokens beside `input_tokens`, not inside
+ * it; tokens written to the cache are charged like input, so they are counted as input.
+ */
+export function claudeUsage(response: Pick<Message, "model" | "usage">): CallUsage {
+  const usage = response.usage;
+  return {
+    model: response.model,
+    input_tokens: (usage.input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0),
+    cached_input_tokens: usage.cache_read_input_tokens ?? 0,
+    output_tokens: usage.output_tokens ?? 0,
+    searches: usage.server_tool_use?.web_search_requests ?? 0,
+  };
 }
 
 export function createClaudeProvider(options: ClaudeOptions): SurfaceProvider {
@@ -115,7 +128,7 @@ export function createClaudeProvider(options: ClaudeOptions): SurfaceProvider {
 
   return {
     surface: "claude",
-    async observe({ location, query }: ObserveInput): Promise<Observation> {
+    async observe({ location, query, onUsage }: ObserveInput): Promise<Observation> {
       const prompt = renderPrompt(options.tuning.prompts, "claude", {
         query: query.text,
         city: location.city,
@@ -172,6 +185,10 @@ export function createClaudeProvider(options: ClaudeOptions): SurfaceProvider {
           throw error;
         }
 
+        // Every response is a call that was charged for: a paused turn, and one whose answer is
+        // refused or cut short below, as much as a finished one.
+        onUsage?.(claudeUsage(response));
+
         content.push(...response.content);
         if (response.stop_reason !== "pause_turn") break;
         if (resumes >= MAX_RESUMES) {
@@ -191,10 +208,7 @@ export function createClaudeProvider(options: ClaudeOptions): SurfaceProvider {
         );
       }
 
-      const observation = parseClaudeContent(content);
-      // `model` is the one that answered, which differs from the tuning's when a fallback ran.
-      options.onUsage?.({ model: response.model, usage: response.usage });
-      return observation;
+      return parseClaudeContent(content);
     },
   };
 }

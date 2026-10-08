@@ -3,13 +3,14 @@ import type {
   AuditPart,
   Location,
   Organization,
+  ProviderUsage,
   Recommendation,
   Scan,
   ScanResult,
   SiteCheck,
   TrackedQuery,
 } from "@nearcited/shared";
-import { type Store, StoreError } from "../src/store/types";
+import { type Store, StoreError, type UsageSource } from "../src/store/types";
 
 /**
  * An in-memory Store for tests. It mimics the one property of the real database the API relies
@@ -29,6 +30,8 @@ export interface MemoryDb {
   /** IDs of scans a member asked for, which is what the manual-scan limit counts. */
   requestedBy: Set<string>;
   audits: MemoryAudit[];
+  /** What scans and audits used at the providers, as the worker recorded it. */
+  usage: (UsageSource & ProviderUsage)[];
   /** Accounts with the `test` platform role. Every organization one creates is a test one. */
   testAccounts: Set<string>;
   /** The on-page check each scan made, by scan ID. */
@@ -46,6 +49,7 @@ export interface MemoryAudit extends AuditJob {
 export function createMemoryDb(): MemoryDb {
   return {
     testAccounts: new Set(),
+    usage: [],
     organizations: [],
     memberships: [],
     locations: [],
@@ -337,6 +341,11 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
       );
       for (const audit of stale) Object.assign(audit, { status: "failed", error });
       return stale.length;
+    },
+
+    async recordUsage(source, usage) {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      db.usage.push(...usage.map((row) => ({ ...source, ...row })));
     },
 
     async markScanRunning(id, sampleData) {

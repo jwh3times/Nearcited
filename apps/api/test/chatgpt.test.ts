@@ -113,12 +113,11 @@ function respondWith(body: unknown, status = 200) {
   return vi.fn<typeof fetch>(async () => Response.json(body, { status }));
 }
 
-function provider(fetchStub: typeof fetch, onUsage?: (used: unknown) => void) {
+function provider(fetchStub: typeof fetch) {
   return createChatGptProvider({
     apiKey: "test-key",
     tuning: defaultTuning,
     fetch: fetchStub,
-    onUsage,
   });
 }
 
@@ -249,10 +248,16 @@ describe("createChatGptProvider", () => {
     expect(body.model).toBe("some-other-model");
   });
 
-  it("reports usage for a successful call", async () => {
-    const onUsage = vi.fn();
-    await provider(respondWith(apiResponse(goodAnswer)), onUsage).observe(input);
-    expect(onUsage).toHaveBeenCalledWith({ usage, tool_usage });
+  it("tells the caller what the call used, in the form every provider reports it", async () => {
+    const used = vi.fn();
+    await provider(respondWith(apiResponse(goodAnswer))).observe({ ...input, onUsage: used });
+    expect(used).toHaveBeenCalledExactlyOnceWith({
+      model: "gpt-6.1-sol",
+      input_tokens: 20977,
+      cached_input_tokens: 0,
+      output_tokens: 638,
+      searches: 2,
+    });
   });
 
   it("throws with the status and OpenAI's message on an error response", async () => {

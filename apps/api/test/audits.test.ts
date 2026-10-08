@@ -109,6 +109,39 @@ describe("runAuditPart", () => {
     ]);
   });
 
+  it("keeps what each prompt used, against the audit and no organization", async () => {
+    addAudit();
+    const registry: ProviderRegistry = {
+      chatgpt: {
+        surface: "chatgpt",
+        observe: async ({ onUsage }) => {
+          onUsage?.({
+            model: "gpt-x",
+            input_tokens: 1000,
+            cached_input_tokens: 0,
+            output_tokens: 50,
+            searches: 1,
+          });
+          return answer("Joe's Pizza");
+        },
+      },
+    };
+    await runAuditPart(auditId, 0, { store: worker, providers: registry, sampleData: false });
+    // Three samples of the one prompt: three calls.
+    expect(db.usage).toEqual([
+      {
+        audit_id: auditId,
+        surface: "chatgpt",
+        model: "gpt-x",
+        calls: 3,
+        input_tokens: 3000,
+        cached_input_tokens: 0,
+        output_tokens: 150,
+        searches: 3,
+      },
+    ]);
+  });
+
   it("is ready only once every prompt has reported", async () => {
     const audit = addAudit();
     const deps = { store: worker, providers: providers().registry, sampleData: false };

@@ -317,6 +317,14 @@ export function createSupabaseStore(db: SupabaseClient): Store {
       return data?.length ?? 0;
     },
 
+    async recordUsage(source, usage) {
+      if (usage.length === 0) return;
+      const { error } = await db
+        .from("provider_usage")
+        .insert(usage.map((row) => ({ ...source, ...row })));
+      if (error) fail("Record usage", error);
+    },
+
     async markScanRunning(id, sampleData) {
       const { error } = await db
         .from("scans")
