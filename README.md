@@ -270,6 +270,7 @@ The migrations in `supabase/migrations/` define everything.
 | `scan_results` | One row per query and surface: named or not, position, and who else was named. |
 | `recommendations` | What a scan suggested, and whether the user has dealt with it. |
 | `audits` | A shareable audit: the business, its prompts, the results as each prompt finishes, and its token, expiry and revocation. Belongs to no organization, and no API role can read it directly. |
+| `provider_usage` | What the providers used for a scan or audit prompt, per surface and model: calls, input, cached input and output tokens, searches. Outlives the scan, audit or organization it describes. Written only by the Worker; no API role can read it. Not priced or shown anywhere yet. |
 
 Usage limits are enforced by database triggers, so they hold for the API and for anyone calling
 the database directly. Going over one returns 409 `limit_reached` with a message that names the
@@ -290,7 +291,7 @@ reader gets one audit only by its token, through the `get_audit()` function.
   on-page check and the action plan.
 - **`packages/db`**: applies the real migrations to in-process Postgres (PGlite) and checks, as
   different users, that one organization cannot read or write another's rows, that users cannot
-  forge scan results or grant themselves a platform role, and that worker-only functions are closed to them. No Docker needed. It
+  forge scan results or grant themselves a platform role, and that worker-only functions and the `provider_usage` table are closed to them. No Docker needed. It
   also checks `private/tuning.json` against the tuning schema where that file exists.
 - **`apps/api`**: every route against an in-memory store, the scan runner (success, retry,
   permanent failure, reporting, scoring with given weights, refusing live scans on default tuning),

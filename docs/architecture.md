@@ -40,11 +40,16 @@ POST /api/locations/:id/scans          cron
                        |
      complete_scan() in Postgres: results, score, last_scanned_at and
      recommendations, in one transaction
+                       |
+     recordUsage(): what the providers used, by surface and model (also on failure;
+                    nothing on sample data)
 ```
 
 A provider only fetches. Whether the business was named is decided by `analyzeObservation` in
 `packages/shared`, so every surface is judged by the same rules and those rules are tested without
-network access.
+network access. A provider also reports what each call it is charged for used (`onUsage`); the
+scan and audit runners add those up and store them in `provider_usage`. A failure to store them
+is logged and does not change the outcome. Nothing reads or prices the table yet.
 
 ## Tuning
 
@@ -100,8 +105,9 @@ the cost. The same prompt was run once on two other models the same day:
 | `gpt-6-luna` | $0.033 | The same first two, a different third, and longer business names |
 
 Searches are a flat rate on every model, which puts a floor of 2 to 3 cents under any check. The
-model is a tuning value (`chatgpt.model`). The provider logs each response's usage as
-`chatgpt usage ...`, so the average can be read from the Worker's logs once real scans run.
+model is a tuning value (`chatgpt.model`). The provider reports each call's usage as it makes it,
+and the runner stores it in `provider_usage` (see "How a scan runs"), so the average can be read
+from that table once real scans run.
 
 **Claude** (`apps/api/src/providers/claude.ts`) calls Anthropic's Messages API through its SDK
 with the `web_search` tool, located in the location's city, and asks for the answer, the
@@ -114,7 +120,7 @@ businesses it named and the pages it relied on as JSON. Three things about it ar
   execution; on the trial prompt that took twice the time and tokens for a similar answer. The
   cap is a tuning value and is the main cost control.
 - **A declined prompt is re-run on Anthropic's fallback model** (`fallbacks: "default"`), so a
-  scan does not fail on a safety classifier. The usage log records which model answered.
+  scan does not fail on a safety classifier. The usage rows record which model answered.
 
 **Cost of one Claude check: about 7 cents** on the default tuning: `claude-sonnet-5-5`, low
 effort, one search. This is from a single live call on 2026-10-06, so treat it as a first reading
@@ -143,7 +149,7 @@ Sonnet searches up to whatever cap it is given and reads more input per search t
 is only the cheaper model when the cap is one. All six runs named an overlapping set of
 businesses; one run each cannot show whether fewer searches give a worse answer. The model, the
 effort and the cap are tuning values (`claude.model`, `claude.effort`, `claude.max_searches`).
-The provider logs each check as `claude usage ...`.
+The provider reports each call's usage the same way, including a call whose answer was then refused or unusable.
 
 **Gemini is not built on Google's API, on purpose.** Google's terms for Grounding with Google
 Search do not allow grounded results to be stored, analysed or collected into a database, and a
@@ -339,7 +345,9 @@ audit is queued.
 ## Tenancy
 
 Every row belongs to an organization, and a user reaches a row only through a membership. The
-exception is `audits`, described above.
+exceptions are `audits`, described above, and `provider_usage`, which keeps its rows after the
+organization, scan or audit they describe is deleted. No API role can read or write either table;
+only the Worker's secret key does.
 
 The API does not check ownership in application code. For each request it builds a Supabase
 client that carries the caller's own access token (`createUserClient`), so Postgres evaluates the
