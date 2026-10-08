@@ -1308,13 +1308,18 @@ details.as-table td {
 }
 
 .add-row {
+  /* The height of a label and the gap under it: what sits beside a field starts this far down. */
+  --beside-field: 1.59375rem;
+
   display: flex;
   flex-wrap: wrap;
-  align-items: flex-end;
+  /* From the top, so a message under one field does not push the others out of line. */
+  align-items: flex-start;
   gap: 0.75rem;
 }
 
-.add-row label:first-child {
+/* Only the type picker is a fixed width. The field takes whatever room is left. */
+.add-row > label:first-child {
   width: 11.875rem;
 }
 
@@ -1323,8 +1328,12 @@ details.as-table td {
   min-width: 15rem;
 }
 
+.add-row > button {
+  margin-top: var(--beside-field);
+}
+
 .add-row .mono {
-  align-self: center;
+  margin-top: calc(var(--beside-field) + 0.75rem);
   color: var(--muted);
 }
 
@@ -2084,6 +2093,12 @@ mark {
   .head-actions,
   .fill-narrow {
     width: 100%;
+  }
+
+  /* Stacked, nothing sits beside the field any more. */
+  .add-row > button,
+  .add-row .mono {
+    margin-top: 0;
   }
 
   .also {
