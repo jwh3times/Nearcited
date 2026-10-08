@@ -10,6 +10,7 @@ import {
   type TrackedQuery,
 } from "@nearcited/shared";
 import type { ProviderRegistry } from "../providers";
+import { usageTally } from "../providers/usage";
 import type { Store } from "../store/types";
 
 export interface RunAuditDeps {
@@ -104,6 +105,15 @@ export async function runAuditPart(
 
   const at = (deps.now ?? (() => new Date()))();
   const input = { ...standIns(audit, prompt, at), at };
+  // What this prompt's calls use, kept whether or not it goes on to report: see the scan runner.
+  const used = usageTally();
+  const keepUsage = async () => {
+    try {
+      await store.recordUsage({ audit_id: auditId }, used.take());
+    } catch (error) {
+      console.error(`Audit ${auditId} prompt ${promptIndex} could not record what it used`, error);
+    }
+  };
   try {
     const cells = await Promise.all(
       surfaces.map(async (surface) => {
@@ -113,7 +123,10 @@ export async function runAuditPart(
         // spread is what the report shows.
         const findings = await Promise.all(
           Array.from({ length: audit.samples }, async () =>
-            analyzeObservation(await provider.observe(input), input.location),
+            analyzeObservation(
+              await provider.observe({ ...input, onUsage: used.on(surface) }),
+              input.location,
+            ),
           ),
         );
         return buildAuditCell(surface, findings, deps.weights, audit.website);
@@ -136,9 +149,11 @@ export async function runAuditPart(
             { name: audit.business_name, city: audit.city },
           )
         : null;
+    await keepUsage();
     await store.recordAuditPart(auditId, promptIndex, site ? { cells, site } : { cells });
     return "done";
   } catch (error) {
+    await keepUsage();
     await store.failAudit(auditId, error instanceof Error ? error.message : String(error));
     throw error;
   }

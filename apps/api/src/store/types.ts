@@ -5,6 +5,7 @@ import type {
   Location,
   LocationInput,
   Organization,
+  ProviderUsage,
   Recommendation,
   RecommendationStatus,
   Scan,
@@ -15,6 +16,9 @@ import type {
   TrackedQuery,
   TrackedQueryInput,
 } from "@nearcited/shared";
+
+/** What a set of usage is for: a scan of an organization's location, or an audit. */
+export type UsageSource = { organization_id: string; scan_id: string } | { audit_id: string };
 
 /** "limit" is a usage cap reached. Its message is written for the user and safe to show. */
 export type StoreErrorKind = "conflict" | "forbidden" | "limit" | "unexpected";
@@ -107,6 +111,11 @@ export interface Store {
    * Returns how many. The prompts that did report are kept.
    */
   failStaleAudits(olderThan: string, error: string): Promise<number>;
+  /**
+   * Keeps what a scan, or one prompt of an audit, used at the providers. Worker only. Called
+   * whether or not the scan went on to succeed: what was asked was charged for either way.
+   */
+  recordUsage(source: UsageSource, usage: readonly ProviderUsage[]): Promise<void>;
   /** Throws a conflict when a different scan for the same location is already in flight. */
   markScanRunning(id: string, sampleData: boolean): Promise<void>;
   completeScan(id: string, outcome: CompletedScan): Promise<void>;

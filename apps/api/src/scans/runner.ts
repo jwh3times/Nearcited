@@ -13,6 +13,7 @@ import {
   windowScore,
 } from "@nearcited/shared";
 import { type ProviderRegistry, planSurfaces } from "../providers";
+import { usageTally } from "../providers/usage";
 import { type NewScanResult, type Store, StoreError } from "../store/types";
 
 export interface ScanReport {
@@ -88,6 +89,21 @@ export async function runScan(scanId: string, deps: RunScanDeps): Promise<ScanOu
     throw error;
   }
 
+  // What this scan's calls use, kept whether it goes on to succeed or not: a check that was
+  // answered was charged for, even when another check then fails the scan.
+  const used = usageTally();
+  const keepUsage = async () => {
+    try {
+      await store.recordUsage(
+        { organization_id: location.organization_id, scan_id: scanId },
+        used.take(),
+      );
+    } catch (error) {
+      // Losing the record must not change what happens to the scan.
+      console.error(`Scan ${scanId} could not record what it used`, error);
+    }
+  };
+
   try {
     // What stops a live scan on this build does not stop a generated one.
     if (deps.unavailable && !generated) throw new PermanentScanFailure(deps.unavailable);
@@ -116,7 +132,12 @@ export async function runScan(scanId: string, deps: RunScanDeps): Promise<ScanOu
     // reasons that have nothing to do with the business.
     const results: NewScanResult[] = await Promise.all(
       checks.map(async ({ query, provider }) => {
-        const observation = await provider.observe({ location, query, at });
+        const observation = await provider.observe({
+          location,
+          query,
+          at,
+          onUsage: used.on(provider.surface),
+        });
         return {
           tracked_query_id: query.id,
           surface: provider.surface,
@@ -124,6 +145,8 @@ export async function runScan(scanId: string, deps: RunScanDeps): Promise<ScanOu
         };
       }),
     );
+
+    await keepUsage();
 
     // One answer is a sample, so the score and the recommendations are counted over this scan and
     // the recent ones before it. This scan is not yet marked succeeded, so it is not among them.
@@ -170,6 +193,7 @@ export async function runScan(scanId: string, deps: RunScanDeps): Promise<ScanOu
     }
     return "succeeded";
   } catch (error) {
+    await keepUsage();
     const message = error instanceof Error ? error.message : String(error);
     await store.failScan(scanId, message);
     if (error instanceof PermanentScanFailure) return "failed";

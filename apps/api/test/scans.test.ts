@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildScanReportEmail, emailMessage } from "../src/email/report";
 import { liveScansUnavailable, type ProviderRegistry } from "../src/providers";
 import { createMockProviders } from "../src/providers/mock";
+import type { CallUsage } from "../src/providers/types";
 import { runScan, type ScanReport } from "../src/scans/runner";
 import { enqueueDueScans, failStaleScans, STALE_AFTER_MS } from "../src/scans/schedule";
 import type { Store } from "../src/store/types";
@@ -237,6 +238,81 @@ describe("mock providers", () => {
       "gemini",
       "perplexity",
     ]);
+  });
+});
+
+describe("what a scan used", () => {
+  /** Reports usage the way a live provider does: once per call it was charged for. */
+  const charged = (surface: "chatgpt" | "gemini", model: string, fail = false) => ({
+    surface,
+    observe: async ({ onUsage }: { onUsage?: (usage: CallUsage) => void }) => {
+      onUsage?.({
+        model,
+        input_tokens: 1000,
+        cached_input_tokens: 10,
+        output_tokens: 50,
+        searches: 2,
+      });
+      if (fail) throw new Error("upstream 503");
+      return {
+        kind: "answer" as const,
+        text: "Try Joe's Pizza.",
+        businesses: ["Joe's Pizza"],
+        cited_urls: [],
+      };
+    },
+  });
+
+  it("is kept for each surface and model, added up over the scan's calls", async () => {
+    const user = memoryStore(db, owner);
+    await user.createQuery(locationId, { kind: "ai_prompt", text: "late night pizza" });
+    const scan = await queueScan();
+    await runScan(scan.id, {
+      store: worker,
+      providers: { chatgpt: charged("chatgpt", "gpt-x"), gemini: charged("gemini", "gem-y") },
+    });
+
+    const organizationId = db.organizations[0]?.id;
+    expect(db.usage).toEqual([
+      {
+        organization_id: organizationId,
+        scan_id: scan.id,
+        surface: "chatgpt",
+        model: "gpt-x",
+        // Two prompts, so two calls.
+        calls: 2,
+        input_tokens: 2000,
+        cached_input_tokens: 20,
+        output_tokens: 100,
+        searches: 4,
+      },
+      expect.objectContaining({ surface: "gemini", model: "gem-y", calls: 2 }),
+    ]);
+  });
+
+  it("is kept for a scan that fails, because what it asked was still charged for", async () => {
+    const scan = await queueScan();
+    await expect(
+      runScan(scan.id, {
+        store: worker,
+        providers: {
+          chatgpt: charged("chatgpt", "gpt-x"),
+          gemini: charged("gemini", "gem-y", true),
+        },
+      }),
+    ).rejects.toThrow("upstream 503");
+
+    expect((await worker.getScan(scan.id))?.status).toBe("failed");
+    expect(db.usage.map((row) => [row.surface, row.calls])).toEqual([
+      ["chatgpt", 1],
+      ["gemini", 1],
+    ]);
+  });
+
+  it("is nothing when the data was generated", async () => {
+    const scan = await queueScan();
+    await runScan(scan.id, { store: worker, providers: createMockProviders(), sampleData: true });
+    expect(db.usage).toEqual([]);
   });
 });
 

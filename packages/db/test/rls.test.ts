@@ -956,3 +956,46 @@ describe("platform roles and test organizations", () => {
     expect(fresh?.is_test).toBe(false);
   });
 });
+
+describe("what scans used at the providers", () => {
+  let usageId: string;
+
+  it("is written by the worker, against the scan and its organization", async () => {
+    const [row] = await rows<{ id: string }>(
+      `insert into public.provider_usage
+         (organization_id, scan_id, surface, model, calls, input_tokens, cached_input_tokens, output_tokens, searches)
+       values ($1, $2, 'chatgpt', 'gpt-x', 2, 2000, 0, 100, 4)
+       returning id`,
+      [orgId, scanId],
+    );
+    usageId = row?.id ?? "";
+    expect(usageId).not.toBe("");
+  });
+
+  it("cannot be read or written by a member, even for their own organization's scans", async () => {
+    for (const sql of [
+      "select * from public.provider_usage",
+      "insert into public.provider_usage (surface, model, calls, input_tokens, cached_input_tokens, output_tokens, searches) values ('chatgpt', 'x', 1, 1, 0, 1, 0)",
+      "update public.provider_usage set calls = 1",
+      "delete from public.provider_usage",
+    ]) {
+      await expect(
+        as("authenticated", alice, () => db.query(sql)),
+        sql,
+      ).rejects.toThrow(/permission denied/);
+      await expect(
+        as("anon", null, () => db.query(sql)),
+        sql,
+      ).rejects.toThrow(/permission denied/);
+    }
+  });
+
+  it("outlives the scan it describes, because the money was still spent", async () => {
+    await db.query("delete from public.scans where id = $1", [scanId]);
+    const [row] = await rows<{ scan_id: string | null; organization_id: string; calls: number }>(
+      "select scan_id, organization_id, calls from public.provider_usage where id = $1",
+      [usageId],
+    );
+    expect(row).toEqual({ scan_id: null, organization_id: orgId, calls: 2 });
+  });
+});

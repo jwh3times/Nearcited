@@ -35,15 +35,12 @@ export function createLiveProviders(
     providers.chatgpt = createChatGptProvider({
       apiKey: env.OPENAI_API_KEY,
       tuning,
-      // One line per call, so the cost of a check can be read from the Worker's logs.
-      onUsage: (used) => console.log("chatgpt usage", JSON.stringify(used)),
     });
   }
   if (env.ANTHROPIC_API_KEY) {
     providers.claude = createClaudeProvider({
       apiKey: env.ANTHROPIC_API_KEY,
       tuning,
-      onUsage: (used) => console.log("claude usage", JSON.stringify(used)),
     });
   }
   return providers;

@@ -147,6 +147,21 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
     await expect(worker.createScan(location.id, "scheduled", null)).rejects.toMatchObject({
       kind: "conflict",
     });
+    // What a scan used is the worker's to record. A member cannot, even for their own scan.
+    const used = {
+      surface: "chatgpt" as const,
+      model: "gpt-x",
+      calls: 1,
+      input_tokens: 1000,
+      cached_input_tokens: 0,
+      output_tokens: 50,
+      searches: 2,
+    };
+    const source = { organization_id: organization.id, scan_id: scan.id };
+    await worker.recordUsage(source, [used]);
+    await worker.recordUsage(source, []);
+    await expect(aliceStore.recordUsage(source, [used])).rejects.toBeInstanceOf(StoreError);
+
     // Nothing is stale yet, and a signed-in user cannot run the sweep.
     const anHourAgo = new Date(Date.now() - 3_600_000).toISOString();
     expect(await worker.failStaleScans(anHourAgo, "abandoned")).toBe(0);

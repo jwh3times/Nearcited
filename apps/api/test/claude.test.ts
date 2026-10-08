@@ -119,12 +119,11 @@ function respondWith(...bodies: Array<{ body: unknown; status?: number }>) {
   });
 }
 
-function provider(fetchStub: typeof fetch, onUsage?: (used: unknown) => void) {
+function provider(fetchStub: typeof fetch) {
   return createClaudeProvider({
     apiKey: "test-key",
     tuning: defaultTuning,
     fetch: fetchStub,
-    onUsage,
   });
 }
 
@@ -279,11 +278,26 @@ describe("createClaudeProvider", () => {
     );
   });
 
-  it("reports the model that answered and what it used", async () => {
-    const onUsage = vi.fn();
+  it("tells the caller what the call used, in the form every provider reports it", async () => {
+    const used = vi.fn();
     const fetchStub = respondWith({ body: message([text(goodAnswer)]) });
-    await provider(fetchStub, onUsage).observe(input);
-    expect(onUsage).toHaveBeenCalledWith({ model: "claude-sonnet-5-5", usage });
+    await provider(fetchStub).observe({ ...input, onUsage: used });
+    expect(used).toHaveBeenCalledExactlyOnceWith({
+      model: "claude-sonnet-5-5",
+      input_tokens: 22591,
+      cached_input_tokens: 0,
+      output_tokens: 1566,
+      searches: 2,
+    });
+  });
+
+  it("reports what a refused answer used, because it was still charged for", async () => {
+    const used = vi.fn();
+    const refused = message([], { stop_reason: "refusal" });
+    await expect(
+      provider(respondWith({ body: refused })).observe({ ...input, onUsage: used }),
+    ).rejects.toThrow(/declined/);
+    expect(used).toHaveBeenCalledOnce();
   });
 
   it("throws with the status and Anthropic's message on an error response, without retrying", async () => {

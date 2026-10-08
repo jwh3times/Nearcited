@@ -1,6 +1,6 @@
 import { type Observation, renderPrompt, type Tuning } from "@nearcited/shared";
 import { z } from "zod";
-import type { ObserveInput, SurfaceProvider } from "./types";
+import type { CallUsage, ObserveInput, SurfaceProvider } from "./types";
 
 /**
  * ChatGPT, through OpenAI's Responses API with the web search tool turned on.
@@ -64,9 +64,42 @@ const ResponseSchema = z.looseObject({
   output: z
     .array(z.looseObject({ type: z.string(), content: z.array(ContentSchema).optional() }))
     .optional(),
-  usage: z.unknown().optional(),
-  tool_usage: z.unknown().optional(),
 });
+
+const count = z.number().int().nonnegative().catch(0);
+
+/** The parts of a response that say what it used. Anything missing counts as none. */
+const UsedSchema = z.looseObject({
+  model: z.string().optional(),
+  usage: z
+    .looseObject({
+      input_tokens: count,
+      output_tokens: count,
+      input_tokens_details: z.looseObject({ cached_tokens: count }).optional(),
+    })
+    .optional(),
+  tool_usage: z
+    .looseObject({ web_search: z.looseObject({ num_requests: count }).optional() })
+    .optional(),
+});
+
+/**
+ * What a response says it used. OpenAI counts cached tokens inside `input_tokens`, so they are
+ * taken back out: the two are charged at different rates.
+ */
+export function chatGptUsage(body: unknown, askedFor: string): CallUsage | null {
+  const parsed = UsedSchema.safeParse(body);
+  if (!parsed.success || !parsed.data.usage) return null;
+  const { usage, tool_usage, model } = parsed.data;
+  const cached = usage.input_tokens_details?.cached_tokens ?? 0;
+  return {
+    model: model ?? askedFor,
+    input_tokens: Math.max(0, usage.input_tokens - cached),
+    cached_input_tokens: cached,
+    output_tokens: usage.output_tokens,
+    searches: tool_usage?.web_search?.num_requests ?? 0,
+  };
+}
 
 const ErrorSchema = z.looseObject({
   error: z.looseObject({ message: z.string().optional(), code: z.string().nullish() }),
@@ -135,8 +168,6 @@ export interface ChatGptOptions {
   tuning: Pick<Tuning, "prompts" | "chatgpt">;
   /** Replaceable in tests. */
   fetch?: typeof fetch;
-  /** Called with what each successful response says it used, for measuring cost. */
-  onUsage?: (used: { usage: unknown; tool_usage: unknown }) => void;
 }
 
 export function createChatGptProvider(options: ChatGptOptions): SurfaceProvider {
@@ -144,7 +175,7 @@ export function createChatGptProvider(options: ChatGptOptions): SurfaceProvider 
 
   return {
     surface: "chatgpt",
-    async observe({ location, query }: ObserveInput): Promise<Observation> {
+    async observe({ location, query, onUsage }: ObserveInput): Promise<Observation> {
       const prompt = renderPrompt(options.tuning.prompts, "chatgpt", {
         query: query.text,
         city: location.city,
@@ -190,13 +221,11 @@ export function createChatGptProvider(options: ChatGptOptions): SurfaceProvider 
         );
       }
 
-      const observation = parseChatGptResponse(body);
-      const parsed = ResponseSchema.safeParse(body);
-      if (parsed.success && parsed.data.usage !== undefined) {
-        // Tokens are in `usage`; the number of searches billed is in `tool_usage.web_search`.
-        options.onUsage?.({ usage: parsed.data.usage, tool_usage: parsed.data.tool_usage });
-      }
-      return observation;
+      // Before the answer is read: a response that turns out to be unusable was still paid for.
+      const used = chatGptUsage(body, options.tuning.chatgpt.model);
+      if (used) onUsage?.(used);
+
+      return parseChatGptResponse(body);
     },
   };
 }
