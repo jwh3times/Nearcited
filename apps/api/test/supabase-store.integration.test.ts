@@ -301,6 +301,17 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
       StoreError,
     );
 
+    // The sweep fails an audit left queued, only for the worker, and only past the cutoff.
+    const beforeAudit = new Date(Date.now() - 3_600_000).toISOString();
+    expect(await worker.failStaleAudits(beforeAudit, "unfinished")).toBe(0);
+    await expect(bobStore.failStaleAudits(beforeAudit, "unfinished")).rejects.toBeInstanceOf(
+      StoreError,
+    );
+    expect(
+      await worker.failStaleAudits(new Date(Date.now() + 60_000).toISOString(), "unfinished"),
+    ).toBe(1);
+    expect(await visitor.getAuditByToken(audit.token)).toMatchObject({ status: "failed" });
+
     await worker.failAudit(audit.id, "upstream 503");
     expect(await visitor.getAuditByToken(audit.token)).toMatchObject({ status: "failed" });
 

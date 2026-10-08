@@ -106,7 +106,8 @@ apps/
   web/          The React app. Its build output is served by the Worker as static assets.
 packages/
   shared/       Zod schemas for every wire type, plus the logic that decides whether a business
-                was named, the visibility score, and the rule-based recommendations.
+                was named, the visibility score, the rule-based recommendations, the audit,
+                cited-source and on-page check logic, and the action plan.
   db/           Tests that run the migrations in in-process Postgres and attack the policies.
 supabase/
   migrations/   Schema, row-level security, and the SQL functions the Worker calls.
@@ -267,16 +268,21 @@ reader gets one audit only by its token, through the `get_audit()` function.
 ## Tests
 
 - **`packages/shared`**: name matching, mention detection, scoring, recommendation rules, input
-  validation, and the tuning schema, its defaults and prompt rendering.
+  validation, the tuning schema, its defaults and prompt rendering, audits, cited sources, the
+  on-page check and the action plan.
 - **`packages/db`**: applies the real migrations to in-process Postgres (PGlite) and checks, as
   different users, that one organization cannot read or write another's rows, that users cannot
   forge scan results, and that worker-only functions are closed to them. No Docker needed. It
   also checks `private/tuning.json` against the tuning schema where that file exists.
 - **`apps/api`**: every route against an in-memory store, the scan runner (success, retry,
   permanent failure, reporting, scoring with given weights, refusing live scans on default tuning),
-  the ChatGPT and Claude providers against responses in the shape the real APIs return, the scheduler, the audit runner, and the mock providers.
+  the ChatGPT and Claude providers against responses in the shape the real APIs return, the
+  scheduler, the audit runner, the site fetch (what it refuses and how it follows redirects), and
+  the mock providers.
 - **`apps/web`**: the logic that lays results out as a grid, the logic behind the chart of the
   score over time, the logic behind the audit page, and the logic that fills the location edit form.
+- **`scripts`**: `pnpm test:scripts` runs the tests for the private-companion, tuning,
+  audit-creation and branch-sync scripts.
 
 ### Integration tests
 
