@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { StepItems } from "../components/ActionPlan";
 import { Labelled } from "../components/Labelled";
+import { LegalLinks } from "../components/LegalLinks";
 import { Logo } from "../components/Logo";
 import { Quote } from "../components/Quote";
 import { RateCell } from "../components/RateCell";
@@ -63,6 +64,9 @@ export function Audit({ token }: { token: string }) {
         {audit.isError && <Unavailable error={audit.error} />}
         {audit.data && <Report audit={audit.data} />}
       </main>
+      <footer className="legal-foot">
+        <LegalLinks />
+      </footer>
     </>
   );
 }

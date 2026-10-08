@@ -9,7 +9,8 @@ import type { SiteSnapshot } from "@nearcited/shared";
  * off at a fixed size. It never throws; a page that cannot be fetched is a snapshot without HTML.
  */
 
-export const SITE_USER_AGENT = "NearcitedBot/1.0 (+https://nearcited.com)";
+/** Names the crawler and the page that explains it to a site's operator. */
+export const SITE_USER_AGENT = "NearcitedBot/1.0 (+https://nearcited.com/bot)";
 const MAX_REDIRECTS = 4;
 const MAX_BYTES = 600_000;
 const TIMEOUT_MS = 8_000;

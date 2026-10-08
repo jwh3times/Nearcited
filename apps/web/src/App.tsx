@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Navigate, Route, Routes, useMatch } from "react-router";
+import { Navigate, Route, Routes, useLocation, useMatch } from "react-router";
 import { ErrorNote } from "./components/ErrorNote";
 import { Shell } from "./components/Shell";
 import { api } from "./lib/api";
@@ -8,15 +8,23 @@ import { supabase } from "./lib/supabase";
 import { Audit } from "./pages/Audit";
 import { LocationDetail } from "./pages/LocationDetail";
 import { Locations } from "./pages/Locations";
+import { Bot } from "./pages/legal/Bot";
+import { Privacy } from "./pages/legal/Privacy";
+import { Terms } from "./pages/legal/Terms";
 import { Onboarding } from "./pages/Onboarding";
 import { SignIn } from "./pages/SignIn";
 
 export function App() {
   const session = useSession();
   const audit = useMatch("/audit/:token");
+  const { pathname } = useLocation();
 
   // A shareable audit is for someone who has no account, so it comes before everything else.
   if (audit?.params.token) return <Audit token={audit.params.token} />;
+  // So do the policies, which have to be readable before signing in.
+  if (pathname === "/privacy") return <Privacy />;
+  if (pathname === "/terms") return <Terms />;
+  if (pathname === "/bot") return <Bot />;
 
   if (!supabase) {
     return (

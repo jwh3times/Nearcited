@@ -5,6 +5,7 @@ import { useNavigate } from "react-router";
 import { z } from "zod";
 import { ErrorNote } from "../components/ErrorNote";
 import { Field } from "../components/Field";
+import { LegalLinks } from "../components/LegalLinks";
 import { Logo } from "../components/Logo";
 import { api } from "../lib/api";
 import { useFormErrors } from "../lib/form";
@@ -274,6 +275,9 @@ export function Onboarding({ sampleData }: { sampleData: boolean }) {
           </button>
         </div>
       </form>
+      <footer className="legal-foot">
+        <LegalLinks />
+      </footer>
     </>
   );
 }
