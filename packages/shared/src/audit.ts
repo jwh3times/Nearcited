@@ -104,6 +104,8 @@ export const PublicAuditSchema = z.object({
 export type PublicAudit = z.infer<typeof PublicAuditSchema>;
 
 const MAX_COMPETITORS = 8;
+/** A cell keeps more sites than the page lists, so the action plan can find a competitor's own. */
+const MAX_CELL_SOURCES = 30;
 
 /** Folds every answer one assistant gave to one prompt into a cell. */
 export function buildAuditCell(
@@ -139,7 +141,7 @@ export function buildAuditCell(
       .slice(0, MAX_COMPETITORS),
     excerpt: quoted?.answer_excerpt ?? null,
     cited_urls: quoted?.cited_urls ?? [],
-    sources: summarizeSources(findings, website),
+    sources: summarizeSources(findings, website, MAX_CELL_SOURCES),
   };
 }
 
@@ -161,7 +163,12 @@ export function toPublicAudit(stored: StoredAudit): PublicAudit {
     cells: stored.parts[String(index)]?.cells ?? null,
   }));
   const cells = prompts.flatMap((prompt) => prompt.cells ?? []);
-  const sources = mergeSources(cells.map((cell) => cell.sources));
+  // The plan reads every site the cells kept; the page lists only the most cited.
+  const everySource = mergeSources(
+    cells.map((cell) => cell.sources),
+    Number.POSITIVE_INFINITY,
+  );
+  const sources = mergeSources([everySource]);
   const site = Object.values(stored.parts).find((part) => part.site)?.site ?? null;
   return {
     business_name: stored.business_name,
@@ -178,7 +185,7 @@ export function toPublicAudit(stored: StoredAudit): PublicAudit {
       name: stored.business_name,
       website: stored.website,
       answers: cells.reduce((sum, cell) => sum + cell.checks, 0),
-      sources,
+      sources: everySource,
       site,
       competitors: cells.flatMap((cell) => cell.competitors),
     }),
