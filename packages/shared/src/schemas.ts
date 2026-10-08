@@ -82,6 +82,11 @@ export const OrganizationSchema = z.object({
   scan_every_days: z.number().int().positive(),
   /** The surfaces its scans check. Null means every surface that is set up. */
   surfaces: z.array(SurfaceSchema).nullable(),
+  /**
+   * True for an organization made by a test account. Its scans run on generated sample data and
+   * the interface says so. See `docs/adr/0003-platform-roles-and-test-accounts.md`.
+   */
+  is_test: z.boolean(),
   created_at: Timestamp,
 });
 export type Organization = z.infer<typeof OrganizationSchema>;

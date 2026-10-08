@@ -5,6 +5,7 @@ import {
   OrganizationSchema,
   type ScanMessage,
   ScanSchema,
+  SURFACES,
   TrackedQuerySchema,
 } from "@nearcited/shared";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -405,6 +406,36 @@ describe("organizations and locations", () => {
     const restore = await call(alice, "PATCH", `/queries/${query.id}`, { is_active: true });
     expect(restore.status).toBe(409);
     expect(await errorCode(restore)).toBe("limit_reached");
+  });
+
+  it("shows a test organization its generated results, in a deployment that is live", async () => {
+    env.PROVIDER_MODE = "live";
+    db.testAccounts.add(bob);
+    const organization = OrganizationSchema.parse(
+      await (await call(bob, "POST", "/organizations", { name: "Smoke test" })).json(),
+    );
+    expect(organization.is_test).toBe(true);
+    const location = LocationSchema.parse(
+      await (
+        await call(bob, "POST", `/organizations/${organization.id}/locations`, {
+          name: "Joe's Pizza",
+          city: "Raleigh",
+        })
+      ).json(),
+    );
+    const detail = LocationDetailSchema.parse(
+      await (await call(bob, "GET", `/locations/${location.id}`)).json(),
+    );
+    // No live provider is set up here, yet every surface is listed: generated data covers them.
+    expect(detail.surfaces).toEqual([...SURFACES]);
+
+    // An ordinary organization in the same deployment is told only what is really checked.
+    const real = await seed();
+    const theirs = LocationDetailSchema.parse(
+      await (await call(alice, "GET", `/locations/${real.location.id}`)).json(),
+    );
+    expect(real.organization.is_test).toBe(false);
+    expect(theirs.surfaces).toEqual([]);
   });
 
   it("renames an organization, and only for someone in it", async () => {

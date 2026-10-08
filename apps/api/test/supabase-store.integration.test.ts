@@ -63,6 +63,8 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
 
     // Organizations
     const organization = await aliceStore.createOrganization(`Integration ${crypto.randomUUID()}`);
+    // An ordinary account's organization is a real one. Only a test account makes test ones.
+    expect(organization.is_test).toBe(false);
     expect((await aliceStore.listOrganizations()).map((o) => o.id)).toContain(organization.id);
     expect((await bobStore.listOrganizations()).map((o) => o.id)).not.toContain(organization.id);
     // Its owner may rename it; a stranger's rename finds no row, and the name stays.

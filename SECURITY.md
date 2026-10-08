@@ -19,6 +19,7 @@ Nearcited is multi-tenant, and tenant isolation is enforced by Postgres row-leve
   recommendations.
 - Writing scan results, scores or recommendations as a signed-in user. Only the worker should be
   able to.
+- Granting yourself a platform role, or marking an organization as a test one.
 - Calling a worker-only database function through the public API.
 - Getting past token verification on `/api/*`.
 - Reading a shareable audit without its link, or after it was revoked or expired; listing audits;

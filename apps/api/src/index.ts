@@ -9,6 +9,7 @@ import { runAuditPart } from "./audits/runner";
 import { buildScanReportEmail, sendEmail } from "./email/report";
 import type { Env } from "./env";
 import { createProviders, liveScansUnavailable, usesSampleData } from "./providers";
+import { createMockProviders } from "./providers/mock";
 import { runScan } from "./scans/runner";
 import { enqueueDueScans, failStaleAudits, failStaleScans } from "./scans/schedule";
 import { fetchSite } from "./site/fetch";
@@ -45,6 +46,8 @@ export default {
   async queue(batch, env) {
     const store = createSupabaseStore(createAdminClient(env));
     const providers = createProviders(env, activeTuning.tuning);
+    // What a test organization's scans use, whatever this deployment's own mode is.
+    const sampleProviders = createMockProviders();
 
     for (const message of batch.messages) {
       const audit = AuditMessageSchema.safeParse(message.body);
@@ -78,6 +81,7 @@ export default {
         const outcome = await runScan(parsed.data.scan_id, {
           store,
           providers,
+          sampleProviders,
           weights: activeTuning.tuning.score,
           unavailable: liveScansUnavailable(env, activeTuning.source),
           sampleData: usesSampleData(env),

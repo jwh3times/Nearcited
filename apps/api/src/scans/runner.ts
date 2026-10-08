@@ -36,6 +36,11 @@ export interface RunScanDeps {
   unavailable?: string;
   /** Whether the providers serve generated sample data. Recorded on the scan. */
   sampleData?: boolean;
+  /**
+   * Providers of generated data, for a test organization's scans in a deployment that is
+   * otherwise live. Without them such a scan fails: it must never reach a real provider.
+   */
+  sampleProviders?: ProviderRegistry;
   now?: () => Date;
   /**
    * Fetches a location's own website for the on-page check. Left out where no real page should be
@@ -59,14 +64,20 @@ class PermanentScanFailure extends Error {}
  * the same scan: a finished scan is skipped and a re-run replaces its earlier results.
  */
 export async function runScan(scanId: string, deps: RunScanDeps): Promise<ScanOutcome> {
-  const { store, providers } = deps;
-  const sampleData = deps.sampleData ?? false;
+  const { store } = deps;
   const now = deps.now ?? (() => new Date());
 
   const scan = await store.getScan(scanId);
   if (!scan || scan.status === "succeeded") return "skipped";
   const location = await store.getLocation(scan.location_id);
   if (!location) return "skipped";
+  const organization = await store.getOrganization(location.organization_id);
+
+  // A test organization's scans are generated even where everyone else's are real: they ask no
+  // provider, fetch no site and email nobody. See docs/adr/0003.
+  const generated = organization?.is_test === true && deps.sampleData !== true;
+  const sampleData = generated || (deps.sampleData ?? false);
+  const providers = generated ? (deps.sampleProviders ?? {}) : deps.providers;
 
   try {
     await store.markScanRunning(scanId, sampleData);
@@ -78,7 +89,8 @@ export async function runScan(scanId: string, deps: RunScanDeps): Promise<ScanOu
   }
 
   try {
-    if (deps.unavailable) throw new PermanentScanFailure(deps.unavailable);
+    // What stops a live scan on this build does not stop a generated one.
+    if (deps.unavailable && !generated) throw new PermanentScanFailure(deps.unavailable);
 
     const queries = (await store.listQueries(location.id)).filter((query) => query.is_active);
     if (queries.length === 0) {
@@ -87,7 +99,6 @@ export async function runScan(scanId: string, deps: RunScanDeps): Promise<ScanOu
 
     // A scan checks the surfaces that are set up and that the organization's plan covers. Each
     // check costs money, so a surface outside the plan is never called.
-    const organization = await store.getOrganization(location.organization_id);
     const covered = (kind: (typeof queries)[number]["kind"]) =>
       planSurfaces(SURFACES_BY_KIND[kind], organization?.surfaces ?? null);
     const checks = queries.flatMap((query) =>
@@ -123,7 +134,7 @@ export async function runScan(scanId: string, deps: RunScanDeps): Promise<ScanOu
 
     // The on-page check never fails a scan: a site that will not load is itself the finding.
     let site: SiteCheck | null = null;
-    if (deps.inspectSite && location.website) {
+    if (deps.inspectSite && location.website && !generated) {
       const snapshot = await deps.inspectSite(location.website).catch(
         (): SiteSnapshot => ({
           url: location.website ?? "",
@@ -143,7 +154,8 @@ export async function runScan(scanId: string, deps: RunScanDeps): Promise<ScanOu
       site,
     });
 
-    if (scan.trigger === "scheduled" && deps.notify) {
+    // A test organization's owner is automation: there is nobody to tell.
+    if (scan.trigger === "scheduled" && deps.notify && !organization?.is_test) {
       try {
         await deps.notify({
           location,

@@ -160,7 +160,7 @@ pnpm dev
 Open http://localhost:5173 and sign in with any email address. Locally the sign-in link is not
 sent anywhere; read it in the mail catcher at http://127.0.0.1:54324.
 
-With `PROVIDER_MODE=mock`, "Run scan" returns generated results within about ten seconds and the
+With `PROVIDER_MODE=mock` (or in a test organization), "Run scan" returns generated results within about ten seconds and the
 app shows a banner saying so. To fire the daily schedule by hand:
 
 ```sh
@@ -257,6 +257,7 @@ The migrations in `supabase/migrations/` define everything.
 | Table | Holds |
 | --- | --- |
 | `organizations` | The tenant. Every other row belongs to one. Holds its usage limits (locations, active prompts per location, manual scans a day) and its plan settings (how many days apart it is scanned, and on which surfaces). |
+| `platform_roles` | What an account is to the product as a whole (`operator` or `test`). A user reads only their own row; rows are written with the secret key. An organization made by a `test` account is flagged `is_test` and scans on generated data. |
 | `memberships` | Which users belong to an organization, as `owner`, `admin` or `member`. |
 | `locations` | A business at an address. Its `scan_frequency` can pause it (`off`) or ask for less than the organization's cadence (`weekly`), never more. |
 | `tracked_queries` | The prompts and keywords checked for a location. A retired one is kept, with its results, but not scanned. |
@@ -284,7 +285,7 @@ reader gets one audit only by its token, through the `get_audit()` function.
   on-page check and the action plan.
 - **`packages/db`**: applies the real migrations to in-process Postgres (PGlite) and checks, as
   different users, that one organization cannot read or write another's rows, that users cannot
-  forge scan results, and that worker-only functions are closed to them. No Docker needed. It
+  forge scan results or grant themselves a platform role, and that worker-only functions are closed to them. No Docker needed. It
   also checks `private/tuning.json` against the tuning schema where that file exists.
 - **`apps/api`**: every route against an in-memory store, the scan runner (success, retry,
   permanent failure, reporting, scoring with given weights, refusing live scans on default tuning),

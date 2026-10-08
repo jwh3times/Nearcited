@@ -61,7 +61,7 @@ function fail(action: string, error: DbError): never {
 }
 
 const ORGANIZATION_COLUMNS =
-  "id, name, max_locations, max_queries_per_location, max_manual_scans_per_day, scan_every_days, surfaces, created_at";
+  "id, name, max_locations, max_queries_per_location, max_manual_scans_per_day, scan_every_days, surfaces, is_test, created_at";
 
 const LOCATION_COLUMNS =
   "id, organization_id, name, website, phone, address_line, city, region, postal_code, country_code, google_place_id, primary_category, scan_frequency, last_scanned_at, created_at";

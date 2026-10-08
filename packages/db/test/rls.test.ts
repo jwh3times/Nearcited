@@ -875,3 +875,84 @@ describe("the website check on a scan", () => {
     ).rejects.toThrow(/permission denied/);
   });
 });
+
+describe("platform roles and test organizations", () => {
+  const robot = "e0000000-0000-4000-8000-000000000005";
+
+  beforeAll(async () => {
+    await db.query("insert into auth.users (id, email) values ($1, 'e2e@example.com')", [robot]);
+    // The operator names a test account with the secret key. Nothing else can.
+    await db.query("insert into public.platform_roles (user_id, role) values ($1, 'test')", [
+      robot,
+    ]);
+  });
+
+  it("cannot be granted, changed or removed by an account, for itself or anyone", async () => {
+    for (const sql of [
+      "insert into public.platform_roles (user_id, role) values ($1, 'operator')",
+      "update public.platform_roles set role = 'operator' where user_id = $1",
+      "delete from public.platform_roles where user_id = $1",
+    ]) {
+      await expect(
+        as("authenticated", alice, () => db.query(sql, [alice])),
+        sql,
+      ).rejects.toThrow(/permission denied/);
+      await expect(
+        as("authenticated", robot, () => db.query(sql, [robot])),
+        sql,
+      ).rejects.toThrow(/permission denied/);
+    }
+    await expect(
+      as("anon", null, () => db.query("select * from public.platform_roles")),
+    ).rejects.toThrow(/permission denied/);
+  });
+
+  it("are readable only by the account they belong to", async () => {
+    const mine = await as("authenticated", robot, () =>
+      rows<{ role: string }>("select role from public.platform_roles"),
+    );
+    expect(mine).toEqual([{ role: "test" }]);
+    // Alice has none, and cannot see that the robot has one.
+    expect(
+      await as("authenticated", alice, () => rows("select * from public.platform_roles")),
+    ).toEqual([]);
+  });
+
+  it("make every organization a test account creates a test organization, with room to work", async () => {
+    const [org] = await as("authenticated", robot, () =>
+      rows<Record<string, unknown>>("select * from public.create_organization('Smoke test')"),
+    );
+    expect(org).toMatchObject({
+      name: "Smoke test",
+      is_test: true,
+      max_locations: 25,
+      max_queries_per_location: 25,
+      max_manual_scans_per_day: 500,
+      scan_every_days: 1,
+    });
+    // It is still an ordinary owner of it, so it is confined to it like anyone else.
+    const seen = await as("authenticated", robot, () =>
+      rows<{ is_test: boolean }>("select is_test from public.organizations"),
+    );
+    expect(seen).toEqual([{ is_test: true }]);
+  });
+
+  it("leave everyone else's organizations real, and out of their hands to change", async () => {
+    const [mine] = await rows<{ is_test: boolean }>(
+      "select is_test from public.organizations where id = $1",
+      [orgId],
+    );
+    expect(mine?.is_test).toBe(false);
+    for (const value of ["true", "false"]) {
+      await expect(
+        as("authenticated", alice, () =>
+          db.query(`update public.organizations set is_test = ${value} where id = $1`, [orgId]),
+        ),
+      ).rejects.toThrow(/permission denied/);
+    }
+    const [fresh] = await as("authenticated", bob, () =>
+      rows<{ is_test: boolean }>("select is_test from public.create_organization('Bob''s')"),
+    );
+    expect(fresh?.is_test).toBe(false);
+  });
+});
