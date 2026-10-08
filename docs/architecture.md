@@ -227,7 +227,7 @@ same as for providers: `fetchSite` (`apps/api/src/site/fetch.ts`) only fetches a
 | Check | Passes when |
 | --- | --- |
 | `reachable` | The home page answers 200 with HTML. When it does not, this is the only check reported. |
-| `crawlers_allowed` | `robots.txt` does not shut the assistants' search crawlers (`ANSWER_CRAWLERS`) out of the whole site. Crawlers that gather training data are not checked. |
+| `crawlers_allowed` | `robots.txt` does not shut the assistants' search crawlers (`ANSWER_CRAWLERS`) out of the whole site. Crawlers that gather training data are not checked, and neither are the fetchers that act for one user and may ignore `robots.txt` (`ChatGPT-User`, `Perplexity-User`). |
 | `indexable` | No `noindex` in a robots meta tag or the `X-Robots-Tag` header. |
 | `text_content` | The page has at least `MIN_PAGE_WORDS` words with scripts, styles and tags removed. Nothing is rendered, because the crawlers mostly do not run scripts. |
 | `names_business` | The title or text contains the business name, matched the way answers are matched. |
