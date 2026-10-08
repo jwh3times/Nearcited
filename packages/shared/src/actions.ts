@@ -1,5 +1,5 @@
 import { hostOf, normalizeName } from "./analysis";
-import type { Action, SiteCheck, SourceSummary } from "./schemas";
+import type { Action, SiteCheck, SiteCheckId, SourceSummary } from "./schemas";
 import { SITE_CHECKS } from "./site";
 
 /**
@@ -35,6 +35,12 @@ const MIN_ANSWERS_FOR_OWN_SITE = 4;
 /** A site has to be cited this often before the plan sends anyone to it. */
 const MIN_SOURCE_ANSWERS = 2;
 const MAX_ITEMS = 5;
+/** The failed checks that mean a crawler gets nothing from the page. */
+const BLOCKS_READING: ReadonlySet<SiteCheckId> = new Set([
+  "reachable",
+  "crawlers_allowed",
+  "text_content",
+]);
 const MAX_COMPETITORS = 3;
 
 /**
@@ -86,27 +92,40 @@ function websiteAction(input: ActionPlanInput): Action | null {
         : SITE_CHECKS[check.id].fix,
     url: null,
   }));
-  const problems = `${failed.length} ${plural(failed.length, "thing", "things")}`;
+  const problems = `${failed.length} ${plural(failed.length, "thing", "things")} to fix`;
+  // Only some failures stop a crawler from reading the page. The rest are worth fixing, but the
+  // plan must not offer them as the reason the site is not cited.
+  const blocking = failed.filter((check) => BLOCKS_READING.has(check.id)).length;
+  const weight =
+    blocking === 0
+      ? `${failed.length === 1 ? "It does" : "None of them does"} not stop an assistant from reading the page, so ${failed.length === 1 ? "it is" : "they are"} unlikely to be the whole reason.`
+      : blocking === failed.length
+        ? `${failed.length === 1 ? "It keeps" : "They keep"} an assistant from reading the page.`
+        : `${blocking} of them ${plural(blocking, "keeps", "keep")} an assistant from reading the page.`;
 
   if (own) {
     if (failed.length === 0) return null;
     return {
       id: "fix_website",
       title: "Fix what the website check found",
-      summary: `${host} was cited in ${own.answers} of ${input.answers} answers, but its home page has ${problems} that make it harder for an assistant to use.`,
+      summary: `${host} was cited in ${own.answers} of ${input.answers} answers, and the check of its home page found ${problems}.`,
       items,
     };
   }
 
   const uncited = `None of the ${input.answers} answers cited ${host}`;
   if (failed.length > 0) {
+    const found = `the check of its home page found ${problems}. ${weight}`;
     return {
       id: "fix_website",
-      title: "Make your website readable to assistants",
+      title:
+        blocking > 0
+          ? "Make your website readable to assistants"
+          : "Your website is not being cited",
       summary:
         input.answers > 0
-          ? `${uncited}, and the check of its home page found ${problems} that would keep an assistant from using it.`
-          : `The check of the home page of ${host} found ${problems} that would keep an assistant from using it.`,
+          ? `${uncited}, and ${found}`
+          : `No answers have come in yet, but ${found}`,
       items,
     };
   }

@@ -190,6 +190,22 @@ describe("toPublicAudit", () => {
     });
   });
 
+  it("links a competitor to its own site even when that site is too rarely cited to be listed", () => {
+    const busy = Array.from({ length: 14 }, (_, index) => `https://dir${index}.example/a`);
+    const cell = buildAuditCell("chatgpt", [
+      finding(null, { competitors: ["Tony's Slice House"], cited_urls: busy }),
+      finding(null, {
+        competitors: ["Tony's Slice House"],
+        cited_urls: [...busy, "https://tonysslicehouse.example/menu"],
+      }),
+    ]);
+    const audit = toPublicAudit({ ...stored, parts: { "0": { cells: [cell] } } });
+    expect(audit.sources.map((site) => site.host)).not.toContain("tonysslicehouse.example");
+    expect(audit.actions.find((action) => action.id === "competitors")?.items[0]?.url).toBe(
+      "https://tonysslicehouse.example/menu",
+    );
+  });
+
   it("passes on nothing the page does not show", () => {
     expect(Object.keys(toPublicAudit(stored)).sort()).toEqual(
       [

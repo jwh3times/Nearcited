@@ -66,13 +66,24 @@ describe("the website step", () => {
       title: "Make your website readable to assistants",
     });
     expect(action?.summary).toBe(
-      "None of the 20 answers cited joes.example, and the check of its home page found 2 things that would keep an assistant from using it.",
+      "None of the 20 answers cited joes.example, and the check of its home page found 2 things to fix. They keep an assistant from reading the page.",
     );
     expect(action?.items.map((item) => item.label)).toEqual([
       "Your website tells assistants to stay out",
       "Your home page has almost no text until scripts run",
     ]);
     expect(action?.items[0]?.detail).toContain("Blocked: OAI-SearchBot.");
+  });
+
+  it("does not offer a minor finding as the reason the site is not cited", () => {
+    const action = first({ site: site("names_city") });
+    expect(action?.title).toBe("Your website is not being cited");
+    expect(action?.summary).toBe(
+      "None of the 20 answers cited joes.example, and the check of its home page found 1 thing to fix. It does not stop an assistant from reading the page, so it is unlikely to be the whole reason.",
+    );
+    expect(first({ site: site("names_city", "text_content") })?.summary).toContain(
+      "found 2 things to fix. 1 of them keeps an assistant from reading the page.",
+    );
   });
 
   it("says a readable site is simply not being chosen", () => {
@@ -93,7 +104,9 @@ describe("the website step", () => {
       site: site("names_city"),
     });
     expect(action?.title).toBe("Fix what the website check found");
-    expect(action?.summary).toContain("cited in 3 of 20 answers, but its home page has 1 thing ");
+    expect(action?.summary).toBe(
+      "joes.example was cited in 3 of 20 answers, and the check of its home page found 1 thing to fix.",
+    );
   });
 
   it("says nothing when the site is cited and passes, when there is none, or on too few answers", () => {
