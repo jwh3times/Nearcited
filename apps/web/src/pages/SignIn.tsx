@@ -2,6 +2,7 @@ import { type FormEvent, useState } from "react";
 import { z } from "zod";
 import { ErrorNote } from "../components/ErrorNote";
 import { Field } from "../components/Field";
+import { LegalLinks } from "../components/LegalLinks";
 import { Logo } from "../components/Logo";
 import { useFormErrors } from "../lib/form";
 import { supabase } from "../lib/supabase";
@@ -57,10 +58,13 @@ export function SignIn() {
             <span className="mono">Best #2</span>
           </div>
         </figure>
-        <p className="small muted">
-          Nearcited asks the assistants what your customers ask, every day, and shows whether your
-          business is named, who is named instead, and where the answers come from.
-        </p>
+        <div className="stack-tight">
+          <p className="small muted">
+            Nearcited asks the assistants what your customers ask, every day, and shows whether your
+            business is named, who is named instead, and where the answers come from.
+          </p>
+          <LegalLinks />
+        </div>
       </div>
 
       <div className="signin-form">
@@ -96,6 +100,10 @@ export function SignIn() {
                   {sending ? "Sending link" : "Email me a sign-in link"}
                 </button>
                 <ErrorNote error={error} />
+                <p className="small muted">
+                  By signing in you agree to the <a href="/terms">terms of service</a> and the{" "}
+                  <a href="/privacy">privacy policy</a>.
+                </p>
               </form>
             </>
           )}

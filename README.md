@@ -56,7 +56,7 @@ running scripts: does it load, does `robots.txt` let the assistants' search craw
 free of `noindex`, does it have text, does that text state the business name and city, and does
 it carry structured business details. Each failed check is a recommendation that clears when a
 later scan finds it fixed. The shareable audit shows the whole checklist. The fetch identifies
-itself as `NearcitedBot` and is skipped while the deployment serves sample data.
+itself as `NearcitedBot`, with a link to the public `/bot` page, and is skipped while the deployment serves sample data.
 
 The location page and the audit turn all of that into an action plan, "What to do next": fix
 what keeps the website from being read, get listed on the sites the assistants read without
@@ -74,7 +74,8 @@ built from each location's own endpoints. The location page has tabs (Overview, 
 Website, Answers, Settings); ticking a step of the action plan is remembered in the browser only.
 An Account settings page, linked from the sidebar, renames the organization and shows what its
 plan allows, read-only. A new user is walked through four steps, and nothing is created until the
-last.
+last. The privacy policy (`/privacy`), the terms of service (`/terms`) and a page describing the
+crawler (`/bot`) are static pages readable without signing in.
 
 Scans start from the "Run scan" button or from a daily schedule, and run on a queue. A scheduled
 scan emails its result to the organization's owners.

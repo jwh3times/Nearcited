@@ -6,6 +6,7 @@ import { api } from "../lib/api";
 import { placeOf, useTrends } from "../lib/locations";
 import { supabase } from "../lib/supabase";
 import { useTheme } from "../lib/theme";
+import { LegalLinks } from "./LegalLinks";
 import { Logo } from "./Logo";
 
 interface ShellProps {
@@ -110,6 +111,7 @@ export function Shell({ me, organization, children }: ShellProps) {
                 </>
               )}
             </button>
+            <LegalLinks />
           </div>
         </div>
       </aside>

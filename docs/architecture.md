@@ -250,7 +250,7 @@ pages show it as a checklist.
 The address is typed by a user, so the fetch treats it as hostile: `http` and `https` on default
 ports only, no IP addresses or internal names, every redirect checked the same way before it is
 followed (at most four), an eight second timeout, and the body cut off at 600 kB. It sends
-`User-Agent: NearcitedBot/1.0`. It asks for the home page a second time when the first try got no
+`User-Agent: NearcitedBot/1.0 (+https://nearcited.com/bot)`. It asks for the home page a second time when the first try got no
 answer or a 429 or 5xx, so it makes at most fifteen requests (the page twice and `robots.txt`, each
 with up to five including redirects).
 
@@ -332,8 +332,8 @@ never the admin client, and sets `Cache-Control: private, no-store` and
 `X-Robots-Tag: noindex, nofollow`, because the link is the secret. `record_audit_part()` is
 callable by `service_role` only.
 
-The web page at `/audit/:token` is rendered before the sign-in gate and polls while the audit is
-queued.
+The web pages at `/audit/:token`, `/privacy`, `/terms` and `/bot` are rendered before the sign-in gate; the audit page polls while the
+audit is queued.
 
 ## Tenancy
 
