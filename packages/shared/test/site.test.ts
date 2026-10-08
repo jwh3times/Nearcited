@@ -99,9 +99,21 @@ describe("analyzeSite", () => {
     expect(check.words).toBeGreaterThan(60);
   });
 
-  it("reports only that the page did not load when it did not", () => {
-    const check = analyzeSite(snapshot({ html: null, status: 503 }), joes);
-    expect(check).toMatchObject({ status: 503, checks: [{ id: "reachable", passed: false }] });
+  it("reports only that the page did not load when the address leads nowhere", () => {
+    // 404 and 410 say the page is not there; a 200 without HTML is not a web page.
+    for (const status of [404, 410, 200]) {
+      const check = analyzeSite(snapshot({ html: null, status }), joes);
+      expect(check).toMatchObject({ status, checks: [{ id: "reachable", passed: false }] });
+    }
+  });
+
+  it("makes no claim when one failed fetch proves nothing about the site", () => {
+    // No answer, a refusal aimed at automated visitors, a passing fault: none of these shows
+    // that the site is down or that an assistant cannot read it.
+    for (const status of [null, 401, 403, 429, 500, 503]) {
+      const check = analyzeSite(snapshot({ html: null, status }), joes);
+      expect(check, String(status)).toMatchObject({ status, checks: [] });
+    }
   });
 
   it("notices a page that is empty until scripts run", () => {
@@ -196,7 +208,7 @@ describe("recommendations from the site check", () => {
   });
 
   it("says only that the site could not be read when it could not", () => {
-    expect(rules(analyzeSite(snapshot({ html: null, status: null }), joes))).toEqual([
+    expect(rules(analyzeSite(snapshot({ html: null, status: 404 }), joes))).toEqual([
       "site:reachable",
     ]);
   });

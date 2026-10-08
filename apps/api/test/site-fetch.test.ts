@@ -107,6 +107,33 @@ describe("fetchSite", () => {
     expect(calls).toHaveLength(0);
   });
 
+  it("tries once more when the page does not answer or the server faults", async () => {
+    for (const first of [new Error("connection reset"), { status: 503 }, { status: 429 }]) {
+      let asked = 0;
+      const impl = (async (input: RequestInfo | URL) => {
+        if (String(input).endsWith("/robots.txt")) return new Response("", { status: 404 });
+        asked += 1;
+        if (asked === 1) {
+          if (first instanceof Error) throw first;
+          return new Response("busy", { status: first.status });
+        }
+        return new Response("<p>Joe's Pizza</p>", { headers: { "Content-Type": "text/html" } });
+      }) as typeof fetch;
+      expect(await fetchSite("joes.example", impl)).toMatchObject({
+        status: 200,
+        html: "<p>Joe's Pizza</p>",
+      });
+      expect(asked).toBe(2);
+    }
+  });
+
+  it("does not ask again for a page that is not there or turns it away", async () => {
+    const { impl, calls } = fakeFetch({ "https://shut.example/": { status: 403 } });
+    expect(await fetchSite("gone.example", impl)).toMatchObject({ status: 404, html: null });
+    expect(await fetchSite("shut.example", impl)).toMatchObject({ status: 403, html: null });
+    expect(calls).toHaveLength(2);
+  });
+
   it("reports a page that is not there, is not HTML, or does not answer", async () => {
     const { impl } = fakeFetch({
       "https://gone.example/": { status: 404 },

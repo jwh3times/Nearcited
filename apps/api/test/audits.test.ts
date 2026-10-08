@@ -153,7 +153,7 @@ describe("runAuditPart", () => {
     ]);
   });
 
-  it("reports a website that will not load, and skips the check when there is none", async () => {
+  it("claims nothing about a website that will not load, and skips the check when there is none", async () => {
     const audit = addAudit();
     const deps = {
       store: worker,
@@ -164,7 +164,7 @@ describe("runAuditPart", () => {
       },
     };
     expect(await runAuditPart(auditId, 0, deps)).toBe("done");
-    expect(audit.parts["0"]?.site?.checks).toEqual([{ id: "reachable", passed: false }]);
+    expect(audit.parts["0"]?.site).toMatchObject({ status: null, checks: [] });
 
     audit.website = null;
     await runAuditPart(auditId, 0, deps);

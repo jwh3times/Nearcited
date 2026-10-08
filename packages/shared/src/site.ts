@@ -268,12 +268,24 @@ export function blockedCrawlers(
   });
 }
 
+const REACHABLE_FAILED = { id: "reachable", passed: false } as const;
+
+/**
+ * Whether a page that did not load is the address's own doing: it answered that there is no such
+ * page, or answered with something that is not a web page.
+ */
+function leadsNowhere(status: number | null): boolean {
+  return status === 404 || status === 410 || status === 200;
+}
+
 /** Decides what a fetched page means for one business. */
 export function analyzeSite(snapshot: SiteSnapshot, business: SiteBusiness): SiteCheck {
   const base = { url: snapshot.url, status: snapshot.status, blocked_crawlers: [], words: 0 };
   if (snapshot.html === null) {
-    // Nothing else can be said about a page that did not load.
-    return { ...base, checks: [{ id: "reachable", passed: false }] };
+    // Nothing else can be said about a page that did not load, and only some failures say even
+    // that much. One fetch that got no answer, was turned away or hit a server fault does not show
+    // the site is down, still less that an assistant cannot read it, so it makes no claim.
+    return { ...base, checks: leadsNowhere(snapshot.status) ? [REACHABLE_FAILED] : [] };
   }
 
   const page = parsePage(snapshot.html);

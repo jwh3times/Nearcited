@@ -229,7 +229,7 @@ same as for providers: `fetchSite` (`apps/api/src/site/fetch.ts`) only fetches a
 
 | Check | Passes when |
 | --- | --- |
-| `reachable` | The home page answers 200 with HTML. When it does not, this is the only check reported. |
+| `reachable` | The home page answers 200 with HTML. When it does not, no other check is reported, and this one fails only if the address leads nowhere (404, 410, or a 200 that is not HTML). No answer, 401, 403, 429, a 5xx or a refused redirect makes no claim at all: the `SiteCheck` has no checks, because one failed fetch does not show the site is down or that an assistant cannot read it. |
 | `crawlers_allowed` | `robots.txt` does not shut the assistants' search crawlers (`ANSWER_CRAWLERS`) out of the whole site. Crawlers that gather training data are not checked, and neither are the fetchers that act for one user and may ignore `robots.txt` (`ChatGPT-User`, `Perplexity-User`). |
 | `indexable` | No `noindex` in a robots meta tag or the `X-Robots-Tag` header. |
 | `text_content` | The page has at least `MIN_PAGE_WORDS` words with scripts, styles and tags removed. Nothing is rendered, because the crawlers mostly do not run scripts. |
@@ -238,7 +238,9 @@ same as for providers: `fetchSite` (`apps/api/src/site/fetch.ts`) only fetches a
 | `structured_data` | A JSON-LD block gives something both a `name` and an `address`. |
 
 Each failed check becomes a `site:<check>` recommendation, which clears when a later scan's fetch
-passes it. A site that will not load never fails the scan; it is the finding. With no
+passes it. A site that will not load never fails the scan. One that leads nowhere is the finding;
+one that merely failed to answer is shown as tried and not checked, and an earlier
+`site:reachable` recommendation clears. With no
 `inspectSite` given to the runner (a deployment on sample data, or a test), no claim is made
 about the site and no site rule fires. A scan keeps its whole `SiteCheck` in
 `scans.site_check` (see "The action plan"), and an audit keeps it in its first prompt's part; both
@@ -247,7 +249,9 @@ pages show it as a checklist.
 The address is typed by a user, so the fetch treats it as hostile: `http` and `https` on default
 ports only, no IP addresses or internal names, every redirect checked the same way before it is
 followed (at most four), an eight second timeout, and the body cut off at 600 kB. It sends
-`User-Agent: NearcitedBot/1.0` and makes at most ten requests.
+`User-Agent: NearcitedBot/1.0`. It asks for the home page a second time when the first try got no
+answer or a 429 or 5xx, so it makes at most fifteen requests (the page twice and `robots.txt`, each
+with up to five including redirects).
 
 ## The action plan
 
@@ -257,7 +261,7 @@ over an audit's samples, so both pages show the same plan from the same code.
 
 | Step | Shown when | Evidence it carries |
 | --- | --- | --- |
-| `fix_website` | The on-page check failed something, at any answer count; or every check passed (or none was made) and no answer cited the site, of at least four. | The failed checks, as the reasons, each with its fix. |
+| `fix_website` | The on-page check failed something, at any answer count; or every check passed (or none was made, or the page could not be loaded) and no answer cited the site, of at least four. | The failed checks, as the reasons, each with its fix. |
 | `get_listed` | A site was cited in at least two answers and none of them named the business. | Up to five such sites, with the page that was read. |
 | `keep_listings` | A site was cited in answers that did name the business. | Up to five, most often first. |
 | `competitors` | The answers named other businesses. | The three named most, linked to their own site when it was one of the pages read. |
@@ -386,8 +390,9 @@ drift.
 ## Limits to design around
 
 - **Each provider call is a subrequest**, and a scan makes (queries x surfaces) of them in one
-  invocation, plus up to ten site requests (a page and `robots.txt`, each with up to four
-  redirects) unless it serves sample data. Workers cap subrequests and CPU time per invocation,
+  invocation, plus up to fifteen site requests (the page twice and `robots.txt`, each with up
+  to four redirects) unless it serves sample data. Workers cap subrequests and CPU time per
+  invocation,
   and the caps differ by plan. Check the current numbers before raising the queries allowed per
   location. If a scan outgrows one invocation, queue one message per check instead of one per
   scan.

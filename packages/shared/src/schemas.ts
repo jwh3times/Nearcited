@@ -271,7 +271,10 @@ export const SiteCheckSchema = z.object({
   /** The address that was read, after redirects. */
   url: z.string(),
   status: z.number().int().nullable(),
-  /** In a fixed order. Only `reachable` is present when the page did not load. */
+  /**
+   * In a fixed order. Only `reachable` is present when the address leads nowhere. Empty when the
+   * page could not be loaded and that proves nothing about the site: no claim is made.
+   */
   checks: z.array(z.object({ id: z.enum(SITE_CHECK_IDS), passed: z.boolean() })),
   /** The assistants' crawlers the site's robots.txt shuts out. */
   blocked_crawlers: z.array(z.string()),
