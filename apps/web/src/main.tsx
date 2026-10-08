@@ -1,7 +1,6 @@
-import "@fontsource/instrument-serif/400.css";
-import "@fontsource/instrument-serif/400-italic.css";
-import "@fontsource-variable/geist";
-import "@fontsource-variable/geist-mono";
+import "@fontsource-variable/inter/wght.css";
+// The italic is used once, for the emphasis in the sign-in headline.
+import "@fontsource-variable/inter/wght-italic.css";
 import "./styles.css";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StrictMode } from "react";

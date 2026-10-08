@@ -143,7 +143,7 @@ function Row({ location, trend, detail, surfaces }: RowProps) {
       </span>
 
       <span className="loc-score">
-        <span className="serif">{score ?? "—"}</span>
+        <span className="display">{score ?? "—"}</span>
         {line && (
           <svg className="spark" viewBox="0 0 72 24" aria-hidden="true">
             <path d={line} />

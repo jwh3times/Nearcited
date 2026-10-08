@@ -35,7 +35,7 @@ export function SignIn() {
           <figcaption className="mono muted">
             Example · ChatGPT · “best emergency plumber in Asheville”
           </figcaption>
-          <p className="serif">
+          <p className="display">
             For a burst pipe at night I'd start with <mark>Blue Ridge Plumbing</mark>, which answers
             around the clock and has the most recent reviews.
           </p>

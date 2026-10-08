@@ -1,5 +1,5 @@
 /*
- * Nearcited. Warm paper, ink, and two signals: green for "the business was named", and a yellow
+ * Nearcited. Warm paper, ink, one typeface (Inter), and two signals: green for "the business was named", and a yellow
  * highlighter that marks the business's name inside a quoted answer and nothing else.
  */
 
@@ -20,9 +20,7 @@
   /* Text on a rate cell shaded past half. */
   --onrate: #ffffff;
 
-  --serif: "Instrument Serif", Georgia, "Times New Roman", serif;
-  --sans: "Geist Variable", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --mono: "Geist Mono Variable", ui-monospace, "SF Mono", Menlo, monospace;
+  --sans: "Inter Variable", system-ui, -apple-system, "Segoe UI", sans-serif;
 
   color-scheme: light;
 }
@@ -80,21 +78,20 @@ ol {
 
 h1,
 h2,
-.serif {
-  font-family: var(--serif);
-  font-weight: 400;
+.display {
+  font-weight: 600;
 }
 
 h1 {
-  font-size: 52px;
-  line-height: 1;
-  letter-spacing: -0.02em;
+  font-size: 40px;
+  line-height: 1.08;
+  letter-spacing: -0.03em;
 }
 
 h2 {
-  font-size: 34px;
-  line-height: 1.1;
-  letter-spacing: -0.01em;
+  font-size: 26px;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
 }
 
 h3 {
@@ -112,7 +109,7 @@ a:hover {
 }
 
 code {
-  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
   font-size: 13px;
 }
 
@@ -121,12 +118,12 @@ code {
 }
 
 .mono {
-  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
   font-size: 12px;
 }
 
 .eyebrow {
-  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
   font-size: 12px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -290,12 +287,12 @@ input.tall {
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  font-family: var(--serif);
-  font-size: 24px;
+  font-size: 19px;
   line-height: 1;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.02em;
   color: var(--ink);
   text-decoration: none;
+  font-weight: 600;
 }
 
 .logo-mark {
@@ -525,8 +522,8 @@ button.theme-toggle:hover {
 }
 
 .page-narrow h1 {
-  font-size: 48px;
-  line-height: 1.05;
+  font-size: 38px;
+  line-height: 1.1;
 }
 
 .lede {
@@ -556,7 +553,7 @@ button.theme-toggle:hover {
 }
 
 .inline-card h2 {
-  font-size: 30px;
+  font-size: 22px;
 }
 
 .inline-card .row {
@@ -572,7 +569,7 @@ button.theme-toggle:hover {
   display: block;
   padding: 6px 0;
   border-radius: 6px;
-  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
   font-size: 13px;
   font-weight: 500;
   text-align: center;
@@ -630,7 +627,7 @@ button.theme-toggle:hover {
   padding: 2px 8px;
   border: 1px solid var(--line);
   border-radius: 999px;
-  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
   font-size: 11px;
   color: var(--muted);
   white-space: nowrap;
@@ -694,9 +691,10 @@ a.gtable-row:hover {
 /* Locations */
 
 .loc-name {
-  font-family: var(--serif);
-  font-size: 23px;
-  line-height: 1.15;
+  font-size: 17px;
+  line-height: 1.3;
+  font-weight: 600;
+  letter-spacing: -0.01em;
 }
 
 .loc-score {
@@ -705,10 +703,11 @@ a.gtable-row:hover {
   gap: 10px;
 }
 
-.loc-score .serif {
+.loc-score .display {
   min-width: 40px;
-  font-size: 32px;
+  font-size: 26px;
   line-height: 1;
+  letter-spacing: -0.02em;
 }
 
 .spark {
@@ -727,7 +726,7 @@ a.gtable-row:hover {
 }
 
 .change {
-  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
   font-size: 13px;
   color: var(--muted);
 }
@@ -773,7 +772,7 @@ a.gtable-row:hover {
 }
 
 .title-row h1 {
-  font-size: 54px;
+  font-size: 42px;
 }
 
 .title-row > div:first-child {
@@ -870,7 +869,7 @@ button.tab[aria-selected="true"] {
   border-radius: 999px;
   background: var(--soft);
   color: var(--muted);
-  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
   font-size: 11px;
   font-weight: 400;
   line-height: 1;
@@ -982,7 +981,7 @@ button.check[aria-pressed="true"] {
 }
 
 .kind {
-  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
   font-size: 11px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -1064,16 +1063,16 @@ button.go {
 }
 
 .score-big {
-  font-family: var(--serif);
-  font-size: 92px;
-  line-height: 0.85;
-  letter-spacing: -0.03em;
+  font-size: 72px;
+  line-height: 0.95;
+  letter-spacing: -0.04em;
+  font-weight: 600;
 }
 
 .score-big span {
   margin-left: 8px;
-  font-family: var(--sans);
   font-size: 15px;
+  font-weight: 400;
   letter-spacing: 0;
   color: var(--muted);
 }
@@ -1112,7 +1111,7 @@ button.go {
 .chart-dates {
   display: flex;
   justify-content: space-between;
-  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
   font-size: 11px;
   color: var(--muted);
 }
@@ -1147,10 +1146,10 @@ details.as-table td {
 }
 
 .card-title {
-  font-family: var(--serif);
-  font-size: 30px;
-  font-weight: 400;
+  font-size: 22px;
+  font-weight: 600;
   line-height: 1.1;
+  letter-spacing: -0.02em;
 }
 
 .bars li {
@@ -1240,7 +1239,7 @@ details.as-table td {
 }
 
 .acell .none {
-  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
   font-size: 13px;
 }
 
@@ -1361,7 +1360,7 @@ details.as-table td {
 }
 
 .quote figcaption {
-  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
   font-size: 12px;
   color: var(--muted);
 }
@@ -1373,9 +1372,8 @@ details.as-table td {
 
 .quote blockquote {
   margin: 0;
-  font-family: var(--serif);
-  font-size: 21px;
-  line-height: 1.35;
+  font-size: 17px;
+  line-height: 1.5;
 }
 
 mark {
@@ -1420,7 +1418,7 @@ mark {
 
 .settings h2,
 .side-card h2 {
-  font-size: 30px;
+  font-size: 22px;
 }
 
 .side-card {
@@ -1498,8 +1496,8 @@ mark {
 }
 
 .hero {
-  font-size: clamp(44px, 5vw, 68px);
-  line-height: 1.02;
+  font-size: clamp(36px, 4.2vw, 56px);
+  line-height: 1.06;
 }
 
 .sample-card {
@@ -1510,9 +1508,10 @@ mark {
   padding: 18px 20px;
 }
 
-.sample-card .serif {
-  font-size: 21px;
-  line-height: 1.35;
+.sample-card .display {
+  font-size: 17px;
+  line-height: 1.5;
+  font-weight: 400;
 }
 
 .signin-form {
@@ -1586,7 +1585,7 @@ mark {
   place-items: center;
   border: 1px solid var(--line);
   border-radius: 50%;
-  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
   font-size: 11px;
 }
 
@@ -1612,8 +1611,8 @@ mark {
 }
 
 .onb-body h1 {
-  font-size: 48px;
-  line-height: 1.05;
+  font-size: 38px;
+  line-height: 1.1;
 }
 
 .two-col {
@@ -1736,8 +1735,8 @@ mark {
 }
 
 .audit-hero h1 {
-  font-size: clamp(44px, 5vw, 64px);
-  line-height: 1.02;
+  font-size: clamp(36px, 4.2vw, 52px);
+  line-height: 1.06;
 }
 
 .audit-hero .explain {
@@ -1753,7 +1752,7 @@ mark {
 }
 
 .audit-score .score-big {
-  font-size: 110px;
+  font-size: 88px;
 }
 
 .audit-score .bar {
@@ -1781,9 +1780,10 @@ mark {
 }
 
 .audit-steps .numeral {
-  font-family: var(--serif);
-  font-size: 40px;
+  font-size: 32px;
   line-height: 1;
+  font-weight: 600;
+  letter-spacing: -0.03em;
 }
 
 .audit-steps .step-body > p {
@@ -1814,7 +1814,7 @@ mark {
 }
 
 .audit-cta h2 {
-  font-size: 40px;
+  font-size: 30px;
 }
 
 .audit-cta-note {
@@ -1869,7 +1869,7 @@ mark {
 
   h1,
   .title-row h1 {
-    font-size: 40px;
+    font-size: 32px;
   }
 
   .signin-panel {
