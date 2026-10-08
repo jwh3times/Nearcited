@@ -407,6 +407,28 @@ describe("organizations and locations", () => {
     expect(await errorCode(restore)).toBe("limit_reached");
   });
 
+  it("renames an organization, and only for someone in it", async () => {
+    const { organization } = await seed();
+    const path = `/organizations/${organization.id}`;
+
+    const renamed = await call(alice, "PATCH", path, { name: "  Triangle Pizza Group " });
+    expect(renamed.status).toBe(200);
+    expect(OrganizationSchema.parse(await renamed.json())).toEqual({
+      ...organization,
+      name: "Triangle Pizza Group",
+    });
+    const me = MeSchema.parse(await (await call(alice, "GET", "/me")).json());
+    expect(me.organizations[0]?.name).toBe("Triangle Pizza Group");
+
+    // A blank name is refused, and a stranger's rename finds nothing to rename.
+    expect((await call(alice, "PATCH", path, { name: "   " })).status).toBe(422);
+    expect((await call(bob, "PATCH", path, { name: "Defaced" })).status).toBe(404);
+    expect((await call(alice, "PATCH", "/organizations/not-an-id", { name: "x" })).status).toBe(
+      404,
+    );
+    expect(db.organizations[0]?.name).toBe("Triangle Pizza Group");
+  });
+
   it("edits every field of a location, and the change shows on the next load", async () => {
     const { location } = await seed();
     const edit = {

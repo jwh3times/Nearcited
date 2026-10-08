@@ -65,6 +65,16 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
     const organization = await aliceStore.createOrganization(`Integration ${crypto.randomUUID()}`);
     expect((await aliceStore.listOrganizations()).map((o) => o.id)).toContain(organization.id);
     expect((await bobStore.listOrganizations()).map((o) => o.id)).not.toContain(organization.id);
+    // Its owner may rename it; a stranger's rename finds no row, and the name stays.
+    const renamed = `Renamed ${crypto.randomUUID()}`;
+    expect(await bobStore.renameOrganization(organization.id, "Defaced")).toBeNull();
+    expect(await aliceStore.renameOrganization(organization.id, renamed)).toEqual({
+      ...organization,
+      name: renamed,
+    });
+    expect(await aliceStore.renameOrganization(organization.id, organization.name)).toEqual(
+      organization,
+    );
 
     // Locations
     const location = await aliceStore.createLocation(organization.id, {

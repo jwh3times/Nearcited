@@ -72,9 +72,10 @@ The app has a sidebar listing every location and a light or dark theme, kept in 
 locations page is a table of score, change, rate per assistant, top competitor and next step,
 built from each location's own endpoints. The location page has tabs (Overview, Prompts, Sources,
 Website, Answers, Settings); ticking a step of the action plan is remembered in the browser only.
-A new user is walked through four steps, and nothing is created until the last. The privacy
-policy (`/privacy`), the terms of service (`/terms`) and a page describing the crawler (`/bot`)
-are static pages readable without signing in.
+An Account settings page, linked from the sidebar, renames the organization and shows what its
+plan allows, read-only. A new user is walked through four steps, and nothing is created until the
+last. The privacy policy (`/privacy`), the terms of service (`/terms`) and a page describing the
+crawler (`/bot`) are static pages readable without signing in.
 
 Scans start from the "Run scan" button or from a daily schedule, and run on a queue. A scheduled
 scan emails its result to the organization's owners.
@@ -235,6 +236,7 @@ organization reads as missing and returns 404. Payloads are defined in
 | `GET /api/audits/:token` | A shareable audit, for anyone holding its token. 404 if the token is unknown, revoked or past its 30 days. Never cached and not indexed. |
 | `GET /api/me` | The signed-in user and their organizations. |
 | `POST /api/organizations` | Create an organization; the caller becomes its owner. The name needs a letter. |
+| `PATCH /api/organizations/:organizationId` | Rename an organization. Owners and admins only; anyone else reads it as missing and gets 404. The name needs a letter. |
 | `GET /api/organizations/:organizationId/locations` | List an organization's locations. |
 | `POST /api/organizations/:organizationId/locations` | Add a location. The phone is stored as E.164 in the location's country, the website with `https://`, and the postal code, country, place ID, name and city are checked; a bad value answers 422. |
 | `GET /api/locations/:id` | One location with its queries, latest scan, rates over recent scans, the sites those answers cited, the surfaces being checked, recommendations, the latest website check and the action plan. |
@@ -427,7 +429,8 @@ pnpm sync:agents
   are not;
   `apps/api/src/providers/live.ts` has notes on what each needs.
 - **Billing.** Each organization has limits, a scan cadence and a list of surfaces, but nothing
-  sets them by plan or takes payment. They are changed by hand in the database.
+  sets them by plan or takes payment. They are changed by hand in the database, and the Account
+  settings page shows them without editing them.
 - **Inviting teammates.** The schema and policies support members and roles; there is no API or
   screen for it.
 - **Switching organizations.** A user in several organizations always sees the first.

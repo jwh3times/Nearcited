@@ -98,6 +98,17 @@ export function createSupabaseStore(db: SupabaseClient): Store {
       return OrganizationSchema.parse(data);
     },
 
+    async renameOrganization(id, name) {
+      const { data, error } = await db
+        .from("organizations")
+        .update({ name })
+        .eq("id", id)
+        .select(ORGANIZATION_COLUMNS)
+        .maybeSingle();
+      if (error) fail("Rename organization", error);
+      return data ? OrganizationSchema.parse(data) : null;
+    },
+
     async listLocations(organizationId) {
       const { data, error } = await db
         .from("locations")

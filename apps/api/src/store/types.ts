@@ -53,6 +53,11 @@ export interface Store {
   createOrganization(name: string): Promise<Organization>;
   getOrganization(id: string): Promise<Organization | null>;
 
+  /**
+   * Renames an organization. Null when the caller may not: they are not in it, or are a plain
+   * member, and only its owners and admins change it.
+   */
+  renameOrganization(id: string, name: string): Promise<Organization | null>;
   listLocations(organizationId: string): Promise<Location[]>;
   createLocation(organizationId: string, input: LocationInput): Promise<Location>;
   getLocation(id: string): Promise<Location | null>;

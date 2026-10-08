@@ -24,6 +24,7 @@ export function Shell({ me, organization, children }: ShellProps) {
   // biome-ignore lint/correctness/useExhaustiveDependencies: the page changing is the trigger
   useEffect(() => setMenuOpen(false), [pathname, search]);
   const open = useMatch("/locations/:id")?.params.id;
+  const onSettings = useMatch("/settings") !== null;
   const locations = useQuery({
     queryKey: ["locations", organization.id],
     queryFn: () => api.listLocations(organization.id),
@@ -51,7 +52,7 @@ export function Shell({ me, organization, children }: ShellProps) {
           </div>
 
           <nav className="nav" aria-label="Locations">
-            <Link to="/" className="nav-row" aria-current={open ? undefined : "page"}>
+            <Link to="/" className="nav-row" aria-current={open || onSettings ? undefined : "page"}>
               <span>All locations</span>
               {locations.data && (
                 <span className="mono">
@@ -85,6 +86,9 @@ export function Shell({ me, organization, children }: ShellProps) {
           </nav>
 
           <div className="sidebar-foot">
+            <Link to="/settings" className="nav-row" aria-current={onSettings ? "page" : undefined}>
+              <span>Account settings</span>
+            </Link>
             <div className="account">
               <span className="avatar" aria-hidden="true">
                 {initials}
