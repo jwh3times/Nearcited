@@ -167,7 +167,8 @@ sample. The product reports and scores over a window instead (`SCAN_WINDOW`, sev
   window where they still fall inside it. Members have no delete permission on the table.
 - **The window counts scans, not days.** It works unchanged whatever the organization's cadence.
 - **Sample scans and real scans never share a window.** Each scan records `sample_data` when the
-  worker starts it, and a window holds scans of one kind only.
+  worker starts it (the deployment is in mock mode, or the organization is a test one), and a
+  window holds scans of one kind only.
 - **A scan's `visibility_score` is the score over the window that scan closed**, so the history
   of scores is already a rolling figure.
 
@@ -380,6 +381,15 @@ are not counted against the manual-scan limit.
 Users can insert exactly one kind of scan row: a queued, manual scan in their own name for a
 location they can see. Results, scores and recommendations are written only by the worker.
 Organizations are created only through `create_organization()`, which makes the caller the owner.
+
+**Platform roles** (`platform_roles`) say what an account is to the product, apart from any
+organization. A signed-in user can read their own row and nothing else; rows are written only with
+the secret key. `create_organization()` marks an organization made by a `test` account
+`is_test`, with roomy limits and a daily cadence. A test organization's scans run on generated
+sample data even on a live deployment: the runner uses the mock providers, records
+`sample_data`, skips the on-page fetch, is not stopped by the default-tuning check, and sends no
+report email. `GET /api/locations/:id` then reads the generated window and lists every surface.
+See `docs/adr/0003-platform-roles-and-test-accounts.md`.
 
 ## Wire types
 
