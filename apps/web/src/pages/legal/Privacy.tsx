@@ -1,7 +1,7 @@
-import { CONTACT_EMAIL, OPERATOR } from "../../lib/legal";
+import { OPERATOR, PRIVACY_EMAIL } from "../../lib/legal";
 import { LegalPage } from "./LegalPage";
 
-const mail = <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>;
+const mail = <a href={`mailto:${PRIVACY_EMAIL}`}>{PRIVACY_EMAIL}</a>;
 
 export function Privacy() {
   return (
