@@ -15,3 +15,7 @@ supabase/.temp/
 
 # The optional private companion checkout (npm run bootstrap:private). Its own repository.
 /private/
+
+# Written by the end-to-end tests.
+playwright-report/
+test-results/

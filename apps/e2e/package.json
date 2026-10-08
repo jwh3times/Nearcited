@@ -1,0 +1,16 @@
+{
+  "name": "@nearcited/e2e",
+  "version": "0.1.0",
+  "license": "AGPL-3.0-only",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "e2e": "playwright test",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.0",
+    "@types/node": "^26.0.0",
+    "typescript": "^7.0.2"
+  }
+}
