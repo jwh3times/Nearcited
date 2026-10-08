@@ -30,13 +30,14 @@
 
 /*
  * Everything below is sized in rem, so this one value scales the whole interface: type, buttons,
- * fields, spacing and widths together. It is the reader's own default size up to a laptop's
- * width (1440px), then grows in step with the screen to twice the size at 4K (3840px), so a
- * large monitor shows the same layout larger instead of a small one in a field of empty space.
+ * fields, spacing and widths together. It is the reader's own default size up to 1920px wide,
+ * which covers phones, laptops and most desktop monitors, then grows gently to a quarter larger
+ * at 3840px. A wide monitor is usually also a large one, viewed from the same distance, so it
+ * wants more room far more than it wants bigger type; the containers below widen for that.
  * Written in percent so a larger default set in the browser still counts.
  */
 html {
-  font-size: clamp(100%, 40% + 0.6667vw, 200%);
+  font-size: clamp(100%, 75% + 0.2083vw, 125%);
   /* Phones in landscape must not inflate the text on their own. */
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
@@ -531,7 +532,8 @@ button.theme-toggle:hover {
 /* Pages */
 
 .page {
-  max-width: 80rem;
+  /* On a wide monitor the page takes more of the screen instead of magnifying itself. */
+  max-width: max(80rem, 66vw);
   margin: 0 auto;
   padding: 2.75rem var(--gutter) 7.5rem;
   display: flex;
@@ -774,7 +776,7 @@ a.gtable-row:hover {
 /* Location detail */
 
 .detail-head {
-  max-width: 72.5rem;
+  max-width: max(72.5rem, 60vw);
   margin: 0 auto;
   padding: 2.25rem var(--gutter) 0;
   display: flex;
@@ -857,7 +859,7 @@ a.gtable-row:hover {
 }
 
 .tabs {
-  max-width: 72.5rem;
+  max-width: max(72.5rem, 60vw);
   margin: 0 auto;
   padding: 0 var(--gutter);
   display: flex;
@@ -904,7 +906,7 @@ button.tab[aria-selected="true"] {
 }
 
 .tab-body {
-  max-width: 72.5rem;
+  max-width: max(72.5rem, 60vw);
   margin: 0 auto;
   padding: 2rem var(--gutter) 8.75rem;
   display: flex;
