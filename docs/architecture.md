@@ -30,6 +30,9 @@ POST /api/locations/:id/scans          cron
         provider.observe()   -> Observation   (what the surface returned)
         analyzeObservation() -> Finding       (was the business named, where, who else)
                        |
+     fetchSite() + analyzeSite() -> SiteCheck  (home page, kept in scans.site_check;
+                                                 skipped on sample data)
+                       |
      listRecentResults(): the last six successful scans of the same kind
                        |
      windowScore() + deriveRecommendations(), over this scan and those six
@@ -236,9 +239,9 @@ same as for providers: `fetchSite` (`apps/api/src/site/fetch.ts`) only fetches a
 Each failed check becomes a `site:<check>` recommendation, which clears when a later scan's fetch
 passes it. A site that will not load never fails the scan; it is the finding. With no
 `inspectSite` given to the runner (a deployment on sample data, or a test), no claim is made
-about the site and no site rule fires. Nothing is stored for a location beyond those
-recommendations; an audit keeps the whole `SiteCheck` in its first prompt's part and the page
-shows it as a checklist.
+about the site and no site rule fires. A scan keeps its whole `SiteCheck` in
+`scans.site_check` (see "The action plan"), and an audit keeps it in its first prompt's part; both
+pages show it as a checklist.
 
 The address is typed by a user, so the fetch treats it as hostile: `http` and `https` on default
 ports only, no IP addresses or internal names, every redirect checked the same way before it is
@@ -253,12 +256,14 @@ over an audit's samples, so both pages show the same plan from the same code.
 
 | Step | Shown when | Evidence it carries |
 | --- | --- | --- |
-| `fix_website` | The business's site was cited in no answer (of at least four), or its on-page check failed something. | The failed checks, as the reasons, each with its fix. |
+| `fix_website` | The on-page check failed something, at any answer count; or every check passed (or none was made) and no answer cited the site, of at least four. | The failed checks, as the reasons, each with its fix. |
 | `get_listed` | A site was cited in at least two answers and none of them named the business. | Up to five such sites, with the page that was read. |
 | `keep_listings` | A site was cited in answers that did name the business. | Up to five, most often first. |
 | `competitors` | The answers named other businesses. | The three named most, linked to their own site when it was one of the pages read. |
 
-Steps are composed by rule, never by a model, and each states the observation it rests on.
+Steps are composed by rule, never by a model, and each states the observation it rests on. For
+`fix_website` on a site no answer cited, the title and summary depend on whether a failed check
+blocks reading (`BLOCKS_READING`: `reachable`, `crawlers_allowed`, `text_content`).
 A site whose address contains a named competitor's name run together is treated as that
 competitor's own, so nobody is told to get listed on a rival's website; that match is a guess and
 is used for nothing else.
@@ -375,9 +380,11 @@ drift.
 ## Limits to design around
 
 - **Each provider call is a subrequest**, and a scan makes (queries x surfaces) of them in one
-  invocation. Workers cap subrequests and CPU time per invocation, and the caps differ by plan.
-  Check the current numbers before raising the queries allowed per location. If a scan outgrows
-  one invocation, queue one message per check instead of one per scan.
+  invocation, plus up to ten site requests (a page and `robots.txt`, each with up to four
+  redirects) unless it serves sample data. Workers cap subrequests and CPU time per invocation,
+  and the caps differ by plan. Check the current numbers before raising the queries allowed per
+  location. If a scan outgrows one invocation, queue one message per check instead of one per
+  scan.
 - **Queue delivery is at-least-once.** `runScan` is written to be safe to repeat.
 - **The cron queues at most 100 locations per run** (one `sendBatch`). They sort oldest-first, so
   none starve, but a daily cron cannot keep up with more than 100 daily locations. Run it more
