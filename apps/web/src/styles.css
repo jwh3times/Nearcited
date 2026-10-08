@@ -58,6 +58,7 @@ body {
   font-size: 15px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+  font-variant-numeric: tabular-nums;
 }
 
 h1,
@@ -83,15 +84,15 @@ h2,
 }
 
 h1 {
-  font-size: 40px;
-  line-height: 1.08;
-  letter-spacing: -0.03em;
+  font-size: 37px;
+  line-height: 1.05;
+  letter-spacing: -0.022em;
 }
 
 h2 {
-  font-size: 26px;
+  font-size: 25px;
   line-height: 1.15;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.022em;
 }
 
 h3 {
@@ -109,7 +110,6 @@ a:hover {
 }
 
 code {
-  font-variant-numeric: tabular-nums;
   font-size: 13px;
 }
 
@@ -118,12 +118,10 @@ code {
 }
 
 .mono {
-  font-variant-numeric: tabular-nums;
   font-size: 12px;
 }
 
 .eyebrow {
-  font-variant-numeric: tabular-nums;
   font-size: 12px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -237,6 +235,7 @@ label {
   gap: 6px;
   font-size: 13px;
   color: var(--muted);
+  font-weight: 500;
 }
 
 input,
@@ -249,6 +248,8 @@ select {
   background: var(--surface);
   color: var(--ink);
   font-size: 15px;
+  /* A field sits inside its label, and what is typed is not label text. */
+  font-weight: 400;
 }
 
 input::placeholder {
@@ -259,7 +260,7 @@ input::placeholder {
 input.tall {
   height: 50px;
   padding: 0 16px;
-  font-size: 16px;
+  font-size: 17px;
 }
 
 .card {
@@ -287,9 +288,9 @@ input.tall {
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  font-size: 19px;
+  font-size: 18px;
   line-height: 1;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.022em;
   color: var(--ink);
   text-decoration: none;
   font-weight: 600;
@@ -522,8 +523,8 @@ button.theme-toggle:hover {
 }
 
 .page-narrow h1 {
-  font-size: 38px;
-  line-height: 1.1;
+  font-size: 35px;
+  line-height: 1.05;
 }
 
 .lede {
@@ -569,7 +570,6 @@ button.theme-toggle:hover {
   display: block;
   padding: 6px 0;
   border-radius: 6px;
-  font-variant-numeric: tabular-nums;
   font-size: 13px;
   font-weight: 500;
   text-align: center;
@@ -627,7 +627,6 @@ button.theme-toggle:hover {
   padding: 2px 8px;
   border: 1px solid var(--line);
   border-radius: 999px;
-  font-variant-numeric: tabular-nums;
   font-size: 11px;
   color: var(--muted);
   white-space: nowrap;
@@ -692,9 +691,9 @@ a.gtable-row:hover {
 
 .loc-name {
   font-size: 17px;
-  line-height: 1.3;
+  line-height: 1.15;
   font-weight: 600;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.022em;
 }
 
 .loc-score {
@@ -705,9 +704,9 @@ a.gtable-row:hover {
 
 .loc-score .display {
   min-width: 40px;
-  font-size: 26px;
+  font-size: 24px;
   line-height: 1;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.022em;
 }
 
 .spark {
@@ -726,7 +725,6 @@ a.gtable-row:hover {
 }
 
 .change {
-  font-variant-numeric: tabular-nums;
   font-size: 13px;
   color: var(--muted);
 }
@@ -772,7 +770,7 @@ a.gtable-row:hover {
 }
 
 .title-row h1 {
-  font-size: 42px;
+  font-size: 39px;
 }
 
 .title-row > div:first-child {
@@ -869,7 +867,6 @@ button.tab[aria-selected="true"] {
   border-radius: 999px;
   background: var(--soft);
   color: var(--muted);
-  font-variant-numeric: tabular-nums;
   font-size: 11px;
   font-weight: 400;
   line-height: 1;
@@ -981,7 +978,6 @@ button.check[aria-pressed="true"] {
 }
 
 .kind {
-  font-variant-numeric: tabular-nums;
   font-size: 11px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -1064,8 +1060,8 @@ button.go {
 
 .score-big {
   font-size: 72px;
-  line-height: 0.95;
-  letter-spacing: -0.04em;
+  line-height: 0.85;
+  letter-spacing: -0.022em;
   font-weight: 600;
 }
 
@@ -1111,7 +1107,6 @@ button.go {
 .chart-dates {
   display: flex;
   justify-content: space-between;
-  font-variant-numeric: tabular-nums;
   font-size: 11px;
   color: var(--muted);
 }
@@ -1146,10 +1141,11 @@ details.as-table td {
 }
 
 .card-title {
-  font-size: 22px;
-  font-weight: 600;
-  line-height: 1.1;
-  letter-spacing: -0.02em;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.5;
+  letter-spacing: 0;
+  color: var(--muted);
 }
 
 .bars li {
@@ -1239,7 +1235,6 @@ details.as-table td {
 }
 
 .acell .none {
-  font-variant-numeric: tabular-nums;
   font-size: 13px;
 }
 
@@ -1360,7 +1355,6 @@ details.as-table td {
 }
 
 .quote figcaption {
-  font-variant-numeric: tabular-nums;
   font-size: 12px;
   color: var(--muted);
 }
@@ -1370,10 +1364,10 @@ details.as-table td {
   color: var(--ink);
 }
 
-.quote blockquote {
+.quote-text {
   margin: 0;
   font-size: 17px;
-  line-height: 1.5;
+  line-height: 1.45;
 }
 
 mark {
@@ -1416,8 +1410,7 @@ mark {
   gap: 16px;
 }
 
-.settings h2,
-.side-card h2 {
+.settings-main h2 {
   font-size: 22px;
 }
 
@@ -1496,8 +1489,9 @@ mark {
 }
 
 .hero {
-  font-size: clamp(36px, 4.2vw, 56px);
-  line-height: 1.06;
+  font-size: clamp(33px, 3.8vw, 49px);
+  line-height: 1.02;
+  text-wrap: balance;
 }
 
 .sample-card {
@@ -1510,7 +1504,7 @@ mark {
 
 .sample-card .display {
   font-size: 17px;
-  line-height: 1.5;
+  line-height: 1.35;
   font-weight: 400;
 }
 
@@ -1585,7 +1579,6 @@ mark {
   place-items: center;
   border: 1px solid var(--line);
   border-radius: 50%;
-  font-variant-numeric: tabular-nums;
   font-size: 11px;
 }
 
@@ -1611,8 +1604,8 @@ mark {
 }
 
 .onb-body h1 {
-  font-size: 38px;
-  line-height: 1.1;
+  font-size: 35px;
+  line-height: 1.05;
 }
 
 .two-col {
@@ -1735,8 +1728,9 @@ mark {
 }
 
 .audit-hero h1 {
-  font-size: clamp(36px, 4.2vw, 52px);
-  line-height: 1.06;
+  font-size: clamp(32px, 3.8vw, 46px);
+  line-height: 1.02;
+  text-wrap: balance;
 }
 
 .audit-hero .explain {
@@ -1752,7 +1746,8 @@ mark {
 }
 
 .audit-score .score-big {
-  font-size: 88px;
+  font-size: 86px;
+  line-height: 0.8;
 }
 
 .audit-score .bar {
@@ -1780,10 +1775,10 @@ mark {
 }
 
 .audit-steps .numeral {
-  font-size: 32px;
+  font-size: 29px;
   line-height: 1;
   font-weight: 600;
-  letter-spacing: -0.03em;
+  letter-spacing: -0.022em;
 }
 
 .audit-steps .step-body > p {
@@ -1814,7 +1809,7 @@ mark {
 }
 
 .audit-cta h2 {
-  font-size: 30px;
+  font-size: 21px;
 }
 
 .audit-cta-note {
@@ -1892,4 +1887,35 @@ mark {
       border-color 0.12s,
       opacity 0.12s;
   }
+}
+
+/* Heading sizes the sign-in and audit pages use beside the app's own. */
+
+.h-lg {
+  font-size: 27px;
+}
+
+.h-sm {
+  font-size: 22px;
+}
+
+.side-title {
+  font-size: 15px;
+}
+
+.side-title.bad {
+  color: var(--danger);
+}
+
+.step-name {
+  font-size: 17px;
+}
+
+.quote-lg {
+  font-size: 19px;
+  line-height: 1.35;
+}
+
+.logo-lg {
+  font-size: 19px;
 }

@@ -143,7 +143,7 @@ function Report({ audit }: { audit: PublicAudit }) {
       {answers > 0 && (
         <>
           <section>
-            <h2>How often you were named</h2>
+            <h2 className="h-lg">How often you were named</h2>
             {(pending || unfinished) && (
               <p className="intro" role="status">
                 {pending
@@ -181,7 +181,7 @@ function Report({ audit }: { audit: PublicAudit }) {
 
           {audit.actions.length > 0 && (
             <section>
-              <h2>What to do next</h2>
+              <h2 className="h-lg">What to do next</h2>
               <p className="intro">
                 Worked out from the answers and from a check of the website, both set out below.
                 Nothing here is guaranteed to change an answer; each step says what was seen, so a
@@ -194,7 +194,7 @@ function Report({ audit }: { audit: PublicAudit }) {
                       {index + 1}
                     </span>
                     <div className="step-body">
-                      <h3>{action.title}</h3>
+                      <h3 className="step-name">{action.title}</h3>
                       <p>{action.summary}</p>
                       <StepItems items={action.items} />
                     </div>
@@ -208,7 +208,7 @@ function Report({ audit }: { audit: PublicAudit }) {
             <div className="audit-pair">
               {competitors.length > 0 && (
                 <section>
-                  <h2>Who else was named</h2>
+                  <h2 className="h-sm">Who else was named</h2>
                   <ul className="bars">
                     {competitors.map((competitor) => (
                       <li key={competitor.name}>
@@ -225,7 +225,7 @@ function Report({ audit }: { audit: PublicAudit }) {
               )}
               {audit.site && (
                 <section>
-                  <h2>Your website</h2>
+                  <h2 className="h-sm">Your website</h2>
                   <SiteChecklist site={audit.site} />
                 </section>
               )}
@@ -234,7 +234,7 @@ function Report({ audit }: { audit: PublicAudit }) {
 
           {audit.sources.length > 0 && (
             <section>
-              <h2>Where the answers came from</h2>
+              <h2 className="h-sm">Where the answers came from</h2>
               <p className="intro">
                 The sites the assistants read before answering. They mostly repeat what these pages
                 say, so a site that is read often, in answers that never name {audit.business_name},
@@ -295,7 +295,7 @@ function Answers({ audit }: { audit: PublicAudit }) {
   if (quotes.length === 0) return null;
   return (
     <section>
-      <h2>What they said</h2>
+      <h2 className="h-sm">What they said</h2>
       <p className="intro">One answer of the {audit.samples} for each question and assistant.</p>
       <div className="quotes">
         {quotes.map(({ key, prompt, cell }) => (
@@ -306,6 +306,7 @@ function Answers({ audit }: { audit: PublicAudit }) {
             excerpt={cell.excerpt ?? ""}
             name={audit.business_name}
             citedUrls={cell.cited_urls}
+            large
           />
         ))}
       </div>

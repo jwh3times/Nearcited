@@ -361,7 +361,7 @@ export function LocationDetail() {
             />
             <div className="settings-side">
               <div className="card side-card">
-                <h2>Retired prompts</h2>
+                <h3 className="side-title">Retired prompts</h3>
                 <p>
                   Retired prompts keep their history but aren't asked anymore. Their results count
                   again if you restore them.
@@ -388,7 +388,7 @@ export function LocationDetail() {
                 <ErrorNote error={setQueryActive.error} />
               </div>
               <div className="card side-card danger">
-                <h2>Delete this location</h2>
+                <h3 className="side-title bad">Delete this location</h3>
                 <p>Removes the location, its prompts and keywords, and every scan.</p>
                 <button
                   type="button"

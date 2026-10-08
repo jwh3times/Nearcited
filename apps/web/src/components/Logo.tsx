@@ -1,7 +1,8 @@
 import { Link } from "react-router";
 
 /** The wordmark. A plain link on the pages that sit outside the signed-in router's routes. */
-export function Logo({ plain = false }: { plain?: boolean }) {
+export function Logo({ plain = false, large = false }: { plain?: boolean; large?: boolean }) {
+  const className = large ? "logo logo-lg" : "logo";
   const inner = (
     <>
       <span className="logo-mark" aria-hidden="true" />
@@ -9,11 +10,11 @@ export function Logo({ plain = false }: { plain?: boolean }) {
     </>
   );
   return plain ? (
-    <a href="/" className="logo">
+    <a href="/" className={className}>
       {inner}
     </a>
   ) : (
-    <Link to="/" className="logo">
+    <Link to="/" className={className}>
       {inner}
     </Link>
   );

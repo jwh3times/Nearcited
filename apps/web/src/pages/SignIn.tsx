@@ -26,7 +26,7 @@ export function SignIn() {
   return (
     <main className="signin">
       <div className="signin-panel">
-        <Logo plain />
+        <Logo plain large />
         <h1 className="hero">
           When people ask AI who to call, <em>is it you?</em>
         </h1>
@@ -54,7 +54,7 @@ export function SignIn() {
         <div>
           {sentTo ? (
             <div className="card sent-card" role="status">
-              <h2>Check your inbox</h2>
+              <h2 className="h-sm">Check your inbox</h2>
               <p>
                 We sent a sign-in link to <strong>{sentTo}</strong>. Open it on this device.
               </p>
@@ -65,7 +65,7 @@ export function SignIn() {
           ) : (
             <>
               <div>
-                <h2>Sign in</h2>
+                <h2 className="h-lg">Sign in</h2>
                 <p className="muted">We'll email you a link. No password.</p>
               </div>
               <form onSubmit={submit}>
