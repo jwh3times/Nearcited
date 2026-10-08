@@ -62,6 +62,8 @@ export const api = {
   me: () => json(MeSchema, "GET", "/me"),
   createOrganization: (name: string) =>
     json(OrganizationSchema, "POST", "/organizations", { name }),
+  renameOrganization: (id: string, name: string) =>
+    json(OrganizationSchema, "PATCH", `/organizations/${id}`, { name }),
   listLocations: (organizationId: string) =>
     json(LocationSchema.array(), "GET", `/organizations/${organizationId}/locations`),
   createLocation: (organizationId: string, input: LocationFormValues) =>

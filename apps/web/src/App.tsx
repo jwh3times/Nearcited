@@ -5,6 +5,7 @@ import { Shell } from "./components/Shell";
 import { api } from "./lib/api";
 import { useSession } from "./lib/session";
 import { supabase } from "./lib/supabase";
+import { AccountSettings } from "./pages/AccountSettings";
 import { Audit } from "./pages/Audit";
 import { LocationDetail } from "./pages/LocationDetail";
 import { Locations } from "./pages/Locations";
@@ -56,6 +57,10 @@ function SignedIn() {
       <Routes>
         <Route index element={<Locations organization={organization} />} />
         <Route path="locations/:id" element={<LocationDetail />} />
+        <Route
+          path="settings"
+          element={<AccountSettings organization={organization} email={me.data.email} />}
+        />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Shell>
