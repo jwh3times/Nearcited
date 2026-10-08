@@ -2,6 +2,7 @@ import {
   type Location,
   type LocationDetail,
   type LocationFormValues,
+  LocationInputSchema,
   type Organization,
   SURFACE_LABELS,
   type Surface,
@@ -10,9 +11,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { ErrorNote } from "../components/ErrorNote";
+import { Field } from "../components/Field";
 import { Labelled } from "../components/Labelled";
 import { RateCell } from "../components/RateCell";
 import { api } from "../lib/api";
+import { useFormErrors } from "../lib/form";
 import { formatDate } from "../lib/format";
 import { placeOf, useDetails, useTrends } from "../lib/locations";
 import { CHANGE_OVER_SCANS, scoreChange, signed, sparkline, surfaceRates } from "../lib/summary";
@@ -223,36 +226,35 @@ function AddLocation({ organization, used, onClose }: AddLocationProps) {
   // The database enforces the limit. This only saves a round trip and says why.
   const atLimit = used >= organization.max_locations;
 
+  const form$ = useFormErrors(LocationInputSchema, form);
+
   function submit(event: FormEvent) {
     event.preventDefault();
-    create.mutate();
+    if (form$.check()) create.mutate();
   }
   const field = (name: keyof LocationFormValues) => ({
     value: (form[name] as string | undefined) ?? "",
+    error: form$.error(name),
+    onBlur: () => form$.touch(name),
     onChange: (event: { target: { value: string } }) =>
       setForm((current) => ({ ...current, [name]: event.target.value })),
   });
 
   return (
-    <form onSubmit={submit} className="card inline-card">
+    <form onSubmit={submit} className="card inline-card" noValidate>
       <h2>Add a location</h2>
       <div className="field-grid">
-        <label>
-          Business name
-          <input required maxLength={120} {...field("name")} />
-        </label>
-        <label>
-          City
-          <input required maxLength={80} {...field("city")} />
-        </label>
-        <label>
-          State or region
-          <input maxLength={80} {...field("region")} />
-        </label>
-        <label>
-          Website
-          <input type="url" placeholder="https://" maxLength={200} {...field("website")} />
-        </label>
+        <Field label="Business name" required maxLength={120} {...field("name")} />
+        <Field label="City" required maxLength={80} {...field("city")} />
+        <Field label="State or region" maxLength={80} {...field("region")} />
+        <Field
+          label="Website"
+          inputMode="url"
+          autoCapitalize="none"
+          placeholder="joespizza.com"
+          maxLength={200}
+          {...field("website")}
+        />
       </div>
       <div className="row">
         <button type="submit" disabled={create.isPending || atLimit}>

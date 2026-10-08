@@ -1,10 +1,18 @@
-import type { Location, LocationFormValues, ScanFrequency } from "@nearcited/shared";
+import {
+  formatPhone,
+  type Location,
+  type LocationFormValues,
+  LocationInputSchema,
+  type ScanFrequency,
+} from "@nearcited/shared";
 import { useMutation } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
 import { api } from "../lib/api";
+import { useFormErrors } from "../lib/form";
 import { cadence } from "../lib/format";
 import { locationFormValues } from "../lib/location";
 import { ErrorNote } from "./ErrorNote";
+import { Field } from "./Field";
 
 type TextField = Exclude<keyof LocationFormValues, "scan_frequency">;
 
@@ -45,63 +53,86 @@ export function LocationEditor({ location, planDays, onSaved }: LocationEditorPr
     },
   });
 
+  const form$ = useFormErrors(LocationInputSchema, form);
+
   function submit(event: FormEvent) {
     event.preventDefault();
-    save.mutate(form);
+    if (form$.check()) save.mutate(form);
   }
   const field = (name: TextField) => ({
     value: form[name] ?? "",
+    error: form$.error(name),
+    onBlur: () => form$.touch(name),
     onChange: (event: { target: { value: string } }) =>
       setForm((current) => ({ ...current, [name]: event.target.value })),
   });
+  const phone = field("phone");
 
   return (
-    <form onSubmit={submit} className="card settings-main">
+    <form onSubmit={submit} className="card settings-main" noValidate>
       <div>
         <h2>Business details</h2>
         <p className="small muted">Scans ask about the business by this name, in this city.</p>
       </div>
       <div className="field-grid">
-        <label>
-          Business name
-          <input required maxLength={120} {...field("name")} />
-        </label>
-        <label>
-          Category
-          <input maxLength={120} placeholder="Pizza restaurant" {...field("primary_category")} />
-        </label>
-        <label>
-          Website
-          <input type="url" placeholder="https://" maxLength={200} {...field("website")} />
-        </label>
-        <label>
-          Phone
-          <input type="tel" maxLength={40} {...field("phone")} />
-        </label>
-        <label>
-          Street address
-          <input maxLength={200} {...field("address_line")} />
-        </label>
-        <label>
-          City
-          <input required maxLength={80} {...field("city")} />
-        </label>
-        <label>
-          State or region
-          <input maxLength={80} {...field("region")} />
-        </label>
-        <label>
-          Postal code
-          <input maxLength={20} {...field("postal_code")} />
-        </label>
-        <label>
-          Country code
-          <input required minLength={2} maxLength={2} {...field("country_code")} />
-        </label>
-        <label>
-          Google place ID
-          <input maxLength={200} {...field("google_place_id")} />
-        </label>
+        <Field label="Business name" required maxLength={120} {...field("name")} />
+        <Field
+          label="Category"
+          maxLength={120}
+          placeholder="Pizza restaurant"
+          {...field("primary_category")}
+        />
+        <Field
+          label="Website"
+          inputMode="url"
+          autoCapitalize="none"
+          placeholder="joespizza.com"
+          maxLength={200}
+          {...field("website")}
+        />
+        <Field
+          label="Phone"
+          type="tel"
+          autoComplete="tel"
+          maxLength={40}
+          {...phone}
+          // Once the number is whole, it is set out the way it is written in this country.
+          onBlur={() => {
+            phone.onBlur();
+            setForm((current) => ({
+              ...current,
+              phone: formatPhone(current.phone ?? "", (current.country_code ?? "").toUpperCase()),
+            }));
+          }}
+        />
+        <Field
+          label="Street address"
+          autoComplete="street-address"
+          maxLength={200}
+          {...field("address_line")}
+        />
+        <Field label="City" required maxLength={80} {...field("city")} />
+        <Field label="State or region" maxLength={80} {...field("region")} />
+        <Field
+          label="Postal code"
+          autoComplete="postal-code"
+          maxLength={20}
+          {...field("postal_code")}
+        />
+        <Field
+          label="Country code"
+          required
+          maxLength={2}
+          autoCapitalize="characters"
+          hint="Two letters, like US. Phone and postal code are read for this country."
+          {...field("country_code")}
+        />
+        <Field
+          label="Google place ID"
+          autoCapitalize="none"
+          maxLength={200}
+          {...field("google_place_id")}
+        />
       </div>
 
       <hr className="divider" />

@@ -412,19 +412,26 @@ describe("organizations and locations", () => {
     const edit = {
       name: "  Joe's Pizzeria ",
       website: "https://joespizzeria.example",
-      phone: "919-555-0100",
-      address_line: "12 Fayetteville St",
-      city: "Durham",
-      region: "NC",
-      postal_code: "27701",
+      phone: "(416) 555-0100",
+      address_line: "12 Queen St W",
+      city: "Toronto",
+      region: "ON",
+      postal_code: "m5h2n2",
       country_code: "ca",
-      google_place_id: "ChIJ-example",
+      google_place_id: "ChIJN1t_tDeuEmsRUsoyG83frY4",
       primary_category: "Pizza restaurant",
       scan_frequency: "weekly",
     };
     const response = await call(alice, "PATCH", `/locations/${location.id}`, edit);
     expect(response.status).toBe(200);
-    const saved = { ...edit, name: "Joe's Pizzeria", country_code: "CA" };
+    // Stored tidied: the name trimmed, the phone with its country code, the codes in upper case.
+    const saved = {
+      ...edit,
+      name: "Joe's Pizzeria",
+      phone: "+14165550100",
+      postal_code: "M5H 2N2",
+      country_code: "CA",
+    };
     expect(LocationSchema.parse(await response.json())).toEqual({ ...location, ...saved });
 
     const loaded = LocationDetailSchema.parse(

@@ -1,14 +1,26 @@
+import { LocationInputSchema, OrganizationInputSchema } from "@nearcited/shared";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useRef, useState } from "react";
 import { useNavigate } from "react-router";
+import { z } from "zod";
 import { ErrorNote } from "../components/ErrorNote";
+import { Field } from "../components/Field";
 import { Logo } from "../components/Logo";
 import { api } from "../lib/api";
+import { useFormErrors } from "../lib/form";
 import { PRESELECTED, suggestPrompts } from "../lib/onboarding";
 
 const STEPS = ["Organization", "Location", "Prompts", "First scan"];
 
 const EMPTY = { name: "", category: "", city: "", region: "", website: "" };
+
+/**
+ * The first location, as this page asks for it: a location, plus what it is, which is asked for
+ * here because the suggested prompts are written from it.
+ */
+const FirstLocationSchema = z
+  .object({ category: z.string().trim().min(1, "Say what the business is, like pizza restaurant") })
+  .and(LocationInputSchema);
 
 /**
  * The first run: an organization, its first location, a few prompts, then the first scan.
@@ -61,13 +73,21 @@ export function Onboarding({ sampleData }: { sampleData: boolean }) {
     },
   });
 
+  // Each step is checked with the schema the API will use when the last step sends it all.
+  const organization$ = useFormErrors(OrganizationInputSchema, { name: organization });
+  const location$ = useFormErrors(FirstLocationSchema, location);
+
   function submit(event: FormEvent) {
     event.preventDefault();
+    if (step === 0 && !organization$.check()) return;
+    if (step === 1 && !location$.check()) return;
     if (step < STEPS.length - 1) setStep(step + 1);
     else start.mutate();
   }
   const field = (name: keyof typeof EMPTY) => ({
     value: location[name],
+    error: location$.error(name),
+    onBlur: () => location$.touch(name),
     onChange: (event: { target: { value: string } }) =>
       setLocation((current) => ({ ...current, [name]: event.target.value })),
   });
@@ -95,7 +115,7 @@ export function Onboarding({ sampleData }: { sampleData: boolean }) {
         </p>
       )}
 
-      <form className="onb-body" onSubmit={submit}>
+      <form className="onb-body" onSubmit={submit} noValidate>
         <header>
           <p className="eyebrow">
             Step {step + 1} of {STEPS.length}
@@ -139,45 +159,38 @@ export function Onboarding({ sampleData }: { sampleData: boolean }) {
         </header>
 
         {step === 0 && (
-          <label>
-            Organization name
-            <input
-              className="tall"
-              required
-              maxLength={120}
-              value={organization}
-              onChange={(event) => setOrganization(event.target.value)}
-            />
-          </label>
+          <Field
+            label="Organization name"
+            className="tall"
+            required
+            maxLength={120}
+            value={organization}
+            error={organization$.error("name")}
+            onBlur={() => organization$.touch("name")}
+            onChange={(event) => setOrganization(event.target.value)}
+          />
         )}
 
         {step === 1 && (
           <div className="two-col">
-            <label>
-              Business name
-              <input required maxLength={120} {...field("name")} />
-            </label>
-            <label>
-              What it is
-              <input
-                required
-                maxLength={120}
-                placeholder="Pizza restaurant"
-                {...field("category")}
-              />
-            </label>
-            <label>
-              City
-              <input required maxLength={80} {...field("city")} />
-            </label>
-            <label>
-              State or region
-              <input maxLength={80} {...field("region")} />
-            </label>
-            <label>
-              Website
-              <input type="url" placeholder="https://" maxLength={200} {...field("website")} />
-            </label>
+            <Field label="Business name" required maxLength={120} {...field("name")} />
+            <Field
+              label="What it is"
+              required
+              maxLength={120}
+              placeholder="Pizza restaurant"
+              {...field("category")}
+            />
+            <Field label="City" required maxLength={80} {...field("city")} />
+            <Field label="State or region" maxLength={80} {...field("region")} />
+            <Field
+              label="Website"
+              inputMode="url"
+              autoCapitalize="none"
+              placeholder="joespizza.com"
+              maxLength={200}
+              {...field("website")}
+            />
           </div>
         )}
 
