@@ -11,8 +11,9 @@ check able to pass".
 **Announce at start:** "I'm using the ship skill to open a PR for this branch."
 
 `main` accepts changes only by pull request, on a branch that is up to date with
-it, with three checks green: `Lint, typecheck, test, build`,
-`Store against Postgres and PostgREST`, and `Verify generated agent config`. This
+it, with four checks green: `Lint, typecheck, test, build`,
+`Store against Postgres and PostgREST`, `Verify generated agent config`, and
+`End-to-end in a browser`. This
 repository has no version file and no changelog; the PR body is the record of the
 change.
 
@@ -94,6 +95,17 @@ The store integration test needs Postgres and PostgREST and runs in CI. When the
 diff touches `apps/api/src/store/` or a migration, say in the report that this
 test is the one that covers it and that it has not run locally, unless
 `POSTGREST_URL` is set and you ran it.
+
+The end-to-end tests drive the app in a browser and are a required check. They need
+the local Supabase stack, so `pnpm check` does not run them. When the diff touches
+`apps/web`, a route the web app calls, or `apps/e2e`, run them before pushing, which
+is quicker than waiting for CI to say no:
+
+```bash
+pnpm e2e              # needs `supabase start`, and `pnpm local:env` once
+```
+
+Where the stack is not running, say in the report that CI is what will run them.
 
 If any command is red, stop and report.
 

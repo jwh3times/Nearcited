@@ -364,10 +364,10 @@ no key set at all, scans fail with "No data provider is configured".
 
 ## Repository automation
 
-- **CI** (`.github/workflows/ci.yml`) runs on every pull request and on `main`. Its three jobs are
-  the required checks: `Lint, typecheck, test, build`, `Store against Postgres and PostgREST`, and
-  `Verify generated agent config`. A fourth job, `End-to-end in a browser`, runs `pnpm e2e` against
-  a local Supabase stack; it is not required.
+- **CI** (`.github/workflows/ci.yml`) runs on every pull request and on `main`. Its four jobs are
+  the required checks: `Lint, typecheck, test, build`, `Store against Postgres and PostgREST`,
+  `Verify generated agent config`, and `End-to-end in a browser`, which runs `pnpm e2e` against a
+  local Supabase stack.
 - **`main` is protected by a ruleset.** Changes arrive by pull request with the required checks
   passing on an up-to-date branch and review threads resolved. Force pushes and deleting the
   branch are blocked. CodeQL alerts block the merge, and Copilot reviews each push.
