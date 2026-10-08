@@ -323,7 +323,9 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
       status: "queued",
       revoked_at: null,
     });
-    await expect(bobStore.getAudit(audit.id)).rejects.toBeInstanceOf(StoreError);
+    // A signed-in account may ask the table and is told nothing: only the operator's policy
+    // answers. Writing is still refused outright.
+    expect(await bobStore.getAudit(audit.id)).toBeNull();
     await expect(visitor.recordAuditPart(audit.id, 0, { cells: [] })).rejects.toBeInstanceOf(
       StoreError,
     );

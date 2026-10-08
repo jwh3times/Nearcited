@@ -48,6 +48,10 @@ pass `pnpm check` and run in mock mode without it.
 - **Row-level security is the authorization layer.** Request handlers use the store from
   `c.get("store")`, which acts as the signed-in user. Never call `createAdminClient` on a request
   path; it bypasses the policies.
+- **The operator can read every row** (`docs/adr/0004-the-operator-reads-through-policies.md`), so
+  a query must filter by what it means, never by what the caller happens to see. "This user's
+  organizations" is `my_organizations()`, not `select` from `organizations`. The operator gets
+  `select` policies only: do not add one that writes.
 - **New table: policies, explicit grants and a non-member test in `packages/db`, in the same
   change.** Supabase grants everything in `public` to every API role by default, so a table
   without a `revoke` is open.
