@@ -160,7 +160,8 @@ sample. The product reports and scores over a window instead (`SCAN_WINDOW`, sev
 - **The score averages each cell over its own checks, then averages the cells.** A prompt added
   yesterday counts as much as one tracked all week.
 - **The newest scan decides which cells exist.** A retired prompt, or a surface no longer
-  checked, drops out of the rate at once.
+  checked, drops out of the rate at once. A scan that asked only retired prompts adds nothing,
+  and the number of scans the page reports (`scansCounted`) leaves it out.
 - **Prompts are retired, never deleted.** Deleting one would delete every result recorded for
   it. A retired prompt is not scanned; restoring it brings its earlier results back into the
   window where they still fall inside it. Members have no delete permission on the table.
