@@ -116,6 +116,13 @@ describe("the website step", () => {
     // A failed check is worth saying however few answers there are.
     expect(ids({ answers: 0, site: site("reachable") })).toEqual(["fix_website"]);
   });
+
+  it("treats a page that could not be loaded as not checked, not as readable or broken", () => {
+    const unloaded: SiteCheck = { ...site(), status: 403, checks: [], words: 0 };
+    expect(ids({ answers: 0, site: unloaded })).toEqual([]);
+    expect(first({ site: unloaded })).toEqual(first({ site: null }));
+    expect(first({ site: unloaded })?.summary).toContain("was not checked");
+  });
 });
 
 describe("the listings steps", () => {

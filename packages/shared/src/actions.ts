@@ -83,12 +83,14 @@ function websiteAction(input: ActionPlanInput): Action | null {
   if (!host) return null;
 
   const own = input.sources.find((source) => source.own);
-  const failed = (input.site?.checks ?? []).filter((check) => !check.passed);
+  // A check that could not load the page has no checks in it, and counts as no check at all.
+  const site = input.site?.checks.length ? input.site : null;
+  const failed = (site?.checks ?? []).filter((check) => !check.passed);
   const items = failed.map((check) => ({
     label: SITE_CHECKS[check.id].title,
     detail:
-      check.id === "crawlers_allowed" && input.site?.blocked_crawlers.length
-        ? `${SITE_CHECKS[check.id].fix} Blocked: ${input.site.blocked_crawlers.join(", ")}.`
+      check.id === "crawlers_allowed" && site?.blocked_crawlers.length
+        ? `${SITE_CHECKS[check.id].fix} Blocked: ${site.blocked_crawlers.join(", ")}.`
         : SITE_CHECKS[check.id].fix,
     url: null,
   }));
@@ -132,10 +134,10 @@ function websiteAction(input: ActionPlanInput): Action | null {
   if (input.answers < MIN_ANSWERS_FOR_OWN_SITE) return null;
   return {
     id: "fix_website",
-    title: input.site
+    title: site
       ? "Your website is readable, but is not being used"
       : "Your website is not being cited",
-    summary: input.site
+    summary: site
       ? `${uncited}. Its home page passed every check, so assistants can read it; they are choosing other sources. The listings below are where to work first.`
       : `${uncited}. The home page was not checked, so there is no reason to give yet.`,
     items: [],

@@ -534,16 +534,19 @@ describe("the on-page check", () => {
     expect(await worker.getSiteCheck(locationId)).toBeNull();
   });
 
-  it("does not fail the scan when the site is down or the fetch throws", async () => {
-    expect(await run(page(null))).toBe("succeeded");
+  it("does not fail the scan when the site is gone or the fetch throws", async () => {
+    expect(await run(async () => ({ ...(await page(null)()), status: 404 }))).toBe("succeeded");
     expect(await siteRules()).toEqual(["site:reachable"]);
 
+    // A fetch that throws proves nothing about the site, so the earlier finding is dropped
+    // rather than repeated, and nothing new is claimed.
     expect(
       await run(async () => {
         throw new Error("connection reset");
       }),
     ).toBe("succeeded");
-    expect(await siteRules()).toEqual(["site:reachable"]);
+    expect(await siteRules()).toEqual([]);
+    expect((await worker.getSiteCheck(locationId))?.checks).toEqual([]);
   });
 
   it("says nothing about the site when it is not asked to look", async () => {
