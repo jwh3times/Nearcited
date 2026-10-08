@@ -56,6 +56,8 @@ export interface Store {
   listLocations(organizationId: string): Promise<Location[]>;
   createLocation(organizationId: string, input: LocationInput): Promise<Location>;
   getLocation(id: string): Promise<Location | null>;
+  /** Replaces every field a user may set. Null when the caller cannot see the location. */
+  updateLocation(id: string, input: LocationInput): Promise<Location | null>;
   deleteLocation(id: string): Promise<boolean>;
 
   listQueries(locationId: string): Promise<TrackedQuery[]>;

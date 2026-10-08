@@ -229,6 +229,7 @@ organization reads as missing and returns 404. Payloads are defined in
 | `GET /api/organizations/:organizationId/locations` | List an organization's locations. |
 | `POST /api/organizations/:organizationId/locations` | Add a location. |
 | `GET /api/locations/:id` | One location with its queries, latest scan, rates over recent scans, the sites those answers cited, the surfaces being checked, recommendations, the latest website check and the action plan. |
+| `PATCH /api/locations/:id` | Replace a location's details with a whole location body, as when adding one; a field left out goes back to blank or its default. |
 | `DELETE /api/locations/:id` | Delete a location and its history. |
 | `POST /api/locations/:id/queries` | Add a prompt or keyword to track. Adding one that was retired restores it. |
 | `PATCH /api/queries/:id` | Retire a tracked query, or restore it. Its results are kept. |
@@ -279,7 +280,7 @@ reader gets one audit only by its token, through the `get_audit()` function.
   scheduler, the audit runner, the site fetch (what it refuses and how it follows redirects), and
   the mock providers.
 - **`apps/web`**: the logic that lays results out as a grid, the logic behind the chart of the
-  score over time, and the logic behind the audit page.
+  score over time, the logic behind the audit page, and the logic that fills the location edit form.
 - **`scripts`**: `pnpm test:scripts` runs the tests for the private-companion, tuning,
   audit-creation and branch-sync scripts.
 
@@ -420,7 +421,6 @@ pnpm sync:agents
 - **Inviting teammates.** The schema and policies support members and roles; there is no API or
   screen for it.
 - **Switching organizations.** A user in several organizations always sees the first.
-- **Editing a location** after creating it.
 
 More detail, and the open product questions, in [docs/architecture.md](docs/architecture.md).
 What is planned, in order, is in [Build order](https://github.com/jwh3times/Nearcited/issues/15).

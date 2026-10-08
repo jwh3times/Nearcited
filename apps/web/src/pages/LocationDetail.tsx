@@ -11,6 +11,7 @@ import { type FormEvent, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { ActionPlan } from "../components/ActionPlan";
 import { ErrorNote } from "../components/ErrorNote";
+import { LocationEditor } from "../components/LocationEditor";
 import { ScoreTrend } from "../components/ScoreTrend";
 import { SiteChecklist } from "../components/SiteChecklist";
 import { Sources } from "../components/Sources";
@@ -266,6 +267,15 @@ export function LocationDetail() {
           <Recommendations items={open} onChanged={refresh} />
         </section>
       )}
+
+      <section className="section">
+        <h2>Location details</h2>
+        <p className="muted">
+          The name, address and website on file. Scans ask about the business by this name, in this
+          city.
+        </p>
+        <LocationEditor location={location} onSaved={refresh} />
+      </section>
 
       <section className="section">
         <h2>Delete this location</h2>

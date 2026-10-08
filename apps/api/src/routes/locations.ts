@@ -2,6 +2,7 @@ import {
   buildActionPlan,
   CITING_SURFACES,
   type LocationDetail,
+  LocationInputSchema,
   poolWindow,
   RecommendationUpdateSchema,
   SCAN_WINDOW,
@@ -71,6 +72,15 @@ locationRoutes.get("/locations/:id", async (c) => {
     recommendations,
   };
   return c.json(detail);
+});
+
+// The body is a whole location, as on create: a field left out goes back to blank or its default.
+locationRoutes.patch("/locations/:id", async (c) => {
+  const id = uuidParam(c, "id", "Location");
+  const input = await parseJson(c, LocationInputSchema);
+  const updated = await c.get("store").updateLocation(id, input);
+  if (!updated) throw notFound("Location");
+  return c.json(updated);
 });
 
 locationRoutes.delete("/locations/:id", async (c) => {

@@ -128,6 +128,17 @@ export function createSupabaseStore(db: SupabaseClient): Store {
       return data ? LocationSchema.parse(data) : null;
     },
 
+    async updateLocation(id, input) {
+      const { data, error } = await db
+        .from("locations")
+        .update(input)
+        .eq("id", id)
+        .select(LOCATION_COLUMNS)
+        .maybeSingle();
+      if (error) fail("Update location", error);
+      return data ? LocationSchema.parse(data) : null;
+    },
+
     async deleteLocation(id) {
       const { data, error } = await db.from("locations").delete().eq("id", id).select("id");
       if (error) fail("Delete location", error);
