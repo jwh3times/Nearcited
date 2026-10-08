@@ -315,6 +315,15 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
       if (audit) Object.assign(audit, { status: "failed", error });
     },
 
+    async failStaleAudits(olderThan, error) {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      const stale = db.audits.filter(
+        (audit) => audit.status === "queued" && audit.created_at < olderThan,
+      );
+      for (const audit of stale) Object.assign(audit, { status: "failed", error });
+      return stale.length;
+    },
+
     async markScanRunning(id, sampleData) {
       const scan = requireScan(id);
       if (inFlight(scan.location_id, id))
