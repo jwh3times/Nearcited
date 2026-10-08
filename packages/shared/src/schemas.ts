@@ -287,7 +287,10 @@ export type SiteCheck = z.infer<typeof SiteCheckSchema>;
 export const ScanWindowSchema = z.object({
   /** The most scans a rate is counted over. */
   size: z.number().int().positive(),
-  /** How many scans it is counted over so far. Fewer than `size` for a new location. */
+  /**
+   * How many scans it is counted over so far. Fewer than `size` for a new location, and a scan
+   * that asked only prompts since retired is not counted.
+   */
   scans: z.number().int().nonnegative(),
   cells: z.array(
     z.object({

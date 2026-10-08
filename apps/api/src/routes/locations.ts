@@ -6,6 +6,7 @@ import {
   poolWindow,
   RecommendationUpdateSchema,
   SCAN_WINDOW,
+  scansCounted,
   summarizeSources,
   summarizeWindow,
   TrackedQueryInputSchema,
@@ -52,7 +53,7 @@ locationRoutes.get("/locations/:id", async (c) => {
     latest_scan: latest ? { ...latest, results: await store.listScanResults(latest.id) } : null,
     window: {
       size: SCAN_WINDOW,
-      scans: recent.length,
+      scans: scansCounted(recent),
       cells: summarizeWindow(recent),
       answers: answers.length,
       sources: summarizeSources(answers, location.website),

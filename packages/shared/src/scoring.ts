@@ -98,6 +98,17 @@ export function poolWindow<T extends WindowCheck>(scans: readonly (readonly T[])
   return scans.flat().filter((check) => current.has(cellKey(check)));
 }
 
+/**
+ * How many of the scans the pool draws on. A scan that asked only prompts since retired adds
+ * nothing to it, so saying "the last five scans" over two answers would overstate the evidence.
+ */
+export function scansCounted(scans: readonly (readonly WindowCheck[])[]): number {
+  const [newest] = scans;
+  if (!newest) return 0;
+  const current = new Set(newest.map(cellKey));
+  return scans.filter((scan) => scan.some((check) => current.has(cellKey(check)))).length;
+}
+
 /** A count per cell, in the order the newest scan lists them. */
 export function summarizeWindow(scans: readonly (readonly WindowCheck[])[]): WindowCell[] {
   const cells = new Map<string, WindowCell>();

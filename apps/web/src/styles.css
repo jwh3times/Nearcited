@@ -702,6 +702,9 @@ mark {
 .history-hit {
   background: var(--mark);
   border-color: var(--ink);
+  /* Browsers drop backgrounds in print, which would turn every hit into a miss on paper. */
+  print-color-adjust: exact;
+  -webkit-print-color-adjust: exact;
 }
 
 /* The shareable audit: the one page a stranger sees. */

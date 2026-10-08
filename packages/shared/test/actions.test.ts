@@ -168,6 +168,19 @@ describe("the listings steps", () => {
     ]);
   });
 
+  it("on a tie, lists first the competitors whose own site was read, so there is a link to follow", () => {
+    const actions = plan({
+      sources: [source("mythosinteractive.example", 1, 0)],
+      competitors: ["Big Pixel", "Centerline", "Doug Brown", "Mythos Interactive"].map((name) => ({
+        name,
+        count: 1,
+      })),
+    });
+    expect(
+      actions.find((action) => action.id === "competitors")?.items.map((item) => item.label),
+    ).toEqual(["Mythos Interactive", "Big Pixel", "Centerline"]);
+  });
+
   it("lists at most five sites and three competitors", () => {
     const many = Array.from({ length: 8 }, (_, index) =>
       source(`dir${index}.example`, 9 - index, 0),
