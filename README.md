@@ -262,15 +262,15 @@ The migrations in `supabase/migrations/` define everything.
 | Table | Holds |
 | --- | --- |
 | `organizations` | The tenant. Every other row belongs to one. Holds its usage limits (locations, active prompts per location, manual scans a day) and its plan settings (how many days apart it is scanned, and on which surfaces). |
-| `platform_roles` | What an account is to the product as a whole (`operator` or `test`). A user reads only their own row; rows are written with the secret key. An organization made by a `test` account is flagged `is_test` and scans on generated data. |
+| `platform_roles` | What an account is to the product as a whole (`operator` or `test`). A user reads only their own row, the operator reads all; rows are written with the secret key. An organization made by a `test` account is flagged `is_test` and scans on generated data. |
 | `memberships` | Which users belong to an organization, as `owner`, `admin` or `member`. |
 | `locations` | A business at an address. Its `scan_frequency` can pause it (`off`) or ask for less than the organization's cadence (`weekly`), never more. |
 | `tracked_queries` | The prompts and keywords checked for a location. A retired one is kept, with its results, but not scanned. |
 | `scans` | One run for a location: its trigger, status, whether it ran on sample data, the score over the window it closed, and the check of the location's website it made. |
 | `scan_results` | One row per query and surface: named or not, position, and who else was named. |
 | `recommendations` | What a scan suggested, and whether the user has dealt with it. |
-| `audits` | A shareable audit: the business, its prompts, the results as each prompt finishes, and its token, expiry and revocation. Belongs to no organization, and no API role can read it directly. |
-| `provider_usage` | What the providers used for a scan or audit prompt, per surface and model: calls, input, cached input and output tokens, searches. Outlives the scan, audit or organization it describes. Written only by the Worker; no API role can read it. Not priced or shown anywhere yet. |
+| `audits` | A shareable audit: the business, its prompts, the results as each prompt finishes, and its token, expiry and revocation. Belongs to no organization; only the operator can read it through the API. |
+| `provider_usage` | What the providers used for a scan or audit prompt, per surface and model: calls, input, cached input and output tokens, searches. Outlives the scan, audit or organization it describes. Written only by the Worker; only the operator can read it through the API. Not priced or shown anywhere yet. |
 
 Usage limits are enforced by database triggers, so they hold for the API and for anyone calling
 the database directly. Going over one returns 409 `limit_reached` with a message that names the
@@ -281,7 +281,7 @@ insert one kind of scan row, a queued manual scan for a location they can see; r
 and recommendations are written only by the worker, through `complete_scan()`.
 
 `audits` is the exception to "every row belongs to an organization". Its table is closed to
-signed-in and anonymous users alike; the Worker and the owner's script use the secret key, and a
+signed-in and anonymous users alike, except that the operator can read it; the Worker and the owner's script use the secret key, and a
 reader gets one audit only by its token, through the `get_audit()` function.
 
 ## Tests
@@ -291,7 +291,7 @@ reader gets one audit only by its token, through the `get_audit()` function.
   on-page check and the action plan.
 - **`packages/db`**: applies the real migrations to in-process Postgres (PGlite) and checks, as
   different users, that one organization cannot read or write another's rows, that users cannot
-  forge scan results or grant themselves a platform role, and that worker-only functions and the `provider_usage` table are closed to them. No Docker needed. It
+  forge scan results or grant themselves a platform role, that worker-only functions and the `audits` and `provider_usage` tables are closed to them, and that the operator reads every organization but changes none. No Docker needed. It
   also checks `private/tuning.json` against the tuning schema where that file exists.
 - **`apps/api`**: every route against an in-memory store, the scan runner (success, retry,
   permanent failure, reporting, scoring with given weights, refusing live scans on default tuning),
