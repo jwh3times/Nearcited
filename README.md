@@ -113,7 +113,8 @@ apps/
 packages/
   shared/       Zod schemas for every wire type, plus the logic that decides whether a business
                 was named, the visibility score, the rule-based recommendations, the audit,
-                cited-source and on-page check logic, and the action plan.
+                cited-source and on-page check logic, the action plan, and the checks on what a form accepts
+                (phone, website, postal code, country).
   db/           Tests that run the migrations in in-process Postgres and attack the policies.
 supabase/
   migrations/   Schema, row-level security, and the SQL functions the Worker calls.
@@ -231,13 +232,13 @@ organization reads as missing and returns 404. Payloads are defined in
 | `GET /api/health` | Liveness check. No sign-in needed. |
 | `GET /api/audits/:token` | A shareable audit, for anyone holding its token. 404 if the token is unknown, revoked or past its 30 days. Never cached and not indexed. |
 | `GET /api/me` | The signed-in user and their organizations. |
-| `POST /api/organizations` | Create an organization; the caller becomes its owner. |
+| `POST /api/organizations` | Create an organization; the caller becomes its owner. The name needs a letter. |
 | `GET /api/organizations/:organizationId/locations` | List an organization's locations. |
-| `POST /api/organizations/:organizationId/locations` | Add a location. |
+| `POST /api/organizations/:organizationId/locations` | Add a location. The phone is stored as E.164 in the location's country, the website with `https://`, and the postal code, country, place ID, name and city are checked; a bad value answers 422. |
 | `GET /api/locations/:id` | One location with its queries, latest scan, rates over recent scans, the sites those answers cited, the surfaces being checked, recommendations, the latest website check and the action plan. |
-| `PATCH /api/locations/:id` | Replace a location's details with a whole location body, as when adding one; a field left out goes back to blank or its default. |
+| `PATCH /api/locations/:id` | Replace a location's details with a whole location body, as when adding one; a field left out goes back to blank or its default. The same checks as adding. |
 | `DELETE /api/locations/:id` | Delete a location and its history. |
-| `POST /api/locations/:id/queries` | Add a prompt or keyword to track. Adding one that was retired restores it. |
+| `POST /api/locations/:id/queries` | Add a prompt or keyword to track; the text needs letters (three for a prompt). Adding one that was retired restores it. |
 | `PATCH /api/queries/:id` | Retire a tracked query, or restore it. Its results are kept. |
 | `PATCH /api/recommendations/:id` | Mark a recommendation open, done or dismissed. |
 | `GET /api/locations/:id/scans` | The last 30 scans for a location. |

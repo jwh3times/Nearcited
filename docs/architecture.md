@@ -388,6 +388,12 @@ input against it and parses database rows through it; the web client parses ever
 through it. Field names stay snake_case from Postgres to React so there is no mapping layer to
 drift.
 
+Input checks live there too (`packages/shared/src/inputs.ts`): a phone number is stored in E.164
+form, read in the location's own country; a website gets `https://` if typed without a scheme and
+must be a public web address; the postal code is exact for US and CA and loosely shaped elsewhere.
+The web app runs the same checks beside each field. Stored rows are not rewritten, so one that no
+longer validates is corrected the next time its Settings are saved.
+
 ## Limits to design around
 
 - **Each provider call is a subrequest**, and a scan makes (queries x surfaces) of them in one
