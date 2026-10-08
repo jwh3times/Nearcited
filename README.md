@@ -57,6 +57,12 @@ free of `noindex`, does it have text, does that text state the business name and
 it carry structured business details. Each failed check is a recommendation that clears when a
 later scan finds it fixed. The shareable audit shows the whole checklist. The fetch identifies
 itself as `NearcitedBot` and is skipped while the deployment serves sample data.
+
+The location page and the audit turn all of that into an action plan, "What to do next": fix
+what keeps the website from being read, get listed on the sites the assistants read without
+naming the business, keep the listings that did lead to its name accurate, and see who is
+recommended instead. Every step is composed by rule from the counts and checks above and says
+which; none is written by a model.
 How often a location is scanned, and on which assistants, are settings on its organization.
 
 The location page charts the score over time, and each cell of the results grid carries a strip
@@ -221,7 +227,7 @@ organization reads as missing and returns 404. Payloads are defined in
 | `POST /api/organizations` | Create an organization; the caller becomes its owner. |
 | `GET /api/organizations/:organizationId/locations` | List an organization's locations. |
 | `POST /api/organizations/:organizationId/locations` | Add a location. |
-| `GET /api/locations/:id` | One location with its queries, latest scan, rates over recent scans, the sites those answers cited, the surfaces being checked, and recommendations. |
+| `GET /api/locations/:id` | One location with its queries, latest scan, rates over recent scans, the sites those answers cited, the surfaces being checked, recommendations, the latest website check and the action plan. |
 | `DELETE /api/locations/:id` | Delete a location and its history. |
 | `POST /api/locations/:id/queries` | Add a prompt or keyword to track. Adding one that was retired restores it. |
 | `PATCH /api/queries/:id` | Retire a tracked query, or restore it. Its results are kept. |
@@ -240,7 +246,7 @@ The migrations in `supabase/migrations/` define everything.
 | `memberships` | Which users belong to an organization, as `owner`, `admin` or `member`. |
 | `locations` | A business at an address. Its `scan_frequency` can pause it (`off`) or ask for less than the organization's cadence (`weekly`), never more. |
 | `tracked_queries` | The prompts and keywords checked for a location. A retired one is kept, with its results, but not scanned. |
-| `scans` | One run for a location: its trigger, status, whether it ran on sample data, and the score over the window it closed. |
+| `scans` | One run for a location: its trigger, status, whether it ran on sample data, the score over the window it closed, and the check of the location's website it made. |
 | `scan_results` | One row per query and surface: named or not, position, and who else was named. |
 | `recommendations` | What a scan suggested, and whether the user has dealt with it. |
 | `audits` | A shareable audit: the business, its prompts, the results as each prompt finishes, and its token, expiry and revocation. Belongs to no organization, and no API role can read it directly. |

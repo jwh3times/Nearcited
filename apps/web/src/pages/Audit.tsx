@@ -1,6 +1,7 @@
 import { type AuditCell, type PublicAudit, SURFACE_LABELS } from "@nearcited/shared";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect } from "react";
+import { ActionPlan } from "../components/ActionPlan";
 import { SiteChecklist } from "../components/SiteChecklist";
 import { Sources } from "../components/Sources";
 import { SourceTable } from "../components/SourceTable";
@@ -155,6 +156,18 @@ function Report({ audit }: { audit: PublicAudit }) {
               </table>
             </div>
           </section>
+
+          {audit.actions.length > 0 && (
+            <section className="section">
+              <h2>What to do next</h2>
+              <p className="muted audit-note">
+                Worked out from the answers and from a check of the website, both set out below.
+                Nothing here is guaranteed to change an answer; each step says what was seen, so a
+                later report can show whether it moved.
+              </p>
+              <ActionPlan actions={audit.actions} />
+            </section>
+          )}
 
           {competitors.length > 0 && (
             <section className="section">

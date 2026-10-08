@@ -303,6 +303,19 @@ export const ScanWindowSchema = z.object({
 });
 export type ScanWindow = z.infer<typeof ScanWindowSchema>;
 
+export const ACTION_IDS = ["fix_website", "get_listed", "keep_listings", "competitors"] as const;
+
+/** One step of the action plan: what to do, why, and the evidence for it. */
+export const ActionSchema = z.object({
+  id: z.enum(ACTION_IDS),
+  title: z.string(),
+  /** The observation the action rests on, with its counts. */
+  summary: z.string(),
+  /** The sites, checks or businesses the action is about. `url` is a page an answer cited. */
+  items: z.array(z.object({ label: z.string(), detail: z.string(), url: z.string().nullable() })),
+});
+export type Action = z.infer<typeof ActionSchema>;
+
 export const LocationDetailSchema = z.object({
   location: LocationSchema,
   queries: z.array(TrackedQuerySchema),
@@ -311,6 +324,10 @@ export const LocationDetailSchema = z.object({
   /** The surfaces a scan checks right now. The rest have no provider set up. */
   surfaces: z.array(SurfaceSchema),
   recommendations: z.array(RecommendationSchema),
+  /** The on-page check from the latest successful scan. Null when that scan made none. */
+  site: SiteCheckSchema.nullable(),
+  /** What the evidence in the window says to do next, most direct first. */
+  actions: z.array(ActionSchema),
 });
 export type LocationDetail = z.infer<typeof LocationDetailSchema>;
 

@@ -160,9 +160,40 @@ describe("toPublicAudit", () => {
     ).toEqual(site);
   });
 
+  it("builds the action plan from the report's own evidence", () => {
+    const unnamed = buildAuditCell(
+      "chatgpt",
+      [1, 2].map(() =>
+        finding(null, {
+          competitors: ["Tony's Slice House"],
+          cited_urls: ["https://reviews.example/a"],
+        }),
+      ),
+    );
+    const audit = toPublicAudit({ ...stored, parts: { "0": { cells: [unnamed, unnamed] } } });
+    expect(audit.actions.map((action) => action.id)).toEqual([
+      "fix_website",
+      "get_listed",
+      "competitors",
+    ]);
+    expect(audit.actions[0]?.summary).toContain("None of the 4 answers cited joes.example");
+    expect(audit.actions[1]?.items).toEqual([
+      {
+        label: "reviews.example",
+        detail: "Cited in 4 of 4 answers",
+        url: "https://reviews.example/a",
+      },
+    ]);
+    expect(audit.actions[2]?.items[0]).toMatchObject({
+      label: "Tony's Slice House",
+      detail: "Named in 4 of 4 answers",
+    });
+  });
+
   it("passes on nothing the page does not show", () => {
     expect(Object.keys(toPublicAudit(stored)).sort()).toEqual(
       [
+        "actions",
         "business_name",
         "city",
         "created_at",

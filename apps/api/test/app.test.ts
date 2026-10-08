@@ -247,6 +247,60 @@ describe("organizations and locations", () => {
     });
   });
 
+  it("returns the action plan and the website check from the latest successful scan", async () => {
+    const { location, query } = await seed();
+    const worker = memoryStore(db, null);
+    const site = {
+      url: "https://joes.example/",
+      status: 200,
+      checks: [
+        { id: "reachable" as const, passed: true },
+        { id: "text_content" as const, passed: false },
+      ],
+      blocked_crawlers: [],
+      words: 12,
+    };
+    const answer = (mentioned: boolean, cited: string) => ({
+      tracked_query_id: query.id,
+      surface: "chatgpt" as const,
+      mentioned,
+      position: mentioned ? 1 : null,
+      competitors: ["Tony's Slice House"],
+      cited_urls: [cited],
+      answer_excerpt: null,
+    });
+    for (const result of [
+      answer(false, "https://yelp.example/raleigh"),
+      answer(false, "https://yelp.example/raleigh"),
+      answer(true, "https://maps.example/joes"),
+    ]) {
+      const scan = await worker.createScan(location.id, "scheduled", null);
+      await worker.markScanRunning(scan.id, true);
+      await worker.completeScan(scan.id, {
+        score: 0,
+        results: [result],
+        recommendations: [],
+        site,
+      });
+    }
+
+    const detail = LocationDetailSchema.parse(
+      await (await call(alice, "GET", `/locations/${location.id}`)).json(),
+    );
+    expect(detail.site).toEqual(site);
+    expect(
+      detail.actions.map((action) => [action.id, action.items.map((item) => item.label)]),
+    ).toEqual([
+      ["get_listed", ["yelp.example"]],
+      ["keep_listings", ["maps.example"]],
+      ["competitors", ["Tony's Slice House"]],
+    ]);
+
+    // A stranger sees neither.
+    expect((await call(bob, "GET", `/locations/${location.id}`)).status).toBe(404);
+    expect(await memoryStore(db, bob).getSiteCheck(location.id)).toBeNull();
+  });
+
   it("hides another organization's location as a 404, for reads and writes", async () => {
     const { location, query } = await seed();
     for (const [method, path, body] of [

@@ -140,6 +140,7 @@ export async function runScan(scanId: string, deps: RunScanDeps): Promise<ScanOu
       score,
       results,
       recommendations: deriveRecommendations(location, pooled, site),
+      site,
     });
 
     if (scan.trigger === "scheduled" && deps.notify) {

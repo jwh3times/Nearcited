@@ -68,6 +68,19 @@ describe("summarizeSources", () => {
   });
 });
 
+describe("the business's own site", () => {
+  it("is kept even when the list is cut short of it", () => {
+    const answers = [
+      answer(false, "https://a.example", "https://b.example", "https://joes.example"),
+      answer(false, "https://a.example", "https://b.example"),
+    ];
+    expect(summarizeSources(answers, "joes.example", 1).map((site) => site.host)).toEqual([
+      "a.example",
+      "joes.example",
+    ]);
+  });
+});
+
 describe("mergeSources", () => {
   it("adds up the same site from separate sets of answers", () => {
     const first = summarizeSources([answer(false, "https://reviews.example/a")], null);

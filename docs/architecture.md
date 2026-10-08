@@ -245,6 +245,29 @@ ports only, no IP addresses or internal names, every redirect checked the same w
 followed (at most four), an eight second timeout, and the body cut off at 600 kB. It sends
 `User-Agent: NearcitedBot/1.0` and makes at most ten requests.
 
+## The action plan
+
+`buildActionPlan` (`packages/shared/src/actions.ts`) turns the evidence into an ordered list of
+at most four steps. The location route calls it over the scan window and `toPublicAudit` calls it
+over an audit's samples, so both pages show the same plan from the same code.
+
+| Step | Shown when | Evidence it carries |
+| --- | --- | --- |
+| `fix_website` | The business's site was cited in no answer (of at least four), or its on-page check failed something. | The failed checks, as the reasons, each with its fix. |
+| `get_listed` | A site was cited in at least two answers and none of them named the business. | Up to five such sites, with the page that was read. |
+| `keep_listings` | A site was cited in answers that did name the business. | Up to five, most often first. |
+| `competitors` | The answers named other businesses. | The three named most, linked to their own site when it was one of the pages read. |
+
+Steps are composed by rule, never by a model, and each states the observation it rests on.
+A site whose address contains a named competitor's name run together is treated as that
+competitor's own, so nobody is told to get listed on a rival's website; that match is a guess and
+is used for nothing else.
+
+A location's on-page check is kept in `scans.site_check`, written by the worker just before it
+completes the scan, so the page can show the whole checklist and the plan can give reasons. The
+recommendations a scan stores are unchanged; the location page leaves the ones the plan already
+covers (`source:*`, `site:*`, `own_site_uncited`) out of its list.
+
 ## Shareable audits
 
 An audit is a one-off report for a business with no account (`packages/shared/src/audit.ts`). It

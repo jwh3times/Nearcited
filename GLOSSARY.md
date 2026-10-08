@@ -17,3 +17,5 @@ system works; this file only settles vocabulary.
 - **On-page check**: reading a business's own home page as an assistant's crawler would, without
   running scripts, and reporting a fixed list of pass or fail checks. See "The on-page check" in
   `docs/architecture.md`.
+- **Action plan**: the ordered steps shown as "What to do next", composed by rule from the sources
+  and the on-page check. A step states an observation; it does not promise a result.

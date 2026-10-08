@@ -1,4 +1,5 @@
 import {
+  buildActionPlan,
   CITING_SURFACES,
   type LocationDetail,
   poolWindow,
@@ -29,16 +30,20 @@ locationRoutes.get("/locations/:id", async (c) => {
   const store = c.get("store");
   const location = await requireLocation(store, uuidParam(c, "id", "Location"));
 
-  const [organization, queries, [latest], recommendations, recent] = await Promise.all([
+  const [organization, queries, [latest], recommendations, recent, site] = await Promise.all([
     store.getOrganization(location.organization_id),
     store.listQueries(location.id),
     store.listScans(location.id, 1),
     store.listRecommendations(location.id),
     store.listRecentResults(location.id, SCAN_WINDOW, usesSampleData(c.env)),
+    store.getSiteCheck(location.id),
   ]);
 
   // The same pool the rates are counted over, narrowed to the answers that list their sources.
   const answers = poolWindow(recent).filter((result) => CITING_SURFACES.includes(result.surface));
+
+  // Every site, so the plan never calls the business's own site uncited because a list was cut.
+  const sources = summarizeSources(answers, location.website, Number.POSITIVE_INFINITY);
 
   const detail: LocationDetail = {
     location,
@@ -51,6 +56,17 @@ locationRoutes.get("/locations/:id", async (c) => {
       answers: answers.length,
       sources: summarizeSources(answers, location.website),
     },
+    site,
+    actions: buildActionPlan({
+      name: location.name,
+      website: location.website,
+      answers: answers.length,
+      sources,
+      site,
+      competitors: answers.flatMap((answer) =>
+        answer.competitors.map((name) => ({ name, count: 1 })),
+      ),
+    }),
     surfaces: planSurfaces(checkedSurfaces(c.env), organization?.surfaces ?? null),
     recommendations,
   };

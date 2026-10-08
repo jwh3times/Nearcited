@@ -6,6 +6,7 @@ import type {
   Recommendation,
   Scan,
   ScanResult,
+  SiteCheck,
   TrackedQuery,
 } from "@nearcited/shared";
 import { type Store, StoreError } from "../src/store/types";
@@ -28,6 +29,8 @@ export interface MemoryDb {
   /** IDs of scans a member asked for, which is what the manual-scan limit counts. */
   requestedBy: Set<string>;
   audits: MemoryAudit[];
+  /** The on-page check each scan made, by scan ID. */
+  siteChecks: Map<string, SiteCheck | null>;
 }
 
 export interface MemoryAudit extends AuditJob {
@@ -50,6 +53,7 @@ export function createMemoryDb(): MemoryDb {
     emails: new Map(),
     requestedBy: new Set(),
     audits: [],
+    siteChecks: new Map(),
   };
 }
 
@@ -323,8 +327,17 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
       });
     },
 
+    async getSiteCheck(locationId) {
+      if (!seesLocation(locationId)) return null;
+      const latest = db.scans
+        .filter((scan) => scan.location_id === locationId && scan.status === "succeeded")
+        .sort((a, b) => (b.finished_at ?? "").localeCompare(a.finished_at ?? ""))[0];
+      return (latest && db.siteChecks.get(latest.id)) ?? null;
+    },
+
     async completeScan(id, outcome) {
       const scan = requireScan(id);
+      db.siteChecks.set(id, outcome.site ?? null);
       Object.assign(scan, {
         status: "succeeded",
         visibility_score: outcome.score,

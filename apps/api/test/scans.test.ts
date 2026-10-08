@@ -521,6 +521,19 @@ describe("the on-page check", () => {
     expect(await siteRules()).toEqual([]);
   });
 
+  it("keeps the whole check with the scan, for the checklist and the action plan", async () => {
+    await run(page(`<p>Joe's Pizza. ${words}</p>`));
+    const kept = await worker.getSiteCheck(locationId);
+    expect(kept?.checks.filter((check) => !check.passed).map((check) => check.id)).toEqual([
+      "names_city",
+      "structured_data",
+    ]);
+
+    // A later scan that does not look replaces it with nothing, rather than leaving a stale one.
+    await run();
+    expect(await worker.getSiteCheck(locationId)).toBeNull();
+  });
+
   it("does not fail the scan when the site is down or the fetch throws", async () => {
     expect(await run(page(null))).toBe("succeeded");
     expect(await siteRules()).toEqual(["site:reachable"]);
