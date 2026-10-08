@@ -112,6 +112,11 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
       return db.organizations.find((o) => o.id === id && seesOrg(id)) ?? null;
     },
 
+    async renameOrganization(id, name) {
+      const organization = db.organizations.find((o) => o.id === id && seesOrg(id));
+      return organization ? Object.assign(organization, { name }) : null;
+    },
+
     async createOrganization(name) {
       if (userId === null) throw new StoreError("forbidden", "not authenticated");
       const organization: Organization = {
