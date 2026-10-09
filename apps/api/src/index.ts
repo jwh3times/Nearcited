@@ -6,6 +6,7 @@ import {
 } from "@nearcited/shared";
 import { createApp } from "./app";
 import { runAuditPart } from "./audits/runner";
+import { authenticateWithSupabase } from "./auth";
 import { buildScanReportEmail, sendEmail } from "./email/report";
 import type { Env } from "./env";
 import { createProviders, liveScansUnavailable, usesSampleData } from "./providers";
@@ -16,7 +17,15 @@ import { fetchSite } from "./site/fetch";
 import { createAdminClient, createSupabaseStore } from "./store/supabase";
 import { activeTuning } from "./tuning";
 
-const app = createApp();
+const app = createApp({
+  authenticate: authenticateWithSupabase,
+  deployment: {
+    models: {
+      chatgpt: activeTuning.tuning.chatgpt.model,
+      claude: activeTuning.tuning.claude.model,
+    },
+  },
+});
 
 /** The schedule that only sweeps. Any other trigger, including a manual test, also queues scans. */
 const SWEEP_ONLY_CRON = "*/15 * * * *";

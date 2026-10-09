@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev --test-scheduled",
-    "deploy": "wrangler deploy",
+    "deploy": "wrangler deploy ${COMMIT:+--var COMMIT:$COMMIT}",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },

@@ -95,6 +95,11 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
     expect(location).toMatchObject({ organization_id: organization.id, last_scanned_at: null });
     expect(await aliceStore.listLocations(organization.id)).toEqual([location]);
     expect(await aliceStore.getLocation(location.id)).toEqual(location);
+    // The operator's reads return what the caller may read: for a member, only their own.
+    expect(await aliceStore.getPlatformRole(alice)).toBeNull();
+    expect((await aliceStore.listEveryOrganization()).map((o) => o.id)).toEqual([organization.id]);
+    expect(await aliceStore.listEveryLocation()).toEqual([location]);
+    expect((await bobStore.listEveryLocation()).map((l) => l.id)).not.toContain(location.id);
 
     expect(await bobStore.getLocation(location.id)).toBeNull();
     expect(await bobStore.listLocations(organization.id)).toEqual([]);
@@ -147,6 +152,12 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
     await expect(worker.createScan(location.id, "scheduled", null)).rejects.toMatchObject({
       kind: "conflict",
     });
+    expect(await aliceStore.countActiveQueries()).toMatchObject({ [location.id]: 1 });
+    expect(await aliceStore.listScansSince(new Date(Date.now() - 3_600_000).toISOString())).toEqual(
+      [expect.objectContaining({ id: scan.id, status: "queued", site_check: null })],
+    );
+    expect(await bobStore.listScansSince("2000-01-01T00:00:00Z")).toEqual([]);
+
     // What a scan used is the worker's to record. A member cannot, even for their own scan.
     const used = {
       surface: "chatgpt" as const,
@@ -340,6 +351,10 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
       await worker.failStaleAudits(new Date(Date.now() + 60_000).toISOString(), "unfinished"),
     ).toBe(1);
     expect(await visitor.getAuditByToken(audit.token)).toMatchObject({ status: "failed" });
+
+    // Listing audits answers the worker, and would answer the operator. Nobody else.
+    expect((await worker.listEveryAudit()).map((row) => row.id)).toContain(audit.id);
+    expect(await bobStore.listEveryAudit()).toEqual([]);
 
     await worker.failAudit(audit.id, "upstream 503");
     expect(await visitor.getAuditByToken(audit.token)).toMatchObject({ status: "failed" });

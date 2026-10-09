@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import type { Page } from "@playwright/test";
 import { API_URL, PUBLISHABLE_KEY, SESSION_KEY, SUPABASE_URL } from "./stack";
 
@@ -81,6 +83,27 @@ export async function api<T = unknown>(
   return (text ? JSON.parse(text) : null) as T;
 }
 
+/**
+ * Gives an account a platform role, the way the operator does: with the secret key. Local stack
+ * only. A deployment's roles are the operator's to set, never a test's.
+ */
+export async function grantRole(account: Account, role: "operator" | "test"): Promise<void> {
+  if (process.env.E2E_APP_URL) throw new Error("Roles are not granted against a deployment.");
+  const vars = readFileSync(join(import.meta.dirname, "../../api/.dev.vars"), "utf8");
+  const secretKey = /^SUPABASE_SECRET_KEY=(.*)$/m.exec(vars)?.[1] ?? "";
+  const userId = (account.session.user as { id: string } | undefined)?.id;
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/platform_roles`, {
+    method: "POST",
+    headers: {
+      apikey: secretKey,
+      Authorization: `Bearer ${secretKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ user_id: userId, role }),
+  });
+  if (!response.ok) throw new Error(`Could not grant ${role}: status ${response.status}.`);
+}
+
 interface Scene {
   organization: { id: string; name: string };
   location: { id: string; name: string };
@@ -90,9 +113,12 @@ interface Scene {
  * An organization with one location, three prompts and one finished scan: what most screens
  * need before there is anything on them to check.
  */
-export async function withScannedLocation(account: Account): Promise<Scene> {
+export async function withScannedLocation(
+  account: Account,
+  organizationName = "Raleigh Pizza Group",
+): Promise<Scene> {
   const organization = await api<Scene["organization"]>(account, "POST", "/organizations", {
-    name: "Raleigh Pizza Group",
+    name: organizationName,
   });
   const location = await api<Scene["location"]>(
     account,

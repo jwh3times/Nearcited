@@ -15,6 +15,8 @@ export interface Env {
   /** "mock" returns generated data and costs nothing. "live" calls real providers. */
   PROVIDER_MODE: string;
   APP_URL: string;
+  /** Optional. The commit this deployment was built from, set at deploy for the operator's view. */
+  COMMIT?: string;
   EMAIL_FROM: string;
   /** Optional. Where a reply to a scan report goes. Without it, replies go to `EMAIL_FROM`. */
   EMAIL_REPLY_TO?: string;

@@ -2,6 +2,7 @@ export * from "./actions";
 export * from "./analysis";
 export * from "./audit";
 export * from "./inputs";
+export * from "./operator";
 export * from "./recommendations";
 export * from "./schemas";
 export * from "./scoring";

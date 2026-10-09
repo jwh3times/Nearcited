@@ -4,6 +4,7 @@ import { type AuthedUser, type Authenticate, authenticateWithSupabase } from "./
 import type { Env } from "./env";
 import { ApiError } from "./errors";
 import { locationRoutes } from "./routes/locations";
+import { operatorRoutes } from "./routes/operator";
 import { organizationRoutes } from "./routes/organizations";
 import { scanRoutes } from "./routes/scans";
 import { createAnonClient, createSupabaseStore } from "./store/supabase";
@@ -11,13 +12,23 @@ import { type Store, StoreError } from "./store/types";
 
 export type AppEnv = {
   Bindings: Env;
-  Variables: { user: AuthedUser; store: Store };
+  Variables: { user: AuthedUser; store: Store; deployment: Deployment };
 };
 
 export interface AppDeps {
   authenticate: Authenticate;
   /** A store for a caller who is not signed in. It can only look an audit up by its token. */
   publicStore?: (env: Env) => Store;
+  /**
+   * What the operator's view says about this deployment. Passed in by the Worker's entry point,
+   * the one place allowed to read the tuning.
+   */
+  deployment?: Deployment;
+}
+
+export interface Deployment {
+  /** The model each assistant is asked with, by surface. */
+  models: Record<string, string>;
 }
 
 /** The token in an audit's link: 64 hex characters. Anything else is not worth a query. */
@@ -54,10 +65,12 @@ export function createApp(deps: AppDeps = { authenticate: authenticateWithSupaba
     if (!identity) throw new ApiError(401, "unauthenticated", "Sign in to continue.");
     c.set("user", identity.user);
     c.set("store", identity.store);
+    c.set("deployment", deps.deployment ?? { models: {} });
     await next();
   });
 
   app.route("/", organizationRoutes);
+  app.route("/", operatorRoutes);
   app.route("/", locationRoutes);
   app.route("/", scanRoutes);
 

@@ -14,6 +14,7 @@ organizationRoutes.get("/me", async (c) => {
     email: user.email,
     organizations: await c.get("store").listOrganizations(),
     sample_data: usesSampleData(c.env),
+    platform_role: await c.get("store").getPlatformRole(user.id),
   };
   return c.json(me);
 });

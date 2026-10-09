@@ -6,6 +6,8 @@ interface ActionPlanProps {
   locationId: string;
   actions: Action[];
   onOpenTab: (tab: Tab) => void;
+  /** True while the operator is reading a customer's account: the ticks are the customer's. */
+  readOnly?: boolean;
 }
 
 /** A step's evidence. The links are pages the assistants cited, which their terms require shown. */
@@ -33,7 +35,7 @@ export function StepItems({ items }: { items: Action["items"] }) {
  * The action plan as a checklist. Each step states the observation it rests on and points to the
  * tab where that evidence is set out. Ticking a step is a note in this browser, nothing more.
  */
-export function ActionPlan({ locationId, actions, onOpenTab }: ActionPlanProps) {
+export function ActionPlan({ locationId, actions, onOpenTab, readOnly }: ActionPlanProps) {
   const [done, toggle] = useDone(locationId);
   const finished = actions.filter((action) => done.has(stepKey(action))).length;
 
@@ -41,25 +43,30 @@ export function ActionPlan({ locationId, actions, onOpenTab }: ActionPlanProps) 
     <>
       <div className="section-head">
         <h2>What to do next</h2>
-        <span className="mono">
-          {finished} of {actions.length} done
-        </span>
+        {!readOnly && (
+          <span className="mono">
+            {finished} of {actions.length} done
+          </span>
+        )}
       </div>
       <ol className="steps">
         {actions.map((action) => {
           const place = ACTION_PLACE[action.id];
-          const ticked = done.has(stepKey(action));
+          // The ticks live in the reader's browser, so the operator has none of the customer's.
+          const ticked = !readOnly && done.has(stepKey(action));
           return (
             <li key={action.id} className={`card step${ticked ? " done" : ""}`}>
-              <button
-                type="button"
-                className="check"
-                aria-pressed={ticked}
-                aria-label={`Mark "${action.title}" as done`}
-                onClick={() => toggle(stepKey(action))}
-              >
-                {ticked ? "✓" : ""}
-              </button>
+              {!readOnly && (
+                <button
+                  type="button"
+                  className="check"
+                  aria-pressed={ticked}
+                  aria-label={`Mark "${action.title}" as done`}
+                  onClick={() => toggle(stepKey(action))}
+                >
+                  {ticked ? "✓" : ""}
+                </button>
+              )}
               <div className="step-body">
                 <div className="step-title">
                   <h3>{action.title}</h3>
