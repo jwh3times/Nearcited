@@ -115,7 +115,7 @@ the cost. The same prompt was run once on two other models the same day:
 | `gpt-6-luna` | $0.033 | The same first two, a different third, and longer business names |
 
 Searches are a flat rate on every model, which puts a floor of 2 to 3 cents under any check. The
-model is a tuning value (`chatgpt.model`). The provider reports each call's usage as it makes it,
+model and how hard it reasons are tuning values (`chatgpt.model`, `chatgpt.effort`). The provider reports each call's usage as it makes it,
 and the runner stores it in `provider_usage` (see "How a scan runs"), so the average can be read
 from that table once real scans run.
 

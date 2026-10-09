@@ -43,10 +43,15 @@ describe("TuningSchema", () => {
     expect(TuningSchema.safeParse(noQuery).success).toBe(false);
   });
 
-  it("requires a ChatGPT model", () => {
-    expect(TuningSchema.safeParse({ ...defaultTuning, chatgpt: { model: " " } }).success).toBe(
-      false,
-    );
+  it("requires a ChatGPT model and a known effort", () => {
+    const chatgpt = (change: object) => ({
+      ...defaultTuning,
+      chatgpt: { ...defaultTuning.chatgpt, ...change },
+    });
+    expect(TuningSchema.safeParse(chatgpt({ model: " " })).success).toBe(false);
+    expect(TuningSchema.safeParse(chatgpt({ effort: "extreme" })).success).toBe(false);
+    expect(TuningSchema.safeParse(chatgpt({ effort: undefined })).success).toBe(false);
+    expect(TuningSchema.safeParse(chatgpt({ effort: "high" })).success).toBe(true);
     const { chatgpt: _chatgpt, ...withoutChatGpt } = defaultTuning;
     expect(TuningSchema.safeParse(withoutChatGpt).success).toBe(false);
   });
