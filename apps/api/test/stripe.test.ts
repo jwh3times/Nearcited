@@ -1,7 +1,7 @@
 import Stripe from "stripe";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createStripePayments } from "../src/billing/stripe";
-import { SignatureError } from "../src/billing/types";
+import { PaymentDeclinedError, SignatureError } from "../src/billing/types";
 
 /**
  * The Stripe side of billing, with Stripe's own library doing the signing and the request
@@ -151,25 +151,59 @@ describe("the account pages", () => {
   });
 });
 
+const END = 1794182400; // 2026-11-09T00:00:00Z
+const START = END - 31 * 86400;
+
+/** A subscription as Stripe returns it: Standard with two extra locations, optionally scheduled. */
+const standardWithTwo = (schedule: unknown = null) => ({
+  id: "sub_1",
+  object: "subscription",
+  customer: "cus_1",
+  status: "active",
+  metadata: { organization_id: organizationId },
+  schedule,
+  items: {
+    object: "list",
+    data: [
+      { id: "si_1", price: { id: "price_standard" }, quantity: 1, current_period_end: END },
+      {
+        id: "si_2",
+        price: { id: "price_standard_location" },
+        quantity: 2,
+        current_period_end: END,
+      },
+    ],
+  },
+});
+
+const currentPhase = {
+  start_date: START,
+  end_date: END,
+  items: [
+    { price: "price_standard", quantity: 1 },
+    { price: "price_standard_location", quantity: 2 },
+  ],
+};
+
+/** A schedule holding a change to Starter for when the period ends. */
+const scheduled = {
+  id: "sub_sched_1",
+  object: "subscription_schedule",
+  status: "active",
+  current_phase: { start_date: START, end_date: END },
+  phases: [
+    currentPhase,
+    {
+      start_date: END,
+      end_date: END + 30 * 86400,
+      items: [{ price: "price_starter", quantity: 1 }],
+    },
+  ],
+};
+
 describe("a subscription", () => {
   it("is read as what decides a plan: whose, its status and what it bills for", async () => {
-    responses.push({
-      status: 200,
-      body: {
-        id: "sub_1",
-        object: "subscription",
-        customer: "cus_1",
-        status: "past_due",
-        metadata: { organization_id: organizationId },
-        items: {
-          object: "list",
-          data: [
-            { id: "si_1", price: { id: "price_standard" }, quantity: 1 },
-            { id: "si_2", price: { id: "price_standard_location" }, quantity: 2 },
-          ],
-        },
-      },
-    });
+    responses.push({ status: 200, body: { ...standardWithTwo(), status: "past_due" } });
     expect(await payments().getSubscription("sub_1")).toEqual({
       id: "sub_1",
       customer_id: "cus_1",
@@ -179,8 +213,22 @@ describe("a subscription", () => {
         { price_id: "price_standard", quantity: 1 },
         { price_id: "price_standard_location", quantity: 2 },
       ],
+      period_end: "2026-11-09T00:00:00.000Z",
+      pending: null,
     });
     expect(requests[0]).toMatchObject({ method: "GET", path: "/v1/subscriptions/sub_1" });
+  });
+
+  it("carries the change that is waiting for the period to end, and only while it waits", async () => {
+    responses.push({ status: 200, body: standardWithTwo(scheduled) });
+    expect((await payments().getSubscription("sub_1"))?.pending).toEqual([
+      { price_id: "price_starter", quantity: 1 },
+    ]);
+
+    // Once the change has happened the schedule is still attached, in its last phase.
+    const after = { ...scheduled, current_phase: { start_date: END, end_date: END + 30 * 86400 } };
+    responses.push({ status: 200, body: standardWithTwo(after) });
+    expect((await payments().getSubscription("sub_1"))?.pending).toBeNull();
   });
 
   it("is null when Stripe has none by that ID, and has no organization when it is not ours", async () => {
@@ -212,5 +260,128 @@ describe("a subscription", () => {
       body: { error: { type: "invalid_request_error", message: "" } },
     });
     await expect(payments().getSubscription("sub_1")).rejects.toThrow();
+  });
+});
+
+describe("changing what a subscription bills for", () => {
+  const toPro = [
+    { price_id: "price_pro", quantity: 1 },
+    { price_id: "price_standard_location", quantity: 5 },
+  ];
+  /** A line at a wanted price keeps its place; the others go; the new ones are added. */
+  const replaced = {
+    "items[0][id]": "si_1",
+    "items[0][deleted]": "true",
+    "items[1][id]": "si_2",
+    "items[1][quantity]": "5",
+    "items[2][price]": "price_pro",
+    "items[2][quantity]": "1",
+  };
+  const prefixed = (prefix: string) =>
+    Object.fromEntries(
+      Object.entries(replaced).map(([key, value]) => [key.replace("items", prefix), value]),
+    );
+
+  it("previews what would be charged now, tax and all", async () => {
+    responses.push({ status: 200, body: standardWithTwo() });
+    responses.push({ status: 200, body: { object: "invoice", amount_due: 5363 } });
+    expect(await payments().previewChange("sub_1", toPro)).toBe(5363);
+    expect(requests[1]).toMatchObject({ method: "POST", path: "/v1/invoices/create_preview" });
+    expect(Object.fromEntries(requests[1]?.form ?? [])).toEqual({
+      subscription: "sub_1",
+      ...prefixed("subscription_details[items]"),
+      "subscription_details[proration_behavior]": "always_invoice",
+    });
+  });
+
+  it("changes it now, invoicing the difference and refusing the change if that cannot be paid", async () => {
+    responses.push({ status: 200, body: standardWithTwo() });
+    responses.push({ status: 200, body: standardWithTwo() });
+    await payments().changeNow("sub_1", toPro);
+    expect(requests).toHaveLength(2);
+    expect(requests[1]).toMatchObject({ method: "POST", path: "/v1/subscriptions/sub_1" });
+    expect(Object.fromEntries(requests[1]?.form ?? [])).toEqual({
+      ...replaced,
+      proration_behavior: "always_invoice",
+      payment_behavior: "error_if_incomplete",
+    });
+  });
+
+  it("drops a change that was waiting before changing it now", async () => {
+    responses.push({ status: 200, body: standardWithTwo(scheduled) });
+    responses.push({ status: 200, body: { ...scheduled, status: "released" } });
+    responses.push({ status: 200, body: standardWithTwo() });
+    await payments().changeNow("sub_1", toPro);
+    expect(requests.map((request) => request.path)).toEqual([
+      "/v1/subscriptions/sub_1",
+      "/v1/subscription_schedules/sub_sched_1/release",
+      "/v1/subscriptions/sub_1",
+    ]);
+  });
+
+  it("says the payment was declined when the card is refused", async () => {
+    responses.push({ status: 200, body: standardWithTwo() });
+    responses.push({
+      status: 402,
+      body: { error: { type: "card_error", code: "card_declined", message: "Declined." } },
+    });
+    await expect(payments().changeNow("sub_1", toPro)).rejects.toBeInstanceOf(PaymentDeclinedError);
+  });
+
+  it("holds a change for the end of the period: the present lines until then, the new ones after", async () => {
+    responses.push({ status: 200, body: standardWithTwo() });
+    responses.push({
+      status: 200,
+      body: { ...scheduled, phases: [currentPhase] },
+    });
+    responses.push({ status: 200, body: scheduled });
+    await payments().changeAtPeriodEnd("sub_1", [{ price_id: "price_starter", quantity: 1 }]);
+
+    expect(requests[1]).toMatchObject({ method: "POST", path: "/v1/subscription_schedules" });
+    expect(Object.fromEntries(requests[1]?.form ?? [])).toEqual({ from_subscription: "sub_1" });
+    expect(requests[2]).toMatchObject({
+      method: "POST",
+      path: "/v1/subscription_schedules/sub_sched_1",
+    });
+    expect(Object.fromEntries(requests[2]?.form ?? [])).toEqual({
+      end_behavior: "release",
+      proration_behavior: "none",
+      "phases[0][items][0][price]": "price_standard",
+      "phases[0][items][0][quantity]": "1",
+      "phases[0][items][1][price]": "price_standard_location",
+      "phases[0][items][1][quantity]": "2",
+      "phases[0][start_date]": String(START),
+      "phases[0][end_date]": String(END),
+      "phases[1][items][0][price]": "price_starter",
+      "phases[1][items][0][quantity]": "1",
+    });
+  });
+
+  it("rewrites the schedule it already has, without making a second", async () => {
+    responses.push({ status: 200, body: standardWithTwo(scheduled) });
+    responses.push({ status: 200, body: scheduled });
+    await payments().changeAtPeriodEnd("sub_1", [{ price_id: "price_standard", quantity: 1 }]);
+    expect(requests.map((request) => request.path)).toEqual([
+      "/v1/subscriptions/sub_1",
+      "/v1/subscription_schedules/sub_sched_1",
+    ]);
+    expect(Object.fromEntries(requests[1]?.form ?? [])).toMatchObject({
+      "phases[1][items][0][price]": "price_standard",
+    });
+  });
+
+  it("keeps the current plan by releasing a waiting change, and does nothing when none waits", async () => {
+    responses.push({ status: 200, body: standardWithTwo(scheduled) });
+    responses.push({ status: 200, body: { ...scheduled, status: "released" } });
+    await payments().keepCurrent("sub_1");
+    expect(requests[1]).toMatchObject({
+      method: "POST",
+      path: "/v1/subscription_schedules/sub_sched_1/release",
+    });
+
+    requests = [];
+    responses.push({ status: 200, body: standardWithTwo() });
+    await payments().keepCurrent("sub_1");
+    expect(requests).toHaveLength(1);
   });
 });

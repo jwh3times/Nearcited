@@ -58,3 +58,9 @@ is the provider still retrying a payment, so the plan stays until the provider g
 - An organization whose limits were set by hand and which then subscribes takes the plan's
   limits, and ends on the free plan if the subscription ends. Putting hand-set limits back is the
   operator's to do.
+
+## Note, 2026-10-09
+
+An owner can now change plan or the number of locations from the app. Those routes
+(`.../subscription`) change the subscription at the provider and write nothing here, so the
+decision stands: the plan still moves only when the webhook reports the subscription.

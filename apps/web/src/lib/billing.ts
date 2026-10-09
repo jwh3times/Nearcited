@@ -26,7 +26,8 @@ export type PricingViewer = {
  * - `finish-setup`: an account with no organization yet.
  * - `current`: the plan the organization is on.
  * - `subscribe`: the owner can go to checkout for it.
- * - `manage`: the owner changes or cancels a subscription on the provider's account pages.
+ * - `change`: a subscriber can move to it, or change how many locations they pay for on it.
+ * - `manage`: a subscriber cancels on the provider's account pages, which is how to go free.
  * - `owner-only`: a member, who can read the prices but not buy.
  * - `unavailable`: nobody can subscribe in this deployment.
  * - `none`: nothing to offer, such as the free plan to an organization not on it.
@@ -36,6 +37,7 @@ export type PlanOffer =
   | "finish-setup"
   | "current"
   | "subscribe"
+  | "change"
   | "manage"
   | "owner-only"
   | "unavailable"
@@ -45,11 +47,13 @@ export function planOffer(plan: Plan, viewer: PricingViewer): PlanOffer {
   if (!viewer) return "sign-in";
   const { organization, account } = viewer;
   if (!organization) return "finish-setup";
-  if (organization.plan_key === plan.key) return "current";
+  const subscribed = account?.billing?.subscribed === true;
+  // A subscriber's own plan is still something to change: the locations paid for on it.
+  if (organization.plan_key === plan.key && !subscribed) return "current";
   // A test organization pays for nothing, and until the account loads nothing is known.
   if (organization.is_test || !account) return "none";
-  if (!account.billing) return "owner-only";
-  if (account.billing.subscribed) return "manage";
+  if (!account.billing) return organization.plan_key === plan.key ? "current" : "owner-only";
+  if (subscribed) return plan.price_cents === 0 ? "manage" : "change";
   // Moving to the free plan is cancelling, which an organization with no subscription cannot do.
   if (plan.price_cents === 0) return "none";
   return account.billing.available ? "subscribe" : "unavailable";
@@ -86,4 +90,16 @@ export function billingWarning(status: string | null): string | null {
     return "Your subscription has ended, so this organization is on the free plan. Nothing was deleted: subscribe again to bring back what is paused.";
   }
   return null;
+}
+
+const longDate = new Intl.DateTimeFormat(undefined, { dateStyle: "long" });
+
+/** "November 9, 2026": a day, without a time. */
+export function formatDay(iso: string): string {
+  return longDate.format(new Date(iso));
+}
+
+/** A count of locations in words: "1 location", "4 locations". */
+export function locationCount(count: number): string {
+  return count === 1 ? "1 location" : `${count} locations`;
 }

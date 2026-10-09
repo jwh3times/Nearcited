@@ -92,11 +92,13 @@ const PLAN_COLUMNS =
   "key, name, position, on_sale, price_cents, included_locations, extra_location_price_cents, max_queries_per_location, assistants, scan_every_days, max_manual_scans_per_month, emails_report, stronger_models";
 
 const PLAN_PRICE_COLUMNS =
-  "key, on_sale, included_locations, stripe_price_id, stripe_extra_location_price_id";
+  "key, on_sale, included_locations, price_cents, extra_location_price_cents, stripe_price_id, stripe_extra_location_price_id";
 const PlanPricesSchema = z.object({
   key: z.string(),
   on_sale: z.boolean(),
   included_locations: z.number().int().positive(),
+  price_cents: z.number().int().nonnegative(),
+  extra_location_price_cents: z.number().int().positive().nullable(),
   stripe_price_id: z.string().nullable(),
   stripe_extra_location_price_id: z.string().nullable(),
 });

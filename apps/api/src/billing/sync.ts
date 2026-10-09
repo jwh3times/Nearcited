@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Store } from "../store/types";
+import { readItems } from "./plans";
 import type { ProviderSubscription } from "./types";
 
 /** The plan an organization is on when it pays for none. */
@@ -33,18 +34,11 @@ export async function syncSubscription(
   if (!organizationId.success) return "ignored";
 
   if (IN_FORCE.has(subscription.status)) {
-    const plans = await store.listPlanPrices();
-    const paid = new Map(subscription.items.map((item) => [item.price_id, item.quantity]));
-    const plan = plans.find((p) => p.stripe_price_id !== null && paid.has(p.stripe_price_id));
-    if (!plan) {
+    const paid = readItems(subscription.items, await store.listPlanPrices());
+    if (!paid) {
       throw new Error(`Subscription ${subscription.id} bills for a price that no plan has.`);
     }
-    const extra = paid.get(plan.stripe_extra_location_price_id ?? "") ?? 0;
-    const applied = await store.applyPlan(
-      organizationId.data,
-      plan.key,
-      plan.included_locations + extra,
-    );
+    const applied = await store.applyPlan(organizationId.data, paid.plan.key, paid.locations);
     if (!applied) return "ignored";
     await store.recordSubscription(organizationId.data, {
       stripe_customer_id: subscription.customer_id,

@@ -580,10 +580,42 @@ export const OrganizationAccountSchema = z.object({
       status: z.string().nullable(),
       /** True once it has been through checkout, so the provider has account pages to open. */
       has_customer: z.boolean(),
+      /** How many locations the subscription pays for. Null when there is none, or not known. */
+      locations: z.number().int().positive().nullable(),
+      /** When the period paid for ends and the next begins. Null when there is none. */
+      renews_at: Timestamp.nullable(),
+      /** A smaller plan or fewer locations chosen, waiting for the period paid for to end. */
+      pending: z
+        .object({
+          plan_key: z.string(),
+          locations: z.number().int().positive(),
+          /** What it will cost a month, in US cents, before tax. */
+          monthly_cents: z.number().int().nonnegative(),
+          at: Timestamp,
+        })
+        .nullable(),
     })
     .nullable(),
 });
 export type OrganizationAccount = z.infer<typeof OrganizationAccountSchema>;
+
+/**
+ * A change to a subscription, as the owner is shown it before confirming and as it was made.
+ * Paying more a month is an upgrade and happens at once; paying less is a downgrade and waits
+ * for the period already paid for to end.
+ */
+export const SubscriptionChangeSchema = z.object({
+  kind: z.enum(["upgrade", "downgrade"]),
+  plan_key: z.string(),
+  locations: z.number().int().positive(),
+  /** The new price a month, in US cents, before tax. */
+  monthly_cents: z.number().int().nonnegative(),
+  /** An upgrade: what is charged now for the rest of the period, with tax. Otherwise null. */
+  due_now_cents: z.number().int().nullable(),
+  /** A downgrade: when it takes effect. Otherwise null. */
+  effective_at: Timestamp.nullable(),
+});
+export type SubscriptionChange = z.infer<typeof SubscriptionChangeSchema>;
 
 /** Where to send the owner next: the payment provider's checkout, or its account pages. */
 export const BillingRedirectSchema = z.object({ url: z.url() });

@@ -10,7 +10,7 @@ import { Link, useSearchParams } from "react-router";
 import { ErrorNote } from "../components/ErrorNote";
 import { Field } from "../components/Field";
 import { api } from "../lib/api";
-import { billingWarning } from "../lib/billing";
+import { billingWarning, formatDay, formatPrice, locationCount } from "../lib/billing";
 import { useFormErrors } from "../lib/form";
 import { listOf } from "../lib/format";
 import { supabase } from "../lib/supabase";
@@ -39,16 +39,20 @@ export function AccountSettings({ organization, email }: AccountSettingsProps) {
   const account = useQuery({
     queryKey: ["account", organization.id],
     queryFn: () => api.organizationAccount(organization.id),
-    refetchInterval: (query) =>
-      returning === "subscribed" && query.state.data?.billing?.subscribed === false ? 3000 : false,
+    refetchInterval: (query) => {
+      if (returning === "subscribed" && query.state.data?.billing?.subscribed === false)
+        return 3000;
+      // A change made a moment ago: the webhook moves the plan within a few seconds.
+      return returning === "changed" && query.state.dataUpdateCount < 8 ? 3000 : false;
+    },
   });
   const billing = account.data?.billing ?? null;
-  const subscribed = billing?.subscribed;
-  // The plan, its limits and what is paused all come from elsewhere, so read them again.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: the subscription changing is the trigger
+  // The plan, its limits and what is paused all come from elsewhere, so read them again
+  // whenever billing has been.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: billing being read again is the trigger
   useEffect(() => {
-    if (subscribed !== undefined) queryClient.invalidateQueries({ queryKey: ["me"] });
-  }, [subscribed]);
+    if (account.dataUpdatedAt) queryClient.invalidateQueries({ queryKey: ["me"] });
+  }, [account.dataUpdatedAt]);
 
   return (
     <main className="page">
@@ -111,6 +115,9 @@ export function AccountSettings({ organization, email }: AccountSettingsProps) {
               billing={billing}
               loaded={account.isSuccess}
               returning={returning}
+              planName={(key) =>
+                plans.data?.find((candidate) => candidate.key === key)?.name ?? key
+              }
             />
             <ErrorNote error={account.error} />
           </div>
@@ -133,18 +140,24 @@ interface BillingProps {
   /** Null for anyone but the owner. */
   billing: NonNullable<Awaited<ReturnType<typeof api.organizationAccount>>["billing"]> | null;
   loaded: boolean;
-  /** How the owner came back from checkout, if they just did. */
+  /** How the owner came back from checkout or from changing plan, if they just did. */
   returning: string | null;
+  planName: (key: string) => string;
 }
 
 /**
  * The way to the plans and to the payment provider's account pages. Only the owner is offered
  * either: a member reads what the plan allows and is told who decides.
  */
-function Billing({ organization, billing, loaded, returning }: BillingProps) {
+function Billing({ organization, billing, loaded, returning, planName }: BillingProps) {
+  const queryClient = useQueryClient();
   const portal = useMutation({
     mutationFn: () => api.billingPortal(organization.id),
     onSuccess: ({ url }) => window.location.assign(url),
+  });
+  const keep = useMutation({
+    mutationFn: () => api.keepCurrentPlan(organization.id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["account", organization.id] }),
   });
 
   if (!loaded) return null;
@@ -162,6 +175,34 @@ function Billing({ organization, billing, loaded, returning }: BillingProps) {
         </p>
       )}
       {returning === "cancelled" && <p role="status">Checkout was cancelled. Nothing changed.</p>}
+      {returning === "changed" && (
+        <p role="status">Thank you. Your new plan shows here in a moment.</p>
+      )}
+      {billing.pending && (
+        <>
+          <p role="status">
+            Changes to {planName(billing.pending.plan_key)} with{" "}
+            {locationCount(billing.pending.locations)} on {formatDay(billing.pending.at)}, at{" "}
+            {formatPrice(billing.pending.monthly_cents)} a month before tax. Until then nothing
+            changes.
+          </p>
+          <button
+            type="button"
+            className="secondary"
+            disabled={keep.isPending}
+            onClick={() => keep.mutate()}
+          >
+            {keep.isPending ? "Keeping" : "Keep my current plan"}
+          </button>
+          <ErrorNote error={keep.error} />
+        </>
+      )}
+      {billing.subscribed && !billing.pending && billing.renews_at && (
+        <p>
+          Paying for {billing.locations ? locationCount(billing.locations) : "this plan"}. Renews on{" "}
+          {formatDay(billing.renews_at)}.
+        </p>
+      )}
       {warning && (
         <p className="error" role="alert">
           {warning}
@@ -170,7 +211,9 @@ function Billing({ organization, billing, loaded, returning }: BillingProps) {
       {!billing.available && !billing.subscribed && (
         <p>Subscriptions are not available here yet.</p>
       )}
-      <Link to="/pricing">{billing.subscribed ? "See all plans" : "See plans and prices"}</Link>
+      <Link to="/pricing">
+        {billing.subscribed ? "Change plan or locations" : "See plans and prices"}
+      </Link>
       {billing.has_customer && (
         <>
           <button
@@ -181,7 +224,7 @@ function Billing({ organization, billing, loaded, returning }: BillingProps) {
           >
             {portal.isPending ? "Opening billing" : "Manage billing"}
           </button>
-          <p>Payment method, invoices, changing plan and cancelling are on Stripe's pages.</p>
+          <p>Payment method, invoices and cancelling are on Stripe's pages.</p>
           <ErrorNote error={portal.error} />
         </>
       )}

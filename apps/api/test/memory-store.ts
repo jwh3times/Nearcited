@@ -188,6 +188,8 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         key: plan.key,
         on_sale: plan.on_sale,
         included_locations: plan.included_locations,
+        price_cents: plan.price_cents,
+        extra_location_price_cents: plan.extra_location_price_cents,
         stripe_price_id: db.planPrices.get(plan.key)?.base ?? null,
         stripe_extra_location_price_id: db.planPrices.get(plan.key)?.extra ?? null,
       }));

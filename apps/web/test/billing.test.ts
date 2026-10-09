@@ -41,7 +41,16 @@ const organization = (extra: Partial<Organization> = {}): Organization => ({
 
 const owner = (billing: Partial<NonNullable<OrganizationAccount["billing"]>> = {}) => ({
   manual_scans_used: 0,
-  billing: { available: true, subscribed: false, status: null, has_customer: false, ...billing },
+  billing: {
+    available: true,
+    subscribed: false,
+    status: null,
+    has_customer: false,
+    locations: null,
+    renews_at: null,
+    pending: null,
+    ...billing,
+  },
 });
 const member: OrganizationAccount = { manual_scans_used: 0, billing: null };
 
@@ -84,13 +93,19 @@ describe("planOffer", () => {
     expect(planOffer(free, viewer)).toBe("none");
   });
 
-  it("sends a subscriber to the account pages for every other plan", () => {
+  it("lets a subscriber change to any paid plan, their own included, and cancel to go free", () => {
     const viewer = {
       organization: organization({ plan_key: "starter" }),
       account: owner({ subscribed: true, status: "active", has_customer: true }),
     };
-    expect(planOffer(plan("standard"), viewer)).toBe("manage");
+    expect(planOffer(plan("standard"), viewer)).toBe("change");
+    expect(planOffer(plan("starter"), viewer)).toBe("change");
     expect(planOffer(free, viewer)).toBe("manage");
+  });
+
+  it("marks a member's plan, whoever pays for it", () => {
+    const viewer = { organization: organization({ plan_key: "starter" }), account: member };
+    expect(planOffer(plan("starter"), viewer)).toBe("current");
   });
 
   it("shows a member the prices and offers nothing to buy", () => {

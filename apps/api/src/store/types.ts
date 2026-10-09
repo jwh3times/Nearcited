@@ -60,6 +60,10 @@ export interface PlanPrices {
   key: string;
   on_sale: boolean;
   included_locations: number;
+  /** A month, in US cents, for the locations it includes. */
+  price_cents: number;
+  /** A month, in US cents, for each location beyond those. Null when no more can be added. */
+  extra_location_price_cents: number | null;
   /** Null until the plan is set up at the provider, and always for a plan that costs nothing. */
   stripe_price_id: string | null;
   /** For each location beyond those included. Null when no more can be added. */

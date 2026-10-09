@@ -140,6 +140,8 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
       key: "standard",
       on_sale: true,
       included_locations: 3,
+      price_cents: 4900,
+      extra_location_price_cents: 1500,
       stripe_price_id: null,
       stripe_extra_location_price_id: null,
     });
