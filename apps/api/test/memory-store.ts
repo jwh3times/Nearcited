@@ -3,6 +3,7 @@ import type {
   AuditPart,
   Location,
   Organization,
+  Plan,
   ProviderUsage,
   Recommendation,
   Scan,
@@ -31,6 +32,8 @@ export interface MemoryDb {
   /** IDs of scans a member asked for, which is what the manual-scan limit counts. */
   requestedBy: Set<string>;
   audits: MemoryAudit[];
+  /** What is on sale, and anything taken off sale that an organization is still on. */
+  plans: Plan[];
   /** What scans and audits used at the providers, as the worker recorded it. */
   usage: (UsageSource & ProviderUsage & { created_at: string })[];
   /** Sign-in accounts, as the one function that may read them returns them to the operator. */
@@ -80,6 +83,7 @@ export function createMemoryDb(): MemoryDb {
     emails: new Map(),
     requestedBy: new Set(),
     audits: [],
+    plans: [],
     siteChecks: new Map(),
   };
 }
@@ -146,6 +150,15 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
       return db.organizations.find((o) => o.id === id && readsOrg(id)) ?? null;
     },
 
+    async listPlans() {
+      const mine = db.organizations
+        .filter((organization) => seesOrg(organization.id))
+        .map((organization) => organization.plan_key);
+      return db.plans
+        .filter((plan) => plan.on_sale || isOperator || mine.includes(plan.key))
+        .sort((a, b) => a.position - b.position);
+    },
+
     async renameOrganization(id, name) {
       const organization = db.organizations.find((o) => o.id === id && seesOrg(id));
       return organization ? Object.assign(organization, { name }) : null;
@@ -154,7 +167,7 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
     async setOrganizationLimits(id, limits) {
       if (!isOperator) return null;
       const organization = db.organizations.find((o) => o.id === id);
-      return organization ? Object.assign(organization, limits) : null;
+      return organization ? Object.assign(organization, limits, { plan_key: null }) : null;
     },
 
     async createOrganization(name) {
@@ -164,6 +177,7 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         name,
         ...DEFAULT_LIMITS,
         is_test: db.testAccounts.has(userId),
+        plan_key: null,
         created_at: timestamp(),
       };
       db.organizations.push(organization);

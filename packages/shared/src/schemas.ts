@@ -87,9 +87,40 @@ export const OrganizationSchema = z.object({
    * the interface says so. See `docs/adr/0003-platform-roles-and-test-accounts.md`.
    */
   is_test: z.boolean(),
+  /** The plan it is on. Null when its limits were set by hand, which no plan then changes. */
+  plan_key: z.string().nullable(),
   created_at: Timestamp,
 });
 export type Organization = z.infer<typeof OrganizationSchema>;
+
+/**
+ * Something on sale: a price, and what an organization on it may do. Prices are US cents a month.
+ * See `docs/adr/0006-plans-are-rows.md`.
+ */
+export const PlanSchema = z.object({
+  key: z.string(),
+  name: z.string(),
+  /** The order plans are shown in, cheapest first. */
+  position: z.number().int(),
+  /** False for a plan no longer sold, which the organizations on it keep. */
+  on_sale: z.boolean(),
+  /** For the locations the plan includes. */
+  price_cents: z.number().int().nonnegative(),
+  included_locations: z.number().int().positive(),
+  /** For each location beyond those. Null when no more can be added. */
+  extra_location_price_cents: z.number().int().positive().nullable(),
+  max_queries_per_location: z.number().int().nonnegative(),
+  /** How many assistants its scans ask. Fewer than there are means the owner chooses which. */
+  assistants: z.number().int().positive(),
+  scan_every_days: z.number().int().positive(),
+  /** Scans started by hand, across the organization, in a calendar month (UTC). */
+  max_manual_scans_per_month: z.number().int().nonnegative(),
+  /** Whether owners are emailed a report after each scan. */
+  emails_report: z.boolean(),
+  /** Whether its owner may pay for a stronger model. */
+  stronger_models: z.boolean(),
+});
+export type Plan = z.infer<typeof PlanSchema>;
 
 export const LocationSchema = z.object({
   id: Id,

@@ -14,6 +14,7 @@ const org = (id: string, change: Partial<Organization> = {}): Organization => ({
   scan_every_days: 1,
   surfaces: null,
   is_test: false,
+  plan_key: null,
   created_at: ago(24 * 30),
   ...change,
 });

@@ -64,6 +64,15 @@ export function createApp(deps: AppDeps = { authenticate: authenticateWithSupaba
     return c.json(toPublicAudit(audit));
   });
 
+  // The price list. No sign-in: it is what a visitor reads before deciding to make an account.
+  app.get("/plans", async (c) => {
+    const store = (deps.publicStore ?? ((env) => createSupabaseStore(createAnonClient(env))))(
+      c.env,
+    );
+    c.header("Cache-Control", "public, max-age=300");
+    return c.json(await store.listPlans());
+  });
+
   // Everything below requires a signed-in user.
   app.use("*", async (c, next) => {
     const identity = await deps.authenticate(c.req.raw, c.env);

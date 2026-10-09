@@ -372,6 +372,12 @@ Two rules follow, and breaking either one is a data leak:
 2. **A new table needs policies and explicit grants in the same migration**, and a test in
    `packages/db` that tries to read and write it as a non-member.
 
+**Plans are rows** (`docs/adr/0006-plans-are-rows.md`). `plans` holds what is on sale, and
+`GET /api/plans` serves it without a sign-in. An organization's `plan_key` names its plan, or is
+null when its limits were set by hand, as for every organization made before plans and any the
+operator's limits editor has touched. Nothing charges yet and nothing copies a plan's limits onto
+an organization yet: the limit columns below are still what is enforced.
+
 **Usage caps live on the organization** (`max_locations`, `max_queries_per_location`,
 `max_manual_scans_per_day`) and are enforced by triggers, because a limit checked only in a route
 handler could be skipped by calling the database directly. Four things about them are deliberate:

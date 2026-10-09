@@ -7,6 +7,8 @@ import {
   OperatorOverviewSchema,
   OperatorSpendSchema,
   OrganizationSchema,
+  type Plan,
+  PlanSchema,
   type ScanMessage,
   ScanSchema,
   SURFACES,
@@ -33,6 +35,7 @@ const app = createApp({
       ? { user: { id: userId, email: `${userId}@example.com` }, store: memoryStore(db, userId) }
       : null;
   },
+  publicStore: () => memoryStore(db, "nobody"),
   deployment: {
     models: { chatgpt: "test-gpt", claude: "test-claude" },
     rates: {
@@ -123,6 +126,45 @@ describe("access", () => {
     const response = await call(alice, "GET", "/nope");
     expect(response.status).toBe(404);
     expect(await errorCode(response)).toBe("not_found");
+  });
+});
+
+describe("plans", () => {
+  const plan = (key: string, position: number, change: Partial<Plan> = {}): Plan => ({
+    key,
+    name: key,
+    position,
+    on_sale: true,
+    price_cents: position * 1000,
+    included_locations: 1,
+    extra_location_price_cents: null,
+    max_queries_per_location: 5,
+    assistants: 1,
+    scan_every_days: 2,
+    max_manual_scans_per_month: 2,
+    emails_report: true,
+    stronger_models: false,
+    ...change,
+  });
+
+  it("shows the price list to anyone, cheapest first, without a sign-in", async () => {
+    db.plans.push(plan("standard", 2), plan("free", 0), plan("retired", 9, { on_sale: false }));
+    const response = await call(null, "GET", "/plans");
+    expect(response.status).toBe(200);
+    const plans = PlanSchema.array().parse(await response.json());
+    expect(plans.map((row) => row.key)).toEqual(["free", "standard"]);
+  });
+
+  it("shows a plan taken off sale to the organization still on it", async () => {
+    db.plans.push(plan("free", 0), plan("retired", 9, { on_sale: false }));
+    const { organization } = await seed();
+    const mine = db.organizations.find((row) => row.id === organization.id);
+    if (mine) mine.plan_key = "retired";
+    expect((await memoryStore(db, alice).listPlans()).map((row) => row.key)).toEqual([
+      "free",
+      "retired",
+    ]);
+    expect((await memoryStore(db, bob).listPlans()).map((row) => row.key)).toEqual(["free"]);
   });
 });
 
@@ -601,8 +643,11 @@ describe("organizations and locations", () => {
         .status,
     ).toBe(404);
 
+    // Limits set by hand take the organization off any plan, so nothing puts the plan's back.
+    const mine = db.organizations.find((row) => row.id === organization.id);
+    if (mine) mine.plan_key = "standard";
     const changed = OrganizationSchema.parse(await (await call(bob, "PUT", path, limits)).json());
-    expect(changed).toEqual({ ...organization, ...limits });
+    expect(changed).toEqual({ ...organization, ...limits, plan_key: null });
     // The owner now has room for a second location, which the default plan refused.
     const me = MeSchema.parse(await (await call(alice, "GET", "/me")).json());
     expect(me.organizations[0]).toMatchObject(limits);

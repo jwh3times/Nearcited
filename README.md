@@ -249,6 +249,7 @@ organization reads as missing and returns 404. Payloads are defined in
 | --- | --- |
 | `GET /api/health` | Liveness check. No sign-in needed. |
 | `GET /api/audits/:token` | A shareable audit, for anyone holding its token. 404 if the token is unknown, revoked or past its 30 days. Never cached and not indexed. |
+| `GET /api/plans` | The price list: every plan on sale, cheapest first, with its prices in US cents and its limits. Needs no sign-in. A signed-in member also gets the plan their organization is on if it has been taken off sale. |
 | `GET /api/me` | The signed-in user, their platform role (`operator`, `test` or none) and their organizations. |
 | `GET /api/operator/overview` | The operator's view: totals, what needs attention, every organization (test ones apart) and what the deployment runs. 404 to anyone who is not the operator. |
 | `GET /api/operator/spend` | What the providers were paid in this calendar month (UTC) and the two before: a total, each organization, audits, and deleted organizations, in US dollars, with any model that has no rate named and left out. 404 to anyone who is not the operator. |
@@ -287,6 +288,7 @@ The migrations in `supabase/migrations/` define everything.
 | `recommendations` | What a scan suggested, and whether the user has dealt with it. |
 | `audits` | A shareable audit: the business, its prompts, the results as each prompt finishes, and its token, expiry and revocation. Belongs to no organization; only the operator can read it through the API. |
 | `operator_actions` | What the operator changed or made, one row per action, with who and what: an organization's limits before and after, or the audit made. Written only by the function that does it; only the operator can read it through the API. |
+| `plans` | What is on sale: a monthly price for the locations a plan includes, a price for each extra location, and its limits. Read by everyone; written by no API role. An organization's `plan_key` names its plan, or is null when its limits were set by hand. |
 | `provider_usage` | What the providers used for a scan or audit prompt, per surface and model: calls, input, cached input and output tokens, searches. Outlives the scan, audit or organization it describes. Written only by the Worker; only the operator can read it through the API. Not priced or shown anywhere yet. |
 
 Usage limits are enforced by database triggers, so they hold for the API and for anyone calling
