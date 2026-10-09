@@ -26,8 +26,25 @@ test("takes a new account from nothing to its first scan's results", async ({ pa
   // tracks. Another can be ticked only once one is unticked.
   await expect(page.getByRole("heading", { name: "What would a customer ask?" })).toBeVisible();
   await expect(page.getByLabel("Who is the best pizza restaurant in Raleigh?")).toBeChecked();
+  await expect(page.getByText("the free plan, which tracks 2 prompts")).toBeVisible();
   await expect(page.getByText("2 of 2 chosen")).toBeVisible();
   await expect(page.getByRole("checkbox").nth(2)).toBeDisabled();
+
+  // The owner's own words go in the same list. One that says nothing is refused beside the field.
+  const own = page.getByLabel("Or write your own");
+  await own.fill("??");
+  await page.getByRole("button", { name: "Add to the list" }).click();
+  await expect(page.getByText("Use at least three letters")).toBeVisible();
+  await own.fill("Where should I take my kids for pizza in Raleigh?");
+  await own.press("Enter");
+  // Still on this step: Enter added the prompt and did not move on. With both places taken it
+  // waits unticked until one is given up.
+  const mine = page.getByLabel("Where should I take my kids for pizza in Raleigh?");
+  await expect(mine).not.toBeChecked();
+  await expect(page.getByText("To choose a different one, untick one first.")).toBeVisible();
+  await page.getByRole("checkbox").nth(1).uncheck();
+  await mine.check();
+  await expect(page.getByText("2 of 2 chosen")).toBeVisible();
   await page.getByRole("button", { name: "Continue" }).click();
 
   // Step 4 sums it up, and running the scan lands on the location while it is under way.

@@ -218,6 +218,15 @@ export function buildOperatorOverview(facts: OperatorFacts): Omit<OperatorOvervi
       ).length,
       scan_every_days: organization.scan_every_days,
       surfaces: organization.surfaces,
+      plan_key: organization.plan_key,
+      // A sign that it may want a larger plan, not that anything is wrong. A location with no
+      // allowance, or one its plan has paused, is not at a limit it could grow past.
+      locations_at_prompt_limit: mine.filter(
+        (location) =>
+          !location.paused_by_plan &&
+          organization.max_queries_per_location > 0 &&
+          (facts.activePrompts[location.id] ?? 0) >= organization.max_queries_per_location,
+      ).length,
     };
   });
 
@@ -236,20 +245,6 @@ export function buildOperatorOverview(facts: OperatorFacts): Omit<OperatorOvervi
       add("organization_failing", "Its last two scans both failed.", latest.created_at, {
         organizationId: organization.id,
       });
-    }
-
-    // A location with every prompt it may have cannot be given another. Having every location
-    // the plan allows is not listed: the default plan allows one, so that is everyone.
-    const allowed = organization.max_queries_per_location;
-    for (const location of realLocations) {
-      if (
-        location.organization_id === organization.id &&
-        (facts.activePrompts[location.id] ?? 0) >= allowed
-      ) {
-        add("at_limit", `Has used all ${allowed} of its prompts.`, null, {
-          locationId: location.id,
-        });
-      }
     }
   }
 

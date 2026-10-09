@@ -197,22 +197,27 @@ describe("needs attention", () => {
     ]);
   });
 
-  it("lists a location with nothing to ask, and one that has used every prompt it is allowed", () => {
+  it("lists a location with nothing to ask", () => {
     const facts = healthy();
     facts.activePrompts = {};
     expect(kinds(facts)).toEqual(["no_prompts"]);
     facts.locations = facts.locations.map((row) => ({ ...row, paused_by_plan: true }));
     expect(kinds(facts)).toEqual([]);
+  });
 
-    const fullOfPrompts = healthy();
-    fullOfPrompts.activePrompts = { l1: 10 };
-    expect(buildOperatorOverview(fullOfPrompts).attention).toEqual([
-      expect.objectContaining({
-        kind: "at_limit",
-        location_id: "l1",
-        detail: "Has used all 10 of its prompts.",
-      }),
-    ]);
+  it("counts locations at their prompt limit on the organization, not as something wrong", () => {
+    const full = healthy();
+    full.activePrompts = { l1: 10 };
+    const overview = buildOperatorOverview(full);
+    expect(overview.attention).toEqual([]);
+    expect(overview.organizations[0]).toMatchObject({ locations_at_prompt_limit: 1 });
+
+    // Short of the limit, paused by its plan, or with no allowance at all: not at a limit.
+    full.activePrompts = { l1: 9 };
+    expect(buildOperatorOverview(full).organizations[0]?.locations_at_prompt_limit).toBe(0);
+    full.activePrompts = { l1: 10 };
+    full.locations = full.locations.map((row) => ({ ...row, paused_by_plan: true }));
+    expect(buildOperatorOverview(full).organizations[0]?.locations_at_prompt_limit).toBe(0);
   });
 
   it("does not count having every location it is allowed as a problem", () => {

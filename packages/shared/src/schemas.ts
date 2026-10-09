@@ -255,7 +255,6 @@ export const ATTENTION_KINDS = [
   "audit_failed",
   "no_prompts",
   // A location with every prompt its plan allows. Having every location allowed is not listed.
-  "at_limit",
 ] as const;
 export type AttentionKind = (typeof ATTENTION_KINDS)[number];
 
@@ -292,6 +291,13 @@ export const OperatorOrganizationSchema = z.object({
   failed_7d: z.number().int().nonnegative(),
   scan_every_days: z.number().int().positive(),
   surfaces: z.array(SurfaceSchema).nullable(),
+  /** The plan it is on. Null when its limits were set by hand. */
+  plan_key: z.string().nullable(),
+  /**
+   * How many of its locations in use have every prompt their plan allows. A sign it may want a
+   * larger plan; nothing is wrong, so it is not among the things needing attention.
+   */
+  locations_at_prompt_limit: z.number().int().nonnegative(),
 });
 export type OperatorOrganization = z.infer<typeof OperatorOrganizationSchema>;
 
