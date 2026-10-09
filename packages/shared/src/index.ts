@@ -8,4 +8,5 @@ export * from "./schemas";
 export * from "./scoring";
 export * from "./site";
 export * from "./sources";
+export * from "./spend";
 export * from "./tuning";

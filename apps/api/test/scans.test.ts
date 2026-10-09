@@ -285,6 +285,7 @@ describe("what a scan used", () => {
         cached_input_tokens: 20,
         output_tokens: 100,
         searches: 4,
+        created_at: expect.any(String),
       },
       expect.objectContaining({ surface: "gemini", model: "gem-y", calls: 2 }),
     ]);

@@ -138,6 +138,7 @@ describe("runAuditPart", () => {
         cached_input_tokens: 0,
         output_tokens: 150,
         searches: 3,
+        created_at: expect.any(String),
       },
     ]);
   });

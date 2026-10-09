@@ -1211,6 +1211,55 @@ describe("the operator", () => {
     ).rejects.toThrow(/permission denied/);
   });
 
+  it("adds up what was used by month for the operator, and for nobody else", async () => {
+    const insert = `insert into public.provider_usage
+      (organization_id, audit_id, surface, model, calls, input_tokens, cached_input_tokens, output_tokens, searches, created_at)
+      values ($1, $2, 'chatgpt', 'spend-test', $3, 100, 10, 50, 2, $4)`;
+    const [audit] = await rows<{ id: string }>("select id from public.audits limit 1");
+    // The last second of September and the first of October, in UTC, are different months.
+    await db.query(insert, [theirs, null, 2, "2026-09-30T23:59:59Z"]);
+    await db.query(insert, [theirs, null, 1, "2026-10-01T00:00:00Z"]);
+    await db.query(insert, [theirs, null, 4, "2026-10-20T12:00:00Z"]);
+    await db.query(insert, [null, audit?.id, 3, "2026-10-05T12:00:00Z"]);
+    // Before the date asked for, so not counted.
+    await db.query(insert, [theirs, null, 9, "2026-08-31T12:00:00Z"]);
+
+    const sql =
+      "select month, organization_id, is_audit, calls::int, input_tokens::int, searches::int from public.usage_by_month('2026-09-01T00:00:00Z') where model = 'spend-test' order by month, is_audit";
+    expect(await as("authenticated", operator, () => rows(sql))).toEqual([
+      {
+        month: "2026-09",
+        organization_id: theirs,
+        is_audit: false,
+        calls: 2,
+        input_tokens: 100,
+        searches: 2,
+      },
+      {
+        month: "2026-10",
+        organization_id: theirs,
+        is_audit: false,
+        calls: 5,
+        input_tokens: 200,
+        searches: 4,
+      },
+      {
+        month: "2026-10",
+        organization_id: null,
+        is_audit: true,
+        calls: 3,
+        input_tokens: 100,
+        searches: 2,
+      },
+    ]);
+    // A member is told nothing, not even about their own organization's scans.
+    for (const user of [alice, bob]) {
+      expect(await as("authenticated", user, () => rows(sql)), user).toEqual([]);
+    }
+    await expect(as("anon", null, () => db.query(sql))).rejects.toThrow(/permission denied/);
+    await db.query("delete from public.provider_usage where model = 'spend-test'");
+  });
+
   describe("changing an organization's limits", () => {
     const setLimits = "select * from public.operator_set_limits($1, 3, 20, 10, 1)";
     const limits = (id: string) =>

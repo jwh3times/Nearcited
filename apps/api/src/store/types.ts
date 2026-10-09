@@ -21,6 +21,7 @@ import type {
   StoredAudit,
   TrackedQuery,
   TrackedQueryInput,
+  UsageByMonth,
 } from "@nearcited/shared";
 
 /** A scan as the operator's overview reads it: what happened, and what it found of the website. */
@@ -92,6 +93,11 @@ export interface Store {
   /** Scans created since `since`, an ISO timestamp, each with the on-page check it made. */
   listScansSince(since: string): Promise<OperatorScan[]>;
   /** Every audit, newest first, with the token that makes its link. */
+  /**
+   * What was used at the providers since `since` (an ISO timestamp), added up by calendar month
+   * in UTC. Everything for the operator; nothing for anyone else.
+   */
+  listUsageByMonth(since: string): Promise<UsageByMonth[]>;
   listEveryAudit(): Promise<ListedAudit[]>;
   /**
    * Makes a shareable audit, still to be queued. Only the operator's call makes one: for anyone

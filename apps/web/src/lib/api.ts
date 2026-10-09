@@ -9,6 +9,7 @@ import {
   OperatorAccountsSchema,
   OperatorAuditSchema,
   OperatorOverviewSchema,
+  OperatorSpendSchema,
   type OrganizationLimits,
   OrganizationSchema,
   PublicAuditSchema,
@@ -69,6 +70,8 @@ export const api = {
     json(OrganizationSchema, "POST", "/organizations", { name }),
   /** The operator's first screen. Answers 404 to anyone else. */
   operatorOverview: () => json(OperatorOverviewSchema, "GET", "/operator/overview"),
+  /** What the providers were paid, by month. Dollars only: the rates stay on the server. */
+  operatorSpend: () => json(OperatorSpendSchema, "GET", "/operator/spend"),
   operatorAccounts: () => json(OperatorAccountsSchema, "GET", "/operator/accounts"),
   operatorAudits: () => json(OperatorAuditSchema.array(), "GET", "/operator/audits"),
   /** Makes a shareable audit and queues it. Refused where scans return sample data. */

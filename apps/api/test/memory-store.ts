@@ -9,6 +9,7 @@ import type {
   ScanResult,
   SiteCheck,
   TrackedQuery,
+  UsageByMonth,
 } from "@nearcited/shared";
 import { type Store, StoreError, type UsageSource } from "../src/store/types";
 
@@ -31,7 +32,7 @@ export interface MemoryDb {
   requestedBy: Set<string>;
   audits: MemoryAudit[];
   /** What scans and audits used at the providers, as the worker recorded it. */
-  usage: (UsageSource & ProviderUsage)[];
+  usage: (UsageSource & ProviderUsage & { created_at: string })[];
   /** Sign-in accounts, as the one function that may read them returns them to the operator. */
   accounts: {
     user_id: string;
@@ -54,6 +55,14 @@ export interface MemoryAudit extends AuditJob {
   created_at: string;
   expires_at: string;
 }
+
+const COUNTS = [
+  "calls",
+  "input_tokens",
+  "cached_input_tokens",
+  "output_tokens",
+  "searches",
+] as const;
 
 export function createMemoryDb(): MemoryDb {
   return {
@@ -190,6 +199,36 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
       return db.scans
         .filter((scan) => scan.created_at >= since && readsLocation(scan.location_id))
         .map((scan) => ({ ...scan, site_check: db.siteChecks.get(scan.id) ?? null }));
+    },
+
+    async listUsageByMonth(since) {
+      if (userId !== null && !isOperator) return [];
+      const totals = new Map<string, UsageByMonth>();
+      for (const { surface: _surface, created_at, ...row } of db.usage) {
+        if (created_at < since) continue;
+        const month = created_at.slice(0, 7);
+        const organization_id = "organization_id" in row ? row.organization_id : null;
+        const is_audit = "audit_id" in row;
+        const key = [month, organization_id, is_audit, row.model].join("|");
+        const total = totals.get(key);
+        if (total) {
+          for (const count of COUNTS) total[count] += row[count];
+        } else {
+          const { model, calls, input_tokens, cached_input_tokens, output_tokens, searches } = row;
+          totals.set(key, {
+            month,
+            organization_id,
+            is_audit,
+            model,
+            calls,
+            input_tokens,
+            cached_input_tokens,
+            output_tokens,
+            searches,
+          });
+        }
+      }
+      return [...totals.values()];
     },
 
     async listEveryAudit() {
@@ -451,7 +490,7 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
 
     async recordUsage(source, usage) {
       if (userId !== null) throw new StoreError("forbidden", "worker only");
-      db.usage.push(...usage.map((row) => ({ ...source, ...row })));
+      db.usage.push(...usage.map((row) => ({ ...source, ...row, created_at: timestamp() })));
     },
 
     async markScanRunning(id, sampleData) {

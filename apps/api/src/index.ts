@@ -24,6 +24,7 @@ const app = createApp({
       chatgpt: activeTuning.tuning.chatgpt.model,
       claude: activeTuning.tuning.claude.model,
     },
+    rates: activeTuning.tuning.rates,
   },
 });
 

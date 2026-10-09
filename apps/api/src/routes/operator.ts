@@ -3,9 +3,13 @@ import {
   AuditInputSchema,
   buildAccounts,
   buildOperatorOverview,
+  buildSpend,
+  monthOf,
+  monthStart,
   type OperatorAccounts,
   type OperatorAudit,
   type OperatorOverview,
+  type OperatorSpend,
   OrganizationLimitsSchema,
 } from "@nearcited/shared";
 import { Hono } from "hono";
@@ -66,6 +70,32 @@ operatorRoutes.get("/operator/overview", async (c) => {
       commit: c.env.COMMIT?.trim().slice(0, 7) || null,
     },
   };
+  return c.json(body);
+});
+
+/** How many calendar months of spend are shown, counting this one. */
+const SPEND_MONTHS = 3;
+
+/**
+ * What the providers were paid, by calendar month in UTC. The counts come from the database and
+ * the rates from the tuning; only the dollars leave the server.
+ */
+operatorRoutes.get("/operator/spend", async (c) => {
+  const store = c.get("store");
+  const now = new Date();
+  const [usage, organizations, mine] = await Promise.all([
+    store.listUsageByMonth(monthStart(monthOf(now, SPEND_MONTHS - 1))),
+    store.listEveryOrganization(),
+    store.listOrganizations(),
+  ]);
+  const body: OperatorSpend = buildSpend({
+    now,
+    months: SPEND_MONTHS,
+    rates: c.get("deployment").rates ?? {},
+    operatorOrganizationIds: mine.map((organization) => organization.id),
+    organizations,
+    usage,
+  });
   return c.json(body);
 });
 

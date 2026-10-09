@@ -1,5 +1,12 @@
 import { expect, test } from "@playwright/test";
-import { api, createAccount, grantRole, signIn, withScannedLocation } from "../support/account";
+import {
+  api,
+  createAccount,
+  grantRole,
+  recordUsage,
+  signIn,
+  withScannedLocation,
+} from "../support/account";
 
 test("shows the operator every organization, and lets them read a customer's account without changing it", async ({
   page,
@@ -135,6 +142,39 @@ test("offers the operator a form for a new audit, which a sample-data deployment
   await page.getByRole("button", { name: "Make audit" }).click();
   await expect(page.getByRole("alert").filter({ hasText: "Audits need live data" })).toBeVisible();
   await expect(page.getByText("Tony's Slice House")).toHaveCount(0);
+});
+
+test("shows the operator what each month cost, and says what it could not price", async ({
+  page,
+}, testInfo) => {
+  const customer = await createAccount();
+  const organization = await api<{ id: string }>(customer, "POST", "/organizations", {
+    name: `Spender ${Date.now()}`,
+  });
+  // A model nothing has a rate for, so this reads the same whatever rates the build was given.
+  const model = `e2e-unpriced-${Date.now()}`;
+  await recordUsage(organization.id, { model, calls: 3 });
+  await recordUsage(organization.id, { model, calls: 4 });
+
+  const operator = await createAccount();
+  await api(operator, "POST", "/organizations", { name: "The operator's own" });
+  await grantRole(operator, "operator");
+  await signIn(page, operator, "/operator");
+
+  await expect(page.getByRole("heading", { name: "Spend" })).toBeVisible();
+  const thisMonth = new Intl.DateTimeFormat("en-US", {
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(new Date());
+  await expect(page.getByText(`${thisMonth}, so far`)).toBeVisible();
+  // The two scans' calls are added up, and their cost is admitted to be unknown.
+  await expect(page.getByRole("status").filter({ hasText: "Not counted" })).toContainText(
+    `7 calls to ${model} in ${thisMonth}`,
+  );
+  await page
+    .locator("section", { has: page.getByRole("heading", { name: "Spend" }) })
+    .screenshot({ path: testInfo.outputPath("spend.png") });
 });
 
 test("has no operator page for anyone else", async ({ page }) => {

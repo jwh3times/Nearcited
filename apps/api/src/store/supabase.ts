@@ -11,6 +11,7 @@ import {
   SiteCheckSchema,
   StoredAuditSchema,
   TrackedQuerySchema,
+  UsageByMonthSchema,
 } from "@nearcited/shared";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
@@ -197,6 +198,12 @@ export function createSupabaseStore(db: SupabaseClient): Store {
         .order("created_at", { ascending: false });
       if (error) fail("List recent scans", error);
       return OperatorScanSchema.array().parse(data);
+    },
+
+    async listUsageByMonth(since) {
+      const { data, error } = await db.rpc("usage_by_month", { since });
+      if (error) fail("List usage by month", error);
+      return UsageByMonthSchema.array().parse(data);
     },
 
     async listEveryAudit() {

@@ -5,6 +5,7 @@ import {
   OperatorAccountsSchema,
   OperatorAuditSchema,
   OperatorOverviewSchema,
+  OperatorSpendSchema,
   OrganizationSchema,
   type ScanMessage,
   ScanSchema,
@@ -32,7 +33,17 @@ const app = createApp({
       ? { user: { id: userId, email: `${userId}@example.com` }, store: memoryStore(db, userId) }
       : null;
   },
-  deployment: { models: { chatgpt: "test-gpt", claude: "test-claude" } },
+  deployment: {
+    models: { chatgpt: "test-gpt", claude: "test-claude" },
+    rates: {
+      "test-gpt": {
+        input_per_million: 2,
+        cached_input_per_million: 0.5,
+        output_per_million: 10,
+        per_thousand_searches: 10,
+      },
+    },
+  },
 });
 
 function call(user: string | null, method: string, path: string, body?: unknown) {
@@ -511,6 +522,54 @@ describe("organizations and locations", () => {
     // And being able to read them all does not make them the operator's.
     const me = MeSchema.parse(await (await call(bob, "GET", "/me")).json());
     expect(me.organizations.map((row) => row.name)).toEqual(["Bob's Bakery"]);
+  });
+
+  it("tells the operator what each month cost, and nobody else, without the rates", async () => {
+    const { organization } = await seed();
+    await call(bob, "POST", "/organizations", { name: "Bob's Bakery" });
+    const used = (model: string, searches: number) => ({
+      surface: "chatgpt" as const,
+      model,
+      calls: 1,
+      input_tokens: 1_000_000,
+      cached_input_tokens: 0,
+      output_tokens: 0,
+      searches,
+      created_at: new Date().toISOString(),
+    });
+    const scan = { organization_id: organization.id, scan_id: crypto.randomUUID() };
+    db.usage.push(
+      { ...scan, ...used("test-gpt", 100) },
+      { ...scan, ...used("unknown-model", 0) },
+      { audit_id: crypto.randomUUID(), ...used("test-gpt", 0) },
+      // Long ago: outside the months shown.
+      { ...scan, ...used("test-gpt", 0), created_at: "2020-01-01T00:00:00.000Z" },
+    );
+
+    expect((await call(alice, "GET", "/operator/spend")).status).toBe(404);
+    expect((await call(null, "GET", "/operator/spend")).status).toBe(401);
+
+    db.operators.add(bob);
+    const response = await call(bob, "GET", "/operator/spend");
+    const text = await response.text();
+    const spend = OperatorSpendSchema.parse(JSON.parse(text));
+    expect(spend.months).toHaveLength(3);
+    expect(spend.months[0]).toEqual({
+      month: new Date().toISOString().slice(0, 7),
+      total: 5,
+      organizations: [
+        { organization_id: organization.id, name: "Raleigh Pizza Group", is_yours: false, cost: 3 },
+      ],
+      audits: 2,
+      deleted: 0,
+      unpriced: [{ model: "unknown-model", calls: 1 }],
+    });
+    expect(spend.months.slice(1).map((month) => month.total)).toEqual([0, 0]);
+    // Dollars leave the server. What a model costs does not, here or on the overview.
+    expect(text).not.toContain("per_million");
+    expect(await (await call(bob, "GET", "/operator/overview")).text()).not.toContain(
+      "per_million",
+    );
   });
 
   it("lets the operator change an organization's limits, and nobody else", async () => {

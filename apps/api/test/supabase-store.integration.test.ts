@@ -89,6 +89,9 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
     ).toBeNull();
     expect(await aliceStore.getOrganization(organization.id)).toEqual(organization);
 
+    // What was used is the operator's to read. A member is told nothing.
+    expect(await aliceStore.listUsageByMonth("2000-01-01T00:00:00.000Z")).toEqual([]);
+
     // And only the operator makes an audit.
     expect(
       await aliceStore.createAudit({

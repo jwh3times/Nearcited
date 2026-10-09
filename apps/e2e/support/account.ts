@@ -88,20 +88,41 @@ export async function api<T = unknown>(
  * only. A deployment's roles are the operator's to set, never a test's.
  */
 export async function grantRole(account: Account, role: "operator" | "test"): Promise<void> {
-  if (process.env.E2E_APP_URL) throw new Error("Roles are not granted against a deployment.");
+  const userId = (account.session.user as { id: string } | undefined)?.id;
+  await asWorker("platform_roles", { user_id: userId, role });
+}
+
+/** Records what a scan used at a provider, as the worker does after a live scan. Local stack only. */
+export async function recordUsage(
+  organizationId: string,
+  usage: { model: string; calls: number },
+): Promise<void> {
+  await asWorker("provider_usage", {
+    organization_id: organizationId,
+    surface: "chatgpt",
+    input_tokens: 1000,
+    cached_input_tokens: 0,
+    output_tokens: 100,
+    searches: 1,
+    ...usage,
+  });
+}
+
+/** Writes a row with the secret key. Never against a deployment: its data is not a test's. */
+async function asWorker(table: string, row: unknown): Promise<void> {
+  if (process.env.E2E_APP_URL) throw new Error("Tests do not write to a deployment's database.");
   const vars = readFileSync(join(import.meta.dirname, "../../api/.dev.vars"), "utf8");
   const secretKey = /^SUPABASE_SECRET_KEY=(.*)$/m.exec(vars)?.[1] ?? "";
-  const userId = (account.session.user as { id: string } | undefined)?.id;
-  const response = await fetch(`${SUPABASE_URL}/rest/v1/platform_roles`, {
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
     method: "POST",
     headers: {
       apikey: secretKey,
       Authorization: `Bearer ${secretKey}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ user_id: userId, role }),
+    body: JSON.stringify(row),
   });
-  if (!response.ok) throw new Error(`Could not grant ${role}: status ${response.status}.`);
+  if (!response.ok) throw new Error(`Could not write to ${table}: status ${response.status}.`);
 }
 
 interface Scene {
