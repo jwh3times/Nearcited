@@ -1,4 +1,9 @@
-import { type Organization, OrganizationInputSchema, SURFACE_LABELS } from "@nearcited/shared";
+import {
+  type Organization,
+  OrganizationInputSchema,
+  PLAN_ASSISTANTS,
+  SURFACE_LABELS,
+} from "@nearcited/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
 import { ErrorNote } from "../components/ErrorNote";
@@ -23,6 +28,8 @@ export function AccountSettings({ organization, email }: AccountSettingsProps) {
     queryFn: () => api.listLocations(organization.id),
   });
   const every = organization.scan_every_days;
+  const plans = useQuery({ queryKey: ["plans"], queryFn: api.plans, staleTime: 300_000 });
+  const plan = plans.data?.find((candidate) => candidate.key === organization.plan_key);
 
   return (
     <main className="page">
@@ -38,7 +45,7 @@ export function AccountSettings({ organization, email }: AccountSettingsProps) {
 
         <div className="settings-side">
           <div className="card side-card">
-            <h3 className="side-title">Your plan</h3>
+            <h3 className="side-title">Your plan{plan ? `: ${plan.name}` : ""}</h3>
             <ul className="facts">
               <li>
                 <span>Locations</span>
@@ -60,6 +67,12 @@ export function AccountSettings({ organization, email }: AccountSettingsProps) {
                 <span>{organization.max_manual_scans_per_month} a month</span>
               </li>
               <li>
+                <span>Report by email</span>
+                <span>
+                  {organization.emails_report ? "After each scheduled scan" : "Not included"}
+                </span>
+              </li>
+              <li>
                 <span>Checked on</span>
                 <span>
                   {organization.surfaces
@@ -68,6 +81,9 @@ export function AccountSettings({ organization, email }: AccountSettingsProps) {
                 </span>
               </li>
             </ul>
+            {plan && plan.assistants < PLAN_ASSISTANTS.length && (
+              <AssistantChooser key={organization.id} organization={organization} />
+            )}
             <p>
               Changing the plan and paying for it are not built yet. When they are, they will be
               here.
@@ -136,5 +152,44 @@ function RenameOrganization({ organization }: { organization: Organization }) {
       )}
       <ErrorNote error={rename.error} />
     </form>
+  );
+}
+
+/**
+ * For a plan that checks one assistant: which one. The choice can be changed at any time. What
+ * the other assistant said before is kept, and the new one starts with no scans behind it.
+ */
+function AssistantChooser({ organization }: { organization: Organization }) {
+  const queryClient = useQueryClient();
+  const current = PLAN_ASSISTANTS.find((surface) => organization.surfaces?.includes(surface));
+  const choose = useMutation({
+    mutationFn: (surface: (typeof PLAN_ASSISTANTS)[number]) =>
+      api.chooseAssistants(organization.id, [surface]),
+    // The sidebar, the location pages and this card all read the organization from here.
+    onSuccess: () => queryClient.invalidateQueries(),
+  });
+
+  return (
+    <>
+      {/* biome-ignore lint/a11y/useSemanticElements: a fieldset cannot be laid out as a pill group */}
+      <div className="segmented" role="group" aria-label="Assistant to check">
+        {PLAN_ASSISTANTS.map((surface) => (
+          <button
+            key={surface}
+            type="button"
+            aria-pressed={current === surface}
+            disabled={choose.isPending}
+            onClick={() => current !== surface && choose.mutate(surface)}
+          >
+            {SURFACE_LABELS[surface]}
+          </button>
+        ))}
+      </div>
+      <p>
+        Your plan checks one assistant, and you choose which. If you switch, earlier results are
+        kept and the new assistant's score starts from its first scan.
+      </p>
+      <ErrorNote error={choose.error} />
+    </>
   );
 }

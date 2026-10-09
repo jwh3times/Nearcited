@@ -620,6 +620,63 @@ describe("usage caps", () => {
     );
   });
 
+  it("let an owner choose the assistants their plan covers, and nobody else", async () => {
+    const dave = "d0000000-0000-4000-8000-00000000da01";
+    await db.query("insert into auth.users (id, email) values ($1, 'dave@example.com')", [dave]);
+    const [org] = await as("authenticated", dave, () =>
+      rows<{ id: string }>("select id from public.create_organization('Dave''s Diner')"),
+    );
+    // A second person in the organization who is not its owner.
+    await db.query(
+      "insert into public.memberships (organization_id, user_id, role) values ($1, $2, 'member')",
+      [org?.id, bob],
+    );
+    const choose = (user: string, chosen: string) =>
+      as("authenticated", user, () =>
+        rows<{ surfaces: string[] }>(
+          `select surfaces::text[] as surfaces from public.choose_assistants($1, '${chosen}')`,
+          [org?.id],
+        ),
+      );
+
+    // The free plan checks one. Its owner picks which, and may pick again.
+    expect(await choose(dave, "{claude}")).toEqual([{ surfaces: ["claude"] }]);
+    expect(await choose(dave, "{chatgpt}")).toEqual([{ surfaces: ["chatgpt"] }]);
+    await expect(choose(dave, "{chatgpt,claude}")).rejects.toThrow(/checks 1 assistant\./);
+    await expect(choose(dave, "{}")).rejects.toThrow(/checks 1 assistant\./);
+    await expect(choose(dave, "{gemini}")).rejects.toThrow(/ChatGPT and Claude/);
+    // A member who is not the owner, a stranger and a signed-out caller change nothing.
+    expect(await choose(bob, "{claude}")).toEqual([]);
+    expect(await choose(alice, "{claude}")).toEqual([]);
+    await expect(
+      as("anon", null, () =>
+        db.query("select public.choose_assistants($1, '{claude}')", [org?.id]),
+      ),
+    ).rejects.toThrow(/permission denied/);
+    // And the column itself is still not a member's to write.
+    await expect(
+      as("authenticated", dave, () =>
+        db.query("update public.organizations set surfaces = '{chatgpt,claude}' where id = $1", [
+          org?.id,
+        ]),
+      ),
+    ).rejects.toThrow(/permission denied/);
+
+    // On a plan that checks both there is nothing to choose but both, in one order.
+    await as("service_role", null, () =>
+      db.query("select public.apply_plan($1, 'standard')", [org?.id]),
+    );
+    expect(await choose(dave, "{claude,chatgpt,claude}")).toEqual([
+      { surfaces: ["chatgpt", "claude"] },
+    ]);
+    await expect(choose(dave, "{claude}")).rejects.toThrow(/checks 2 assistants\./);
+
+    // An organization whose settings were made by hand has no plan to choose within.
+    await db.query("update public.organizations set plan_key = null where id = $1", [org?.id]);
+    await expect(choose(dave, "{claude}")).rejects.toThrow(/were set for it/);
+    await db.query("delete from public.organizations where id = $1", [org?.id]);
+  });
+
   it("are copied from a plan only by the worker", async () => {
     for (const [role, user] of [
       ["anon", null],

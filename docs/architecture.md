@@ -379,7 +379,10 @@ operator's limits editor has touched. `apply_plan()` puts an organization on a p
 plan's values onto it: its limits, its cadence, whether a report is emailed, and its assistants
 (a plan with one keeps the one the organization already had, and otherwise starts on ChatGPT).
 Only the worker may call it. `create_organization()` uses it to start every new organization on
-the free plan; a test account's organization is still set by hand. Nothing charges yet. The
+the free plan; a test account's organization is still set by hand. Where a plan covers fewer
+assistants than are offered, the organization's owner picks which through `choose_assistants()`
+(`PUT /api/organizations/:organizationId/assistants`), which checks the pick against the plan;
+`surfaces` is still not a column a member can write. Nothing charges yet. The
 limit columns below are what is enforced.
 
 **Usage caps live on the organization** (`max_locations`, `max_queries_per_location`,

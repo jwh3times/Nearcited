@@ -155,6 +155,33 @@ describe("plans", () => {
     expect(plans.map((row) => row.key)).toEqual(["free", "standard"]);
   });
 
+  it("lets an owner choose their assistant within the plan, and nobody else", async () => {
+    db.plans.push(plan("free", 0), plan("standard", 2, { assistants: 2 }));
+    const { organization } = await seed();
+    const path = `/organizations/${organization.id}/assistants`;
+    const mine = db.organizations.find((row) => row.id === organization.id);
+    if (!mine) throw new Error("organization missing");
+
+    // Set by hand: there is no plan to choose within.
+    const byHand = await call(alice, "PUT", path, { surfaces: ["claude"] });
+    expect(byHand.status).toBe(409);
+    expect(await errorCode(byHand)).toBe("limit_reached");
+
+    mine.plan_key = "free";
+    expect((await call(bob, "PUT", path, { surfaces: ["claude"] })).status).toBe(404);
+    expect((await call(null, "PUT", path, { surfaces: ["claude"] })).status).toBe(401);
+    for (const bad of [{ surfaces: [] }, { surfaces: ["gemini"] }, {}]) {
+      expect((await call(alice, "PUT", path, bad)).status, JSON.stringify(bad)).toBe(422);
+    }
+    expect((await call(alice, "PUT", path, { surfaces: ["chatgpt", "claude"] })).status).toBe(409);
+    expect(mine.surfaces).toBeNull();
+
+    const chosen = OrganizationSchema.parse(
+      await (await call(alice, "PUT", path, { surfaces: ["claude"] })).json(),
+    );
+    expect(chosen.surfaces).toEqual(["claude"]);
+  });
+
   it("shows a plan taken off sale to the organization still on it", async () => {
     db.plans.push(plan("free", 0), plan("retired", 9, { on_sale: false }));
     const { organization } = await seed();

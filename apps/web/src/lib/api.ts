@@ -1,5 +1,6 @@
 import {
   ApiErrorSchema,
+  type AssistantChoice,
   type AuditFormValues,
   type LocationDetail,
   LocationDetailSchema,
@@ -86,6 +87,9 @@ export const api = {
   /** The one thing the operator changes on a customer's account. */
   setOrganizationLimits: (id: string, limits: OrganizationLimits) =>
     json(OrganizationSchema, "PUT", `/operator/organizations/${id}/limits`, limits),
+  /** Which assistants the organization is checked on, within what its plan covers. */
+  chooseAssistants: (id: string, surfaces: AssistantChoice["surfaces"]) =>
+    json(OrganizationSchema, "PUT", `/organizations/${id}/assistants`, { surfaces }),
   renameOrganization: (id: string, name: string) =>
     json(OrganizationSchema, "PATCH", `/organizations/${id}`, { name }),
   listLocations: (organizationId: string) =>

@@ -78,6 +78,14 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
     await expect(aliceStore.applyPlan(fresh.id, "enterprise")).rejects.toThrow();
     // The worker moves it, as it will when a subscription starts. The rest of this test needs
     // the room a paid plan gives.
+    // Its owner chooses the one assistant the free plan checks. A stranger's choice finds no row.
+    expect(await bobStore.chooseAssistants(fresh.id, ["claude"])).toBeNull();
+    expect(await aliceStore.chooseAssistants(fresh.id, ["claude"])).toMatchObject({
+      surfaces: ["claude"],
+    });
+    await expect(
+      aliceStore.chooseAssistants(fresh.id, ["chatgpt", "claude"]),
+    ).rejects.toMatchObject({ kind: "limit", message: expect.stringContaining("1 assistant") });
     // More locations than a plan includes are the ones paid for.
     expect(await worker.applyPlan(fresh.id, "standard", 4)).toMatchObject({
       plan_key: "standard",
