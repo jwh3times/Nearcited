@@ -89,6 +89,9 @@ beforeEach(() => {
       send: async (message: ScanMessage) => {
         sent.push(message);
       },
+      sendBatch: async (messages: { body: ScanMessage }[]) => {
+        sent.push(...messages.map((message) => message.body));
+      },
     },
   } as unknown as Env;
 });
@@ -544,6 +547,71 @@ describe("organizations and locations", () => {
     // The owner now has room for a second location, which the default plan refused.
     const me = MeSchema.parse(await (await call(alice, "GET", "/me")).json());
     expect(me.organizations[0]).toMatchObject(limits);
+  });
+
+  it("lets the operator make an audit and queues each prompt, and nobody else", async () => {
+    await seed();
+    env.APP_URL = "https://app.example/";
+    const input = {
+      business_name: " Tony's Slice House ",
+      website: "tonys.example",
+      city: "Raleigh",
+      region: "",
+      prompts: ["best pizza in Raleigh", "late night food"],
+      samples: 2,
+    };
+
+    expect((await call(alice, "POST", "/operator/audits", input)).status).toBe(404);
+    expect((await call(null, "POST", "/operator/audits", input)).status).toBe(401);
+
+    db.operators.add(bob);
+    // A prospect reads an audit as a measurement, so it is never made from sample data.
+    const refused = await call(bob, "POST", "/operator/audits", input);
+    expect(refused.status).toBe(409);
+    expect(await errorCode(refused)).toBe("audits_unavailable");
+
+    env.PROVIDER_MODE = "live";
+    for (const bad of [
+      { ...input, prompts: [] },
+      { ...input, prompts: ["best pizza", "Best Pizza"] },
+      { ...input, prompts: Array.from({ length: 6 }, (_, i) => `prompt number ${i}`) },
+      { ...input, samples: 6 },
+      { ...input, business_name: "" },
+      { ...input, website: "not a site" },
+    ]) {
+      expect((await call(bob, "POST", "/operator/audits", bad)).status, JSON.stringify(bad)).toBe(
+        422,
+      );
+    }
+    expect(db.audits).toEqual([]);
+    expect(sent).toEqual([]);
+
+    const response = await call(bob, "POST", "/operator/audits", input);
+    expect(response.status).toBe(201);
+    const made = OperatorAuditSchema.parse(await response.json());
+    expect(made).toMatchObject({
+      business_name: "Tony's Slice House",
+      city: "Raleigh",
+      region: null,
+      status: "queued",
+    });
+    expect(db.audits).toHaveLength(1);
+    expect(db.audits[0]).toMatchObject({
+      website: "https://tonys.example",
+      country_code: "US",
+      prompts: input.prompts,
+      samples: 2,
+    });
+    expect(made.link).toBe(`https://app.example/audit/${db.audits[0]?.token}`);
+    expect(sent).toEqual([
+      { audit_id: made.id, prompt_index: 0 },
+      { audit_id: made.id, prompt_index: 1 },
+    ]);
+    // And it is on the operator's list.
+    const list = OperatorAuditSchema.array().parse(
+      await (await call(bob, "GET", "/operator/audits")).json(),
+    );
+    expect(list.map((audit) => audit.id)).toEqual([made.id]);
   });
 
   it("lists every account and every audit for the operator, and for nobody else", async () => {

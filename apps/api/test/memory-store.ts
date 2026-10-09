@@ -369,6 +369,36 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
       return recommendation;
     },
 
+    async createAudit(input) {
+      if (!isOperator) return null;
+      const audit: MemoryAudit = {
+        ...input,
+        id: crypto.randomUUID(),
+        token: crypto.randomUUID().replaceAll("-", "").repeat(2),
+        status: "queued",
+        parts: {},
+        error: null,
+        revoked_at: null,
+        created_at: timestamp(),
+        expires_at: new Date(Date.now() + 30 * 86_400_000).toISOString(),
+      };
+      db.audits.push(audit);
+      const { id, token, business_name, city, region, status, error } = audit;
+      const { created_at, expires_at, revoked_at } = audit;
+      return {
+        id,
+        token,
+        business_name,
+        city,
+        region,
+        status,
+        error,
+        created_at,
+        expires_at,
+        revoked_at,
+      };
+    },
+
     async getAuditByToken(token) {
       // Like the database function, this answers anyone who holds the token.
       const audit = db.audits.find((candidate) => candidate.token === token);

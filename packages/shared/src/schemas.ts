@@ -372,29 +372,34 @@ const sound =
   (payload: { issues: readonly { path?: readonly PropertyKey[] }[] }) =>
     payload.issues.every((issue) => !fields.includes(String(issue.path?.[0])));
 
+/** A web address as typed, given its scheme. Blank is none. */
+const Website = optionalText(200).transform((typed, context) => {
+  if (typed === null) return null;
+  const website = normalizeWebsite(typed);
+  if (website === null) {
+    context.addIssue({ code: "custom", message: "Enter a web address, like joespizza.com" });
+    return z.NEVER;
+  }
+  return website;
+});
+
+const CountryCode = z
+  .string()
+  .trim()
+  .toUpperCase()
+  .refine(isCountry, "Use a two-letter country code, like US")
+  .default("US");
+
 export const LocationInputSchema = z
   .object({
     name: named(120, "Name is required", "Enter the business's name"),
-    website: optionalText(200).transform((typed, context) => {
-      if (typed === null) return null;
-      const website = normalizeWebsite(typed);
-      if (website === null) {
-        context.addIssue({ code: "custom", message: "Enter a web address, like joespizza.com" });
-        return z.NEVER;
-      }
-      return website;
-    }),
+    website: Website,
     phone: optionalText(40),
     address_line: optionalText(200),
     city: named(80, "City is required", "Enter the city's name"),
     region: optionalText(80),
     postal_code: optionalText(20),
-    country_code: z
-      .string()
-      .trim()
-      .toUpperCase()
-      .refine(isCountry, "Use a two-letter country code, like US")
-      .default("US"),
+    country_code: CountryCode,
     google_place_id: optionalText(200).refine(
       (value) => value === null || /^[A-Za-z0-9_-]{20,}$/.test(value),
       "Paste the place ID as Google gives it: letters, digits, - and _",
@@ -446,6 +451,47 @@ export const TrackedQueryInputSchema = z.object({
     .refine((value) => (value.match(/\p{L}/gu)?.length ?? 0) >= 3, "Use at least three letters"),
 });
 export type TrackedQueryInput = z.output<typeof TrackedQueryInputSchema>;
+
+export const AUDIT_MAX_PROMPTS = 5;
+export const AUDIT_MAX_SAMPLES = 5;
+
+/**
+ * A shareable audit to make: a business that has not signed up, and what to ask about it. Every
+ * prompt is asked `samples` times on every assistant, so each one costs real money.
+ */
+export const AuditInputSchema = z.object({
+  business_name: named(120, "Name is required", "Enter the business's name"),
+  website: Website,
+  city: named(80, "City is required", "Enter the city's name"),
+  region: optionalText(80),
+  country_code: CountryCode,
+  prompts: z
+    .array(
+      z
+        .string()
+        .trim()
+        .min(1, "Enter a prompt")
+        .max(200, "Use at most 200 characters")
+        .refine(
+          (value) => (value.match(/\p{L}/gu)?.length ?? 0) >= 3,
+          "Use at least three letters",
+        ),
+    )
+    .min(1, "Give at least one prompt")
+    .max(AUDIT_MAX_PROMPTS, `Give at most ${AUDIT_MAX_PROMPTS} prompts`)
+    .refine(
+      (prompts) => new Set(prompts.map((prompt) => prompt.toLowerCase())).size === prompts.length,
+      "Two prompts are the same",
+    ),
+  samples: z
+    .number({ error: "Enter a whole number" })
+    .int("Enter a whole number")
+    .min(1, "Enter 1 or more")
+    .max(AUDIT_MAX_SAMPLES, `Enter ${AUDIT_MAX_SAMPLES} or fewer`)
+    .default(AUDIT_MAX_SAMPLES),
+});
+export type AuditInput = z.output<typeof AuditInputSchema>;
+export type AuditFormValues = z.input<typeof AuditInputSchema>;
 
 /** Retires a prompt (false) or restores it (true). A retired prompt keeps its results. */
 export const TrackedQueryUpdateSchema = z.object({

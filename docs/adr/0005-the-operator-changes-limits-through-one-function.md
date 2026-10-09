@@ -18,6 +18,11 @@ which the API reports as an organization that does not exist.
 The record is a table no API role can write, the operator included: a row exists only because the
 function made a change. The operator may read it.
 
+Making a shareable audit follows the same shape: `operator_create_audit` inserts the audit for the
+operator alone and records that it did. The request then queues it. An audit spends real money at
+the providers, which is why it is recorded, and a deployment serving sample data refuses to make
+one.
+
 Which assistants an organization is checked on, whether it is a test organization, and who holds
 a platform role are still set only with the secret key.
 

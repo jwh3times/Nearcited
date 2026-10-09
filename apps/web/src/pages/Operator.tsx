@@ -7,9 +7,11 @@ import {
   type Surface,
 } from "@nearcited/shared";
 import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import { Link } from "react-router";
 import { ErrorNote } from "../components/ErrorNote";
 import { Labelled } from "../components/Labelled";
+import { NewAudit } from "../components/NewAudit";
 import { api } from "../lib/api";
 import { formatDate, listOf } from "../lib/format";
 import { readThroughBase } from "../lib/viewing";
@@ -36,7 +38,8 @@ const SCAN_WORDS = {
 
 /**
  * The operator's first screen: what is wrong now, how much is going on, and every organization.
- * Everything on it is read; nothing here changes a customer's account.
+ * Everything on it is read, and nothing here changes a customer's account. The one thing made here
+ * is an audit, which belongs to no customer.
  */
 export function Operator() {
   const overview = useQuery({
@@ -326,7 +329,14 @@ const AUDIT_WORDS = { queued: "Still asking", ready: "Ready", failed: "Failed" }
 
 /** Every shareable audit. They belong to no organization, so this is the only list they are on. */
 function Audits() {
-  const audits = useQuery({ queryKey: ["operator-audits"], queryFn: api.operatorAudits });
+  const audits = useQuery({
+    queryKey: ["operator-audits"],
+    queryFn: api.operatorAudits,
+    // An audit takes a minute or two to be asked. This is how "Still asking" becomes "Ready".
+    refetchInterval: (query) =>
+      query.state.data?.some((audit) => audit.status === "queued" && audit.link) ? 10_000 : false,
+  });
+  const [making, setMaking] = useState(false);
   const columns = "minmax(12rem,1.5fr) 7rem minmax(8rem,1fr) minmax(8rem,1fr) 6rem";
 
   return (
@@ -334,7 +344,13 @@ function Audits() {
       <div className="section-head">
         <h2>Audits</h2>
         <span className="small">Reports made for businesses that have not signed up.</span>
+        {!making && (
+          <button type="button" className="secondary" onClick={() => setMaking(true)}>
+            New audit
+          </button>
+        )}
       </div>
+      {making && <NewAudit onDone={() => setMaking(false)} />}
       {audits.isPending && <p className="status">Loading</p>}
       <ErrorNote error={audits.error} />
       {audits.data?.length === 0 && <p className="lede">No audits have been made.</p>}

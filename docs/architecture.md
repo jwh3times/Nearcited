@@ -420,6 +420,13 @@ bound each value whatever calls the function. `operator_actions` has no write gr
 API role; the operator has a `select` policy on it. The page is `/operator/o/:organizationId/plan`.
 See `docs/adr/0005-the-operator-changes-limits-through-one-function.md`.
 
+**The operator makes an audit the same way.** `POST /api/operator/audits` checks the body against
+`AuditInputSchema`, refuses with 409 where scans return sample data, and calls
+`operator_create_audit()`, which inserts the row for the operator alone and records it in
+`operator_actions`. The route then puts one message per prompt on the scan queue, as
+`npm run audit:create` does. The `audits` table still grants no API role a write. If queueing
+fails, the request fails and the scheduled sweep marks the audit failed.
+
 Accounts come from `operator_accounts()`, a security-definer function that returns each account's
 email, creation and last sign-in time from `auth.users` and rows only while `is_operator()` is true;
 it is executable by `authenticated` and not `anon`. `auth.users` itself stays unreadable to every
