@@ -1405,6 +1405,18 @@ details.as-table td {
   color: var(--muted);
 }
 
+/* A location its plan no longer covers: what happened, and the way back. */
+.paused-by-plan {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  color: var(--ink);
+}
+
+.paused-by-plan .head-actions {
+  flex-wrap: wrap;
+}
+
 /* Answers */
 
 .quotes {

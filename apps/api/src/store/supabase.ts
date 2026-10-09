@@ -57,6 +57,7 @@ const ERROR_KINDS: Record<string, StoreErrorKind> = {
   NC002: "limit", // active prompts per location
   NC003: "limit", // manual scans per month
   NC004: "limit", // a choice of assistants the plan does not allow
+  NC005: "limit", // a location paused by the plan, or no room to bring one back
 };
 
 function fail(action: string, error: DbError): never {
@@ -96,7 +97,7 @@ const ORGANIZATION_COLUMNS =
   "id, name, max_locations, max_queries_per_location, max_manual_scans_per_month, scan_every_days, surfaces, is_test, emails_report, plan_key, created_at";
 
 const LOCATION_COLUMNS =
-  "id, organization_id, name, website, phone, address_line, city, region, postal_code, country_code, google_place_id, primary_category, scan_frequency, last_scanned_at, created_at";
+  "id, organization_id, name, website, phone, address_line, city, region, postal_code, country_code, google_place_id, primary_category, scan_frequency, paused_by_plan, last_scanned_at, created_at";
 const SCAN_COLUMNS =
   "id, location_id, status, trigger, visibility_score, error, sample_data, created_at, started_at, finished_at";
 
@@ -316,6 +317,15 @@ export function createSupabaseStore(db: SupabaseClient): Store {
       return data ? LocationSchema.parse(data) : null;
     },
 
+    async activateLocation(id, insteadOf) {
+      const { data, error } = await db
+        .rpc("activate_location", { location: id, instead_of: insteadOf ?? null })
+        .select(LOCATION_COLUMNS)
+        .maybeSingle();
+      if (error) fail("Activate location", error);
+      return data ? LocationSchema.parse(data) : null;
+    },
+
     async updateLocation(id, input) {
       const { data, error } = await db
         .from("locations")
@@ -336,7 +346,7 @@ export function createSupabaseStore(db: SupabaseClient): Store {
     async listQueries(locationId) {
       const { data, error } = await db
         .from("tracked_queries")
-        .select("id, location_id, kind, text, is_active, created_at")
+        .select("id, location_id, kind, text, is_active, set_aside_by_plan, created_at")
         .eq("location_id", locationId)
         .order("created_at");
       if (error) fail("List tracked queries", error);
@@ -347,7 +357,7 @@ export function createSupabaseStore(db: SupabaseClient): Store {
       const { data, error } = await db
         .from("tracked_queries")
         .insert({ ...input, location_id: locationId })
-        .select("id, location_id, kind, text, is_active, created_at")
+        .select("id, location_id, kind, text, is_active, set_aside_by_plan, created_at")
         .single();
       if (error) fail("Create tracked query", error);
       return TrackedQuerySchema.parse(data);
@@ -358,7 +368,7 @@ export function createSupabaseStore(db: SupabaseClient): Store {
         .from("tracked_queries")
         .update({ is_active: active })
         .eq("id", id)
-        .select("id, location_id, kind, text, is_active, created_at")
+        .select("id, location_id, kind, text, is_active, set_aside_by_plan, created_at")
         .maybeSingle();
       if (error) fail("Update tracked query", error);
       return data ? TrackedQuerySchema.parse(data) : null;

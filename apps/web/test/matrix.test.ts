@@ -8,6 +8,7 @@ const query = (id: string, kind: TrackedQuery["kind"], text: string): TrackedQue
   kind,
   text,
   is_active: true,
+  set_aside_by_plan: false,
   created_at: "2026-10-01T00:00:00Z",
 });
 

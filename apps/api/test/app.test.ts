@@ -182,6 +182,44 @@ describe("plans", () => {
     expect(chosen.surfaces).toEqual(["claude"]);
   });
 
+  it("brings a paused location back into use, in place of one that is named", async () => {
+    const { organization, location } = await seed();
+    const mine = db.organizations.find((row) => row.id === organization.id);
+    if (!mine) throw new Error("organization missing");
+    mine.max_locations = 2;
+    const second = LocationSchema.parse(
+      await (
+        await call(alice, "POST", `/organizations/${organization.id}/locations`, {
+          name: "Second Shop",
+          city: "Durham",
+        })
+      ).json(),
+    );
+    // The plan shrinks to one location: the newer one is paused.
+    mine.max_locations = 1;
+    const paused = db.locations.find((row) => row.id === second.id);
+    if (paused) paused.paused_by_plan = true;
+    const path = `/locations/${second.id}/activate`;
+
+    expect((await call(bob, "POST", path, {})).status).toBe(404);
+    expect((await call(null, "POST", path, {})).status).toBe(401);
+    // A paused location is not scanned by hand.
+    expect((await call(alice, "POST", `/locations/${second.id}/scans`)).status).toBe(409);
+    // No room, and nothing named to make room.
+    const full = await call(alice, "POST", path, {});
+    expect(full.status).toBe(409);
+    expect(await errorCode(full)).toBe("limit_reached");
+
+    const swapped = LocationSchema.parse(
+      await (await call(alice, "POST", path, { instead_of: location.id })).json(),
+    );
+    expect(swapped.paused_by_plan).toBe(false);
+    expect(db.locations.map((row) => [row.name, row.paused_by_plan])).toEqual([
+      ["Joe's Pizza", true],
+      ["Second Shop", false],
+    ]);
+  });
+
   it("shows a plan taken off sale to the organization still on it", async () => {
     db.plans.push(plan("free", 0), plan("retired", 9, { on_sale: false }));
     const { organization } = await seed();

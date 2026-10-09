@@ -15,6 +15,7 @@ import { ErrorNote } from "../components/ErrorNote";
 import { Field } from "../components/Field";
 import { LocationEditor } from "../components/LocationEditor";
 import { NamedInstead } from "../components/NamedInstead";
+import { PausedByPlan } from "../components/PausedByPlan";
 import { PromptGrid } from "../components/PromptGrid";
 import { Quote } from "../components/Quote";
 import { ScoreCard } from "../components/ScoreCard";
@@ -164,15 +165,18 @@ export function LocationDetail() {
                 </a>
               )}
               <ScanLine detail={detail.data} />
-              {organization && location.scan_frequency !== "off" && surfaces.length > 0 && (
-                <span>
-                  Scanned {cadence(organization.scan_every_days, location.scan_frequency)} on{" "}
-                  {assistants}
-                </span>
-              )}
+              {organization &&
+                location.scan_frequency !== "off" &&
+                !location.paused_by_plan &&
+                surfaces.length > 0 && (
+                  <span>
+                    Scanned {cadence(organization.scan_every_days, location.scan_frequency)} on{" "}
+                    {assistants}
+                  </span>
+                )}
             </p>
           </div>
-          {!readOnly && (
+          {!readOnly && !location.paused_by_plan && (
             <div className="head-actions">
               <button
                 type="button"
@@ -185,6 +189,9 @@ export function LocationDetail() {
             </div>
           )}
         </div>
+        {location.paused_by_plan && organization && (
+          <PausedByPlan location={location} organization={organization} readOnly={readOnly} />
+        )}
         {scanning && (
           <p className="card scan-bar" role="status">
             Asking {assistants || "the assistants"} your {active.length}{" "}
@@ -409,7 +416,12 @@ export function LocationDetail() {
                   <ul>
                     {retired.map((query) => (
                       <li key={query.id}>
-                        <span>{query.text}</span>
+                        <span>
+                          {query.text}
+                          {query.set_aside_by_plan && (
+                            <span className="small muted"> · set aside by your plan</span>
+                          )}
+                        </span>
                         {!readOnly && (
                           <button
                             type="button"

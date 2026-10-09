@@ -398,6 +398,18 @@ handler could be skipped by calling the database directly. Four things about the
 - **Scans by hand are counted over a calendar month in UTC.** An organization's first scan ever
   is let through and not counted (`first_scan_at` records it), which is how a new account on the
   free plan, which allows none by hand, sees the product work once.
+  The count lives on the organization (`manual_scans_month`, `manual_scans_used`), not in the
+  `scans` table, so deleting a location does not give its scans back.
+
+**An organization can have more than its plan covers**, after moving to a smaller one. Nothing is
+deleted. `fit_to_plan()`, which `apply_plan()` calls, marks the locations beyond the plan
+`paused_by_plan` and makes the prompts beyond it inactive with `set_aside_by_plan`, oldest kept
+first; a larger plan brings them back, and a prompt its owner retired is left alone. A paused
+location is skipped by the schedule and refuses a scan by hand, and stays readable. A member
+swaps which location is in use with `activate_location()` (`POST /api/locations/:id/activate`),
+naming the one to pause when there is no room, and swaps prompts by retiring one and restoring
+another. Members may update both tables, so a trigger keeps an API role from changing either flag
+except by restoring a prompt.
 
 **Plan settings live beside the caps**, protected the same way:
 

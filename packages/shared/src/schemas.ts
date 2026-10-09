@@ -141,6 +141,11 @@ export const LocationSchema = z.object({
   google_place_id: z.string().nullable(),
   primary_category: z.string().nullable(),
   scan_frequency: ScanFrequencySchema,
+  /**
+   * True while the organization has more locations than its plan covers and this is one of those
+   * not being scanned. Everything measured so far stays readable.
+   */
+  paused_by_plan: z.boolean(),
   last_scanned_at: Timestamp.nullable(),
   created_at: Timestamp,
 });
@@ -152,9 +157,17 @@ export const TrackedQuerySchema = z.object({
   kind: QueryKindSchema,
   text: z.string(),
   is_active: z.boolean(),
+  /** True for a prompt made inactive because the plan covers fewer, not retired by its owner. */
+  set_aside_by_plan: z.boolean(),
   created_at: Timestamp,
 });
 export type TrackedQuery = z.infer<typeof TrackedQuerySchema>;
+
+/** Bringing a paused location back into use, and which location in use gives up its place. */
+export const ActivateLocationSchema = z.object({
+  instead_of: Id.nullish(),
+});
+export type ActivateLocation = z.infer<typeof ActivateLocationSchema>;
 
 export const ScanSchema = z.object({
   id: Id,

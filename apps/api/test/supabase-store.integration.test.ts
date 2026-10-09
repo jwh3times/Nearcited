@@ -359,6 +359,13 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
       aliceStore.createLocation(organization.id, { ...input, name: "Second Shop" }),
     ).rejects.toMatchObject({ kind: "limit", message: expect.stringContaining("1 location") });
 
+    // A location in use is returned as it is; a stranger's call finds nothing to bring back.
+    expect(await aliceStore.activateLocation(location.id)).toMatchObject({
+      id: location.id,
+      paused_by_plan: false,
+    });
+    expect(await bobStore.activateLocation(location.id)).toBeNull();
+
     // The on-page check is kept with the scan that made it. Members read it, a non-member does
     // not, and it follows the latest successful scan.
     const check = {

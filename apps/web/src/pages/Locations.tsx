@@ -146,7 +146,7 @@ function Row({ to, location, trend, detail, surfaces }: RowProps) {
       <span className="stack-tight">
         <span className="loc-name ellipsis">{location.name}</span>
         <span className="small muted ellipsis">
-          {placeOf(location)} ·{" "}
+          {placeOf(location)} · {location.paused_by_plan ? "paused by your plan · " : ""}
           {location.last_scanned_at
             ? `scanned ${formatDate(location.last_scanned_at)}`
             : "not scanned yet"}

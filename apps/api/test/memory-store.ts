@@ -307,6 +307,25 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
       );
     },
 
+    async activateLocation(id, insteadOf) {
+      const location = db.locations.find((l) => l.id === id);
+      if (!location || !seesLocation(id)) return null;
+      if (!location.paused_by_plan) return location;
+      const inUse = db.locations.filter(
+        (l) => l.organization_id === location.organization_id && !l.paused_by_plan,
+      );
+      const allowed = limits(location.organization_id).max_locations;
+      if (inUse.length >= allowed) {
+        const other = inUse.find((l) => l.id === insteadOf);
+        if (!other) {
+          throw new StoreError("limit", `This organization's plan covers ${allowed} locations.`);
+        }
+        other.paused_by_plan = true;
+      }
+      location.paused_by_plan = false;
+      return location;
+    },
+
     async createLocation(organizationId, input) {
       if (!seesOrg(organizationId)) throw new StoreError("forbidden", "row-level security");
       const allowed = limits(organizationId).max_locations;
@@ -318,6 +337,7 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         ...input,
         id: crypto.randomUUID(),
         organization_id: organizationId,
+        paused_by_plan: false,
         last_scanned_at: null,
         created_at: timestamp(),
       };
@@ -362,6 +382,7 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         id: crypto.randomUUID(),
         location_id: locationId,
         is_active: true,
+        set_aside_by_plan: false,
         created_at: timestamp(),
       };
       db.queries.push(query);
@@ -379,6 +400,9 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
     async createScan(locationId, trigger, requestedBy) {
       if (!seesLocation(locationId)) throw new StoreError("forbidden", "row-level security");
       if (inFlight(locationId)) throw new StoreError("conflict", "scans_one_in_flight_idx");
+      if (trigger === "manual" && db.locations.find((l) => l.id === locationId)?.paused_by_plan) {
+        throw new StoreError("limit", "This location is paused.");
+      }
       if (trigger === "manual" && requestedBy !== null) {
         const organizationId = db.locations.find((l) => l.id === locationId)?.organization_id ?? "";
         const allowed = limits(organizationId).max_manual_scans_per_month;

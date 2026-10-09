@@ -1,4 +1,5 @@
 import {
+  ActivateLocationSchema,
   buildActionPlan,
   CITING_SURFACES,
   type LocationDetail,
@@ -89,6 +90,18 @@ locationRoutes.patch("/locations/:id", async (c) => {
   const updated = await c.get("store").updateLocation(id, input);
   if (!updated) throw notFound("Location");
   return c.json(updated);
+});
+
+/**
+ * Brings a location the plan paused back into use. When the plan has no room, `instead_of`
+ * names the location that gives up its place; the database says so when it is missing.
+ */
+locationRoutes.post("/locations/:id/activate", async (c) => {
+  const id = uuidParam(c, "id", "Location");
+  const { instead_of } = await parseJson(c, ActivateLocationSchema);
+  const location = await c.get("store").activateLocation(id, instead_of);
+  if (!location) throw notFound("Location");
+  return c.json(location);
 });
 
 locationRoutes.delete("/locations/:id", async (c) => {

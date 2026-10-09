@@ -265,6 +265,7 @@ organization reads as missing and returns 404. Payloads are defined in
 | `POST /api/organizations/:organizationId/locations` | Add a location. The phone is stored as E.164 in the location's country, the website with `https://`, and the postal code, country, place ID, name and city are checked; a bad value answers 422. |
 | `GET /api/locations/:id` | One location with its queries, latest scan, rates over recent scans, the sites those answers cited, the surfaces being checked, recommendations, the latest website check and the action plan. |
 | `PATCH /api/locations/:id` | Replace a location's details with a whole location body, as when adding one; a field left out goes back to blank or its default. The same checks as adding. |
+| `POST /api/locations/:id/activate` | Brings a location the plan paused back into use. Takes `instead_of`, the location in use that is paused in its place, when the plan has no room; 409 with the reason without one. 404 to a non-member. |
 | `DELETE /api/locations/:id` | Delete a location and its history. |
 | `POST /api/locations/:id/queries` | Add a prompt or keyword to track; the text needs letters (three for a prompt). Adding one that was retired restores it. |
 | `PATCH /api/queries/:id` | Retire a tracked query, or restore it. Its results are kept. |

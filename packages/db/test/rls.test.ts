@@ -550,30 +550,279 @@ describe("usage caps", () => {
   });
 
   it("count scans by hand over the calendar month, so last month's are forgotten", async () => {
-    const [{ used } = { used: 0 }] = await rows<{ used: number }>(
-      `select count(*)::int as used from public.scans s join public.locations l on l.id = s.location_id
-       where l.organization_id = $1 and s.trigger = 'manual' and s.requested_by is not null
-         and s.created_at > (select first_scan_at from public.organizations where id = $1)`,
-      [orgId],
-    );
     await db.query(
       "update public.scans set status = 'failed' where status in ('queued', 'running')",
     );
+    const [{ used } = { used: 0 }] = await rows<{ used: number }>(
+      "select manual_scans_used as used from public.organizations where id = $1",
+      [orgId],
+    );
+    expect(used).toBeGreaterThan(0);
     await setLimits(`max_manual_scans_per_month = ${used}`);
     await expect(manualScan(second)).rejects.toThrow(/by hand/);
-    // One of this month's becomes last month's, and there is room again.
+    // A refused scan is not counted.
+    expect(
+      await rows("select manual_scans_used as used from public.organizations where id = $1", [
+        orgId,
+      ]),
+    ).toEqual([{ used }]);
+
+    // The count is for one month. When it is last month's, none of this month's are used.
     await db.query(
-      `update public.scans set created_at = date_trunc('month', now()) - interval '1 day'
-       where id = (select s.id from public.scans s join public.locations l on l.id = s.location_id
-                   where l.organization_id = $1 and s.trigger = 'manual' and s.requested_by is not null
-                     and s.created_at > (select first_scan_at from public.organizations where id = $1)
-                   limit 1)`,
+      "update public.organizations set manual_scans_month = (date_trunc('month', now()) - interval '1 day')::date where id = $1",
       [orgId],
     );
     const [allowed] = await manualScan(second);
     expect(allowed?.id).toBeTruthy();
+    expect(
+      await rows("select manual_scans_used as used from public.organizations where id = $1", [
+        orgId,
+      ]),
+    ).toEqual([{ used: 1 }]);
     await db.query("update public.scans set status = 'failed' where id = $1", [allowed?.id]);
     await setLimits("max_manual_scans_per_month = 150");
+  });
+
+  it("keep the month's count when the location that was scanned is deleted", async () => {
+    const erin = "e1000000-0000-4000-8000-00000000e001";
+    await db.query("insert into auth.users (id, email) values ($1, 'erin@example.com')", [erin]);
+    const asErin = <T>(sql: string, params: unknown[] = []) =>
+      as("authenticated", erin, () => rows<T>(sql, params));
+    const [org] = await asErin<{ id: string }>(
+      "select id from public.create_organization('Erin''s Eatery')",
+    );
+    await as("service_role", null, () =>
+      db.query("select public.apply_plan($1, 'starter')", [org?.id]),
+    );
+    const addLocation = async () =>
+      (
+        await asErin<{ id: string }>(
+          "insert into public.locations (organization_id, name, city) values ($1, 'Eatery', 'Raleigh') returning id",
+          [org?.id],
+        )
+      )[0]?.id;
+    const scan = async (location: string | undefined) => {
+      const [made] = await asErin<{ id: string }>(
+        "insert into public.scans (location_id, trigger, requested_by) values ($1, 'manual', $2) returning id",
+        [location, erin],
+      );
+      await db.query("update public.scans set status = 'succeeded' where id = $1", [made?.id]);
+    };
+
+    // The first ever is free; Starter then allows two a month.
+    let location = await addLocation();
+    await scan(location);
+    await scan(location);
+    await scan(location);
+    await expect(scan(location)).rejects.toThrow(/2 scans by hand/);
+
+    // Deleting the location takes its scans with it, and used to take the count too.
+    await asErin("delete from public.locations where id = $1", [location]);
+    location = await addLocation();
+    await expect(scan(location)).rejects.toThrow(/2 scans by hand/);
+    // Nor can a member reset the count themselves.
+    await expect(
+      asErin("update public.organizations set manual_scans_used = 0 where id = $1", [org?.id]),
+    ).rejects.toThrow(/permission denied/);
+    await db.query("delete from public.organizations where id = $1", [org?.id]);
+  });
+
+  describe("an organization with more than its plan allows", () => {
+    const frank = "f1000000-0000-4000-8000-00000000f001";
+    let org = "";
+    const places: string[] = [];
+    const asFrank = <T>(sql: string, params: unknown[] = []) =>
+      as("authenticated", frank, () => rows<T>(sql, params));
+    const plan = (key: string, locations: number | null = null) =>
+      as("service_role", null, () =>
+        db.query("select public.apply_plan($1, $2, $3)", [org, key, locations]),
+      );
+    const paused = async () =>
+      (
+        await rows<{ name: string; paused_by_plan: boolean }>(
+          "select name, paused_by_plan from public.locations where organization_id = $1 order by created_at, id",
+          [org],
+        )
+      ).map((row) => `${row.name}:${row.paused_by_plan ? "paused" : "in use"}`);
+    const prompts = async (location: string | undefined) =>
+      (
+        await rows<{ text: string; is_active: boolean; set_aside_by_plan: boolean }>(
+          "select text, is_active, set_aside_by_plan from public.tracked_queries where location_id = $1 order by created_at, id",
+          [location],
+        )
+      ).map(
+        (row) =>
+          `${row.text}:${row.is_active ? "active" : row.set_aside_by_plan ? "set aside" : "retired"}`,
+      );
+
+    beforeAll(async () => {
+      await db.query("insert into auth.users (id, email) values ($1, 'frank@example.com')", [
+        frank,
+      ]);
+      org =
+        (await asFrank<{ id: string }>("select id from public.create_organization('Frank''s')"))[0]
+          ?.id ?? "";
+      await plan("standard");
+      for (const name of ["First", "Second", "Third"]) {
+        const [row] = await asFrank<{ id: string }>(
+          "insert into public.locations (organization_id, name, city, created_at) values ($1, $2, 'Raleigh', now() + ($3 || ' seconds')::interval) returning id",
+          [org, name, String(places.length)],
+        );
+        places.push(row?.id ?? "");
+      }
+      for (const [at, text] of ["p1", "p2", "p3", "p4"].entries()) {
+        await asFrank(
+          "insert into public.tracked_queries (location_id, kind, text, created_at) values ($1, 'ai_prompt', $2, now() + ($3 || ' seconds')::interval)",
+          [places[0], text, String(at)],
+        );
+      }
+      // One the owner retired themselves, which no plan brings back.
+      await asFrank(
+        "update public.tracked_queries set is_active = false where location_id = $1 and text = 'p2'",
+        [places[0]],
+      );
+    });
+    afterAll(async () => {
+      await db.query("delete from public.organizations where id = $1", [org]);
+    });
+
+    it("keeps the oldest location and the oldest prompts in use, and deletes nothing", async () => {
+      await plan("free");
+      expect(await paused()).toEqual(["First:in use", "Second:paused", "Third:paused"]);
+      // Free tracks two: p1 and p3 are the two oldest still active. p4 is set aside.
+      expect(await prompts(places[0])).toEqual([
+        "p1:active",
+        "p2:retired",
+        "p3:active",
+        "p4:set aside",
+      ]);
+    });
+
+    it("scans a paused location neither on the schedule nor by hand", async () => {
+      await asFrank(
+        "insert into public.tracked_queries (location_id, kind, text) values ($1, 'ai_prompt', 'second prompt')",
+        [places[1]],
+      );
+      const due = await as("service_role", null, () =>
+        rows<{ id: string }>(
+          "select locations_due_for_scan as id from public.locations_due_for_scan(1000)",
+        ),
+      );
+      const ids = due.map((row) => row.id);
+      expect(ids).toContain(places[0]);
+      expect(ids).not.toContain(places[1]);
+      await expect(
+        asFrank(
+          "insert into public.scans (location_id, trigger, requested_by) values ($1, 'manual', $2)",
+          [places[1], frank],
+        ),
+      ).rejects.toThrow(/This location is paused/);
+    });
+
+    it("does not let a member unpause a location or set a prompt aside by writing the row", async () => {
+      await asFrank(
+        "update public.locations set paused_by_plan = false, name = 'Second' where id = $1",
+        [places[1]],
+      );
+      await asFrank(
+        "update public.tracked_queries set set_aside_by_plan = true where location_id = $1 and text = 'p1'",
+        [places[0]],
+      );
+      expect(await paused()).toEqual(["First:in use", "Second:paused", "Third:paused"]);
+      expect((await prompts(places[0]))[0]).toBe("p1:active");
+    });
+
+    it("lets a member swap which location is in use, naming the one to pause", async () => {
+      const activate = (location: string | undefined, insteadOf: string | null = null) =>
+        asFrank<{ id: string; paused_by_plan: boolean }>(
+          "select id, paused_by_plan from public.activate_location($1, $2)",
+          [location, insteadOf],
+        );
+      await expect(activate(places[2])).rejects.toThrow(/covers 1 location\. Choose one to pause/);
+      // Naming one that is not in use, or not theirs, is no choice at all.
+      await expect(activate(places[2], places[1])).rejects.toThrow(/Choose one to pause/);
+      expect(await activate(places[2], places[0])).toEqual([
+        { id: places[2], paused_by_plan: false },
+      ]);
+      expect(await paused()).toEqual(["First:paused", "Second:paused", "Third:in use"]);
+      // One already in use is simply returned.
+      expect(await activate(places[2])).toEqual([{ id: places[2], paused_by_plan: false }]);
+      // A stranger gets nothing and changes nothing.
+      expect(
+        await as("authenticated", alice, () =>
+          rows("select id from public.activate_location($1, $2)", [places[0], places[2]]),
+        ),
+      ).toEqual([]);
+      expect(await paused()).toEqual(["First:paused", "Second:paused", "Third:in use"]);
+    });
+
+    it("lets a member swap prompts by retiring one and restoring another", async () => {
+      const set = (text: string, active: boolean) =>
+        asFrank(
+          "update public.tracked_queries set is_active = $3 where location_id = $1 and text = $2",
+          [places[0], text, active],
+        );
+      await expect(set("p4", true)).rejects.toThrow(/can have 2 active prompts/);
+      await set("p1", false);
+      await set("p4", true);
+      // Restored by hand, so it is no longer something the plan set aside.
+      expect(await prompts(places[0])).toEqual([
+        "p1:retired",
+        "p2:retired",
+        "p3:active",
+        "p4:active",
+      ]);
+    });
+
+    it("brings back what was paused when the plan grows, keeping the owner's swap", async () => {
+      await plan("starter", 2);
+      // The one the owner chose stays in use; the older of the paused two joins it.
+      expect(await paused()).toEqual(["First:in use", "Second:paused", "Third:in use"]);
+      await plan("standard");
+      expect(await paused()).toEqual(["First:in use", "Second:in use", "Third:in use"]);
+      // Prompts the owner retired stay retired, whatever room there is.
+      expect(await prompts(places[0])).toEqual([
+        "p1:retired",
+        "p2:retired",
+        "p3:active",
+        "p4:active",
+      ]);
+    });
+
+    it("restores prompts the plan set aside, oldest first, as far as there is room", async () => {
+      for (const text of ["p5", "p6", "p7"]) {
+        await asFrank(
+          "insert into public.tracked_queries (location_id, kind, text, created_at) values ($1, 'ai_prompt', $2, now() + interval '1 minute' + ($3 || ' seconds')::interval)",
+          [places[0], text, text.slice(1)],
+        );
+      }
+      await plan("free");
+      expect(await prompts(places[0])).toEqual([
+        "p1:retired",
+        "p2:retired",
+        "p3:active",
+        "p4:active",
+        "p5:set aside",
+        "p6:set aside",
+        "p7:set aside",
+      ]);
+      await db.query("update public.organizations set max_queries_per_location = 4 where id = $1", [
+        org,
+      ]);
+      await as("service_role", null, () => db.query("select public.fit_to_plan($1)", [org]));
+      expect(await prompts(places[0])).toEqual([
+        "p1:retired",
+        "p2:retired",
+        "p3:active",
+        "p4:active",
+        "p5:active",
+        "p6:active",
+        "p7:set aside",
+      ]);
+      await expect(
+        as("authenticated", frank, () => db.query("select public.fit_to_plan($1)", [org])),
+      ).rejects.toThrow(/permission denied/);
+    });
   });
 
   it("let a new organization run its first scan on a plan that allows none by hand, once", async () => {

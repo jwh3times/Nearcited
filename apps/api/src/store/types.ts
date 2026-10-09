@@ -125,6 +125,12 @@ export interface Store {
   createLocation(organizationId: string, input: LocationInput): Promise<Location>;
   getLocation(id: string): Promise<Location | null>;
   /** Replaces every field a user may set. Null when the caller cannot see the location. */
+  /**
+   * Brings a location paused by the plan back into use. When the plan has no room, `insteadOf`
+   * names the location in use that is paused in its place; without one that is a limit error.
+   * Null for a location the caller cannot reach.
+   */
+  activateLocation(id: string, insteadOf?: string | null): Promise<Location | null>;
   updateLocation(id: string, input: LocationInput): Promise<Location | null>;
   deleteLocation(id: string): Promise<boolean>;
 

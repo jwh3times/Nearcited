@@ -1,5 +1,12 @@
 import { expect, test } from "@playwright/test";
-import { type Account, createAccount, signIn, withScannedLocation } from "../support/account";
+import {
+  type Account,
+  api,
+  createAccount,
+  onPlan,
+  signIn,
+  withScannedLocation,
+} from "../support/account";
 
 let account: Account;
 let locationPath: string;
@@ -121,4 +128,39 @@ test("opens the menu on a phone, and stacks the tables @phone", async ({ page })
     () => document.documentElement.scrollWidth - window.innerWidth,
   );
   expect(overflow).toBeLessThanOrEqual(0);
+});
+
+test("pauses what a smaller plan does not cover, deletes nothing, and lets the owner swap", async ({
+  page,
+}, testInfo) => {
+  const owner = await createAccount();
+  const { organization, location } = await withScannedLocation(owner, "Shrinking Pizza Group");
+  const second = await api<{ id: string }>(
+    owner,
+    "POST",
+    `/organizations/${organization.id}/locations`,
+    { name: "Joe's Pizza Durham", city: "Durham", region: "NC" },
+  );
+  // The subscription ends: the organization is back on the free plan, which covers one location
+  // and two prompts.
+  await onPlan(organization.id, "free");
+
+  await signIn(page, owner, `/locations/${second.id}`);
+  const notice = page.getByRole("status").filter({ hasText: "This location is paused" });
+  await expect(notice).toContainText("Your plan covers 1 location");
+  await expect(page.getByRole("button", { name: "Run scan" })).toBeHidden();
+  await page.screenshot({ path: testInfo.outputPath("paused.png") });
+
+  // The first location kept its results, and its third prompt was set aside, not removed.
+  await page.goto(`/locations/${location.id}`);
+  await expect(page.getByText("/ 100")).toBeVisible();
+  await page.getByRole("tab", { name: "Settings" }).click();
+  await expect(page.getByText("set aside by your plan")).toHaveCount(1);
+
+  // Swap: scan the second location in place of the first.
+  await page.goto(`/locations/${second.id}`);
+  await notice.getByRole("button", { name: "Scan this one instead of Joe's Pizza" }).click();
+  await expect(notice).toBeHidden();
+  await page.goto(`/locations/${location.id}`);
+  await expect(notice).toBeVisible();
 });

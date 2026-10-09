@@ -48,6 +48,7 @@ function standIns(audit: AuditJob, prompt: string, at: Date) {
     google_place_id: null,
     primary_category: null,
     scan_frequency: "off",
+    paused_by_plan: false,
     last_scanned_at: null,
     created_at: at.toISOString(),
   };
@@ -57,6 +58,7 @@ function standIns(audit: AuditJob, prompt: string, at: Date) {
     kind: "ai_prompt",
     text: prompt,
     is_active: true,
+    set_aside_by_plan: false,
     created_at: at.toISOString(),
   };
   return { location, query };
