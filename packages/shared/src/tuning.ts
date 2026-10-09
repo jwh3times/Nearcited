@@ -72,7 +72,11 @@ export const TuningSchema = z.object({
   score: ScoreWeightsSchema,
   prompts: PromptsSchema,
   /** Request settings for the ChatGPT provider. */
-  chatgpt: z.object({ model: z.string().trim().min(1) }),
+  chatgpt: z.object({
+    model: z.string().trim().min(1),
+    /** How hard the model reasons before it answers. Which levels a model takes is the vendor's. */
+    effort: z.enum(["none", "minimal", "low", "medium", "high", "xhigh", "max"]),
+  }),
   /** Request settings for the Claude provider. */
   claude: z.object({
     model: z.string().trim().min(1),
@@ -108,7 +112,7 @@ export const defaultTuning: Tuning = {
     default: "{query} in {city}, {region}",
     by_surface: {},
   },
-  chatgpt: { model: "gpt-6.1-sol" },
+  chatgpt: { model: "gpt-6.1-sol", effort: "medium" },
   claude: { model: "claude-sonnet-5-5", effort: "low", max_searches: 1 },
   rates: {},
 };
