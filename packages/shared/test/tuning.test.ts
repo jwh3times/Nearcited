@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { positionWeight, visibilityScore } from "../src/scoring";
-import { defaultTuning, renderPrompt, resolveTuning, TuningSchema } from "../src/tuning";
+import {
+  defaultTuning,
+  rateFor,
+  renderPrompt,
+  resolveTuning,
+  TuningSchema,
+  usageCost,
+} from "../src/tuning";
 
 describe("defaultTuning", () => {
   it("satisfies its own schema", () => {
@@ -56,6 +63,64 @@ describe("TuningSchema", () => {
     expect(TuningSchema.safeParse(claude({ effort: "high", max_searches: 3 })).success).toBe(true);
     const { claude: _claude, ...withoutClaude } = defaultTuning;
     expect(TuningSchema.safeParse(withoutClaude).success).toBe(false);
+  });
+});
+
+describe("rates", () => {
+  const rate = {
+    input_per_million: 2,
+    cached_input_per_million: 0.5,
+    output_per_million: 10,
+    per_thousand_searches: 10,
+  };
+  const rates = { "model-a": rate, "model-a-mini": { ...rate, input_per_million: 1 } };
+  const usage = {
+    surface: "chatgpt" as const,
+    model: "model-a",
+    calls: 3,
+    input_tokens: 500_000,
+    cached_input_tokens: 200_000,
+    output_tokens: 100_000,
+    searches: 4,
+  };
+
+  it("prices nothing by default", () => {
+    expect(defaultTuning.rates).toEqual({});
+  });
+
+  it("requires every price, and none below zero", () => {
+    const withRates = (change: object) => ({
+      ...defaultTuning,
+      rates: { "model-a": { ...rate, ...change } },
+    });
+    expect(TuningSchema.safeParse(withRates({})).success).toBe(true);
+    expect(TuningSchema.safeParse(withRates({ output_per_million: -1 })).success).toBe(false);
+    expect(TuningSchema.safeParse(withRates({ per_thousand_searches: undefined })).success).toBe(
+      false,
+    );
+    const { rates: _rates, ...withoutRates } = defaultTuning;
+    expect(TuningSchema.safeParse(withoutRates).success).toBe(false);
+  });
+
+  it("finds a model by its name", () => {
+    expect(rateFor(rates, "model-a")).toEqual(rate);
+    expect(rateFor(rates, "model-b")).toBeNull();
+  });
+
+  it("finds a dated snapshot by the longest name it starts with", () => {
+    expect(rateFor(rates, "model-a-2026-08-01")).toEqual(rate);
+    expect(rateFor(rates, "model-a-mini-2026-08-01")?.input_per_million).toBe(1);
+    expect(rateFor(rates, "model-abc")).toBeNull();
+  });
+
+  it("costs tokens by the million and searches by the thousand", () => {
+    // 0.5 x $2 + 0.2 x $0.50 + 0.1 x $10 + 4 x $0.01
+    expect(usageCost(rates, usage)).toBeCloseTo(2.14, 10);
+  });
+
+  it("gives no cost for a model without a rate", () => {
+    expect(usageCost(rates, { ...usage, model: "model-b" })).toBeNull();
+    expect(usageCost({}, usage)).toBeNull();
   });
 });
 
