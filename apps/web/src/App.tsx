@@ -1,9 +1,11 @@
 import type { Me } from "@nearcited/shared";
 import { useQuery } from "@tanstack/react-query";
-import { Navigate, Route, Routes, useLocation, useMatch } from "react-router";
+import { useEffect } from "react";
+import { Navigate, Route, Routes, useLocation, useMatch, useNavigate } from "react-router";
 import { ErrorNote } from "./components/ErrorNote";
 import { Shell } from "./components/Shell";
 import { api } from "./lib/api";
+import { takeRememberedPlan } from "./lib/billing";
 import { useSession } from "./lib/session";
 import { supabase } from "./lib/supabase";
 import { readThroughBase, ViewingProvider } from "./lib/viewing";
@@ -17,6 +19,7 @@ import { Terms } from "./pages/legal/Terms";
 import { Onboarding } from "./pages/Onboarding";
 import { Operator } from "./pages/Operator";
 import { OperatorPlan } from "./pages/OperatorPlan";
+import { Pricing } from "./pages/Pricing";
 import { SignIn } from "./pages/SignIn";
 
 export function App() {
@@ -30,6 +33,9 @@ export function App() {
   if (pathname === "/privacy") return <Privacy />;
   if (pathname === "/terms") return <Terms />;
   if (pathname === "/bot") return <Bot />;
+
+  // And the price list, which a visitor reads before deciding to make an account.
+  if (pathname === "/pricing") return <Pricing />;
 
   if (!supabase) {
     return (
@@ -72,6 +78,7 @@ function SignedIn() {
 
   return (
     <Shell me={me.data} organization={organization}>
+      <ReturnToPlan />
       <Routes>
         <Route index element={<Locations organization={organization} />} />
         <Route path="locations/:id" element={<LocationDetail />} />
@@ -85,6 +92,19 @@ function SignedIn() {
       </Routes>
     </Shell>
   );
+}
+
+/**
+ * Takes someone who chose a plan on the price list before signing in back to it, once they have
+ * an account to buy it for. They confirm there: nothing starts a checkout by itself.
+ */
+function ReturnToPlan() {
+  const navigate = useNavigate();
+  useEffect(() => {
+    const plan = takeRememberedPlan();
+    if (plan) navigate(`/pricing?plan=${encodeURIComponent(plan)}`, { replace: true });
+  }, [navigate]);
+  return null;
 }
 
 /**

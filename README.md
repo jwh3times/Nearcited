@@ -80,9 +80,15 @@ locations page is a table of score, change, rate per assistant, top competitor a
 built from each location's own endpoints. The location page has tabs (Overview, Prompts, Sources,
 Website, Answers, Settings); ticking a step of the action plan is remembered in the browser only.
 An Account settings page, linked from the sidebar, renames the organization and shows what its
-plan allows, read-only. A new user is walked through four steps, and nothing is created until the
-last. The privacy policy (`/privacy`), the terms of service (`/terms`) and a page describing the
-crawler (`/bot`) are static pages readable without signing in.
+plan allows, read-only, and the scans run by hand this month. It links to the plans, and the
+owner of an organization that has been through checkout gets a "Manage billing" button (Stripe's
+account pages), a warning while a payment is being retried or after a subscription ended, and a
+thank-you on return from checkout that waits for the plan to move. A new user is walked through four steps, and nothing is created until the
+last. The privacy policy (`/privacy`), the terms of service (`/terms`), a page describing the
+crawler (`/bot`) and the plans (`/pricing`) are readable without signing in. A visitor who
+chooses a plan signs in and is brought back to `/pricing?plan=<key>`; an owner with no
+subscription goes on to Stripe's checkout from there, a subscriber is sent to Stripe's account
+pages, and a member is told the owner decides.
 
 Scans start from the "Run scan" button or from a daily schedule, and run on a queue. A scheduled
 scan emails its result to the organization's owners.
@@ -268,6 +274,7 @@ organization reads as missing and returns 404. Payloads are defined in
 | `PUT /api/organizations/:organizationId/assistants` | Sets which assistants the organization is checked on, from ChatGPT and Claude, as many as its plan covers. Owner only: 404 to anyone else. 409 with the reason when the choice is not one the plan allows. |
 | `GET /api/organizations/:organizationId/locations` | List an organization's locations. |
 | `POST /api/organizations/:organizationId/locations` | Add a location. The phone is stored as E.164 in the location's country, the website with `https://`, and the postal code, country, place ID, name and city are checked; a bad value answers 422. |
+| `GET /api/organizations/:organizationId/account` | What Account settings shows: `manual_scans_used` this month for anyone who can read the organization, and `billing` (`available`, `subscribed`, `status`, `has_customer`) for its owner alone. `billing` is null for a member and for the operator. 404 to a stranger. |
 | `POST /api/organizations/:organizationId/checkout` | Starts a subscription. Takes `plan_key` and optionally `locations`; answers `{ url }`, Stripe's checkout page. Changes no plan: the plan moves when the webhook reports the payment. Owner only: 404 to anyone else, the operator included. 409 for a test organization or one already subscribed, 422 `plan_unavailable` for a plan that cannot be bought, 503 `billing_unavailable` when Stripe is not set up. |
 | `POST /api/organizations/:organizationId/billing-portal` | Answers `{ url }`, Stripe's account pages, where the owner changes plan, pays a failed invoice or cancels. Owner only: 404 to anyone else. 409 `no_subscription` for an organization that never subscribed; 503 `billing_unavailable` when Stripe is not set up. |
 | `GET /api/locations/:id` | One location with its queries, latest scan, rates over recent scans, the sites those answers cited, the surfaces being checked, recommendations, the latest website check and the action plan. |
@@ -481,9 +488,10 @@ pnpm sync:agents
   `claude.ts` in `apps/api/src/providers/`). Perplexity, Gemini and the three Google surfaces
   are not;
   `apps/api/src/providers/live.ts` has notes on what each needs.
-- **Billing in the app.** The API can start a Stripe checkout and open its account pages, and a
-  subscription moves an organization between plans, but no screen offers either yet, and Stripe
-  is wired for test mode only. Limits can still be changed by hand, and the Account settings
+- **Changing plan in the app.** A visitor can read the plans, an owner can start a Stripe
+  checkout and open Stripe's account pages from the app, and a subscription moves an organization
+  between plans. Changing plan or the number of locations paid for from inside the app is not
+  built; it happens in Stripe's pages. Stripe is wired for test mode only. Limits can still be changed by hand, and the Account settings
   page shows them without editing them.
 - **Inviting teammates.** The schema and policies support members and roles; there is no API or
   screen for it.

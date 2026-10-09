@@ -25,7 +25,15 @@ test("renames the organization from Account settings, everywhere at once", async
   await expect(page.locator(".org-card")).toContainText("Triangle Pizza Group");
   // What the plan allows is shown, and not offered for editing.
   await expect(page.getByText("Prompts and keywords")).toBeVisible();
-  await expect(page.getByText("are not built yet")).toBeVisible();
+  await expect(page.getByText("0 of 0 this month")).toBeVisible();
+  // The owner is shown the way to the plans. Nothing can be bought where no provider is set up.
+  await expect(page.getByText("Subscriptions are not available here yet.")).toBeVisible();
+  await page.getByRole("link", { name: "See plans and prices" }).click();
+  await expect(page.getByRole("heading", { name: "Pricing", level: 1 })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Free plan" })).toContainText("Your plan");
+  await expect(page.getByRole("region", { name: "Starter plan" })).toContainText(
+    "Subscriptions are not available here yet.",
+  );
 });
 
 test("lets the owner of a free organization choose which assistant it is checked on", async ({

@@ -2,6 +2,8 @@ import {
   ApiErrorSchema,
   type AssistantChoice,
   type AuditFormValues,
+  BillingRedirectSchema,
+  type CheckoutInput,
   type LocationDetail,
   LocationDetailSchema,
   type LocationFormValues,
@@ -11,6 +13,7 @@ import {
   OperatorAuditSchema,
   OperatorOverviewSchema,
   OperatorSpendSchema,
+  OrganizationAccountSchema,
   type OrganizationLimits,
   OrganizationSchema,
   PlanSchema,
@@ -90,6 +93,15 @@ export const api = {
   /** Which assistants the organization is checked on, within what its plan covers. */
   chooseAssistants: (id: string, surfaces: AssistantChoice["surfaces"]) =>
     json(OrganizationSchema, "PUT", `/organizations/${id}/assistants`, { surfaces }),
+  /** This month's use, and for the owner alone where billing stands. */
+  organizationAccount: (id: string) =>
+    json(OrganizationAccountSchema, "GET", `/organizations/${id}/account`),
+  /** Where the payment provider's checkout is, for the owner to be sent to. Charges nothing. */
+  checkout: (id: string, input: CheckoutInput) =>
+    json(BillingRedirectSchema, "POST", `/organizations/${id}/checkout`, input),
+  /** Where the payment provider's account pages are: payment method, invoices, cancelling. */
+  billingPortal: (id: string) =>
+    json(BillingRedirectSchema, "POST", `/organizations/${id}/billing-portal`),
   renameOrganization: (id: string, name: string) =>
     json(OrganizationSchema, "PATCH", `/organizations/${id}`, { name }),
   listLocations: (organizationId: string) =>

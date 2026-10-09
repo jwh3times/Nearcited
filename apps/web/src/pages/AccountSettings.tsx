@@ -5,10 +5,12 @@ import {
   SURFACE_LABELS,
 } from "@nearcited/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
+import { Link, useSearchParams } from "react-router";
 import { ErrorNote } from "../components/ErrorNote";
 import { Field } from "../components/Field";
 import { api } from "../lib/api";
+import { billingWarning } from "../lib/billing";
 import { useFormErrors } from "../lib/form";
 import { listOf } from "../lib/format";
 import { supabase } from "../lib/supabase";
@@ -19,8 +21,8 @@ interface AccountSettingsProps {
 }
 
 /**
- * The organization and the account behind it: its name, what its plan allows, and who is signed
- * in. Changing the plan and paying for it belong here too, once they exist.
+ * The organization and the account behind it: its name, what its plan allows and how much of
+ * that is used, the way to its billing for its owner, and who is signed in.
  */
 export function AccountSettings({ organization, email }: AccountSettingsProps) {
   const locations = useQuery({
@@ -30,6 +32,23 @@ export function AccountSettings({ organization, email }: AccountSettingsProps) {
   const every = organization.scan_every_days;
   const plans = useQuery({ queryKey: ["plans"], queryFn: api.plans, staleTime: 300_000 });
   const plan = plans.data?.find((candidate) => candidate.key === organization.plan_key);
+  const queryClient = useQueryClient();
+  // Checkout sends the owner back here before its webhook has moved the plan, so keep asking
+  // until the subscription shows.
+  const returning = useSearchParams()[0].get("billing");
+  const account = useQuery({
+    queryKey: ["account", organization.id],
+    queryFn: () => api.organizationAccount(organization.id),
+    refetchInterval: (query) =>
+      returning === "subscribed" && query.state.data?.billing?.subscribed === false ? 3000 : false,
+  });
+  const billing = account.data?.billing ?? null;
+  const subscribed = billing?.subscribed;
+  // The plan, its limits and what is paused all come from elsewhere, so read them again.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the subscription changing is the trigger
+  useEffect(() => {
+    if (subscribed !== undefined) queryClient.invalidateQueries({ queryKey: ["me"] });
+  }, [subscribed]);
 
   return (
     <main className="page">
@@ -64,7 +83,10 @@ export function AccountSettings({ organization, email }: AccountSettingsProps) {
               </li>
               <li>
                 <span>Scans run by hand</span>
-                <span>{organization.max_manual_scans_per_month} a month</span>
+                <span>
+                  {account.data ? `${account.data.manual_scans_used} of ` : ""}
+                  {organization.max_manual_scans_per_month} this month
+                </span>
               </li>
               <li>
                 <span>Report by email</span>
@@ -84,10 +106,13 @@ export function AccountSettings({ organization, email }: AccountSettingsProps) {
             {plan && plan.assistants < PLAN_ASSISTANTS.length && (
               <AssistantChooser key={organization.id} organization={organization} />
             )}
-            <p>
-              Changing the plan and paying for it are not built yet. When they are, they will be
-              here.
-            </p>
+            <Billing
+              organization={organization}
+              billing={billing}
+              loaded={account.isSuccess}
+              returning={returning}
+            />
+            <ErrorNote error={account.error} />
           </div>
 
           <div className="card side-card">
@@ -100,6 +125,67 @@ export function AccountSettings({ organization, email }: AccountSettingsProps) {
         </div>
       </div>
     </main>
+  );
+}
+
+interface BillingProps {
+  organization: Organization;
+  /** Null for anyone but the owner. */
+  billing: NonNullable<Awaited<ReturnType<typeof api.organizationAccount>>["billing"]> | null;
+  loaded: boolean;
+  /** How the owner came back from checkout, if they just did. */
+  returning: string | null;
+}
+
+/**
+ * The way to the plans and to the payment provider's account pages. Only the owner is offered
+ * either: a member reads what the plan allows and is told who decides.
+ */
+function Billing({ organization, billing, loaded, returning }: BillingProps) {
+  const portal = useMutation({
+    mutationFn: () => api.billingPortal(organization.id),
+    onSuccess: ({ url }) => window.location.assign(url),
+  });
+
+  if (!loaded) return null;
+  if (organization.is_test) return <p>A test organization pays for nothing.</p>;
+  if (!billing) return <p>The owner of this organization manages its plan and billing.</p>;
+
+  const warning = billingWarning(billing.status);
+  return (
+    <>
+      {returning === "subscribed" && (
+        <p role="status">
+          {billing.subscribed
+            ? "Thank you. Your subscription has started."
+            : "Thank you. Your plan will change here in a moment."}
+        </p>
+      )}
+      {returning === "cancelled" && <p role="status">Checkout was cancelled. Nothing changed.</p>}
+      {warning && (
+        <p className="error" role="alert">
+          {warning}
+        </p>
+      )}
+      {!billing.available && !billing.subscribed && (
+        <p>Subscriptions are not available here yet.</p>
+      )}
+      <Link to="/pricing">{billing.subscribed ? "See all plans" : "See plans and prices"}</Link>
+      {billing.has_customer && (
+        <>
+          <button
+            type="button"
+            className="secondary"
+            disabled={portal.isPending}
+            onClick={() => portal.mutate()}
+          >
+            {portal.isPending ? "Opening billing" : "Manage billing"}
+          </button>
+          <p>Payment method, invoices, changing plan and cancelling are on Stripe's pages.</p>
+          <ErrorNote error={portal.error} />
+        </>
+      )}
+    </>
   );
 }
 

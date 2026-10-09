@@ -562,6 +562,29 @@ export const CheckoutInputSchema = z.object({
 });
 export type CheckoutInput = z.infer<typeof CheckoutInputSchema>;
 
+/**
+ * What Account settings shows beyond the organization itself: how much of the month's allowance
+ * is used, and, for the organization's owner alone, where it stands with the payment provider.
+ */
+export const OrganizationAccountSchema = z.object({
+  /** Scans started by hand this calendar month (UTC) that count against the plan. */
+  manual_scans_used: z.number().int().nonnegative(),
+  /** Null for everyone but the organization's owner, who alone manages billing. */
+  billing: z
+    .object({
+      /** False where this deployment has no payment provider set up: nobody can subscribe. */
+      available: z.boolean(),
+      /** True while it has a subscription, whether paid up or being retried. */
+      subscribed: z.boolean(),
+      /** The provider's own word for the subscription: active, past_due, canceled and so on. */
+      status: z.string().nullable(),
+      /** True once it has been through checkout, so the provider has account pages to open. */
+      has_customer: z.boolean(),
+    })
+    .nullable(),
+});
+export type OrganizationAccount = z.infer<typeof OrganizationAccountSchema>;
+
 /** Where to send the owner next: the payment provider's checkout, or its account pages. */
 export const BillingRedirectSchema = z.object({ url: z.url() });
 export type BillingRedirect = z.infer<typeof BillingRedirectSchema>;

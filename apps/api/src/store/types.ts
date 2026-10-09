@@ -113,6 +113,11 @@ export interface Store {
    */
   listPlans(): Promise<Plan[]>;
   renameOrganization(id: string, name: string): Promise<Organization | null>;
+  /**
+   * How many scans by hand count against the organization's plan this calendar month (UTC).
+   * Null for an organization the caller cannot read.
+   */
+  getManualScansUsed(organizationId: string): Promise<number | null>;
   /** The plans the caller may read, with the payment provider's names for their prices. */
   listPlanPrices(): Promise<PlanPrices[]>;
   /**
