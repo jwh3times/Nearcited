@@ -42,7 +42,7 @@ values
   ('free',       'Free',       0,     0,  1, null,  2, 1, 14,  0, false),
   ('starter',    'Starter',    1,  2900,  1, 1000,  5, 1,  2,  2, true),
   ('standard',   'Standard',   2,  4900,  3, 1500, 10, 2,  2, 10, true),
-  ('pro',        'Pro',        3, 10900,  3, 3500, 15, 2,  1, 30, true),
+  ('pro',        'Pro',        3, 12900,  3, 3500, 15, 2,  1, 30, true),
   ('enterprise', 'Enterprise', 4, 39900, 10, 3500, 15, 2,  1, 30, true);
 
 -- Everyone may read what is on sale, signed in or not: it is the price list. A plan taken off
