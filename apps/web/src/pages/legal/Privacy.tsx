@@ -23,6 +23,11 @@ export function Privacy() {
           is no password. We also use it to send the scan reports you have scheduled.
         </li>
         <li>
+          <strong>Whether you subscribe.</strong> If you take a paid plan we keep which plan, how
+          many locations it pays for, whether the subscription is paid up, and the reference numbers
+          Stripe gives us for you and your subscription. Payment itself happens on Stripe's pages.
+        </li>
+        <li>
           <strong>What you enter about your business.</strong> The organization's name, and for each
           location its name, address, phone number, website, category and Google place ID, and the
           prompts and keywords you choose to track.
@@ -83,6 +88,11 @@ export function Privacy() {
         <li>
           <strong>Resend</strong> delivers our emails, so it receives your email address and the
           contents of the reports sent to you.
+        </li>
+        <li>
+          <strong>Stripe</strong> takes payment for a paid plan, on its own pages. It receives your
+          email address, the card or other payment details you give it, and the billing address it
+          asks for to work out tax. We never see or keep your card number.
         </li>
       </ul>
       <p>

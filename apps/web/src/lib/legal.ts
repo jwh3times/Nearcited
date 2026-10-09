@@ -6,7 +6,7 @@ export const CONTACT_EMAIL = "support@nearcited.com";
 export const PRIVACY_EMAIL = "privacy@nearcited.com";
 export const GOVERNING_LAW = "North Carolina";
 /** When the policies below last changed. Update it with any change to their wording. */
-export const POLICIES_UPDATED = "October 8, 2026";
+export const POLICIES_UPDATED = "October 9, 2026";
 
 /** The public pages that need no sign-in, by path. */
 export const LEGAL_PAGES = [
