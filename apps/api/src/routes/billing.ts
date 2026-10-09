@@ -1,4 +1,8 @@
-import { type BillingRedirect, CheckoutInputSchema } from "@nearcited/shared";
+import {
+  type BillingRedirect,
+  CheckoutInputSchema,
+  type OrganizationAccount,
+} from "@nearcited/shared";
 import { Hono } from "hono";
 import type { AppEnv } from "../app";
 import { ApiError, notFound } from "../errors";
@@ -10,6 +14,28 @@ const unavailable = () =>
   new ApiError(503, "billing_unavailable", "Subscriptions are not available here yet.");
 
 const planUnavailable = (message: string) => new ApiError(422, "plan_unavailable", message);
+
+/**
+ * What Account settings shows: this month's use for anyone who can read the organization, and
+ * where billing stands for its owner alone. A member, and the operator reading through, get
+ * `billing: null`.
+ */
+billingRoutes.get("/organizations/:organizationId/account", async (c) => {
+  const organizationId = uuidParam(c, "organizationId", "Organization");
+  const store = c.get("store");
+  const used = await store.getManualScansUsed(organizationId);
+  if (used === null) throw notFound("Organization");
+  const billing = await store.getBillingState(organizationId);
+  return c.json({
+    manual_scans_used: used,
+    billing: billing && {
+      available: c.get("payments")() !== null,
+      subscribed: billing.stripe_subscription_id !== null,
+      status: billing.status,
+      has_customer: billing.stripe_customer_id !== null,
+    },
+  } satisfies OrganizationAccount);
+});
 
 /**
  * Starts a subscription: answers with the address of the payment provider's checkout. Owner

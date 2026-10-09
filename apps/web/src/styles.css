@@ -2348,3 +2348,78 @@ mark {
     break-after: avoid;
   }
 }
+
+/* Pricing: the plans side by side, readable signed in or not */
+
+.pricing {
+  max-width: 76rem;
+  margin: 0 auto;
+  padding: clamp(2.5rem, 6vw, 4rem) var(--gutter) 5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.pricing .lede {
+  max-width: 44rem;
+}
+
+.plan-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: 1rem;
+  align-items: stretch;
+}
+
+.plan-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+  padding: 1.375rem;
+}
+
+/* The plan a visitor picked before signing in. */
+.plan-card.chosen {
+  border-color: var(--ink);
+}
+
+.plan-card h2 {
+  font-size: 1.125rem;
+}
+
+.plan-amount {
+  font-size: 1.75rem;
+  font-weight: 600;
+}
+
+.plan-facts {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+}
+
+.plan-action {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.625rem;
+  padding-top: 0.5rem;
+}
+
+.plan-current {
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.plan-locations {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  font-size: 0.875rem;
+}
+
+.plan-locations input {
+  width: 5rem;
+}

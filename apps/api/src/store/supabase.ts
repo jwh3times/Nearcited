@@ -101,6 +101,11 @@ const PlanPricesSchema = z.object({
   stripe_extra_location_price_id: z.string().nullable(),
 });
 
+const ManualScansSchema = z.object({
+  manual_scans_month: z.string().nullable(),
+  manual_scans_used: z.number().int().nonnegative(),
+});
+
 const SUBSCRIPTION_COLUMNS = "stripe_customer_id, stripe_subscription_id, status";
 const SubscriptionRecordSchema = z.object({
   stripe_customer_id: z.string(),
@@ -161,6 +166,20 @@ export function createSupabaseStore(db: SupabaseClient): Store {
       const { data, error } = await db.from("plans").select(PLAN_COLUMNS).order("position");
       if (error) fail("List plans", error);
       return PlanSchema.array().parse(data);
+    },
+
+    async getManualScansUsed(organizationId) {
+      const { data, error } = await db
+        .from("organizations")
+        .select("manual_scans_month, manual_scans_used")
+        .eq("id", organizationId)
+        .maybeSingle();
+      if (error) fail("Get manual scans used", error);
+      if (!data) return null;
+      const counted = ManualScansSchema.parse(data);
+      // The count is for the month it names. In any other month nothing has been used yet.
+      const thisMonth = `${new Date().toISOString().slice(0, 7)}-01`;
+      return counted.manual_scans_month === thisMonth ? counted.manual_scans_used : 0;
     },
 
     async listPlanPrices() {

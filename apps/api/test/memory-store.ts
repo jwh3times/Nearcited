@@ -171,6 +171,18 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         .sort((a, b) => a.position - b.position);
     },
 
+    async getManualScansUsed(organizationId) {
+      if (!readsOrg(organizationId) || !db.organizations.some((o) => o.id === organizationId)) {
+        return null;
+      }
+      return db.scans.filter(
+        (scan) =>
+          scan.trigger === "manual" &&
+          db.requestedBy.has(scan.id) &&
+          db.locations.find((l) => l.id === scan.location_id)?.organization_id === organizationId,
+      ).length;
+    },
+
     async listPlanPrices() {
       return (await this.listPlans()).map((plan) => ({
         key: plan.key,

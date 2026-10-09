@@ -28,3 +28,18 @@ test("says a report is gone when its link names none", async ({ page }) => {
     page.getByRole("heading", { name: "This report is no longer available" }),
   ).toBeVisible();
 });
+
+test("shows the price list to a visitor, and takes them to sign in when they choose a plan", async ({
+  page,
+}) => {
+  await page.goto("/pricing");
+  await expect(page.getByRole("heading", { name: "Pricing", level: 1 })).toBeVisible();
+  await expect(page).toHaveTitle("Pricing | Nearcited");
+  for (const name of ["Free", "Starter", "Standard", "Pro", "Enterprise"]) {
+    await expect(page.getByRole("region", { name: `${name} plan` })).toBeVisible();
+  }
+  await expect(page.getByRole("region", { name: "Free plan" })).toContainText("$0 a month");
+
+  await page.getByRole("button", { name: "Choose Starter" }).click();
+  await expect(page.getByLabel("Work email")).toBeVisible();
+});

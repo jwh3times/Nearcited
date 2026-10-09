@@ -111,6 +111,8 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
       stripe_subscription_id: null,
       status: null,
     });
+    expect(await aliceStore.getManualScansUsed(fresh.id)).toBe(0);
+    expect(await bobStore.getManualScansUsed(fresh.id)).toBeNull();
     expect(await worker.getSubscription(fresh.id)).toBeNull();
     const customer = `cus_${crypto.randomUUID()}`;
     await expect(

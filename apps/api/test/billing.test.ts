@@ -1,4 +1,9 @@
-import { BillingRedirectSchema, type Organization, type Plan } from "@nearcited/shared";
+import {
+  BillingRedirectSchema,
+  type Organization,
+  OrganizationAccountSchema,
+  type Plan,
+} from "@nearcited/shared";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createApp } from "../src/app";
 import {
@@ -271,6 +276,73 @@ describe("checkout", () => {
     });
     expect(response.status).toBe(503);
     expect(await errorCode(response)).toBe("billing_unavailable");
+  });
+});
+
+describe("an organization's account", () => {
+  const account = async (user: string, organizationId: string) => {
+    const response = await call(user, "GET", `/organizations/${organizationId}/account`);
+    return response.status === 200
+      ? OrganizationAccountSchema.parse(await response.json())
+      : response.status;
+  };
+
+  it("tells its owner where billing stands, before and after subscribing", async () => {
+    const organization = await organizationFor(alice);
+    expect(await account(alice, organization.id)).toEqual({
+      manual_scans_used: 0,
+      billing: { available: true, subscribed: false, status: null, has_customer: false },
+    });
+
+    atProvider.set("sub_1", subscription(organization.id, { status: "past_due" }));
+    await webhook("sub_1");
+    expect(await account(alice, organization.id)).toMatchObject({
+      billing: { subscribed: true, status: "past_due", has_customer: true },
+    });
+
+    atProvider.set("sub_1", subscription(organization.id, { status: "canceled" }));
+    await webhook("sub_1");
+    expect(await account(alice, organization.id)).toMatchObject({
+      billing: { subscribed: false, status: "canceled", has_customer: true },
+    });
+  });
+
+  it("counts the scans started by hand this month", async () => {
+    const organization = await organizationFor(alice);
+    await memoryStore(db, null).applyPlan(organization.id, "standard");
+    const location = await memoryStore(db, alice).createLocation(organization.id, {
+      name: "Joe's Pizza",
+      city: "Raleigh",
+    } as Parameters<ReturnType<typeof memoryStore>["createLocation"]>[1]);
+    const scan = await memoryStore(db, alice).createScan(location.id, "manual", alice);
+    await memoryStore(db, null).failScan(scan.id, "not run");
+    expect(await account(alice, organization.id)).toMatchObject({ manual_scans_used: 1 });
+  });
+
+  it("shows a member and the operator the usage, and nothing about billing", async () => {
+    const organization = await organizationFor(alice);
+    const member = "c0000000-0000-4000-8000-000000000003";
+    db.memberships.push({ organization_id: organization.id, user_id: member, role: "member" });
+    db.operators.add(operator);
+    for (const user of [member, operator]) {
+      expect(await account(user, organization.id), user).toEqual({
+        manual_scans_used: 0,
+        billing: null,
+      });
+    }
+  });
+
+  it("does not exist for a stranger", async () => {
+    const organization = await organizationFor(alice);
+    expect(await account(bob, organization.id)).toBe(404);
+  });
+
+  it("says when the deployment has no payment provider, so nothing offers a subscription", async () => {
+    const organization = await organizationFor(alice);
+    configured = false;
+    expect(await account(alice, organization.id)).toMatchObject({
+      billing: { available: false },
+    });
   });
 });
 
