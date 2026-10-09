@@ -395,7 +395,9 @@ operator gets nothing), and write nothing here. A change goes to Stripe: an upgr
 monthly price, or the same, as worked out on the server from the plans' prices) is made at once and
 the prorated difference charged, a downgrade is scheduled for the end of the paid period.
 `apps/api/src/billing/plans.ts` reads a subscription's lines for both these routes and the
-webhook. The organization's plan still moves only when Stripe
+webhook, and matches a price to its plan by any price the plan has been sold at (`plan_prices`), so a
+subscriber on an older price stays on their plan. A new subscriber, or one switching plan, pays what
+the plan is sold at now; one changing the locations on their own plan keeps their prices. The organization's plan still moves only when Stripe
 reports the change by calling `POST /api/stripe/webhook`, the one request path that uses the Worker's store. The
 route verifies the signature, takes from the event only the subscription's ID, reads that
 subscription from Stripe, and `syncSubscription` (`apps/api/src/billing/sync.ts`) makes the plan
@@ -497,6 +499,14 @@ re-applies the plan through `apply_plan()` to every organization on it, each kee
 `max_locations`. An organization with no `plan_key` is untouched. It refuses to take the free plan
 off sale, because `create_organization()` puts every new organization on it: the API answers 409
 `limit_reached` with the reason.
+
+**The operator sets a plan's prices through another function.** Stripe cannot edit a price, so
+`PUT /api/operator/plans/:key/prices` first makes two new prices there, then calls
+`operator_set_plan_prices()`. That function answers only the operator, refuses the free plan, records
+the change in `operator_actions`, adds the pair to `plan_prices` and puts it on the plan's row. It
+touches no subscription and no organization. `plan_prices` is readable by anyone signed in and
+written by no API role. Announcing a change to current subscribers is not built. The Plans section's
+monthly total uses present prices, so it is off for subscribers on an older one.
 
 **The operator makes an audit the same way.** `POST /api/operator/audits` checks the body against
 `AuditInputSchema`, refuses with 409 where scans return sample data, and calls

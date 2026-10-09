@@ -153,15 +153,26 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
       stripe_customer_id: customer,
       status: "past_due",
     });
+    // No plan has been set up at the payment provider here, so none has a price to pay.
     expect((await aliceStore.listPlanPrices()).find((plan) => plan.key === "standard")).toEqual({
       key: "standard",
       on_sale: true,
       included_locations: 3,
-      price_cents: 4900,
-      extra_location_price_cents: 1500,
-      stripe_price_id: null,
-      stripe_extra_location_price_id: null,
+      current: null,
+      versions: [],
     });
+    // Setting one is the operator's alone.
+    expect(
+      await aliceStore.setPlanPrices("standard", {
+        price_cents: 100,
+        extra_location_price_cents: null,
+        stripe_price_id: `price_${crypto.randomUUID()}`,
+        stripe_extra_location_price_id: null,
+      }),
+    ).toBeNull();
+    expect(
+      (await worker.listPlanPrices()).find((plan) => plan.key === "standard")?.versions,
+    ).toEqual([]);
     const organization = await worker.applyPlan(fresh.id, "starter");
     if (!organization) throw new Error("The plan was not applied.");
     expect(await worker.applyPlan(crypto.randomUUID(), "standard")).toBeNull();

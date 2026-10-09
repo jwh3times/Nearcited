@@ -75,6 +75,7 @@ test("lets a subscriber change plan and locations, saying what it costs before i
     has_customer: true,
     locations: 1,
     renews_at: "2026-11-09T00:00:00.000Z",
+    paying: { price_cents: 2900, extra_location_price_cents: 1000, monthly_cents: 2900 },
     pending: null as null | Record<string, unknown>,
   };
   const asked: unknown[] = [];
@@ -109,7 +110,9 @@ test("lets a subscriber change plan and locations, saying what it costs before i
   });
 
   await signIn(page, account, "/settings");
-  await expect(page.getByText("Paying for 1 location. Renews on")).toBeVisible();
+  await expect(
+    page.getByText("Paying $29 a month for 1 location, before tax. Renews on"),
+  ).toBeVisible();
   await page.getByRole("link", { name: "Change plan or locations" }).click();
 
   // Their own plan is marked, and offers only a change in how many locations it pays for.

@@ -476,6 +476,25 @@ export const PlanSettingsSchema = z.object({
 });
 export type PlanSettings = z.infer<typeof PlanSettingsSchema>;
 
+/** A price in US cents a month: at least a dollar, and not so much that it is surely a slip. */
+const monthlyPrice = z
+  .number({ error: "Enter a price" })
+  .int("Enter a price in dollars and cents")
+  .min(100, "Enter $1 or more")
+  .max(1_000_000, "Enter $10,000 or less");
+
+/**
+ * What a plan is sold at from now: to new subscribers at once. Current subscribers keep the
+ * price they pay until a change is announced to them.
+ */
+export const PlanPricesInputSchema = z.object({
+  /** A month, in US cents, for the locations the plan includes. */
+  price_cents: monthlyPrice,
+  /** A month, in US cents, for each location beyond those. Null sells no more than it includes. */
+  extra_location_price_cents: monthlyPrice.nullable(),
+});
+export type PlanPricesInput = z.infer<typeof PlanPricesInputSchema>;
+
 /** A plan as the operator sees it: what is on sale, and who is on it. Test organizations are left out. */
 export const OperatorPlanSchema = PlanSchema.extend({
   /** How many organizations are on it. */
@@ -621,6 +640,17 @@ export const OrganizationAccountSchema = z.object({
       locations: z.number().int().positive().nullable(),
       /** When the period paid for ends and the next begins. Null when there is none. */
       renews_at: Timestamp.nullable(),
+      /**
+       * The prices the subscription is billed at, in US cents a month before tax, which may be
+       * older than what the plan is sold at now. Null when there is none, or not known.
+       */
+      paying: z
+        .object({
+          price_cents: z.number().int().nonnegative(),
+          extra_location_price_cents: z.number().int().positive().nullable(),
+          monthly_cents: z.number().int().nonnegative(),
+        })
+        .nullable(),
       /** A smaller plan or fewer locations chosen, waiting for the period paid for to end. */
       pending: z
         .object({

@@ -10,6 +10,7 @@ import type { AppEnv } from "../app";
 import { itemsFor, monthlyCents, type PaidPlan, readItems } from "../billing/plans";
 import { type BilledItem, PaymentDeclinedError, type Payments } from "../billing/types";
 import { ApiError, notFound } from "../errors";
+import type { PlanPrices } from "../store/types";
 import { parseJson, uuidParam } from "../validation";
 
 export const billingRoutes = new Hono<AppEnv>();
@@ -66,6 +67,11 @@ billingRoutes.get("/organizations/:organizationId/account", async (c) => {
       has_customer: billing.stripe_customer_id !== null,
       locations: paid?.locations ?? null,
       renews_at: renewsAt,
+      paying: paid && {
+        price_cents: paid.version.price_cents,
+        extra_location_price_cents: paid.version.extra_location_price_cents,
+        monthly_cents: monthlyCents(paid),
+      },
       pending,
     },
   } satisfies OrganizationAccount);
@@ -95,7 +101,7 @@ billingRoutes.post("/organizations/:organizationId/checkout", async (c) => {
     );
   }
 
-  const { items } = await wanted(c, input);
+  const { items } = await wanted(await store.listPlanPrices(), input, null);
   const settings = `${c.env.APP_URL}/settings`;
   const url = await payments.createCheckout({
     organization_id: organizationId,
@@ -170,19 +176,33 @@ billingRoutes.delete("/organizations/:organizationId/subscription/pending", asyn
   return c.body(null, 204);
 });
 
-/** The plan and lines an owner asked for, or a 422 saying why they cannot have them. */
-async function wanted(c: Context<AppEnv>, input: { plan_key: string; locations?: number }) {
-  const plans = await c.get("store").listPlanPrices();
-  const plan = plans.find((p) => p.key === input.plan_key && p.on_sale);
-  if (!plan?.stripe_price_id) throw planUnavailable("That plan cannot be bought.");
-  const locations = Math.max(plan.included_locations, input.locations ?? 0);
-  const items = itemsFor(plan, locations);
+/**
+ * The plan and lines an owner asked for, or a 422 saying why they cannot have them. A new
+ * subscriber to a plan pays what it is sold at now. A subscriber changing the locations on the
+ * plan they are already on (`own`) keeps the prices they pay, whatever it is sold at since, and
+ * may do so even after it has gone off sale.
+ */
+async function wanted(
+  plans: PlanPrices[],
+  input: { plan_key: string; locations?: number },
+  own: PaidPlan | null,
+) {
+  const staying = own?.plan.key === input.plan_key ? own : null;
+  const plan = staying?.plan ?? plans.find((p) => p.key === input.plan_key && p.on_sale);
+  const version = staying?.version ?? plan?.current;
+  if (!plan || !version) throw planUnavailable("That plan cannot be bought.");
+  const paid = {
+    plan,
+    version,
+    locations: Math.max(plan.included_locations, input.locations ?? 0),
+  } satisfies PaidPlan;
+  const items = itemsFor(paid);
   if (!items) {
     throw planUnavailable(
       `That plan covers ${plan.included_locations} and no more can be added to it.`,
     );
   }
-  return { plans, paid: { plan, locations } satisfies PaidPlan, items };
+  return { paid, items };
 }
 
 /** The owner's subscription, or the error that says why there is none to change. */
@@ -213,7 +233,7 @@ async function plannedChange(c: Context<AppEnv>): Promise<{
 }> {
   const { payments, subscriptionId } = await subscribed(c);
   const input = await parseJson(c, CheckoutInputSchema);
-  const { plans, paid, items } = await wanted(c, input);
+  const plans = await c.get("store").listPlanPrices();
 
   const subscription = await payments.getSubscription(subscriptionId);
   // A payment being retried has to be settled first: changing what is owed would muddle it.
@@ -228,6 +248,7 @@ async function plannedChange(c: Context<AppEnv>): Promise<{
   if (!current || !subscription.period_end) {
     throw new Error(`Subscription ${subscriptionId} bills for a price that no plan has.`);
   }
+  const { paid, items } = await wanted(plans, input, current);
   if (current.plan.key === paid.plan.key && current.locations === paid.locations) {
     throw new ApiError(422, "no_change", "That is the plan this organization is already on.");
   }

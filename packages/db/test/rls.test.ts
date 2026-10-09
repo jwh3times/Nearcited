@@ -2151,6 +2151,130 @@ describe("the operator", () => {
     });
   });
 
+  describe("changing a plan's prices", () => {
+    const setPrices =
+      "select * from public.operator_set_plan_prices('pro', 14900, 3900, 'price_pro_2', 'price_pro_location_2')";
+    const pro = () =>
+      rows<Record<string, unknown>>(
+        "select price_cents, extra_location_price_cents, stripe_price_id, stripe_extra_location_price_id, name, max_queries_per_location from public.plans where key = 'pro'",
+      );
+    const versions = (role: Role, user: string | null) =>
+      as(role, user, () =>
+        rows<Record<string, unknown>>(
+          "select price_cents, extra_location_price_cents, stripe_price_id, stripe_extra_location_price_id from public.plan_prices where plan_key = 'pro' order by created_at",
+        ),
+      );
+    let before: Record<string, unknown>[];
+
+    beforeAll(async () => {
+      before = await pro();
+    });
+    afterAll(async () => {
+      await db.query("delete from public.plan_prices where plan_key = 'pro'");
+      await db.query(
+        "update public.plans set price_cents = $1, extra_location_price_cents = $2, stripe_price_id = null, stripe_extra_location_price_id = null where key = 'pro'",
+        [before[0]?.price_cents, before[0]?.extra_location_price_cents],
+      );
+      await db.query("delete from public.operator_actions where action = 'set_plan_prices'");
+    });
+
+    it("is refused to everyone else", async () => {
+      for (const user of [alice, bob, "e0000000-0000-4000-8000-000000000005"]) {
+        expect(await as("authenticated", user, () => rows(setPrices)), user).toEqual([]);
+      }
+      await expect(as("anon", null, () => db.query(setPrices))).rejects.toThrow(
+        /permission denied/,
+      );
+      expect(await pro()).toEqual(before);
+      expect(await versions("service_role", null)).toEqual([]);
+    });
+
+    it("puts the new prices on the plan, keeps the version, and changes nothing else about it", async () => {
+      const [after] = await as("authenticated", operator, () =>
+        rows<Record<string, unknown>>(setPrices),
+      );
+      const now = {
+        price_cents: 14900,
+        extra_location_price_cents: 3900,
+        stripe_price_id: "price_pro_2",
+        stripe_extra_location_price_id: "price_pro_location_2",
+      };
+      expect(after).toMatchObject({ key: "pro", ...now });
+      expect(await pro()).toEqual([{ ...before[0], ...now }]);
+      expect(await versions("service_role", null)).toEqual([now]);
+    });
+
+    it("keeps every version, so a subscriber on an older price is still recognised", async () => {
+      await as("authenticated", operator, () =>
+        db.query(
+          "select * from public.operator_set_plan_prices('pro', 15900, null, 'price_pro_3', null)",
+        ),
+      );
+      const kept = await versions("authenticated", alice);
+      expect(kept.map((version) => version.stripe_price_id)).toEqual([
+        "price_pro_2",
+        "price_pro_3",
+      ]);
+      expect(kept[1]).toMatchObject({
+        extra_location_price_cents: null,
+        stripe_extra_location_price_id: null,
+      });
+    });
+
+    it("is read by anyone signed in, by no visitor, and written through the API by nobody", async () => {
+      expect(await versions("authenticated", bob)).toHaveLength(2);
+      await expect(versions("anon", null)).rejects.toThrow(/permission denied/);
+      for (const sql of [
+        "insert into public.plan_prices (plan_key, price_cents, stripe_price_id) values ('pro', 100, 'price_mine')",
+        "update public.plan_prices set price_cents = 100",
+        "delete from public.plan_prices",
+      ]) {
+        for (const user of [alice, operator]) {
+          await expect(
+            as("authenticated", user, () => db.query(sql)),
+            sql,
+          ).rejects.toThrow(/permission denied/);
+        }
+      }
+    });
+
+    it("writes down what the prices were and what they became", async () => {
+      const recorded = await rows<{ actor_id: string; detail: unknown }>(
+        "select actor_id, detail from public.operator_actions where action = 'set_plan_prices' order by created_at",
+      );
+      expect(recorded).toHaveLength(2);
+      expect(recorded[0]).toMatchObject({
+        actor_id: operator,
+        detail: {
+          plan: "pro",
+          from: { price_cents: before[0]?.price_cents, stripe_price_id: null },
+          to: { price_cents: 14900, stripe_price_id: "price_pro_2" },
+        },
+      });
+    });
+
+    it("has no price to set for the free plan, and no plan to set one for that does not exist", async () => {
+      await expect(
+        as("authenticated", operator, () =>
+          db.query(
+            "select * from public.operator_set_plan_prices('free', 500, null, 'price_free', null)",
+          ),
+        ),
+      ).rejects.toThrow(/free plan has no price/);
+      const none = await as("authenticated", operator, () =>
+        rows(
+          "select * from public.operator_set_plan_prices('nonesuch', 500, null, 'price_x', null)",
+        ),
+      );
+      expect(none).toEqual([]);
+      expect(
+        await rows(
+          "select 1 from public.plan_prices where stripe_price_id in ('price_free', 'price_x')",
+        ),
+      ).toEqual([]);
+    });
+  });
+
   describe("changing an organization's limits", () => {
     const setLimits = "select * from public.operator_set_limits($1, 3, 20, 10, 1)";
     const limits = (id: string) =>

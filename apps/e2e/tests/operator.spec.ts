@@ -244,3 +244,42 @@ test("shows the operator who is on each plan, and changes what one allows for ev
     });
   }
 });
+
+test("lets the operator set a plan's prices in dollars, and says who goes on paying the old one", async ({
+  page,
+}) => {
+  const operator = await createAccount();
+  await api(operator, "POST", "/organizations", { name: "The operator's own" });
+  await grantRole(operator, "operator");
+  // The local stack has no payment provider to make a price at, so the saving is stood in for.
+  const sent: unknown[] = [];
+  await page.route("**/api/operator/plans/pro/prices", async (route) => {
+    sent.push(route.request().postDataJSON());
+    const plans = await api<{ key: string }[]>(operator, "GET", "/operator/plans");
+    await route.fulfill({ json: plans.find((plan) => plan.key === "pro") });
+  });
+
+  await signIn(page, operator, "/operator");
+  await page.getByRole("button", { name: "Edit Pro" }).click();
+  const form = page.getByRole("form", { name: "Prices of Pro" });
+  await expect(form).toContainText("Nobody subscribes to this plan yet.");
+  const price = form.getByLabel("Price a month");
+  await expect(price).toHaveValue("129");
+  await expect(form.getByRole("button", { name: "Save prices" })).toBeDisabled();
+
+  // Something that is not an amount is refused beside the field, before anything is sent.
+  await price.fill("lots");
+  await price.blur();
+  await expect(form.getByRole("alert")).toHaveText("Enter a price");
+
+  // The button says the price back in dollars, which is where a slipped digit shows.
+  await price.fill("149.50");
+  await form.getByRole("button", { name: "Sell at $149.50 from now" }).click();
+  await expect(form.getByRole("status")).toContainText("New subscribers pay this from now.");
+  expect(sent).toEqual([{ price_cents: 14950, extra_location_price_cents: 3500 }]);
+
+  // The free plan has no price to set.
+  await page.getByRole("button", { name: "Edit Free" }).click();
+  await expect(page.getByRole("form", { name: "Edit Free" })).toBeVisible();
+  await expect(page.getByRole("form", { name: "Prices of Free" })).toHaveCount(0);
+});

@@ -14,6 +14,7 @@ import {
   type OperatorSpend,
   OrganizationLimitsSchema,
   type PlanImpact,
+  PlanPricesInputSchema,
   PlanSettingsSchema,
   planImpact,
 } from "@nearcited/shared";
@@ -239,4 +240,55 @@ operatorRoutes.put("/operator/plans/:key", async (c) => {
   const plan = await c.get("store").setPlan(key, settings);
   if (!plan) throw notFound("Plan");
   return c.json(plan);
+});
+
+/**
+ * Sets what a new subscriber pays for a plan. The payment provider cannot edit a price, so two
+ * new ones are made there, the plan's and its extra location's, and the plan is pointed at them.
+ * Whoever already subscribes goes on paying what they were: nothing here touches a subscription.
+ */
+operatorRoutes.put("/operator/plans/:key/prices", async (c) => {
+  const key = planKey(c.req.param("key"));
+  const input = await parseJson(c, PlanPricesInputSchema);
+  const payments = c.get("payments")();
+  if (!payments) {
+    throw new ApiError(503, "billing_unavailable", "No payment provider is set up here.");
+  }
+  const store = c.get("store");
+  const [plans, prices] = await Promise.all([store.listPlans(), store.listPlanPrices()]);
+  const plan = plans.find((candidate) => candidate.key === key);
+  const sold = prices.find((candidate) => candidate.key === key);
+  if (!plan || !sold) throw notFound("Plan");
+  if (plan.price_cents === 0) {
+    throw new ApiError(409, "free_plan", "The free plan has no price to change.");
+  }
+  if (
+    sold.current?.price_cents === input.price_cents &&
+    sold.current.extra_location_price_cents === input.extra_location_price_cents
+  ) {
+    throw new ApiError(422, "no_change", "That is what the plan is already sold at.");
+  }
+
+  // Both are made new, even when only one amount changed, so that either one names this
+  // version of the plan's prices and no other.
+  const stripe_price_id = await payments.createPrice({
+    like: sold.current?.stripe_price_id ?? null,
+    product_name: `Nearcited ${plan.name}`,
+    cents: input.price_cents,
+  });
+  const stripe_extra_location_price_id =
+    input.extra_location_price_cents === null
+      ? null
+      : await payments.createPrice({
+          like: sold.current?.stripe_extra_location_price_id ?? null,
+          product_name: `Nearcited ${plan.name}: extra location`,
+          cents: input.extra_location_price_cents,
+        });
+  const saved = await store.setPlanPrices(key, {
+    ...input,
+    stripe_price_id,
+    stripe_extra_location_price_id,
+  });
+  if (!saved) throw notFound("Plan");
+  return c.json(saved);
 });

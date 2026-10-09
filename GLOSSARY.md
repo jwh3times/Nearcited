@@ -36,6 +36,9 @@ system works; this file only settles vocabulary.
   **In force** while paid or while a failed payment is being retried; **ended** when cancelled or
   left unpaid, which moves the organization to the free plan. See
   `docs/adr/0007-the-payment-webhook-acts-as-the-worker.md`.
+- **Price version**: one pair of prices a plan has been sold at: the plan's own and its extra
+  location's. A plan's row carries the newest, which a new subscriber pays; `plan_prices` keeps
+  them all, and a subscriber goes on paying the version they joined at until they are moved.
 - **Included location**: a location a plan's price covers. An **extra location** is one beyond
   those, paid for separately.
 - **Paused location**: a location its organization's plan no longer covers. It is not scanned and

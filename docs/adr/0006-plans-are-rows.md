@@ -48,6 +48,10 @@ The decisions billing is built on, so they are in one place:
 
 ## Consequences
 
+- Note (October 2026): the provider cannot edit a price, so a price change makes new ones, and the
+  prices a plan has been sold at are kept in `plan_prices`. A subscriber still billed an older price
+  must still be matched to their plan.
+
 - The plan's values and the organization's can disagree if a copy is missed. Whatever changes a
   plan or an organization's plan must do the copy in the same transaction.
 - The provider's price IDs sit in the table beside the prices. They identify a price and grant

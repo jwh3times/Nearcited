@@ -1,9 +1,27 @@
 import type { Organization, OrganizationAccount, Plan } from "@nearcited/shared";
 
-/** What a plan costs a month, in US cents, for a number of locations. */
-export function monthlyCents(plan: Plan, locations: number): number {
+/** The two prices something is sold at: the plan, and each location beyond those it includes. */
+type Prices = Pick<Plan, "price_cents" | "extra_location_price_cents">;
+
+/**
+ * What a plan costs a month, in US cents, for a number of locations. `prices` is for a
+ * subscriber still paying what the plan was sold at when they joined.
+ */
+export function monthlyCents(plan: Plan, locations: number, prices: Prices = plan): number {
   const extra = Math.max(0, locations - plan.included_locations);
-  return plan.price_cents + extra * (plan.extra_location_price_cents ?? 0);
+  return prices.price_cents + extra * (prices.extra_location_price_cents ?? 0);
+}
+
+/** Dollars as typed, "29" or "29.50", in cents. NaN for anything else, which no schema accepts. */
+export function dollarsToCents(typed: string): number {
+  const match = /^\$?\s*(\d{1,7})(?:\.(\d{1,2}))?$/.exec(typed.trim());
+  if (!match) return Number.NaN;
+  return Number(match[1]) * 100 + Number((match[2] ?? "").padEnd(2, "0"));
+}
+
+/** Cents as dollars to type back: "29" for a whole number, "29.50" otherwise. */
+export function centsToDollars(cents: number): string {
+  return cents % 100 === 0 ? String(cents / 100) : (cents / 100).toFixed(2);
 }
 
 /** "$29", "$12.50": a price in whole dollars when it is one. */

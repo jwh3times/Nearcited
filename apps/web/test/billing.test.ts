@@ -1,6 +1,13 @@
 import type { Organization, OrganizationAccount, Plan } from "@nearcited/shared";
 import { describe, expect, it } from "vitest";
-import { billingWarning, formatPrice, monthlyCents, planOffer } from "../src/lib/billing";
+import {
+  billingWarning,
+  centsToDollars,
+  dollarsToCents,
+  formatPrice,
+  monthlyCents,
+  planOffer,
+} from "../src/lib/billing";
 
 const plan = (key: string, extra: Partial<Plan> = {}): Plan => ({
   key,
@@ -48,6 +55,7 @@ const owner = (billing: Partial<NonNullable<OrganizationAccount["billing"]>> = {
     has_customer: false,
     locations: null,
     renews_at: null,
+    paying: null,
     pending: null,
     ...billing,
   },
@@ -62,6 +70,32 @@ describe("monthlyCents", () => {
 
   it("adds each location beyond those", () => {
     expect(monthlyCents(plan("standard"), 5)).toBe(4900 + 2 * 1500);
+  });
+
+  it("uses the prices a subscriber joined at when they are given", () => {
+    const joinedAt = { price_cents: 3900, extra_location_price_cents: 1000 };
+    expect(monthlyCents(plan("standard"), 5, joinedAt)).toBe(3900 + 2 * 1000);
+  });
+});
+
+describe("dollarsToCents", () => {
+  it("reads dollars as they are typed", () => {
+    expect(dollarsToCents("29")).toBe(2900);
+    expect(dollarsToCents(" $29.50 ")).toBe(2950);
+    expect(dollarsToCents("29.5")).toBe(2950);
+    expect(dollarsToCents("0.99")).toBe(99);
+  });
+
+  it("is not a number for anything else", () => {
+    for (const typed of ["", "abc", "29.999", "-5", "1,000", "29."]) {
+      expect(dollarsToCents(typed), typed).toBeNaN();
+    }
+  });
+
+  it("gives back what centsToDollars wrote", () => {
+    expect(centsToDollars(2900)).toBe("29");
+    expect(centsToDollars(2950)).toBe("29.50");
+    expect(dollarsToCents(centsToDollars(12905))).toBe(12905);
   });
 });
 

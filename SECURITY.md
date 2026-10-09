@@ -16,10 +16,10 @@ Nearcited is multi-tenant, and tenant isolation is enforced by Postgres row-leve
 (see `docs/architecture.md`). The reports that matter most are:
 
 - Reading or changing another organization's locations, queries, scans, results or
-  recommendations. The operator may read them, and may change only an organization's limits and a plan's settings, through `operator_set_limits()` and `operator_set_plan()`; reading them, or the
+  recommendations. The operator may read them, and may change only an organization's limits and a plan's settings and prices, through `operator_set_limits()`, `operator_set_plan()` and `operator_set_plan_prices()`; reading them, or the
   `audits` and `provider_usage` tables, without the operator role is a report (`usage_by_month()` adds up `provider_usage`, and getting a
   row from it without the role counts). So is calling `operator_accounts()`, which lists every account's email and sign-in
-  times, without it, and so is changing limits through `operator_set_limits()`, changing a plan through `operator_set_plan()`, making an audit through
+  times, without it, and so is changing limits through `operator_set_limits()`, changing a plan through `operator_set_plan()` or its prices through `operator_set_plan_prices()`, writing `plan_prices`, making an audit through
   `operator_create_audit()` or reading `operator_actions` without it.
 - Writing scan results, scores or recommendations as a signed-in user. Only the worker should be
   able to.
