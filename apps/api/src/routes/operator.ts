@@ -1,5 +1,6 @@
 import {
   ATTENTION_WINDOW_MS,
+  AuditInputSchema,
   buildAccounts,
   buildOperatorOverview,
   type OperatorAccounts,
@@ -11,7 +12,7 @@ import { Hono } from "hono";
 import type { AppEnv } from "../app";
 import { ApiError, notFound } from "../errors";
 import { usesSampleData } from "../providers";
-import type { Store } from "../store/types";
+import type { ListedAudit, Store } from "../store/types";
 import { parseJson, uuidParam } from "../validation";
 
 /**
@@ -89,20 +90,48 @@ operatorRoutes.get("/operator/accounts", async (c) => {
   return c.json(body);
 });
 
+/** An audit as the operator's list shows it, with its link only while the link works. */
+function listed({ token, ...audit }: ListedAudit, appUrl: string, now: string): OperatorAudit {
+  const app = appUrl.replace(/\/$/, "");
+  return {
+    ...audit,
+    link: audit.revoked_at === null && audit.expires_at > now ? `${app}/audit/${token}` : null,
+  };
+}
+
 /**
  * Every shareable audit. They belong to no organization, so this is the only list they are on.
  * The link is given only while it works: holding it is the permission to read the report.
  */
 operatorRoutes.get("/operator/audits", async (c) => {
   const now = new Date().toISOString();
-  const app = c.env.APP_URL.replace(/\/$/, "");
-  const body: OperatorAudit[] = (await c.get("store").listEveryAudit()).map(
-    ({ token, ...audit }) => ({
-      ...audit,
-      link: audit.revoked_at === null && audit.expires_at > now ? `${app}/audit/${token}` : null,
-    }),
+  const body: OperatorAudit[] = (await c.get("store").listEveryAudit()).map((audit) =>
+    listed(audit, c.env.APP_URL, now),
   );
   return c.json(body);
+});
+
+/**
+ * Makes a shareable audit and queues it, one message per prompt. An audit is shown to a prospect
+ * as a measurement, so a deployment serving sample data refuses to make one at all.
+ */
+operatorRoutes.post("/operator/audits", async (c) => {
+  const input = await parseJson(c, AuditInputSchema);
+  if (usesSampleData(c.env)) {
+    throw new ApiError(
+      409,
+      "audits_unavailable",
+      "Audits need live data, and this deployment serves sample data.",
+    );
+  }
+  const audit = await c.get("store").createAudit(input);
+  if (!audit) throw new ApiError(404, "not_found", "Not found");
+  // If a send fails the row stays "queued" with nothing behind it. The request returns an error,
+  // and the sweep in the scheduled handler fails the audit, so its link does not wait for ever.
+  await c.env.SCAN_QUEUE.sendBatch(
+    input.prompts.map((_, prompt_index) => ({ body: { audit_id: audit.id, prompt_index } })),
+  );
+  return c.json(listed(audit, c.env.APP_URL, new Date().toISOString()), 201);
 });
 
 /** One organization, for reading through its pages. */

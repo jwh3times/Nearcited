@@ -83,6 +83,9 @@ const AccountRowSchema = z.object({
   last_sign_in_at: z.string().nullable(),
 });
 
+const LISTED_AUDIT_COLUMNS =
+  "id, token, business_name, city, region, status, error, created_at, expires_at, revoked_at";
+
 const ORGANIZATION_COLUMNS =
   "id, name, max_locations, max_queries_per_location, max_manual_scans_per_day, scan_every_days, surfaces, is_test, created_at";
 
@@ -199,12 +202,27 @@ export function createSupabaseStore(db: SupabaseClient): Store {
     async listEveryAudit() {
       const { data, error } = await db
         .from("audits")
-        .select(
-          "id, token, business_name, city, region, status, error, created_at, expires_at, revoked_at",
-        )
+        .select(LISTED_AUDIT_COLUMNS)
         .order("created_at", { ascending: false });
       if (error) fail("List every audit", error);
       return ListedAuditSchema.array().parse(data);
+    },
+
+    async createAudit(input) {
+      const { data, error } = await db
+        .rpc("operator_create_audit", {
+          p_business_name: input.business_name,
+          p_website: input.website,
+          p_city: input.city,
+          p_region: input.region,
+          p_country_code: input.country_code,
+          p_prompts: input.prompts,
+          p_samples: input.samples,
+        })
+        .select(LISTED_AUDIT_COLUMNS)
+        .maybeSingle();
+      if (error) fail("Create audit", error);
+      return data ? ListedAuditSchema.parse(data) : null;
     },
 
     async listAccounts() {

@@ -1,5 +1,6 @@
 import {
   ApiErrorSchema,
+  type AuditFormValues,
   type LocationDetail,
   LocationDetailSchema,
   type LocationFormValues,
@@ -70,6 +71,9 @@ export const api = {
   operatorOverview: () => json(OperatorOverviewSchema, "GET", "/operator/overview"),
   operatorAccounts: () => json(OperatorAccountsSchema, "GET", "/operator/accounts"),
   operatorAudits: () => json(OperatorAuditSchema.array(), "GET", "/operator/audits"),
+  /** Makes a shareable audit and queues it. Refused where scans return sample data. */
+  createAudit: (input: AuditFormValues) =>
+    json(OperatorAuditSchema, "POST", "/operator/audits", input),
   /** An organization the operator is reading through. */
   operatorOrganization: (id: string) =>
     json(OrganizationSchema, "GET", `/operator/organizations/${id}`),

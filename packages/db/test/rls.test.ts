@@ -1310,4 +1310,65 @@ describe("the operator", () => {
       }
     });
   });
+
+  describe("making an audit", () => {
+    const create =
+      "select id, token, business_name, website, region, country_code, prompts, samples, status from public.operator_create_audit('Joe''s Pizza', 'https://joes.example/', 'Raleigh', null, 'US', array['best pizza', 'late night food'], 2)";
+    const audits = async () =>
+      Number((await rows<{ n: string }>("select count(*) as n from public.audits"))[0]?.n);
+
+    it("is refused to everyone else", async () => {
+      const before = await audits();
+      for (const user of [alice, bob, "e0000000-0000-4000-8000-000000000005"]) {
+        expect(await as("authenticated", user, () => rows(create)), user).toEqual([]);
+      }
+      await expect(as("anon", null, () => db.query(create))).rejects.toThrow(/permission denied/);
+      expect(await audits()).toBe(before);
+    });
+
+    it("makes a queued audit with a token, and writes down that it did", async () => {
+      const before = await audits();
+      const [made] = await as("authenticated", operator, () =>
+        rows<Record<string, unknown>>(create),
+      );
+      expect(made).toMatchObject({
+        business_name: "Joe's Pizza",
+        website: "https://joes.example/",
+        region: null,
+        country_code: "US",
+        prompts: ["best pizza", "late night food"],
+        samples: 2,
+        status: "queued",
+      });
+      expect(made?.token).toMatch(/^[0-9a-f]{64}$/);
+      expect(await audits()).toBe(before + 1);
+      const [action] = await rows<Record<string, unknown>>(
+        "select actor_id, organization_id, detail from public.operator_actions where action = 'create_audit'",
+      );
+      expect(action).toEqual({
+        actor_id: operator,
+        organization_id: null,
+        detail: { audit_id: made?.id, business_name: "Joe's Pizza", prompts: 2, samples: 2 },
+      });
+    });
+
+    it("keeps the table's own bounds, and still cannot write the table itself", async () => {
+      const before = await audits();
+      await expect(
+        as("authenticated", operator, () =>
+          db.query(
+            "select * from public.operator_create_audit('Joe''s', null, 'Raleigh', null, 'US', array['a'], 9)",
+          ),
+        ),
+      ).rejects.toThrow(/check constraint/);
+      await expect(
+        as("authenticated", operator, () =>
+          db.query(
+            "insert into public.audits (business_name, city, prompts) values ('Planted', 'x', array['a'])",
+          ),
+        ),
+      ).rejects.toThrow(/permission denied/);
+      expect(await audits()).toBe(before);
+    });
+  });
 });

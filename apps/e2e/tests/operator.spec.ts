@@ -105,6 +105,38 @@ test("lets the operator change a customer's limits, which the customer then has"
   expect(me.organizations[0]).toMatchObject({ max_locations: 3, scan_every_days: 1 });
 });
 
+test("offers the operator a form for a new audit, which a sample-data deployment refuses to run", async ({
+  page,
+}, testInfo) => {
+  const operator = await createAccount();
+  await api(operator, "POST", "/organizations", { name: "The operator's own" });
+  await grantRole(operator, "operator");
+  await signIn(page, operator, "/operator");
+
+  await page.getByRole("button", { name: "New audit" }).click();
+  // Nothing is sent until the form would be accepted, and each field says what it lacks.
+  await page.getByRole("button", { name: "Make audit" }).click();
+  await expect(page.getByText("Name is required")).toBeVisible();
+  await expect(page.getByText("Give at least one prompt")).toBeVisible();
+
+  await page.getByLabel("Business name").fill("Tony's Slice House");
+  await page.getByLabel("Website").fill("tonys.example");
+  await page.getByLabel("City").fill("Raleigh");
+  await page.getByLabel("Prompt 1").fill("Who makes the best pizza in Raleigh?");
+  await page.getByRole("button", { name: "Add another prompt" }).click();
+  await page.getByLabel("Prompt 2").fill("Where can I eat late in Raleigh?");
+  await page.getByLabel("Times each prompt is asked").fill("2");
+  await expect(page.getByText("This asks every assistant for 4 answers")).toBeVisible();
+  await page
+    .locator("form", { hasText: "New audit" })
+    .screenshot({ path: testInfo.outputPath("new-audit.png") });
+
+  // An audit is read as a measurement, so the local stack, which serves sample data, makes none.
+  await page.getByRole("button", { name: "Make audit" }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "Audits need live data" })).toBeVisible();
+  await expect(page.getByText("Tony's Slice House")).toHaveCount(0);
+});
+
 test("has no operator page for anyone else", async ({ page }) => {
   const account = await createAccount();
   await api(account, "POST", "/organizations", { name: "Raleigh Pizza Group" });

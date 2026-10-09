@@ -235,7 +235,8 @@ templates.
 prints the link. It needs `SUPABASE_SECRET_KEY`, `CLOUDFLARE_API_TOKEN` and
 `CLOUDFLARE_ACCOUNT_ID` in the environment, and reads the Supabase URL, the app URL and the queue
 name from `apps/api/wrangler.jsonc`. Keep the values out of files in this repository; for
-example, run it under `op run` with an env file of 1Password references.
+example, run it under `op run` with an env file of 1Password references. The operator can make the
+same audit from the Audits section of the operator page, with no keys to hand.
 
 ## API
 
@@ -252,6 +253,7 @@ organization reads as missing and returns 404. Payloads are defined in
 | `GET /api/operator/overview` | The operator's view: totals, what needs attention, every organization (test ones apart) and what the deployment runs. 404 to anyone who is not the operator. |
 | `GET /api/operator/accounts` | A funnel of how far accounts got, and every account with its stage; test accounts are listed and not counted. 404 to anyone who is not the operator. |
 | `GET /api/operator/audits` | Every shareable audit, with its link only while it is neither revoked nor expired. 404 to anyone who is not the operator. |
+| `POST /api/operator/audits` | Makes a shareable audit and queues one message per prompt. Takes `business_name`, `city`, `prompts` (1 to 5) and optionally `website`, `region`, `country_code`, `samples` (1 to 5). 404 to anyone who is not the operator, 409 where scans return sample data, 422 for a bad value. |
 | `GET /api/operator/organizations/:organizationId` | One organization, for the operator to read through its pages. 404 to anyone who is not the operator. |
 | `PUT /api/operator/organizations/:organizationId/limits` | Sets an organization's four limits (locations, prompts per location, manual scans a day, days between scans) and records the change. 404 to anyone who is not the operator, 422 for a value out of range. |
 | `POST /api/organizations` | Create an organization; the caller becomes its owner. The name needs a letter. |
@@ -283,7 +285,7 @@ The migrations in `supabase/migrations/` define everything.
 | `scan_results` | One row per query and surface: named or not, position, and who else was named. |
 | `recommendations` | What a scan suggested, and whether the user has dealt with it. |
 | `audits` | A shareable audit: the business, its prompts, the results as each prompt finishes, and its token, expiry and revocation. Belongs to no organization; only the operator can read it through the API. |
-| `operator_actions` | What the operator changed, one row per change, with who, which organization and the values before and after. Written only by the function that makes the change; only the operator can read it through the API. |
+| `operator_actions` | What the operator changed or made, one row per action, with who and what: an organization's limits before and after, or the audit made. Written only by the function that does it; only the operator can read it through the API. |
 | `provider_usage` | What the providers used for a scan or audit prompt, per surface and model: calls, input, cached input and output tokens, searches. Outlives the scan, audit or organization it describes. Written only by the Worker; only the operator can read it through the API. Not priced or shown anywhere yet. |
 
 Usage limits are enforced by database triggers, so they hold for the API and for anyone calling

@@ -1,5 +1,6 @@
 import type {
   AccountFacts,
+  AuditInput,
   AuditJob,
   AuditPart,
   DerivedRecommendation,
@@ -92,6 +93,11 @@ export interface Store {
   listScansSince(since: string): Promise<OperatorScan[]>;
   /** Every audit, newest first, with the token that makes its link. */
   listEveryAudit(): Promise<ListedAudit[]>;
+  /**
+   * Makes a shareable audit, still to be queued. Only the operator's call makes one: for anyone
+   * else it returns null.
+   */
+  createAudit(input: AuditInput): Promise<ListedAudit | null>;
   /** Every account, from the one function that may read the sign-in table. */
   listAccounts(): Promise<AccountFacts["accounts"][number][]>;
   listEveryMembership(): Promise<{ user_id: string; organization_id: string }[]>;

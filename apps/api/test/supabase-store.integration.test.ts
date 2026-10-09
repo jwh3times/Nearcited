@@ -89,6 +89,19 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
     ).toBeNull();
     expect(await aliceStore.getOrganization(organization.id)).toEqual(organization);
 
+    // And only the operator makes an audit.
+    expect(
+      await aliceStore.createAudit({
+        business_name: "Planted",
+        website: null,
+        city: "Raleigh",
+        region: null,
+        country_code: "US",
+        prompts: ["best pizza"],
+        samples: 1,
+      }),
+    ).toBeNull();
+
     // Locations
     const location = await aliceStore.createLocation(organization.id, {
       name: "Joe's Pizza",
