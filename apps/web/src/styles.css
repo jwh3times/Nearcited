@@ -2288,3 +2288,51 @@ mark {
     flex: 1;
   }
 }
+
+/* Paper: nothing scrolls and nothing is clicked, so the page is the content at its full width. */
+
+@media print {
+  /* A sheet is narrower than a window. Everything is sized from here, so everything shrinks. */
+  :root {
+    font-size: 87.5%;
+  }
+
+  .shell {
+    display: block;
+  }
+
+  .sidebar {
+    display: none;
+  }
+
+  /* A table wider than the sheet would lose its last columns, so it gives up its minimum. */
+  .gtable-scroll {
+    overflow: visible;
+  }
+
+  .gtable,
+  .pgrid {
+    min-width: 0;
+  }
+
+  .gtable-head,
+  .gtable-row {
+    gap: 0.75rem;
+  }
+
+  .ellipsis {
+    overflow: visible;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .card,
+  .gtable-row {
+    break-inside: avoid;
+  }
+
+  h2,
+  .section-head {
+    break-after: avoid;
+  }
+}

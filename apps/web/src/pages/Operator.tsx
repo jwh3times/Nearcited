@@ -54,7 +54,7 @@ export function Operator() {
     <main className="page">
       <div className="page-head">
         <div>
-          <p className="small muted">Every organization, read-only</p>
+          <p className="small muted">Every organization, and what running them costs</p>
           <h1>Operator</h1>
         </div>
       </div>
