@@ -400,11 +400,18 @@ organization's rows: the routes answer 404 for an update or delete and 403 for a
 `docs/adr/0004-the-operator-reads-through-policies.md`.
 
 The operator's view is `/operator` in the web app, served by `GET /api/operator/overview` and
-`GET /api/operator/organizations/:organizationId`, both 404 to anyone who is not the operator. It
+`GET /api/operator/organizations/:organizationId`, plus `GET /api/operator/accounts` and
+`GET /api/operator/audits`, all 404 to anyone who is not the operator. It
 reads through the request's store, never the secret key. `buildOperatorOverview` in
 `packages/shared/src/operator.ts` decides what needs attention over the last seven days, and never
 counts a test organization. Reading through a customer's account (`/operator/o/:organizationId/...`)
 reuses the Locations and location pages with every control that changes something hidden.
+
+Accounts come from `operator_accounts()`, a security-definer function that returns each account's
+email, creation and last sign-in time from `auth.users` and rows only while `is_operator()` is true;
+it is executable by `authenticated` and not `anon`. `auth.users` itself stays unreadable to every
+API role, the operator included. `buildAccounts` in `packages/shared/src/operator.ts` places each
+account on the funnel and never counts a test account.
 
 **Platform roles** (`platform_roles`) say what an account is to the product, apart from any
 organization. A signed-in user can read their own row and nothing else (the operator reads all);
