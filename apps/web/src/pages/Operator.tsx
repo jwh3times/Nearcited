@@ -27,7 +27,6 @@ const KIND_LABELS: Record<AttentionKind, string> = {
   site_blocked: "Website shuts assistants out",
   audit_failed: "Audit failed",
   no_prompts: "Nothing to scan",
-  at_limit: "Prompt limit reached",
 };
 
 const SCAN_WORDS = {
@@ -183,7 +182,7 @@ function Total({ label, value, failed }: { label: string; value: number; failed?
 
 function Organizations({ rows, empty }: { rows: OperatorOrganization[]; empty: string }) {
   if (rows.length === 0) return <p className="lede">{empty}</p>;
-  const columns = "minmax(11rem,1.6fr) 6rem minmax(9rem,1fr) 5.5rem minmax(9rem,1.2fr)";
+  const columns = "minmax(11rem,1.6fr) 7.5rem minmax(9rem,1fr) 5.5rem minmax(9rem,1.2fr)";
   return (
     <div className="gtable-scroll">
       <div className="gtable stacks" style={{ "--cols": columns, "--min": "46rem" } as never}>
@@ -200,12 +199,20 @@ function Organizations({ rows, empty }: { rows: OperatorOrganization[]; empty: s
               <span className="loc-name ellipsis">{row.name}</span>
               <span className="small muted">
                 {row.is_yours ? "Yours · " : ""}
-                since {formatDate(row.created_at)}
+                {row.plan_key ? `${row.plan_key} plan` : "set by hand"} · since{" "}
+                {formatDate(row.created_at)}
               </span>
             </span>
             <Labelled label="Locations">
-              <span className="mono">
-                {row.locations} of {row.max_locations}
+              <span className="stack-tight">
+                <span className="mono">
+                  {row.locations} of {row.max_locations}
+                </span>
+                {row.locations_at_prompt_limit > 0 && (
+                  <span className="small muted">
+                    {row.locations_at_prompt_limit} at prompt limit
+                  </span>
+                )}
               </span>
             </Labelled>
             <Labelled label="Last scan">

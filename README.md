@@ -59,8 +59,8 @@ later scan finds it fixed. The shareable audit shows the whole checklist. The fe
 itself as `NearcitedBot`, with a link to the public `/bot` page, and is skipped while the deployment serves sample data.
 
 The operator has one more screen, `/operator`: what needs attention (a failed scan, a scan stuck or
-overdue, a website that cannot be read, a failed audit, a location with no active prompts, an
-location that has used every prompt it is allowed), every organization, every account with how far it got (signed up, made an organization, added a location, had a scan succeed, scanned in the last week), every shareable audit, and what the deployment runs. From there the operator
+overdue, a website that cannot be read, a failed audit, a location with no active prompts),
+every organization with its plan and how many of its locations are at their prompt limit, every account with how far it got (signed up, made an organization, added a location, had a scan succeed, scanned in the last week), every shareable audit, and what the deployment runs. From there the operator
 can read through a customer's pages, with everything that changes something hidden, and change the
 organization's limits (locations, prompts per location, manual scans a month, days between scans) on
 its plan page.

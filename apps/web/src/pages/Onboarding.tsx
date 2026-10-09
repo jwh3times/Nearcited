@@ -1,4 +1,8 @@
-import { LocationInputSchema, OrganizationInputSchema } from "@nearcited/shared";
+import {
+  LocationInputSchema,
+  OrganizationInputSchema,
+  TrackedQueryInputSchema,
+} from "@nearcited/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useRef, useState } from "react";
 import { useNavigate } from "react-router";
@@ -45,10 +49,30 @@ export function Onboarding({ sampleData }: { sampleData: boolean }) {
     plans.data?.find((plan) => plan.key === "free")?.max_queries_per_location ?? PRESELECTED;
 
   const suggestions = suggestPrompts(location.category, location.city);
+  // The reader's own prompts sit in the same list as the suggestions, and are chosen the same way.
+  const [own, setOwn] = useState<string[]>([]);
+  const [draft, setDraft] = useState("");
+  const [draftError, setDraftError] = useState<string>();
+  const options = [...suggestions, ...own];
   // Until the reader changes the ticks, the first few suggestions are chosen for them.
   const chosen = (picked ?? suggestions.slice(0, Math.min(PRESELECTED, allowed)))
-    .filter((prompt) => suggestions.includes(prompt))
+    .filter((prompt) => options.includes(prompt))
     .slice(0, allowed);
+  const full = chosen.length >= allowed;
+
+  function addOwn() {
+    const parsed = TrackedQueryInputSchema.shape.text.safeParse(draft);
+    if (!parsed.success) return setDraftError(parsed.error.issues[0]?.message);
+    const text = parsed.data;
+    if (options.some((prompt) => prompt.toLowerCase() === text.toLowerCase())) {
+      return setDraftError("That prompt is already in the list");
+    }
+    setOwn([...own, text]);
+    // Chosen at once while there is room. When there is none, it waits to be swapped in.
+    if (!full) setPicked([...chosen, text]);
+    setDraft("");
+    setDraftError(undefined);
+  }
   const place = [location.city, location.region].filter(Boolean).join(", ");
 
   const start = useMutation({
@@ -148,8 +172,10 @@ export function Onboarding({ sampleData }: { sampleData: boolean }) {
             <>
               <h1>What would a customer ask?</h1>
               <p className="lede">
-                Pick the questions to ask the assistants about {location.name || "the business"}.
-                You can add your own, or retire any of these, later.
+                You start on the free plan, which tracks {allowed}{" "}
+                {allowed === 1 ? "prompt" : "prompts"}. Choose the {allowed} you want asked about{" "}
+                {location.name || "the business"}, from these or in your own words. A paid plan
+                tracks more, and you can change them at any time.
               </p>
             </>
           )}
@@ -203,14 +229,14 @@ export function Onboarding({ sampleData }: { sampleData: boolean }) {
         {step === 2 && (
           <>
             <ul className="choices">
-              {suggestions.map((prompt) => (
+              {options.map((prompt) => (
                 <li key={prompt}>
                   <label>
                     <input
                       type="checkbox"
                       checked={chosen.includes(prompt)}
                       // At the limit, another can be ticked only after one is unticked.
-                      disabled={!chosen.includes(prompt) && chosen.length >= allowed}
+                      disabled={!chosen.includes(prompt) && full}
                       onChange={(event) =>
                         setPicked(
                           event.target.checked
@@ -224,10 +250,35 @@ export function Onboarding({ sampleData }: { sampleData: boolean }) {
                 </li>
               ))}
             </ul>
-            <p className="small muted">
-              {chosen.length} of {allowed} chosen. You start on the free plan, which tracks{" "}
-              {allowed} {allowed === 1 ? "prompt" : "prompts"}; a paid plan tracks more. You can
-              change them later.
+            <div className="add-row">
+              <div className="grow">
+                <Field
+                  label="Or write your own"
+                  placeholder={`Who is the best ${location.category.toLowerCase() || "business"} near me?`}
+                  maxLength={300}
+                  value={draft}
+                  error={draftError}
+                  onChange={(event) => {
+                    setDraft(event.target.value);
+                    setDraftError(undefined);
+                  }}
+                  // Enter adds the prompt. It must not send the form on to the next step.
+                  onKeyDown={(event) => {
+                    if (event.key !== "Enter") return;
+                    event.preventDefault();
+                    addOwn();
+                  }}
+                />
+              </div>
+              <button type="button" className="secondary" onClick={addOwn}>
+                Add to the list
+              </button>
+            </div>
+            <p className="small muted" role="status">
+              {chosen.length} of {allowed} chosen.
+              {full && options.length > chosen.length
+                ? " To choose a different one, untick one first."
+                : ""}
             </p>
           </>
         )}
