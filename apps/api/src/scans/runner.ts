@@ -178,7 +178,13 @@ export async function runScan(scanId: string, deps: RunScanDeps): Promise<ScanOu
     });
 
     // A test organization's owner is automation: there is nobody to tell.
-    if (scan.trigger === "scheduled" && deps.notify && !organization?.is_test) {
+    // A report is emailed only where the organization's plan includes one.
+    if (
+      scan.trigger === "scheduled" &&
+      deps.notify &&
+      !organization?.is_test &&
+      organization?.emails_report !== false
+    ) {
       try {
         await deps.notify({
           location,

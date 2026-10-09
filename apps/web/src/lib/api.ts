@@ -12,6 +12,7 @@ import {
   OperatorSpendSchema,
   type OrganizationLimits,
   OrganizationSchema,
+  PlanSchema,
   PublicAuditSchema,
   RecommendationSchema,
   type RecommendationStatus,
@@ -65,6 +66,8 @@ export const api = {
   /** A shareable audit. The one call that needs no sign-in. */
   getAudit: (token: string) =>
     json(PublicAuditSchema, "GET", `/audits/${encodeURIComponent(token)}`),
+  /** The price list. Needs no sign-in. */
+  plans: () => json(PlanSchema.array(), "GET", "/plans"),
   me: () => json(MeSchema, "GET", "/me"),
   createOrganization: (name: string) =>
     json(OrganizationSchema, "POST", "/organizations", { name }),

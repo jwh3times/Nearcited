@@ -181,7 +181,7 @@ describe("organizations and locations", () => {
     expect(mine.organizations[0]).toMatchObject({
       max_locations: expect.any(Number),
       max_queries_per_location: expect.any(Number),
-      max_manual_scans_per_day: expect.any(Number),
+      max_manual_scans_per_month: expect.any(Number),
       scan_every_days: expect.any(Number),
       surfaces: null,
     });
@@ -620,7 +620,7 @@ describe("organizations and locations", () => {
     const limits = {
       max_locations: 3,
       max_queries_per_location: 20,
-      max_manual_scans_per_day: 10,
+      max_manual_scans_per_month: 10,
       scan_every_days: 1,
     };
 
@@ -912,7 +912,7 @@ describe("scans", () => {
     const { location } = await seed();
     const organization = db.organizations.find((o) => o.id === location.organization_id);
     if (!organization) throw new Error("no organization");
-    organization.max_manual_scans_per_day = 1;
+    organization.max_manual_scans_per_month = 1;
 
     const first = await call(alice, "POST", `/locations/${location.id}/scans`);
     expect(first.status).toBe(202);

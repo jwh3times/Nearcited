@@ -70,6 +70,31 @@ describe("organizations", () => {
     expect(org?.name).toBe("Raleigh Pizza Group");
     orgId = org?.id ?? "";
 
+    // A new organization starts on the free plan, with that plan's limits copied onto it.
+    const [fresh] = await rows(
+      "select plan_key, max_locations, max_queries_per_location, max_manual_scans_per_month, scan_every_days, emails_report, surfaces::text[] as surfaces, first_scan_at from public.organizations where id = $1",
+      [orgId],
+    );
+    expect(fresh).toEqual({
+      plan_key: "free",
+      max_locations: 1,
+      max_queries_per_location: 2,
+      max_manual_scans_per_month: 0,
+      scan_every_days: 14,
+      emails_report: false,
+      surfaces: ["chatgpt"],
+      first_scan_at: null,
+    });
+    // The rest of this file is about what the limits do, not which plan set them, so this
+    // organization's are set by hand from here on.
+    await db.query(
+      `update public.organizations
+       set plan_key = null, max_queries_per_location = 10, max_manual_scans_per_month = 150,
+           scan_every_days = 2, emails_report = true, surfaces = null
+       where id = $1`,
+      [orgId],
+    );
+
     const memberships = await rows<{ user_id: string; role: string }>(
       "select user_id, role from public.memberships where organization_id = $1",
       [orgId],
@@ -449,15 +474,15 @@ describe("usage caps", () => {
     );
   let second = "";
 
-  it("start a new organization on the defaults", async () => {
+  it("are the organization's own columns", async () => {
     const [org] = await rows<Record<string, number>>(
-      "select max_locations, max_queries_per_location, max_manual_scans_per_day from public.organizations where id = $1",
+      "select max_locations, max_queries_per_location, max_manual_scans_per_month from public.organizations where id = $1",
       [orgId],
     );
     expect(org).toEqual({
       max_locations: 1,
       max_queries_per_location: 10,
-      max_manual_scans_per_day: 5,
+      max_manual_scans_per_month: 150,
     });
   });
 
@@ -502,11 +527,12 @@ describe("usage caps", () => {
   it("limit manual scans across the organization, and leave scheduled scans alone", async () => {
     const [{ used } = { used: 0 }] = await rows<{ used: number }>(
       `select count(*)::int as used from public.scans s join public.locations l on l.id = s.location_id
-       where l.organization_id = $1 and s.trigger = 'manual' and s.requested_by is not null`,
+       where l.organization_id = $1 and s.trigger = 'manual' and s.requested_by is not null
+         and s.created_at > (select first_scan_at from public.organizations where id = $1)`,
       [orgId],
     );
-    await setLimits(`max_manual_scans_per_day = ${used}`);
-    await expect(manualScan(second)).rejects.toThrow(/manual scans? in 24 hours/);
+    await setLimits(`max_manual_scans_per_month = ${used}`);
+    await expect(manualScan(second)).rejects.toThrow(/by hand/);
 
     // The schedule is not a member asking, so it is not counted.
     const [scheduled] = await as("service_role", null, () =>
@@ -518,16 +544,131 @@ describe("usage caps", () => {
     expect(scheduled?.id).toBeTruthy();
     await db.query("update public.scans set status = 'failed' where id = $1", [scheduled?.id]);
 
-    await setLimits(`max_manual_scans_per_day = ${used + 1}`);
+    await setLimits(`max_manual_scans_per_month = ${used + 1}`);
     const [allowed] = await manualScan(second);
     expect(allowed?.id).toBeTruthy();
+  });
+
+  it("count scans by hand over the calendar month, so last month's are forgotten", async () => {
+    const [{ used } = { used: 0 }] = await rows<{ used: number }>(
+      `select count(*)::int as used from public.scans s join public.locations l on l.id = s.location_id
+       where l.organization_id = $1 and s.trigger = 'manual' and s.requested_by is not null
+         and s.created_at > (select first_scan_at from public.organizations where id = $1)`,
+      [orgId],
+    );
+    await db.query(
+      "update public.scans set status = 'failed' where status in ('queued', 'running')",
+    );
+    await setLimits(`max_manual_scans_per_month = ${used}`);
+    await expect(manualScan(second)).rejects.toThrow(/by hand/);
+    // One of this month's becomes last month's, and there is room again.
+    await db.query(
+      `update public.scans set created_at = date_trunc('month', now()) - interval '1 day'
+       where id = (select s.id from public.scans s join public.locations l on l.id = s.location_id
+                   where l.organization_id = $1 and s.trigger = 'manual' and s.requested_by is not null
+                     and s.created_at > (select first_scan_at from public.organizations where id = $1)
+                   limit 1)`,
+      [orgId],
+    );
+    const [allowed] = await manualScan(second);
+    expect(allowed?.id).toBeTruthy();
+    await db.query("update public.scans set status = 'failed' where id = $1", [allowed?.id]);
+    await setLimits("max_manual_scans_per_month = 150");
+  });
+
+  it("let a new organization run its first scan on a plan that allows none by hand, once", async () => {
+    const carol = "c0000000-0000-4000-8000-00000000ca01";
+    await db.query("insert into auth.users (id, email) values ($1, 'carol@example.com')", [carol]);
+    const asCarol = <T>(sql: string, params: unknown[] = []) =>
+      as("authenticated", carol, () => rows<T>(sql, params));
+    const [org] = await asCarol<{ id: string }>(
+      "select id from public.create_organization('Carol''s Cafe')",
+    );
+    const [location] = await asCarol<{ id: string }>(
+      "insert into public.locations (organization_id, name, city) values ($1, 'Cafe', 'Raleigh') returning id",
+      [org?.id],
+    );
+    const scan =
+      "insert into public.scans (location_id, trigger, requested_by) values ($1, 'manual', $2) returning id";
+
+    const [first] = await asCarol<{ id: string }>(scan, [location?.id, carol]);
+    expect(first?.id).toBeTruthy();
+    const [after] = await rows<{ first_scan_at: string | null }>(
+      "select first_scan_at from public.organizations where id = $1",
+      [org?.id],
+    );
+    expect(after?.first_scan_at).not.toBeNull();
+    await db.query("update public.scans set status = 'succeeded' where id = $1", [first?.id]);
+
+    // The free plan allows none after that, and says why in words an owner can act on.
+    await expect(asCarol(scan, [location?.id, carol])).rejects.toThrow(
+      /does not include scans started by hand/,
+    );
+    // Its own limits: one location, two prompts.
+    await expect(
+      asCarol(
+        "insert into public.locations (organization_id, name, city) values ($1, 'Second', 'Raleigh')",
+        [org?.id],
+      ),
+    ).rejects.toThrow(/can have 1 location /);
+    const prompt =
+      "insert into public.tracked_queries (location_id, kind, text) values ($1, 'ai_prompt', $2)";
+    await asCarol(prompt, [location?.id, "one"]);
+    await asCarol(prompt, [location?.id, "two"]);
+    await expect(asCarol(prompt, [location?.id, "three"])).rejects.toThrow(
+      /can have 2 active prompts /,
+    );
+  });
+
+  it("are copied from a plan only by the worker", async () => {
+    for (const [role, user] of [
+      ["anon", null],
+      ["authenticated", alice],
+    ] as const) {
+      await expect(
+        as(role, user, () => db.query("select public.apply_plan($1, 'enterprise')", [orgId])),
+      ).rejects.toThrow(/permission denied/);
+    }
+    const [bobs] = await as("authenticated", bob, () =>
+      rows<{ id: string }>("select id from public.create_organization('Plan test')"),
+    );
+    const applied = (plan: string, locations: number | null) =>
+      as("service_role", null, () =>
+        rows<Record<string, unknown>>(
+          "select plan_key, max_locations, max_queries_per_location, max_manual_scans_per_month, scan_every_days, emails_report, surfaces::text[] as surfaces from public.apply_plan($1, $2, $3)",
+          [bobs?.id, plan, locations],
+        ),
+      );
+    // More locations than the plan includes are the ones paid for; fewer never lowers it.
+    expect((await applied("standard", 5))[0]).toEqual({
+      plan_key: "standard",
+      max_locations: 5,
+      max_queries_per_location: 10,
+      max_manual_scans_per_month: 10,
+      scan_every_days: 2,
+      emails_report: true,
+      surfaces: ["chatgpt", "claude"],
+    });
+    expect((await applied("standard", 1))[0]).toMatchObject({ max_locations: 3 });
+    // One assistant: ChatGPT unless the organization had already chosen its one.
+    expect((await applied("starter", null))[0]).toMatchObject({ surfaces: ["chatgpt"] });
+    await db.query("update public.organizations set surfaces = '{claude}' where id = $1", [
+      bobs?.id,
+    ]);
+    expect((await applied("free", null))[0]).toMatchObject({
+      plan_key: "free",
+      surfaces: ["claude"],
+      emails_report: false,
+    });
+    await expect(applied("no_such_plan", null)).rejects.toThrow(/no plan called/);
+    await db.query("delete from public.organizations where id = $1", [bobs?.id]);
   });
 
   it("cannot be raised by a member, who can still rename the organization", async () => {
     for (const column of [
       "max_locations",
       "max_queries_per_location",
-      "max_manual_scans_per_day",
+      "max_manual_scans_per_month",
     ]) {
       await expect(
         as("authenticated", alice, () =>
@@ -569,7 +710,7 @@ describe("plan settings", () => {
       [hours, cadenceLocation],
     );
 
-  it("start a new organization on every two days and every surface", async () => {
+  it("start a new organization on its plan's cadence", async () => {
     // Bob has no organization yet, so this one starts with nothing else in it.
     const [org] = await as("authenticated", bob, () =>
       rows<{ id: string; scan_every_days: number; surfaces: string[] | null }>(
@@ -577,7 +718,13 @@ describe("plan settings", () => {
       ),
     );
     cadenceOrg = org?.id ?? "";
-    expect(org).toMatchObject({ scan_every_days: 2, surfaces: null });
+    // The free plan's cadence. The tests below are about cadence itself, so it is then set by
+    // hand to every two days on every surface.
+    expect(org).toMatchObject({ scan_every_days: 14, plan_key: "free" });
+    await db.query(
+      "update public.organizations set plan_key = null, scan_every_days = 2, surfaces = null, max_queries_per_location = 10 where id = $1",
+      [cadenceOrg],
+    );
 
     const [location] = await as("authenticated", bob, () =>
       rows<{ id: string }>(
@@ -933,7 +1080,7 @@ describe("platform roles and test organizations", () => {
       is_test: true,
       max_locations: 25,
       max_queries_per_location: 25,
-      max_manual_scans_per_day: 500,
+      max_manual_scans_per_month: 500,
       scan_every_days: 1,
     });
     // It is still an ordinary owner of it, so it is confined to it like anyone else.
@@ -1336,7 +1483,7 @@ describe("the operator", () => {
     const setLimits = "select * from public.operator_set_limits($1, 3, 20, 10, 1)";
     const limits = (id: string) =>
       rows<Record<string, number>>(
-        "select max_locations, max_queries_per_location, max_manual_scans_per_day, scan_every_days from public.organizations where id = $1",
+        "select max_locations, max_queries_per_location, max_manual_scans_per_month, scan_every_days from public.organizations where id = $1",
         [id],
       );
     const actions = () =>
@@ -1372,7 +1519,7 @@ describe("the operator", () => {
         plan_key: null,
         max_locations: 3,
         max_queries_per_location: 20,
-        max_manual_scans_per_day: 10,
+        max_manual_scans_per_month: 10,
         scan_every_days: 1,
       };
       expect(after).toEqual({ ...before, ...changed });
@@ -1386,7 +1533,7 @@ describe("the operator", () => {
               plan_key: "standard",
               max_locations: before?.max_locations,
               max_queries_per_location: before?.max_queries_per_location,
-              max_manual_scans_per_day: before?.max_manual_scans_per_day,
+              max_manual_scans_per_month: before?.max_manual_scans_per_month,
               scan_every_days: before?.scan_every_days,
             },
             to: changed,

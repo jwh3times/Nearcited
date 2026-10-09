@@ -152,6 +152,15 @@ describe("runScan", () => {
     expect(notify.mock.calls[0]?.[0]).toMatchObject({ score: 40 });
   });
 
+  it("sends no report where the organization's plan does not include one", async () => {
+    const notify = vi.fn<(report: ScanReport) => Promise<void>>(async () => {});
+    for (const organization of db.organizations) organization.emails_report = false;
+
+    const scheduled = await queueScan("scheduled");
+    expect(await runScan(scheduled.id, { store: worker, providers, notify })).toBe("succeeded");
+    expect(notify).not.toHaveBeenCalled();
+  });
+
   it("still succeeds when the report cannot be sent", async () => {
     const errors = vi.spyOn(console, "error").mockImplementation(() => {});
     const scan = await queueScan("scheduled");
@@ -618,7 +627,7 @@ describe("usage caps", () => {
   it("do not count scheduled scans against the manual-scan limit", async () => {
     const organization = db.organizations[0];
     if (!organization) throw new Error("no organization");
-    organization.max_manual_scans_per_day = 0;
+    organization.max_manual_scans_per_month = 0;
 
     const scheduled = await worker.createScan(locationId, "scheduled", null);
     expect(scheduled.status).toBe("queued");

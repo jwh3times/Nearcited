@@ -96,9 +96,10 @@ const timestamp = () => new Date(clock++).toISOString();
 export const DEFAULT_LIMITS = {
   max_locations: 10,
   max_queries_per_location: 20,
-  max_manual_scans_per_day: 50,
+  max_manual_scans_per_month: 50,
   scan_every_days: 1,
   surfaces: null,
+  emails_report: true,
 };
 
 /** `userId: null` is the worker's view: no filtering. */
@@ -157,6 +158,24 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
       return db.plans
         .filter((plan) => plan.on_sale || isOperator || mine.includes(plan.key))
         .sort((a, b) => a.position - b.position);
+    },
+
+    async applyPlan(organizationId, planKey, locations) {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      const plan = db.plans.find((candidate) => candidate.key === planKey);
+      if (!plan) throw new StoreError("unexpected", `no plan called ${planKey}`);
+      const organization = db.organizations.find((o) => o.id === organizationId);
+      if (!organization) return null;
+      const one = organization.surfaces?.length === 1 ? organization.surfaces : null;
+      return Object.assign(organization, {
+        plan_key: plan.key,
+        max_locations: Math.max(plan.included_locations, locations ?? 0),
+        max_queries_per_location: plan.max_queries_per_location,
+        max_manual_scans_per_month: plan.max_manual_scans_per_month,
+        scan_every_days: plan.scan_every_days,
+        emails_report: plan.emails_report,
+        surfaces: plan.assistants >= 2 ? ["chatgpt", "claude"] : (one ?? ["chatgpt"]),
+      });
     },
 
     async renameOrganization(id, name) {
@@ -347,7 +366,7 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
       if (inFlight(locationId)) throw new StoreError("conflict", "scans_one_in_flight_idx");
       if (trigger === "manual" && requestedBy !== null) {
         const organizationId = db.locations.find((l) => l.id === locationId)?.organization_id ?? "";
-        const allowed = limits(organizationId).max_manual_scans_per_day;
+        const allowed = limits(organizationId).max_manual_scans_per_month;
         const used = db.scans.filter(
           (scan) =>
             scan.trigger === "manual" &&

@@ -167,6 +167,16 @@ export interface Store {
    * Keeps what a scan, or one prompt of an audit, used at the providers. Worker only. Called
    * whether or not the scan went on to succeed: what was asked was charged for either way.
    */
+  /**
+   * Puts an organization on a plan and copies the plan's limits onto it. `locations` is how many
+   * it has paid for, when that is more than the plan includes. Null when there is no such
+   * organization. Worker only: nothing a member sends decides their plan.
+   */
+  applyPlan(
+    organizationId: string,
+    planKey: string,
+    locations?: number,
+  ): Promise<Organization | null>;
   recordUsage(source: UsageSource, usage: readonly ProviderUsage[]): Promise<void>;
   /** Throws a conflict when a different scan for the same location is already in flight. */
   markScanRunning(id: string, sampleData: boolean): Promise<void>;

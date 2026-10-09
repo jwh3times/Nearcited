@@ -108,6 +108,14 @@ export async function recordUsage(
   });
 }
 
+/**
+ * Puts an organization on a paid plan, as the worker does when a subscription starts. A new
+ * account is on the free plan, which is too small for most screens to have anything on them.
+ */
+export async function onPlan(organizationId: string, plan: string): Promise<void> {
+  await asWorker("rpc/apply_plan", { org: organizationId, plan });
+}
+
 /** Writes a row with the secret key. Never against a deployment: its data is not a test's. */
 async function asWorker(table: string, row: unknown): Promise<void> {
   if (process.env.E2E_APP_URL) throw new Error("Tests do not write to a deployment's database.");
@@ -141,6 +149,7 @@ export async function withScannedLocation(
   const organization = await api<Scene["organization"]>(account, "POST", "/organizations", {
     name: organizationName,
   });
+  await onPlan(organization.id, "standard");
   const location = await api<Scene["location"]>(
     account,
     "POST",

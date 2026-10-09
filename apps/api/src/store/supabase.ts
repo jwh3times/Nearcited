@@ -92,7 +92,7 @@ const LISTED_AUDIT_COLUMNS =
   "id, token, business_name, city, region, status, error, created_at, expires_at, revoked_at";
 
 const ORGANIZATION_COLUMNS =
-  "id, name, max_locations, max_queries_per_location, max_manual_scans_per_day, scan_every_days, surfaces, is_test, plan_key, created_at";
+  "id, name, max_locations, max_queries_per_location, max_manual_scans_per_month, scan_every_days, surfaces, is_test, emails_report, plan_key, created_at";
 
 const LOCATION_COLUMNS =
   "id, organization_id, name, website, phone, address_line, city, region, postal_code, country_code, google_place_id, primary_category, scan_frequency, last_scanned_at, created_at";
@@ -135,6 +135,16 @@ export function createSupabaseStore(db: SupabaseClient): Store {
       return PlanSchema.array().parse(data);
     },
 
+    async applyPlan(organizationId, planKey, locations) {
+      const { data, error } = await db
+        .rpc("apply_plan", { org: organizationId, plan: planKey, locations: locations ?? null })
+        .select(ORGANIZATION_COLUMNS)
+        .maybeSingle();
+      if (error) fail("Apply plan", error);
+      // The function returns one organization, so "none" arrives as a row of nulls.
+      return data?.id ? OrganizationSchema.parse(data) : null;
+    },
+
     async renameOrganization(id, name) {
       const { data, error } = await db
         .from("organizations")
@@ -152,7 +162,7 @@ export function createSupabaseStore(db: SupabaseClient): Store {
           org: id,
           locations: limits.max_locations,
           queries_per_location: limits.max_queries_per_location,
-          manual_scans_per_day: limits.max_manual_scans_per_day,
+          manual_scans_per_month: limits.max_manual_scans_per_month,
           every_days: limits.scan_every_days,
         })
         .select(ORGANIZATION_COLUMNS)

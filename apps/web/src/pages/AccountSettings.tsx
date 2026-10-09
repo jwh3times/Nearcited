@@ -57,7 +57,7 @@ export function AccountSettings({ organization, email }: AccountSettingsProps) {
               </li>
               <li>
                 <span>Scans run by hand</span>
-                <span>{organization.max_manual_scans_per_day} a day</span>
+                <span>{organization.max_manual_scans_per_month} a month</span>
               </li>
               <li>
                 <span>Checked on</span>
