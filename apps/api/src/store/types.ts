@@ -57,19 +57,25 @@ export interface SubscriptionRecord {
   status: string | null;
 }
 
-/** A plan as the payment provider knows it: the two prices it is sold at there. */
+/** One pair of prices a plan has been sold at, with the payment provider's names for them. */
+export interface PriceVersion {
+  /** A month, in US cents, for the locations the plan includes. */
+  price_cents: number;
+  /** A month, in US cents, for each location beyond those. Null when no more could be added. */
+  extra_location_price_cents: number | null;
+  stripe_price_id: string;
+  stripe_extra_location_price_id: string | null;
+}
+
+/** A plan as the payment provider knows it: what it is sold at now, and what it has been. */
 export interface PlanPrices {
   key: string;
   on_sale: boolean;
   included_locations: number;
-  /** A month, in US cents, for the locations it includes. */
-  price_cents: number;
-  /** A month, in US cents, for each location beyond those. Null when no more can be added. */
-  extra_location_price_cents: number | null;
-  /** Null until the plan is set up at the provider, and always for a plan that costs nothing. */
-  stripe_price_id: string | null;
-  /** For each location beyond those included. Null when no more can be added. */
-  stripe_extra_location_price_id: string | null;
+  /** What a new subscriber pays. Null for a plan that costs nothing, or is not set up yet. */
+  current: PriceVersion | null;
+  /** Every version it has been sold at, newest first, the current one among them. */
+  versions: PriceVersion[];
 }
 
 /** "limit" is a usage cap reached. Its message is written for the user and safe to show. */
@@ -159,6 +165,12 @@ export interface Store {
    * returns null.
    */
   setPlan(key: string, settings: PlanSettings): Promise<Plan | null>;
+  /**
+   * Sets what a new subscriber pays for a plan, keeping the version. The provider's prices are
+   * made first and named here. Only the operator's call changes anything: for anyone else, and
+   * for a plan that does not exist, it returns null.
+   */
+  setPlanPrices(key: string, version: PriceVersion): Promise<Plan | null>;
   /** How many active prompts and keywords each location has, by location ID. */
   countActiveQueries(): Promise<Record<string, number>>;
   /** Scans created since `since`, an ISO timestamp, each with the on-page check it made. */

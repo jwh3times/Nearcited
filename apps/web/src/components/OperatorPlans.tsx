@@ -1,13 +1,14 @@
 import {
   type OperatorPlan,
   type PlanImpact,
+  PlanPricesInputSchema,
   type PlanSettings,
   PlanSettingsSchema,
 } from "@nearcited/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
 import { api } from "../lib/api";
-import { formatPrice } from "../lib/billing";
+import { centsToDollars, dollarsToCents, formatPrice } from "../lib/billing";
 import { useFormErrors } from "../lib/form";
 import { ErrorNote } from "./ErrorNote";
 import { Field } from "./Field";
@@ -127,7 +128,16 @@ export function OperatorPlans() {
       {plans.data
         ?.filter((plan) => plan.key === editing)
         .map((plan) => (
-          <PlanEditor key={plan.key} plan={plan} onDone={() => setEditing(null)} />
+          <div key={plan.key} className="stack">
+            <PlanEditor plan={plan} onDone={() => setEditing(null)} />
+            {plan.price_cents > 0 && (
+              // Remade when the prices change, so the fields start from what was just saved.
+              <PriceEditor
+                key={`${plan.price_cents}:${plan.extra_location_price_cents}`}
+                plan={plan}
+              />
+            )}
+          </div>
         ))}
     </section>
   );
@@ -283,6 +293,99 @@ function PlanEditor({ plan, onDone }: { plan: OperatorPlan; onDone: () => void }
           Cancel
         </button>
       </div>
+      <ErrorNote error={save.error} />
+    </form>
+  );
+}
+
+/**
+ * What a plan is sold at. Typed in dollars. A new price is for new subscribers: whoever already
+ * subscribes goes on paying what they were.
+ */
+function PriceEditor({ plan }: { plan: OperatorPlan }) {
+  const queryClient = useQueryClient();
+  const [price, setPrice] = useState(centsToDollars(plan.price_cents));
+  const [extra, setExtra] = useState(
+    plan.extra_location_price_cents === null ? "" : centsToDollars(plan.extra_location_price_cents),
+  );
+  const prices = {
+    price_cents: dollarsToCents(price),
+    // Left empty, the plan sells no more locations than it includes.
+    extra_location_price_cents: extra.trim() === "" ? null : dollarsToCents(extra),
+  };
+  const form$ = useFormErrors(PlanPricesInputSchema, prices);
+  const unchanged =
+    prices.price_cents === plan.price_cents &&
+    prices.extra_location_price_cents === plan.extra_location_price_cents;
+  const save = useMutation({
+    mutationFn: () => api.setPlanPrices(plan.key, prices),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["operator-plans"] });
+      // The price list reads the same rows.
+      await queryClient.invalidateQueries({ queryKey: ["plans"] });
+    },
+  });
+
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    if (form$.check()) save.mutate();
+  }
+
+  return (
+    <form
+      onSubmit={submit}
+      className="card settings-main"
+      noValidate
+      aria-label={`Prices of ${plan.name}`}
+    >
+      <div>
+        <h3>{plan.name}: prices</h3>
+        <p className="small muted">
+          In dollars a month, before tax. A new price is charged to new subscribers from the moment
+          it is saved.{" "}
+          {plan.subscribers > 0
+            ? `${count(plan.subscribers, "subscriber goes", "subscribers go")} on paying what they pay now.`
+            : "Nobody subscribes to this plan yet."}
+        </p>
+      </div>
+      <Field
+        label="Price a month"
+        inputMode="decimal"
+        required
+        value={price}
+        error={form$.error("price_cents")}
+        onBlur={() => form$.touch("price_cents")}
+        onChange={(event) => {
+          setPrice(event.target.value);
+          save.reset();
+        }}
+      />
+      <Field
+        label="Each extra location a month"
+        hint="Leave empty to sell no more locations than the plan includes."
+        inputMode="decimal"
+        value={extra}
+        error={form$.error("extra_location_price_cents")}
+        onBlur={() => form$.touch("extra_location_price_cents")}
+        onChange={(event) => {
+          setExtra(event.target.value);
+          save.reset();
+        }}
+      />
+      <div className="button-row">
+        <button type="submit" disabled={save.isPending || unchanged}>
+          {save.isPending
+            ? "Saving"
+            : unchanged || Number.isNaN(prices.price_cents)
+              ? "Save prices"
+              : `Sell at ${formatPrice(prices.price_cents)} from now`}
+        </button>
+      </div>
+      {save.isSuccess && (
+        <p className="small muted" role="status">
+          Saved. New subscribers pay this from now.
+        </p>
+      )}
       <ErrorNote error={save.error} />
     </form>
   );

@@ -18,6 +18,7 @@ import {
   type OrganizationLimits,
   OrganizationSchema,
   PlanImpactSchema,
+  type PlanPricesInput,
   PlanSchema,
   type PlanSettings,
   PublicAuditSchema,
@@ -99,6 +100,9 @@ export const api = {
   /** Changes what a plan allows, for every organization on it at once. */
   setPlan: (key: string, settings: PlanSettings) =>
     json(PlanSchema, "PUT", `/operator/plans/${key}`, settings),
+  /** Sets what a new subscriber pays for a plan. Current subscribers keep their price. */
+  setPlanPrices: (key: string, prices: PlanPricesInput) =>
+    json(PlanSchema, "PUT", `/operator/plans/${key}/prices`, prices),
   /** The one thing the operator changes on a customer's account. */
   setOrganizationLimits: (id: string, limits: OrganizationLimits) =>
     json(OrganizationSchema, "PUT", `/operator/organizations/${id}/limits`, limits),

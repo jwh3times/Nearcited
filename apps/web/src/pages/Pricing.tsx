@@ -98,6 +98,7 @@ export function Pricing() {
                 offer={known ? planOffer(plan, viewer) : "none"}
                 current={organization?.plan_key === plan.key}
                 paidLocations={billing?.locations ?? null}
+                paying={billing?.paying ?? null}
                 renewsAt={billing?.renews_at ?? null}
                 organizationId={organization?.id ?? null}
                 organizationName={organization?.name ?? null}
@@ -121,6 +122,8 @@ interface PlanCardProps {
   current: boolean;
   /** How many locations a subscriber pays for now. Null for anyone else. */
   paidLocations: number | null;
+  /** The prices a subscriber is billed at, which their own plan's card shows. */
+  paying: Pick<Plan, "price_cents" | "extra_location_price_cents"> | null;
   /** When a subscriber's paid period ends. */
   renewsAt: string | null;
   organizationId: string | null;
@@ -133,6 +136,7 @@ function PlanCard({
   offer,
   current,
   paidLocations,
+  paying,
   renewsAt,
   organizationId,
   organizationName,
@@ -149,6 +153,8 @@ function PlanCard({
     : least;
   const input = { plan_key: plan.key, locations: count };
   const picking = offer === "subscribe" || offer === "change";
+  // On their own plan a subscriber goes on paying what they joined at, whatever it sells for now.
+  const prices = current && paying ? paying : plan;
   const unchanged = current && count === paidLocations;
 
   // Both answer with an address at the payment provider, and the browser goes there.
@@ -182,15 +188,15 @@ function PlanCard({
       </h2>
       <p className="plan-price">
         <span className="plan-amount">
-          {formatPrice(picking ? monthlyCents(plan, count) : plan.price_cents)}
+          {formatPrice(picking ? monthlyCents(plan, count, prices) : prices.price_cents)}
         </span>
         <span className="muted"> a month</span>
       </p>
       <ul className="plan-facts">
         <li>
           {locationCount(plan.included_locations)}
-          {plan.extra_location_price_cents !== null &&
-            `, then ${formatPrice(plan.extra_location_price_cents)} for each one more`}
+          {prices.extra_location_price_cents !== null &&
+            `, then ${formatPrice(prices.extra_location_price_cents)} for each one more`}
         </li>
         <li>{plan.max_queries_per_location} prompts and keywords for each location</li>
         <li>

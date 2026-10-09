@@ -210,6 +210,21 @@ export function createStripePayments(
       });
     },
 
+    async createPrice({ like, product_name, cents }) {
+      const product = like
+        ? idOf((await stripe.prices.retrieve(like)).product)
+        : (await stripe.products.create({ name: product_name })).id;
+      const price = await stripe.prices.create({
+        product,
+        currency: "usd",
+        unit_amount: cents,
+        recurring: { interval: "month" },
+        // Tax is added on top of the listed price.
+        tax_behavior: "exclusive",
+      });
+      return price.id;
+    },
+
     async keepCurrent(subscriptionId) {
       const subscription = await withSchedule(subscriptionId);
       if (waiting(subscription) && subscription.schedule) {

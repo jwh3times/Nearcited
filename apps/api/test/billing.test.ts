@@ -32,6 +32,8 @@ let configured: boolean;
 /** What the stand-in provider was asked to do to a subscription, in order. */
 let changes: { what: "now" | "at-period-end" | "keep"; id: string; items?: BilledItem[] }[];
 let cardDeclines: boolean;
+/** The prices the stand-in provider was asked to make. */
+let made: { like: string | null; product_name: string; cents: number }[];
 
 /** A provider whose webhook body is just the subscription's ID, signed with the word "signed". */
 const payments: Payments = {
@@ -62,6 +64,10 @@ const payments: Payments = {
   },
   async keepCurrent(id) {
     changes.push({ what: "keep", id });
+  },
+  async createPrice(price) {
+    made.push(price);
+    return `price_new_${made.length}`;
   },
 };
 
@@ -166,6 +172,7 @@ beforeEach(() => {
   configured = true;
   changes = [];
   cardDeclines = false;
+  made = [];
   env = { PROVIDER_MODE: "mock", APP_URL: "https://app.example" } as unknown as Env;
 });
 
@@ -321,6 +328,7 @@ describe("an organization's account", () => {
         has_customer: false,
         locations: null,
         renews_at: null,
+        paying: null,
         pending: null,
       },
     });
@@ -795,5 +803,154 @@ describe("the provider's webhook", () => {
     configured = false;
     const response = await webhook("sub_1");
     expect(response.status).toBe(503);
+  });
+});
+
+describe("a plan's prices", () => {
+  const setPrices = (user: string | null, key: string, body: unknown) =>
+    call(user, "PUT", `/operator/plans/${key}/prices`, body);
+  const dearer = { price_cents: 5900, extra_location_price_cents: 1900 };
+
+  /** Alice subscribed to Standard with one extra location at its first prices; Bob operates. */
+  async function subscribedThenRepriced() {
+    const organization = await organizationFor(alice);
+    const items = [
+      { price_id: "price_standard", quantity: 1 },
+      { price_id: "price_standard_location", quantity: 1 },
+    ];
+    atProvider.set("sub_1", subscription(organization.id, { items }));
+    await webhook("sub_1");
+    db.operators.add(bob);
+    expect((await setPrices(bob, "standard", dearer)).status).toBe(200);
+    return organization;
+  }
+
+  it("are set by the operator: two new prices at the provider, and the plan sold at them", async () => {
+    db.operators.add(bob);
+    const response = await setPrices(bob, "standard", dearer);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ key: "standard", ...dearer });
+    // Each is a price of the product the old one was for.
+    expect(made).toEqual([
+      { like: "price_standard", product_name: "Nearcited standard", cents: 5900 },
+      {
+        like: "price_standard_location",
+        product_name: "Nearcited standard: extra location",
+        cents: 1900,
+      },
+    ]);
+    const plans = await memoryStore(db, null).listPlanPrices();
+    expect(plans.find((p) => p.key === "standard")).toMatchObject({
+      current: { price_cents: 5900, stripe_price_id: "price_new_1" },
+      versions: [{ stripe_price_id: "price_new_1" }, { stripe_price_id: "price_standard" }],
+    });
+  });
+
+  it("charge a new subscriber the new price at once", async () => {
+    await subscribedThenRepriced();
+    db.organizations.length = 0;
+    db.memberships.length = 0;
+    db.subscriptions.clear();
+    const organization = await organizationFor(alice);
+    await call(alice, "POST", `/organizations/${organization.id}/checkout`, {
+      plan_key: "standard",
+      locations: 4,
+    });
+    expect(checkouts[0]?.items).toEqual([
+      { price_id: "price_new_1", quantity: 1 },
+      { price_id: "price_new_2", quantity: 1 },
+    ]);
+  });
+
+  it("leave a current subscriber on their plan, at the price they pay", async () => {
+    const organization = await subscribedThenRepriced();
+    // The provider reports on the subscription again, still billing the old prices.
+    expect((await webhook("sub_1")).status).toBe(200);
+    expect(current(organization.id)).toMatchObject({ plan_key: "standard", max_locations: 4 });
+
+    const response = await call(alice, "GET", `/organizations/${organization.id}/account`);
+    expect(OrganizationAccountSchema.parse(await response.json()).billing).toMatchObject({
+      locations: 4,
+      paying: { price_cents: 2000, extra_location_price_cents: 1500, monthly_cents: 3500 },
+    });
+  });
+
+  it("keep a subscriber's own prices when they change locations, and give another plan's as sold now", async () => {
+    const organization = await subscribedThenRepriced();
+    const change = (body: unknown) =>
+      call(alice, "PUT", `/organizations/${organization.id}/subscription`, body);
+
+    expect(
+      SubscriptionChangeSchema.parse(
+        await (await change({ plan_key: "standard", locations: 6 })).json(),
+      ),
+    ).toMatchObject({
+      kind: "upgrade",
+      monthly_cents: 2000 + 3 * 1500,
+    });
+    expect(changes[0]?.items).toEqual([
+      { price_id: "price_standard", quantity: 1 },
+      { price_id: "price_standard_location", quantity: 3 },
+    ]);
+
+    // A plan they are not on is bought at today's price, here one that has just gone up.
+    db.plans.push(plan("pro", 3));
+    db.planPrices.set("pro", { base: "price_pro", extra: null });
+    expect(
+      (await setPrices(bob, "pro", { price_cents: 9900, extra_location_price_cents: null })).status,
+    ).toBe(200);
+    await change({ plan_key: "pro" });
+    expect(changes[1]?.items).toEqual([{ price_id: "price_new_3", quantity: 1 }]);
+  });
+
+  it("can stop a plan selling extra locations, and start it again", async () => {
+    db.operators.add(bob);
+    await setPrices(bob, "standard", { price_cents: 5900, extra_location_price_cents: null });
+    expect(made).toHaveLength(1);
+    const organization = await organizationFor(alice);
+    const refused = await call(alice, "POST", `/organizations/${organization.id}/checkout`, {
+      plan_key: "standard",
+      locations: 4,
+    });
+    expect(refused.status).toBe(422);
+
+    // With no extra-location price to copy, a product is made for the new one.
+    await setPrices(bob, "standard", dearer);
+    expect(made[2]).toEqual({
+      like: null,
+      product_name: "Nearcited standard: extra location",
+      cents: 1900,
+    });
+  });
+
+  it("are refused when nothing would change, for the free plan, and for amounts that are surely a slip", async () => {
+    db.operators.add(bob);
+    expect(
+      await errorCode(
+        await setPrices(bob, "standard", { price_cents: 2000, extra_location_price_cents: 1500 }),
+      ),
+    ).toBe("no_change");
+    expect(await errorCode(await setPrices(bob, "free", dearer))).toBe("free_plan");
+    for (const bad of [
+      { price_cents: 0, extra_location_price_cents: 1500 },
+      { price_cents: 29.5, extra_location_price_cents: 1500 },
+      { price_cents: 5900, extra_location_price_cents: 0 },
+      { price_cents: 99_000_000, extra_location_price_cents: null },
+      { price_cents: 5900 },
+    ]) {
+      expect((await setPrices(bob, "standard", bad)).status, JSON.stringify(bad)).toBe(422);
+    }
+    expect((await setPrices(bob, "nonesuch", dearer)).status).toBe(404);
+    expect(made).toEqual([]);
+  });
+
+  it("are the operator's alone to set, and need a payment provider", async () => {
+    await organizationFor(alice);
+    expect((await setPrices(alice, "standard", dearer)).status).toBe(404);
+    expect((await setPrices(null, "standard", dearer)).status).toBe(401);
+    db.operators.add(bob);
+    configured = false;
+    expect(await errorCode(await setPrices(bob, "standard", dearer))).toBe("billing_unavailable");
+    expect(made).toEqual([]);
   });
 });

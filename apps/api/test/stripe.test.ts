@@ -385,3 +385,41 @@ describe("changing what a subscription bills for", () => {
     expect(requests).toHaveLength(1);
   });
 });
+
+describe("a new price", () => {
+  const monthly = {
+    currency: "usd",
+    "recurring[interval]": "month",
+    tax_behavior: "exclusive",
+  };
+
+  it("is made for the product an existing price is for", async () => {
+    responses.push({ status: 200, body: { id: "price_old", product: "prod_standard" } });
+    responses.push({ status: 200, body: { id: "price_new" } });
+    expect(
+      await payments().createPrice({ like: "price_old", product_name: "Unused", cents: 5900 }),
+    ).toBe("price_new");
+    expect(requests.map((request) => `${request.method} ${request.path}`)).toEqual([
+      "GET /v1/prices/price_old",
+      "POST /v1/prices",
+    ]);
+    expect(Object.fromEntries(requests[1]?.form ?? [])).toEqual({
+      product: "prod_standard",
+      unit_amount: "5900",
+      ...monthly,
+    });
+  });
+
+  it("gets a product of its own when there is no price to copy", async () => {
+    responses.push({ status: 200, body: { id: "prod_new" } });
+    responses.push({ status: 200, body: { id: "price_new" } });
+    await payments().createPrice({ like: null, product_name: "Nearcited Pro", cents: 12900 });
+    expect(requests[0]).toMatchObject({ method: "POST", path: "/v1/products" });
+    expect(Object.fromEntries(requests[0]?.form ?? [])).toEqual({ name: "Nearcited Pro" });
+    expect(Object.fromEntries(requests[1]?.form ?? [])).toEqual({
+      product: "prod_new",
+      unit_amount: "12900",
+      ...monthly,
+    });
+  });
+});

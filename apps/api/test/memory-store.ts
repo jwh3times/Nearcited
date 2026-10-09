@@ -13,6 +13,7 @@ import type {
   UsageByMonth,
 } from "@nearcited/shared";
 import {
+  type PriceVersion,
   type Store,
   StoreError,
   type SubscriptionRecord,
@@ -56,6 +57,8 @@ export interface MemoryDb {
   siteChecks: Map<string, SiteCheck | null>;
   /** The payment provider's names for each plan's prices, by plan key. */
   planPrices: Map<string, { base: string | null; extra: string | null }>;
+  /** Prices a plan was sold at before its present ones, newest first. */
+  pastPrices: (PriceVersion & { plan_key: string })[];
   /** What the worker has kept of each organization's subscription, by organization ID. */
   subscriptions: Map<string, SubscriptionRecord>;
 }
@@ -95,6 +98,7 @@ export function createMemoryDb(): MemoryDb {
     plans: [],
     siteChecks: new Map(),
     planPrices: new Map(),
+    pastPrices: [],
     subscriptions: new Map(),
   };
 }
@@ -184,15 +188,27 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
     },
 
     async listPlanPrices() {
-      return (await this.listPlans()).map((plan) => ({
-        key: plan.key,
-        on_sale: plan.on_sale,
-        included_locations: plan.included_locations,
-        price_cents: plan.price_cents,
-        extra_location_price_cents: plan.extra_location_price_cents,
-        stripe_price_id: db.planPrices.get(plan.key)?.base ?? null,
-        stripe_extra_location_price_id: db.planPrices.get(plan.key)?.extra ?? null,
-      }));
+      return (await this.listPlans()).map((plan) => {
+        const ids = db.planPrices.get(plan.key);
+        const current: PriceVersion | null = ids?.base
+          ? {
+              price_cents: plan.price_cents,
+              extra_location_price_cents: ids.extra ? plan.extra_location_price_cents : null,
+              stripe_price_id: ids.base,
+              stripe_extra_location_price_id: ids.extra,
+            }
+          : null;
+        const past = db.pastPrices
+          .filter((version) => version.plan_key === plan.key)
+          .map(({ plan_key: _, ...version }) => version);
+        return {
+          key: plan.key,
+          on_sale: plan.on_sale,
+          included_locations: plan.included_locations,
+          current,
+          versions: current ? [current, ...past] : past,
+        };
+      });
     },
 
     async getBillingState(organizationId) {
@@ -308,6 +324,30 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         await worker.applyPlan(organization.id, key, organization.max_locations);
       }
       return plan;
+    },
+
+    async setPlanPrices(key, version) {
+      const plan = db.plans.find((candidate) => candidate.key === key);
+      if (!isOperator || !plan) return null;
+      if (key === "free") throw new StoreError("limit", "The free plan has no price to change.");
+      const was = db.planPrices.get(key);
+      if (was?.base) {
+        db.pastPrices.unshift({
+          plan_key: key,
+          price_cents: plan.price_cents,
+          extra_location_price_cents: was.extra ? plan.extra_location_price_cents : null,
+          stripe_price_id: was.base,
+          stripe_extra_location_price_id: was.extra,
+        });
+      }
+      db.planPrices.set(key, {
+        base: version.stripe_price_id,
+        extra: version.stripe_extra_location_price_id,
+      });
+      return Object.assign(plan, {
+        price_cents: version.price_cents,
+        extra_location_price_cents: version.extra_location_price_cents,
+      });
     },
 
     async getPlatformRole(id) {

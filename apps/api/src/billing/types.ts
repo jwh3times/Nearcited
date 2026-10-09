@@ -78,4 +78,11 @@ export interface Payments {
   changeAtPeriodEnd(subscriptionId: string, items: BilledItem[]): Promise<void>;
   /** Drops a change that was waiting for the period to end. Nothing to do when there is none. */
   keepCurrent(subscriptionId: string): Promise<void>;
+  /**
+   * Makes a new monthly price and returns the provider's ID for it. It is a price of the same
+   * product as `like`, an existing price; with no `like` a product called `product_name` is
+   * made for it first. Prices at the provider are never edited, so the old one goes on billing
+   * whoever is on it.
+   */
+  createPrice(price: { like: string | null; product_name: string; cents: number }): Promise<string>;
 }

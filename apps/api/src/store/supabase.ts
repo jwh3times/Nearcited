@@ -60,6 +60,7 @@ const ERROR_KINDS: Record<string, StoreErrorKind> = {
   NC005: "limit", // a location paused by the plan, or no room to bring one back
   NC006: "limit", // a second organization for one account
   NC007: "limit", // taking the free plan off sale
+  NC008: "limit", // a price for the free plan
 };
 
 function fail(action: string, error: DbError): never {
@@ -94,13 +95,23 @@ const PLAN_COLUMNS =
 
 const PLAN_PRICE_COLUMNS =
   "key, on_sale, included_locations, price_cents, extra_location_price_cents, stripe_price_id, stripe_extra_location_price_id";
-const PlanPricesSchema = z.object({
+const PlanPriceRowSchema = z.object({
   key: z.string(),
   on_sale: z.boolean(),
   included_locations: z.number().int().positive(),
   price_cents: z.number().int().nonnegative(),
   extra_location_price_cents: z.number().int().positive().nullable(),
   stripe_price_id: z.string().nullable(),
+  stripe_extra_location_price_id: z.string().nullable(),
+});
+
+const PRICE_VERSION_COLUMNS =
+  "plan_key, price_cents, extra_location_price_cents, stripe_price_id, stripe_extra_location_price_id";
+const PriceVersionRowSchema = z.object({
+  plan_key: z.string(),
+  price_cents: z.number().int().positive(),
+  extra_location_price_cents: z.number().int().positive().nullable(),
+  stripe_price_id: z.string(),
   stripe_extra_location_price_id: z.string().nullable(),
 });
 
@@ -186,9 +197,30 @@ export function createSupabaseStore(db: SupabaseClient): Store {
     },
 
     async listPlanPrices() {
-      const { data, error } = await db.from("plans").select(PLAN_PRICE_COLUMNS).order("position");
-      if (error) fail("List plan prices", error);
-      return PlanPricesSchema.array().parse(data);
+      const [plans, versions] = await Promise.all([
+        db.from("plans").select(PLAN_PRICE_COLUMNS).order("position"),
+        db.from("plan_prices").select(PRICE_VERSION_COLUMNS).order("created_at", {
+          ascending: false,
+        }),
+      ]);
+      if (plans.error) fail("List plan prices", plans.error);
+      if (versions.error) fail("List the prices plans have been sold at", versions.error);
+      const sold = PriceVersionRowSchema.array().parse(versions.data);
+      return PlanPriceRowSchema.array()
+        .parse(plans.data)
+        .map((plan) => {
+          const own = sold
+            .filter((version) => version.plan_key === plan.key)
+            .map(({ plan_key: _, ...version }) => version);
+          return {
+            key: plan.key,
+            on_sale: plan.on_sale,
+            included_locations: plan.included_locations,
+            current:
+              own.find((version) => version.stripe_price_id === plan.stripe_price_id) ?? null,
+            versions: own,
+          };
+        });
     },
 
     async getBillingState(organizationId) {
@@ -292,6 +324,21 @@ export function createSupabaseStore(db: SupabaseClient): Store {
         .select(PLAN_COLUMNS)
         .maybeSingle();
       if (error) fail("Set plan", error);
+      return data ? PlanSchema.parse(data) : null;
+    },
+
+    async setPlanPrices(key, version) {
+      const { data, error } = await db
+        .rpc("operator_set_plan_prices", {
+          plan: key,
+          price: version.price_cents,
+          extra_location_price: version.extra_location_price_cents,
+          stripe_price: version.stripe_price_id,
+          stripe_extra_location_price: version.stripe_extra_location_price_id,
+        })
+        .select(PLAN_COLUMNS)
+        .maybeSingle();
+      if (error) fail("Set plan prices", error);
       return data ? PlanSchema.parse(data) : null;
     },
 

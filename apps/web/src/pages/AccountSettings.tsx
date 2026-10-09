@@ -199,8 +199,9 @@ function Billing({ organization, billing, loaded, returning, planName }: Billing
       )}
       {billing.subscribed && !billing.pending && billing.renews_at && (
         <p>
-          Paying for {billing.locations ? locationCount(billing.locations) : "this plan"}. Renews on{" "}
-          {formatDay(billing.renews_at)}.
+          Paying{billing.paying ? ` ${formatPrice(billing.paying.monthly_cents)} a month` : ""} for{" "}
+          {billing.locations ? locationCount(billing.locations) : "this plan"}, before tax. Renews
+          on {formatDay(billing.renews_at)}.
         </p>
       )}
       {warning && (
