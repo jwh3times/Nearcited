@@ -319,6 +319,44 @@ export const OperatorAuditSchema = z.object({
 });
 export type OperatorAudit = z.infer<typeof OperatorAuditSchema>;
 
+/**
+ * What was used at the providers in one calendar month (UTC), by one organization or by audits,
+ * on one model. Counts only: `usageCost` turns them into money.
+ */
+export const UsageByMonthSchema = ProviderUsageSchema.omit({ surface: true, calls: true }).extend({
+  /** "2026-10". */
+  month: z.string().regex(/^\d{4}-\d{2}$/),
+  /** Null for an audit, and for an organization that has since been deleted. */
+  organization_id: Id.nullable(),
+  is_audit: z.boolean(),
+  calls: z.number().int().nonnegative(),
+});
+export type UsageByMonth = z.infer<typeof UsageByMonthSchema>;
+
+/** US dollars. Worked out on the server; the rates never leave it. */
+const Dollars = z.number().nonnegative();
+
+export const OperatorSpendMonthSchema = z.object({
+  month: z.string().regex(/^\d{4}-\d{2}$/),
+  /** Everything below, added up. Usage on a model with no known rate is not in it. */
+  total: Dollars,
+  /** Most spent first. An organization that used nothing is left out. */
+  organizations: z.array(
+    z.object({ organization_id: Id, name: z.string(), is_yours: z.boolean(), cost: Dollars }),
+  ),
+  /** Shareable audits, which belong to no organization. */
+  audits: Dollars,
+  /** Organizations deleted since. What their scans cost was still spent. */
+  deleted: Dollars,
+  /** Models that answered but have no rate, so their cost is unknown and missing from the total. */
+  unpriced: z.array(z.object({ model: z.string(), calls: z.number().int().positive() })),
+});
+export type OperatorSpendMonth = z.infer<typeof OperatorSpendMonthSchema>;
+
+/** Spend by calendar month in UTC, this month first. */
+export const OperatorSpendSchema = z.object({ months: z.array(OperatorSpendMonthSchema) });
+export type OperatorSpend = z.infer<typeof OperatorSpendSchema>;
+
 // ---------------------------------------------------------------------------
 // Inputs
 // ---------------------------------------------------------------------------

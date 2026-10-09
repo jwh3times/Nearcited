@@ -47,3 +47,21 @@ export function listOf(items: readonly string[]): string {
   if (items.length <= 1) return items.join("");
   return `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
 }
+
+const dollars = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
+
+/** US dollars to the cent. An amount too small to show as a cent still shows as something. */
+export function formatDollars(amount: number): string {
+  return amount > 0 && amount < 0.005 ? "under $0.01" : dollars.format(amount);
+}
+
+const monthName = new Intl.DateTimeFormat("en-US", {
+  month: "long",
+  year: "numeric",
+  timeZone: "UTC",
+});
+
+/** "October 2026" for "2026-10". */
+export function formatMonth(month: string): string {
+  return monthName.format(new Date(`${month}-01T00:00:00Z`));
+}

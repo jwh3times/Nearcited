@@ -12,6 +12,7 @@ import { Link } from "react-router";
 import { ErrorNote } from "../components/ErrorNote";
 import { Labelled } from "../components/Labelled";
 import { NewAudit } from "../components/NewAudit";
+import { Spend } from "../components/Spend";
 import { api } from "../lib/api";
 import { formatDate, listOf } from "../lib/format";
 import { readThroughBase } from "../lib/viewing";
@@ -94,6 +95,8 @@ export function Operator() {
               failed={overview.data.totals.scans_7d.failed}
             />
           </ul>
+
+          <Spend />
 
           <section className="stack">
             <h2>Organizations</h2>

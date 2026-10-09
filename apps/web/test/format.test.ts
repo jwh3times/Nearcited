@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { businessKey, cadence, listOf, plainText, sourceLabel } from "../src/lib/format";
+import {
+  businessKey,
+  cadence,
+  formatDollars,
+  formatMonth,
+  listOf,
+  plainText,
+  sourceLabel,
+} from "../src/lib/format";
 
 describe("sourceLabel", () => {
   it("shows the site a cited page is on", () => {
@@ -54,5 +62,21 @@ describe("businessKey", () => {
     expect(businessKey("Pizza Co")).toBe("pizza");
     expect(businessKey("Inc")).toBe("inc");
     expect(businessKey("Coco")).toBe("coco");
+  });
+});
+
+describe("formatDollars", () => {
+  it("shows dollars to the cent, and never hides a small amount as nothing", () => {
+    expect(formatDollars(0)).toBe("$0.00");
+    expect(formatDollars(1234.5)).toBe("$1,234.50");
+    expect(formatDollars(0.0049)).toBe("under $0.01");
+    expect(formatDollars(0.005)).toBe("$0.01");
+  });
+});
+
+describe("formatMonth", () => {
+  it("names a month whatever time zone the reader is in", () => {
+    expect(formatMonth("2026-10")).toBe("October 2026");
+    expect(formatMonth("2026-01")).toBe("January 2026");
   });
 });

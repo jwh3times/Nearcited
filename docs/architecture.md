@@ -49,9 +49,17 @@ A provider only fetches. Whether the business was named is decided by `analyzeOb
 `packages/shared`, so every surface is judged by the same rules and those rules are tested without
 network access. A provider also reports what each call it is charged for used (`onUsage`); the
 scan and audit runners add those up and store them in `provider_usage`. A failure to store them
-is logged and does not change the outcome. Nothing reads the table yet. What a row cost is
-`usageCost` in `packages/shared`, from the tuning's `rates`: one entry per model, which a public
-clone leaves empty, so a model without an entry has no cost and is never priced as another.
+is logged and does not change the outcome. What a row cost is `usageCost` in `packages/shared`,
+from the tuning's `rates`: one entry per model, which a public clone leaves empty, so a model
+without an entry has no cost and is never priced as another.
+
+The operator's spend figures (`GET /api/operator/spend`) are the only reader. The database adds
+the rows up by calendar month in UTC (`usage_by_month()`, which runs as the caller, so it counts
+everything for the operator and nothing for a member), and `buildSpend` prices the sums when they
+are read: per organization, audits on their own line, and what deleted organizations had spent. A
+rate corrected later therefore corrects past months too. A test organization is never counted, and
+usage on a model with no rate is named and left out of the total, not guessed at. Only dollars
+leave the server; the rates do not.
 
 ## Tuning
 

@@ -251,6 +251,7 @@ organization reads as missing and returns 404. Payloads are defined in
 | `GET /api/audits/:token` | A shareable audit, for anyone holding its token. 404 if the token is unknown, revoked or past its 30 days. Never cached and not indexed. |
 | `GET /api/me` | The signed-in user, their platform role (`operator`, `test` or none) and their organizations. |
 | `GET /api/operator/overview` | The operator's view: totals, what needs attention, every organization (test ones apart) and what the deployment runs. 404 to anyone who is not the operator. |
+| `GET /api/operator/spend` | What the providers were paid in this calendar month (UTC) and the two before: a total, each organization, audits, and deleted organizations, in US dollars, with any model that has no rate named and left out. 404 to anyone who is not the operator. |
 | `GET /api/operator/accounts` | A funnel of how far accounts got, and every account with its stage; test accounts are listed and not counted. 404 to anyone who is not the operator. |
 | `GET /api/operator/audits` | Every shareable audit, with its link only while it is neither revoked nor expired. 404 to anyone who is not the operator. |
 | `POST /api/operator/audits` | Makes a shareable audit and queues one message per prompt. Takes `business_name`, `city`, `prompts` (1 to 5) and optionally `website`, `region`, `country_code`, `samples` (1 to 5). 404 to anyone who is not the operator, 409 where scans return sample data, 422 for a bad value. |

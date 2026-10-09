@@ -152,7 +152,10 @@ export function rateFor(rates: Rates, model: string): ModelRate | null {
 }
 
 /** What some recorded usage cost in US dollars, or null when its model has no rate. */
-export function usageCost(rates: Rates, usage: ProviderUsage): number | null {
+export function usageCost(
+  rates: Rates,
+  usage: Omit<ProviderUsage, "surface" | "calls">,
+): number | null {
   const rate = rateFor(rates, usage.model);
   if (!rate) return null;
   return (

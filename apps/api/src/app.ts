@@ -1,4 +1,4 @@
-import { toPublicAudit } from "@nearcited/shared";
+import { type Rates, toPublicAudit } from "@nearcited/shared";
 import { Hono } from "hono";
 import { type AuthedUser, type Authenticate, authenticateWithSupabase } from "./auth";
 import type { Env } from "./env";
@@ -29,6 +29,11 @@ export interface AppDeps {
 export interface Deployment {
   /** The model each assistant is asked with, by surface. */
   models: Record<string, string>;
+  /**
+   * What each model costs. Used on the server to price usage for the operator, and never sent
+   * to anyone: only the dollars worked out from it are.
+   */
+  rates?: Rates;
 }
 
 /** The token in an audit's link: 64 hex characters. Anything else is not worth a query. */
