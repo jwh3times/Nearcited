@@ -8,6 +8,7 @@ import type {
   OperatorAudit,
   OperatorFacts,
   Organization,
+  OrganizationLimits,
   PlatformRole,
   ProviderUsage,
   Recommendation,
@@ -71,6 +72,11 @@ export interface Store {
    * member, and only its owners and admins change it.
    */
   renameOrganization(id: string, name: string): Promise<Organization | null>;
+  /**
+   * Changes an organization's limits. Only the operator's call changes anything: for anyone else,
+   * and for an organization that does not exist, it returns null.
+   */
+  setOrganizationLimits(id: string, limits: OrganizationLimits): Promise<Organization | null>;
   listLocations(organizationId: string): Promise<Location[]>;
 
   /** What the account is to the product itself, or null. An account reads its own. */

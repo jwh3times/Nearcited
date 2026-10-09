@@ -8,6 +8,7 @@ import {
   OperatorAccountsSchema,
   OperatorAuditSchema,
   OperatorOverviewSchema,
+  type OrganizationLimits,
   OrganizationSchema,
   PublicAuditSchema,
   RecommendationSchema,
@@ -72,6 +73,9 @@ export const api = {
   /** An organization the operator is reading through. */
   operatorOrganization: (id: string) =>
     json(OrganizationSchema, "GET", `/operator/organizations/${id}`),
+  /** The one thing the operator changes on a customer's account. */
+  setOrganizationLimits: (id: string, limits: OrganizationLimits) =>
+    json(OrganizationSchema, "PUT", `/operator/organizations/${id}/limits`, limits),
   renameOrganization: (id: string, name: string) =>
     json(OrganizationSchema, "PATCH", `/organizations/${id}`, { name }),
   listLocations: (organizationId: string) =>

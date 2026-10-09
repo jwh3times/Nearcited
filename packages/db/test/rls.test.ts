@@ -1210,4 +1210,104 @@ describe("the operator", () => {
       as("authenticated", operator, () => db.query("select * from auth.users")),
     ).rejects.toThrow(/permission denied/);
   });
+
+  describe("changing an organization's limits", () => {
+    const setLimits = "select * from public.operator_set_limits($1, 3, 20, 10, 1)";
+    const limits = (id: string) =>
+      rows<Record<string, number>>(
+        "select max_locations, max_queries_per_location, max_manual_scans_per_day, scan_every_days from public.organizations where id = $1",
+        [id],
+      );
+    const actions = () =>
+      rows<{ actor_id: string; organization_id: string; action: string; detail: unknown }>(
+        "select actor_id, organization_id, action, detail from public.operator_actions order by created_at",
+      );
+
+    it("is refused to everyone else, the organization's owner included", async () => {
+      const before = await limits(theirs);
+      for (const user of [alice, bob, "e0000000-0000-4000-8000-000000000005"]) {
+        expect(await as("authenticated", user, () => rows(setLimits, [theirs])), user).toEqual([]);
+      }
+      await expect(as("anon", null, () => db.query(setLimits, [theirs]))).rejects.toThrow(
+        /permission denied/,
+      );
+      expect(await limits(theirs)).toEqual(before);
+      expect(await actions()).toEqual([]);
+    });
+
+    it("changes the four limits and nothing else, and writes down what it did", async () => {
+      const [before] = await rows<Record<string, unknown>>(
+        "select * from public.organizations where id = $1",
+        [theirs],
+      );
+      const [after] = await as("authenticated", operator, () =>
+        rows<Record<string, unknown>>(setLimits, [theirs]),
+      );
+      const changed = {
+        max_locations: 3,
+        max_queries_per_location: 20,
+        max_manual_scans_per_day: 10,
+        scan_every_days: 1,
+      };
+      expect(after).toEqual({ ...before, ...changed });
+      expect(await actions()).toEqual([
+        {
+          actor_id: operator,
+          organization_id: theirs,
+          action: "set_limits",
+          detail: {
+            from: {
+              max_locations: before?.max_locations,
+              max_queries_per_location: before?.max_queries_per_location,
+              max_manual_scans_per_day: before?.max_manual_scans_per_day,
+              scan_every_days: before?.scan_every_days,
+            },
+            to: changed,
+          },
+        },
+      ]);
+    });
+
+    it("answers nothing for an organization that does not exist, and records nothing", async () => {
+      expect(
+        await as("authenticated", operator, () =>
+          rows(setLimits, ["00000000-0000-4000-8000-00000000dead"]),
+        ),
+      ).toEqual([]);
+      expect(await actions()).toHaveLength(1);
+    });
+
+    it("keeps the columns' own bounds", async () => {
+      await expect(
+        as("authenticated", operator, () =>
+          db.query("select * from public.operator_set_limits($1, 1, 10, 5, 0)", [theirs]),
+        ),
+      ).rejects.toThrow(/check constraint/);
+      expect(await actions()).toHaveLength(1);
+    });
+
+    it("keeps its record readable by the operator alone and writable by no one", async () => {
+      expect(
+        await as("authenticated", alice, () => rows("select * from public.operator_actions")),
+      ).toEqual([]);
+      await expect(
+        as("anon", null, () => db.query("select * from public.operator_actions")),
+      ).rejects.toThrow(/permission denied/);
+      expect(
+        await as("authenticated", operator, () => rows("select * from public.operator_actions")),
+      ).toHaveLength(1);
+      for (const sql of [
+        "insert into public.operator_actions (action) values ('planted')",
+        "update public.operator_actions set action = 'edited'",
+        "delete from public.operator_actions",
+      ]) {
+        for (const user of [alice, operator]) {
+          await expect(
+            as("authenticated", user, () => db.query(sql)),
+            sql,
+          ).rejects.toThrow(/permission denied/);
+        }
+      }
+    });
+  });
 });

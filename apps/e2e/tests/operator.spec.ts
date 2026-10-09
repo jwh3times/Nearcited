@@ -62,6 +62,49 @@ test("shows the operator every organization, and lets them read a customer's acc
   await expect(page.locator(".org-card")).toContainText("The operator's own");
 });
 
+test("lets the operator change a customer's limits, which the customer then has", async ({
+  page,
+}) => {
+  const customerName = `Customer ${Date.now()}`;
+  const customer = await createAccount();
+  const organization = await api<{ id: string; max_locations: number }>(
+    customer,
+    "POST",
+    "/organizations",
+    { name: customerName },
+  );
+  const operator = await createAccount();
+  await api(operator, "POST", "/organizations", { name: "The operator's own" });
+  await grantRole(operator, "operator");
+
+  await signIn(page, operator, `/operator/o/${organization.id}`);
+  await page.getByRole("link", { name: "plan and limits" }).click();
+  await expect(page.getByRole("heading", { name: "Plan and limits", level: 1 })).toBeVisible();
+  const locations = page.getByRole("textbox", { name: "Locations", exact: true });
+  await expect(locations).toHaveValue(String(organization.max_locations));
+  await expect(page.getByRole("button", { name: "Save limits" })).toBeDisabled();
+
+  // A value the plan cannot hold is refused beside the field, before anything is sent.
+  const every = page.getByLabel("Days between scheduled scans");
+  await every.fill("0");
+  await every.blur();
+  await expect(page.getByRole("alert")).toHaveText("Enter 1 or more");
+  await every.fill("1");
+
+  await locations.fill("3");
+  await page.getByRole("button", { name: "Save limits" }).click();
+  await expect(page.getByRole("status").filter({ hasText: "Saved." })).toBeVisible();
+  await expect(page.getByRole("link", { name: /All locations/ })).toContainText("0/3");
+
+  // The customer's own account now says so.
+  const me = await api<{ organizations: { max_locations: number; scan_every_days: number }[] }>(
+    customer,
+    "GET",
+    "/me",
+  );
+  expect(me.organizations[0]).toMatchObject({ max_locations: 3, scan_every_days: 1 });
+});
+
 test("has no operator page for anyone else", async ({ page }) => {
   const account = await createAccount();
   await api(account, "POST", "/organizations", { name: "Raleigh Pizza Group" });

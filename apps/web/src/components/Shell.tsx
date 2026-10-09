@@ -29,6 +29,7 @@ export function Shell({ me, organization, children }: ShellProps) {
   const open = useMatch(`${base}/locations/:id`)?.params.id;
   const onSettings = useMatch("/settings") !== null;
   const onOperator = useMatch("/operator") !== null;
+  const onPlan = useMatch(`${base}/plan`) !== null;
   const home = base || "/";
   const locations = useQuery({
     queryKey: ["locations", organization.id],
@@ -60,7 +61,7 @@ export function Shell({ me, organization, children }: ShellProps) {
             <Link
               to={home}
               className="nav-row"
-              aria-current={open || onSettings || onOperator ? undefined : "page"}
+              aria-current={open || onSettings || onOperator || onPlan ? undefined : "page"}
             >
               <span>All locations</span>
               {locations.data && (
@@ -147,7 +148,7 @@ export function Shell({ me, organization, children }: ShellProps) {
           <p className="operator-bar" role="status">
             <span>
               You are reading <strong>{organization.name}</strong> as the operator. Nothing here can
-              be changed.
+              be changed but its <Link to={`${base}/plan`}>plan and limits</Link>.
             </span>
             <Link to="/operator">Back to the operator view</Link>
           </p>

@@ -51,7 +51,9 @@ pass `pnpm check` and run in mock mode without it.
 - **The operator can read every row** (`docs/adr/0004-the-operator-reads-through-policies.md`), so
   a query must filter by what it means, never by what the caller happens to see. "This user's
   organizations" is `my_organizations()`, not `select` from `organizations`. The operator gets
-  `select` policies only: do not add one that writes.
+  `select` policies only: do not add one that writes. What the operator changes goes through a
+  function that answers only the operator, changes only what it names and records the change in
+  `operator_actions` (`docs/adr/0005-the-operator-changes-limits-through-one-function.md`).
 - **New table: policies, explicit grants and a non-member test in `packages/db`, in the same
   change.** Supabase grants everything in `public` to every API role by default, so a table
   without a `revoke` is open.

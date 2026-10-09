@@ -394,7 +394,8 @@ Organizations are created only through `create_organization()`, which makes the 
 **The operator reads every row, through policies.** `is_operator()` is true for an account with the
 `operator` platform role, and each table, including `audits` and `provider_usage`, has a `select`
 policy that answers it. Only `select` policies exist, so the operator cannot change another
-organization's rows: the routes answer 404 for an update or delete and 403 for an insert. Because
+organization's rows by writing to them: the routes answer 404 for an update or delete and 403 for an insert. The one change the operator can make goes through
+`operator_set_limits()`, below. Because
 "every organization I can read" now means all of them for the operator, `listOrganizations` asks
 `my_organizations()`, which goes by membership. See
 `docs/adr/0004-the-operator-reads-through-policies.md`.
@@ -406,6 +407,16 @@ reads through the request's store, never the secret key. `buildOperatorOverview`
 `packages/shared/src/operator.ts` decides what needs attention over the last seven days, and never
 counts a test organization. Reading through a customer's account (`/operator/o/:organizationId/...`)
 reuses the Locations and location pages with every control that changes something hidden.
+
+**The operator changes limits through one function.** `PUT /api/operator/organizations/:organizationId/limits`
+calls `operator_set_limits()`, a security-definer function that returns a row only while
+`is_operator()` is true and the organization exists (the route answers 404 otherwise). It locks the organization,
+changes `max_locations`, `max_queries_per_location`, `max_manual_scans_per_day` and
+`scan_every_days` and nothing else, and records the old and new values in `operator_actions`. The
+route refuses a value outside `OrganizationLimitsSchema` with 422, and the columns' own checks
+bound each value whatever calls the function. `operator_actions` has no write grant for any
+API role; the operator has a `select` policy on it. The page is `/operator/o/:organizationId/plan`.
+See `docs/adr/0005-the-operator-changes-limits-through-one-function.md`.
 
 Accounts come from `operator_accounts()`, a security-definer function that returns each account's
 email, creation and last sign-in time from `auth.users` and rows only while `is_operator()` is true;

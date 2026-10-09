@@ -346,6 +346,26 @@ export const OrganizationInputSchema = z.object({
 });
 export type OrganizationInput = z.output<typeof OrganizationInputSchema>;
 
+/**
+ * The limits the operator may set on an organization. Which surfaces it is checked on is not
+ * among them. Lowering a limit removes nothing: it only stops more being added.
+ */
+const limit = (least: number, most: number) =>
+  z
+    .number({ error: "Enter a whole number" })
+    .int("Enter a whole number")
+    .min(least, `Enter ${least} or more`)
+    .max(most, `Enter ${most.toLocaleString("en-US")} or fewer`);
+
+export const OrganizationLimitsSchema = z.object({
+  max_locations: limit(0, 1000),
+  max_queries_per_location: limit(0, 200),
+  max_manual_scans_per_day: limit(0, 1000),
+  /** 1 is daily. */
+  scan_every_days: limit(1, 30),
+});
+export type OrganizationLimits = z.infer<typeof OrganizationLimitsSchema>;
+
 /** Whether the fields a cross-field check reads came through their own checks. */
 const sound =
   (...fields: string[]) =>
