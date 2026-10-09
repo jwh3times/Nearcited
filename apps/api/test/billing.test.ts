@@ -929,6 +929,26 @@ describe("a plan's prices", () => {
     expect(changes[1]?.items).toEqual([{ price_id: "price_new_3", quantity: 1 }]);
   });
 
+  it("tells the operator which plans cannot be bought yet, and sets one up at the amount it has", async () => {
+    db.operators.add(bob);
+    db.plans.push(plan("pro", 3));
+    const listed = async () =>
+      Object.fromEntries(
+        OperatorPlanSchema.array()
+          .parse(await (await call(bob, "GET", "/operator/plans")).json())
+          .map((row) => [row.key, row.at_provider]),
+      );
+    expect(await listed()).toMatchObject({ free: false, standard: true, pro: false });
+    // The amount is not changing; what is missing is the price at the provider.
+    const response = await setPrices(bob, "pro", {
+      price_cents: 3000,
+      extra_location_price_cents: null,
+    });
+    expect(response.status).toBe(200);
+    expect(made).toEqual([{ like: null, product_name: "Nearcited pro", cents: 3000 }]);
+    expect((await listed()).pro).toBe(true);
+  });
+
   it("can stop a plan selling extra locations, and start it again", async () => {
     db.operators.add(bob);
     await setPrices(bob, "standard", { price_cents: 5900, extra_location_price_cents: null });

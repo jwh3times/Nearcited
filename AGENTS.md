@@ -15,6 +15,8 @@ changing how scans run or how data is accessed.
 - `pnpm dev`: Worker on 8787, Vite on 5173.
 - `pnpm e2e`: browser tests; needs `supabase start` and the env files. `pnpm check` skips them.
 - `pnpm smoke`: the smoke test against a deployment; needs `E2E_*` and `TEST_ACCOUNT_*` set.
+- `pnpm billing:check`: ask Stripe and the deployment whether billing is set up as the app
+  expects. Reads only; needs `STRIPE_SECRET_KEY` and `SUPABASE_SECRET_KEY` in the environment.
 - `pnpm test-account:create`: make the deployment's test account (needs the Supabase secret key).
 - `pnpm local:env`: write `apps/api/.dev.vars` and `apps/web/.env.local` from `supabase status`.
 - `npm run bootstrap:private`: clone the private companion into `private/` (maintainers only).

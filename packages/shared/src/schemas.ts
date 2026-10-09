@@ -588,6 +588,11 @@ export const OperatorPlanSchema = PlanSchema.extend({
   subscribers: z.number().int().nonnegative(),
   /** What those subscribers pay a month between them, in US cents and before tax. */
   monthly_cents: z.number().int().nonnegative(),
+  /**
+   * True when the plan has a price at the payment provider, so it can be bought. A paid plan
+   * without one is listed and cannot be subscribed to until its prices are saved.
+   */
+  at_provider: z.boolean(),
   /** The change announced to its current subscribers and not yet finished or called off. */
   price_change: PriceChangeSchema.extend({
     /** How many organizations' owners have been sent the announcement. */

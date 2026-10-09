@@ -377,6 +377,8 @@ export interface PlanFacts {
   plans: Plan[];
   organizations: Organization[];
   subscriptions: SubscriptionFact[];
+  /** The keys of the plans that have a price at the payment provider. Left out, none has. */
+  atProvider?: string[];
   /** Announcements still open. Left out, there are none. */
   priceChanges?: PriceChange[];
   notices?: PriceChangeNotice[];
@@ -432,6 +434,7 @@ export function buildOperatorPlans(facts: PlanFacts): OperatorPlan[] {
           told: done.filter((notice) => notice.announced_at !== null).length,
           moved: done.filter((notice) => notice.moved_at !== null).length,
         },
+        at_provider: facts.atProvider?.includes(plan.key) ?? false,
         limit_change: limitChange(plan.key, on),
         organizations: on.length,
         subscribers: paying.length,

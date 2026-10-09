@@ -86,12 +86,46 @@ export function Terms() {
         about your business and you want it withdrawn, write to {mail} and we will remove it.
       </p>
 
-      <h2>Price</h2>
+      <h2>Plans and payment</h2>
       <p>
-        The service is offered without charge at present, within the limits shown in your account
-        settings. If paid plans are introduced, their price and terms will be shown before you are
-        asked to pay for anything, and you will not be charged without choosing to be.
+        The free plan costs nothing. Every plan, what it includes and what it costs is shown on the{" "}
+        <a href="/pricing">pricing page</a> before you are asked to pay for anything, and you are
+        not charged without choosing to subscribe.
       </p>
+      <ul>
+        <li>
+          <strong>Billing.</strong> A paid plan is a monthly subscription, paid in advance through
+          Stripe, our payment provider. Prices are in US dollars and tax is added where it applies.
+          It renews each month until you cancel. We never see or keep your card number.
+        </li>
+        <li>
+          <strong>Cancelling.</strong> The owner of an organization can cancel at any time from
+          Account settings. Your plan runs to the end of the month you have paid for and is not
+          renewed. We do not refund part of a month, except where the law requires it.
+        </li>
+        <li>
+          <strong>Changing plan.</strong> Moving to a plan that costs more takes effect at once, and
+          you are charged the difference for the rest of the month. Moving to one that costs less
+          takes effect at the end of the month you have paid for.
+        </li>
+        <li>
+          <strong>If a payment fails.</strong> We try again over the following days and tell you by
+          email. If it still cannot be collected, your subscription ends and your organization moves
+          to the free plan.
+        </li>
+        <li>
+          <strong>When a plan covers less than you have.</strong> Nothing is deleted. Locations and
+          prompts the plan does not cover are paused, stay readable, and come back on a plan that
+          covers them.
+        </li>
+        <li>
+          <strong>If we change a price or a plan.</strong> We will email the owner at least 30 days
+          before a higher price, or a reduction in what your plan includes, applies to you. A higher
+          price first applies at your next renewal after that notice. You can change plan or cancel
+          before it does. Changes that cost you nothing, such as a lower price or a plan that
+          includes more, may apply without notice.
+        </li>
+      </ul>
 
       <h2>The software</h2>
       <p>

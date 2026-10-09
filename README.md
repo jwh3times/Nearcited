@@ -251,6 +251,7 @@ templates.
 | `pnpm smoke` | Smoke test against a deployment (`E2E_APP_URL`, `E2E_SUPABASE_URL`, `E2E_SUPABASE_PUBLISHABLE_KEY`, `TEST_ACCOUNT_EMAIL`, `TEST_ACCOUNT_PASSWORD`) |
 | `pnpm test-account:create` | Make the deployment's test account and grant it the `test` platform role; safe to run again (needs `SUPABASE_SECRET_KEY`, `TEST_ACCOUNT_EMAIL`, `TEST_ACCOUNT_PASSWORD`) |
 | `pnpm local:env` | Write `apps/api/.dev.vars` and `apps/web/.env.local` from the examples and `supabase status` (`--force` replaces existing files) |
+| `pnpm billing:check` | Ask Stripe and the deployment whether billing is set up as the app expects (Tax active with a registration, the portal set to cancel only, the webhook registered with the events the app acts on and answering 400 to an unsigned request, each paid plan's prices matching, every recorded subscription existing under the key). Reads only; exits 1 when a check fails (needs `STRIPE_SECRET_KEY` and `SUPABASE_SECRET_KEY`) |
 | `pnpm cf:deploy` | Build, then `wrangler deploy` |
 | `pnpm db:types` | Generate TypeScript types from the local Supabase database |
 | `pnpm --filter @nearcited/api test` | One package's tests (`api`, `web`, `shared` or `db`) |
@@ -267,7 +268,8 @@ templates.
 prints the link. It needs `SUPABASE_SECRET_KEY`, `CLOUDFLARE_API_TOKEN` and
 `CLOUDFLARE_ACCOUNT_ID` in the environment, and reads the Supabase URL, the app URL and the queue
 name from `apps/api/wrangler.jsonc`. Keep the values out of files in this repository; for
-example, run it under `op run` with an env file of 1Password references. The operator can make the
+example, run it under `op run` with an env file of 1Password references. `billing:check` is run
+the same way; it reads the deployment address and Supabase project from the same file. The operator can make the
 same audit from the Audits section of the operator page, with no keys to hand.
 
 ## API
@@ -383,7 +385,7 @@ reader gets one audit only by its token, through the `get_audit()` function.
   organization is a test one, then adds a location and a prompt, runs a scan (generated data), reads
   the results and deletes the location.
 - **`scripts`**: `pnpm test:scripts` runs the tests for the private-companion, tuning,
-  local-env, audit-creation, test-account and branch-sync scripts.
+  local-env, audit-creation, test-account, billing-check and branch-sync scripts.
 
 ### Integration tests
 
@@ -527,7 +529,7 @@ pnpm sync:agents
   are not;
   `apps/api/src/providers/live.ts` has notes on what each needs.
 - **Billing, the rest.** A visitor can read the plans, and an owner can subscribe, change plan or
-  the number of locations paid for, and open Stripe's pages from the app. The operator can set a plan's prices and announce a change to current subscribers, who are moved at renewal, and a reduction in a paid plan's limits, made on a named day. Not built: going live (Stripe is wired for test mode only). Limits can still be changed by hand, and the Account settings
+  the number of locations paid for, and open Stripe's pages from the app. The operator can set a plan's prices and announce a change to current subscribers, who are moved at renewal, and a reduction in a paid plan's limits, made on a named day. Not built in code: going live, which is an operator's cutover from Stripe's test mode to live (`pnpm billing:check` verifies the setup). Limits can still be changed by hand, and the Account settings
   page shows them without editing them.
 - **Inviting teammates.** The schema and policies support members and roles; there is no API or
   screen for it.
