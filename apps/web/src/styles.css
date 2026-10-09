@@ -2492,3 +2492,26 @@ mark {
   text-align: center;
   font-variant-numeric: tabular-nums;
 }
+
+/* The operator's plan editor */
+
+.check {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.625rem;
+  font-size: 0.9375rem;
+}
+
+.check input {
+  flex: none;
+  width: 1.125rem;
+  height: 1.125rem;
+  padding: 0;
+}
+
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.625rem;
+}

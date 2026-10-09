@@ -5,9 +5,11 @@ import {
   OperatorAccountsSchema,
   OperatorAuditSchema,
   OperatorOverviewSchema,
+  OperatorPlanSchema,
   OperatorSpendSchema,
   OrganizationSchema,
   type Plan,
+  PlanImpactSchema,
   PlanSchema,
   type ScanMessage,
   ScanSchema,
@@ -129,24 +131,24 @@ describe("access", () => {
   });
 });
 
-describe("plans", () => {
-  const plan = (key: string, position: number, change: Partial<Plan> = {}): Plan => ({
-    key,
-    name: key,
-    position,
-    on_sale: true,
-    price_cents: position * 1000,
-    included_locations: 1,
-    extra_location_price_cents: null,
-    max_queries_per_location: 5,
-    assistants: 1,
-    scan_every_days: 2,
-    max_manual_scans_per_month: 2,
-    emails_report: true,
-    stronger_models: false,
-    ...change,
-  });
+const plan = (key: string, position: number, change: Partial<Plan> = {}): Plan => ({
+  key,
+  name: key,
+  position,
+  on_sale: true,
+  price_cents: position * 1000,
+  included_locations: 1,
+  extra_location_price_cents: null,
+  max_queries_per_location: 5,
+  assistants: 1,
+  scan_every_days: 2,
+  max_manual_scans_per_month: 2,
+  emails_report: true,
+  stronger_models: false,
+  ...change,
+});
 
+describe("plans", () => {
   it("shows the price list to anyone, cheapest first, without a sign-in", async () => {
     db.plans.push(plan("standard", 2), plan("free", 0), plan("retired", 9, { on_sale: false }));
     const response = await call(null, "GET", "/plans");
@@ -1039,5 +1041,128 @@ describe("recommendations", () => {
     const response = await call(alice, "PATCH", `/recommendations/${id}`, { status: "done" });
     expect(response.status).toBe(200);
     expect(db.recommendations[0]?.status).toBe("done");
+  });
+});
+
+describe("the operator's plans", () => {
+  const settings = {
+    name: "Standard",
+    on_sale: true,
+    max_queries_per_location: 10,
+    assistants: 2,
+    scan_every_days: 2,
+    max_manual_scans_per_month: 10,
+    emails_report: true,
+  };
+
+  /** Alice's organization on Standard with a location and a prompt, and Bob as the operator. */
+  async function onStandard() {
+    db.plans.push(plan("free", 0), plan("standard", 2, { ...settings, name: "standard" }));
+    const seeded = await seed();
+    await memoryStore(db, null).applyPlan(seeded.organization.id, "standard");
+    db.operators.add(bob);
+    return seeded;
+  }
+
+  it("lists every plan with who is on it, for the operator alone", async () => {
+    const { organization } = await onStandard();
+    db.plans.push(plan("retired", 9, { on_sale: false }));
+    db.subscriptions.set(organization.id, {
+      stripe_customer_id: "cus_1",
+      stripe_subscription_id: "sub_1",
+      status: "active",
+    });
+    expect((await call(alice, "GET", "/operator/plans")).status).toBe(404);
+
+    const plans = OperatorPlanSchema.array().parse(
+      await (await call(bob, "GET", "/operator/plans")).json(),
+    );
+    expect(plans.map((row) => [row.key, row.organizations, row.subscribers])).toEqual([
+      ["free", 0, 0],
+      ["standard", 1, 1],
+      ["retired", 0, 0],
+    ]);
+  });
+
+  it("changes what a plan allows, for every organization on it at once", async () => {
+    const { organization } = await onStandard();
+    const response = await call(bob, "PUT", "/operator/plans/standard", {
+      ...settings,
+      name: "  Standard  ",
+      max_queries_per_location: 12,
+      scan_every_days: 1,
+      emails_report: false,
+    });
+    expect(response.status).toBe(200);
+    expect(PlanSchema.parse(await response.json())).toMatchObject({
+      name: "Standard",
+      max_queries_per_location: 12,
+      scan_every_days: 1,
+    });
+    expect(db.organizations.find((o) => o.id === organization.id)).toMatchObject({
+      plan_key: "standard",
+      max_queries_per_location: 12,
+      scan_every_days: 1,
+      emails_report: false,
+    });
+  });
+
+  it("leaves an organization whose limits were set by hand as it is", async () => {
+    const { organization } = await onStandard();
+    await memoryStore(db, bob).setOrganizationLimits(organization.id, {
+      max_locations: 40,
+      max_queries_per_location: 40,
+      max_manual_scans_per_month: 40,
+      scan_every_days: 1,
+    });
+    await call(bob, "PUT", "/operator/plans/standard", {
+      ...settings,
+      max_queries_per_location: 1,
+    });
+    expect(db.organizations.find((o) => o.id === organization.id)).toMatchObject({
+      plan_key: null,
+      max_queries_per_location: 40,
+    });
+  });
+
+  it("says who lowering a limit would reach, and changes nothing by asking", async () => {
+    const { organization } = await onStandard();
+    const impact = async (max_queries_per_location: number) =>
+      PlanImpactSchema.parse(
+        await (
+          await call(bob, "POST", "/operator/plans/standard/impact", {
+            ...settings,
+            max_queries_per_location,
+          })
+        ).json(),
+      );
+    expect(await impact(0)).toEqual({ organizations: 1, prompts_set_aside: 1 });
+    expect(await impact(1)).toEqual({ organizations: 1, prompts_set_aside: 0 });
+    expect(db.organizations.find((o) => o.id === organization.id)?.max_queries_per_location).toBe(
+      10,
+    );
+  });
+
+  it("refuses values a plan cannot have, a plan that does not exist, and everyone but the operator", async () => {
+    await onStandard();
+    for (const bad of [
+      { name: " " },
+      { assistants: 3 },
+      { assistants: 0 },
+      { scan_every_days: 0 },
+      { max_queries_per_location: -1 },
+      { on_sale: "yes" },
+    ]) {
+      const response = await call(bob, "PUT", "/operator/plans/standard", { ...settings, ...bad });
+      expect(response.status, JSON.stringify(bad)).toBe(422);
+    }
+    expect((await call(bob, "PUT", "/operator/plans/nonesuch", settings)).status).toBe(404);
+    expect((await call(bob, "PUT", "/operator/plans/Not%20A%20Key", settings)).status).toBe(404);
+    for (const path of ["/operator/plans/standard", "/operator/plans/standard/impact"]) {
+      const method = path.endsWith("impact") ? "POST" : "PUT";
+      expect((await call(alice, method, path, settings)).status, path).toBe(404);
+      expect((await call(null, method, path, settings)).status, path).toBe(401);
+    }
+    expect(db.plans.find((row) => row.key === "standard")?.name).toBe("standard");
   });
 });

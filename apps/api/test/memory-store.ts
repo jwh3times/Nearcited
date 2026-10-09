@@ -286,6 +286,27 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
       return organization;
     },
 
+    async listEverySubscription() {
+      return [...db.subscriptions]
+        .filter(([organizationId]) => readsOrg(organizationId))
+        .map(([organization_id, kept]) => ({
+          organization_id,
+          subscribed: kept.stripe_subscription_id !== null,
+        }));
+    },
+
+    async setPlan(key, settings) {
+      const plan = db.plans.find((candidate) => candidate.key === key);
+      if (!isOperator || !plan) return null;
+      Object.assign(plan, settings);
+      // As the database function does: every organization on the plan takes the new values.
+      const worker = memoryStore(db, null);
+      for (const organization of db.organizations.filter((o) => o.plan_key === key)) {
+        await worker.applyPlan(organization.id, key, organization.max_locations);
+      }
+      return plan;
+    },
+
     async getPlatformRole(id) {
       // An account reads its own role; the operator can read anyone's.
       if (userId !== null && id !== userId && !isOperator) return null;

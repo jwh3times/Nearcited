@@ -12,6 +12,7 @@ import { Link } from "react-router";
 import { ErrorNote } from "../components/ErrorNote";
 import { Labelled } from "../components/Labelled";
 import { NewAudit } from "../components/NewAudit";
+import { OperatorPlans } from "../components/OperatorPlans";
 import { Spend } from "../components/Spend";
 import { api } from "../lib/api";
 import { formatDate, listOf } from "../lib/format";
@@ -96,6 +97,7 @@ export function Operator() {
           </ul>
 
           <Spend />
+          <OperatorPlans />
 
           <section className="stack">
             <h2>Organizations</h2>

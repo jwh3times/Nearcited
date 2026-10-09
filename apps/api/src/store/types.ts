@@ -11,6 +11,7 @@ import type {
   Organization,
   OrganizationLimits,
   Plan,
+  PlanSettings,
   PlatformRole,
   ProviderUsage,
   Recommendation,
@@ -20,6 +21,7 @@ import type {
   ScanTrigger,
   SiteCheck,
   StoredAudit,
+  SubscriptionFact,
   Surface,
   TrackedQuery,
   TrackedQueryInput,
@@ -149,6 +151,14 @@ export interface Store {
   // every row there is and for anyone else only their own, so a route must check the role first.
   listEveryOrganization(): Promise<Organization[]>;
   listEveryLocation(): Promise<Location[]>;
+  /** Which organizations have a subscription, as far as the caller may read. */
+  listEverySubscription(): Promise<SubscriptionFact[]>;
+  /**
+   * Changes what a plan allows, and copies it onto every organization on the plan. Only the
+   * operator's call changes anything: for anyone else, and for a plan that does not exist, it
+   * returns null.
+   */
+  setPlan(key: string, settings: PlanSettings): Promise<Plan | null>;
   /** How many active prompts and keywords each location has, by location ID. */
   countActiveQueries(): Promise<Record<string, number>>;
   /** Scans created since `since`, an ISO timestamp, each with the on-page check it made. */

@@ -2026,6 +2026,117 @@ describe("the operator", () => {
     await db.query("delete from public.provider_usage where model = 'spend-test'");
   });
 
+  describe("changing a plan", () => {
+    const setPlan =
+      "select * from public.operator_set_plan('starter', ' Starter Plus ', true, 7, 2, 1, 4, false)";
+    const starter = () =>
+      rows<Record<string, unknown>>(
+        "select name, on_sale, max_queries_per_location, assistants, scan_every_days, max_manual_scans_per_month, emails_report, price_cents, included_locations from public.plans where key = 'starter'",
+      );
+    const limits = (id: string) =>
+      rows<Record<string, unknown>>(
+        "select plan_key, max_locations, max_queries_per_location, max_manual_scans_per_month, scan_every_days, emails_report, array_to_string(surfaces, ',') as surfaces from public.organizations where id = $1",
+        [id],
+      );
+    let before: Record<string, unknown>[];
+    let byHand: string;
+
+    beforeAll(async () => {
+      before = await starter();
+      // One organization on the plan, paying for a location more than it includes, and one
+      // whose limits were set by hand.
+      await db.query("select public.apply_plan($1, 'starter', 2)", [theirs]);
+      const [other] = await rows<{ id: string }>(
+        "insert into public.organizations (name, created_by, max_queries_per_location) values ('Set by hand', $1, 33) returning id",
+        [alice],
+      );
+      byHand = other?.id ?? "";
+    });
+    afterAll(async () => {
+      await db.query(
+        "update public.plans set name = 'Starter', max_queries_per_location = 5, assistants = 1, scan_every_days = 2, max_manual_scans_per_month = 2, emails_report = true where key = 'starter'",
+      );
+      await db.query("update public.organizations set plan_key = null where id = $1", [theirs]);
+      await db.query("delete from public.organizations where id = $1", [byHand]);
+      await db.query("delete from public.operator_actions where action = 'set_plan'");
+    });
+
+    it("is refused to everyone else", async () => {
+      const organization = await limits(theirs);
+      for (const user of [alice, bob, "e0000000-0000-4000-8000-000000000005"]) {
+        expect(await as("authenticated", user, () => rows(setPlan)), user).toEqual([]);
+      }
+      await expect(as("anon", null, () => db.query(setPlan))).rejects.toThrow(/permission denied/);
+      expect(await starter()).toEqual(before);
+      expect(await limits(theirs)).toEqual(organization);
+    });
+
+    it("changes what the plan allows, and neither its price nor the locations it includes", async () => {
+      const [after] = await as("authenticated", operator, () =>
+        rows<Record<string, unknown>>(setPlan),
+      );
+      expect(after).toMatchObject({ key: "starter", name: "Starter Plus" });
+      expect(await starter()).toEqual([
+        {
+          ...before[0],
+          name: "Starter Plus",
+          max_queries_per_location: 7,
+          assistants: 2,
+          scan_every_days: 1,
+          max_manual_scans_per_month: 4,
+          emails_report: false,
+        },
+      ]);
+    });
+
+    it("reaches every organization on the plan at once, which keeps the locations it pays for", async () => {
+      expect(await limits(theirs)).toEqual([
+        {
+          plan_key: "starter",
+          max_locations: 2,
+          max_queries_per_location: 7,
+          max_manual_scans_per_month: 4,
+          scan_every_days: 1,
+          emails_report: false,
+          surfaces: "chatgpt,claude",
+        },
+      ]);
+    });
+
+    it("leaves an organization whose limits were set by hand alone", async () => {
+      expect(await limits(byHand)).toMatchObject([
+        { plan_key: null, max_queries_per_location: 33 },
+      ]);
+    });
+
+    it("writes down who changed which plan from what to what", async () => {
+      const recorded = await rows<{ actor_id: string; organization_id: null; detail: unknown }>(
+        "select actor_id, organization_id, detail from public.operator_actions where action = 'set_plan'",
+      );
+      expect(recorded).toHaveLength(1);
+      expect(recorded[0]).toMatchObject({
+        actor_id: operator,
+        organization_id: null,
+        detail: {
+          plan: "starter",
+          from: { name: "Starter", max_queries_per_location: 5, assistants: 1 },
+          to: { name: "Starter Plus", max_queries_per_location: 7, assistants: 2 },
+        },
+      });
+    });
+
+    it("returns nothing for a plan that does not exist, and records nothing", async () => {
+      const none = await as("authenticated", operator, () =>
+        rows("select * from public.operator_set_plan('nonesuch', 'x', true, 1, 1, 1, 1, true)"),
+      );
+      expect(none).toEqual([]);
+      const recorded = await rows(
+        "select 1 from public.operator_actions where action = 'set_plan'",
+      );
+      expect(recorded).toHaveLength(1);
+    });
+  });
+
   describe("changing an organization's limits", () => {
     const setLimits = "select * from public.operator_set_limits($1, 3, 20, 10, 1)";
     const limits = (id: string) =>

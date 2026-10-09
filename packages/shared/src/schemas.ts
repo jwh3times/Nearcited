@@ -459,6 +459,43 @@ export const OrganizationLimitsSchema = z.object({
 });
 export type OrganizationLimits = z.infer<typeof OrganizationLimitsSchema>;
 
+/**
+ * What the operator may change on a plan. A change to a limit reaches every organization on the
+ * plan at once. Prices and the locations a plan includes are changed elsewhere.
+ */
+export const PlanSettingsSchema = z.object({
+  name: z.string().trim().min(1, "Name is required").max(40, "Use 40 characters or fewer"),
+  on_sale: z.boolean(),
+  max_queries_per_location: limit(0, 200),
+  /** How many assistants its scans ask. */
+  assistants: limit(1, 2),
+  /** 1 is daily. */
+  scan_every_days: limit(1, 30),
+  max_manual_scans_per_month: limit(0, 100_000),
+  emails_report: z.boolean(),
+});
+export type PlanSettings = z.infer<typeof PlanSettingsSchema>;
+
+/** A plan as the operator sees it: what is on sale, and who is on it. Test organizations are left out. */
+export const OperatorPlanSchema = PlanSchema.extend({
+  /** How many organizations are on it. */
+  organizations: z.number().int().nonnegative(),
+  /** How many of those have a subscription in force. */
+  subscribers: z.number().int().nonnegative(),
+  /** What those subscribers pay a month between them, in US cents and before tax. */
+  monthly_cents: z.number().int().nonnegative(),
+});
+export type OperatorPlan = z.infer<typeof OperatorPlanSchema>;
+
+/** Who a change to a plan's limits would reach, shown to the operator before a limit is lowered. */
+export const PlanImpactSchema = z.object({
+  /** How many organizations are on the plan. */
+  organizations: z.number().int().nonnegative(),
+  /** How many of them have a location with more active prompts than the plan would allow. */
+  prompts_set_aside: z.number().int().nonnegative(),
+});
+export type PlanImpact = z.infer<typeof PlanImpactSchema>;
+
 /** Whether the fields a cross-field check reads came through their own checks. */
 const sound =
   (...fields: string[]) =>

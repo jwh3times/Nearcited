@@ -7,7 +7,10 @@ import type {
   OperatorAccounts,
   OperatorOrganization,
   OperatorOverview,
+  OperatorPlan,
   Organization,
+  Plan,
+  PlanImpact,
   PlatformRole,
   Scan,
   SiteCheck,
@@ -347,4 +350,73 @@ export function buildAccounts(facts: AccountFacts): OperatorAccounts {
     })),
     accounts,
   };
+}
+
+/** What is known of an organization's subscription: whether one is in force. */
+export interface SubscriptionFact {
+  organization_id: string;
+  /** True while there is a subscription, paid up or being retried. */
+  subscribed: boolean;
+}
+
+export interface PlanFacts {
+  plans: Plan[];
+  organizations: Organization[];
+  subscriptions: SubscriptionFact[];
+}
+
+/**
+ * Each plan with who is on it. A test organization is never a customer and is not counted. What
+ * a subscriber pays is the plan's price plus each location they have room for beyond those it
+ * includes, which is what the subscription bills.
+ */
+export function buildOperatorPlans(facts: PlanFacts): OperatorPlan[] {
+  const subscribed = new Set(
+    facts.subscriptions.filter((s) => s.subscribed).map((s) => s.organization_id),
+  );
+  return [...facts.plans]
+    .sort((a, b) => a.position - b.position)
+    .map((plan) => {
+      const on = facts.organizations.filter((o) => o.plan_key === plan.key && !o.is_test);
+      const paying = on.filter((o) => subscribed.has(o.id));
+      return {
+        ...plan,
+        organizations: on.length,
+        subscribers: paying.length,
+        monthly_cents: paying.reduce(
+          (total, o) =>
+            total +
+            plan.price_cents +
+            Math.max(0, o.max_locations - plan.included_locations) *
+              (plan.extra_location_price_cents ?? 0),
+          0,
+        ),
+      };
+    });
+}
+
+/**
+ * Who lowering a plan's prompt limit would reach: the organizations on it, and those with a
+ * location that has more active prompts than `maxQueries`. `activePrompts` is by location ID.
+ */
+export function planImpact(
+  planKey: string,
+  maxQueries: number,
+  facts: {
+    organizations: Organization[];
+    locations: Location[];
+    activePrompts: Record<string, number>;
+  },
+): PlanImpact {
+  const on = new Set(
+    facts.organizations
+      .filter((o) => o.plan_key === planKey)
+      .map((organization) => organization.id),
+  );
+  const over = new Set(
+    facts.locations
+      .filter((l) => on.has(l.organization_id) && (facts.activePrompts[l.id] ?? 0) > maxQueries)
+      .map((location) => location.organization_id),
+  );
+  return { organizations: on.size, prompts_set_aside: over.size };
 }
