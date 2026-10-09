@@ -23,7 +23,7 @@ const KIND_LABELS: Record<AttentionKind, string> = {
   site_blocked: "Website shuts assistants out",
   audit_failed: "Audit failed",
   no_prompts: "Nothing to scan",
-  at_limit: "At a limit",
+  at_limit: "Prompt limit reached",
 };
 
 const SCAN_WORDS = {

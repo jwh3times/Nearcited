@@ -60,7 +60,7 @@ itself as `NearcitedBot`, with a link to the public `/bot` page, and is skipped 
 
 The operator has one more screen, `/operator`: what needs attention (a failed scan, a scan stuck or
 overdue, a website that cannot be read, a failed audit, a location with no active prompts, an
-organization at a limit), every organization, and what the deployment runs. From there the operator
+location that has used every prompt it is allowed), every organization, and what the deployment runs. From there the operator
 can read through a customer's pages, with everything that changes something hidden.
 
 The location page and the audit turn all of that into an action plan, "What to do next": fix

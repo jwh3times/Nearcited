@@ -205,6 +205,7 @@ export const ATTENTION_KINDS = [
   "site_blocked",
   "audit_failed",
   "no_prompts",
+  // A location with every prompt its plan allows. Having every location allowed is not listed.
   "at_limit",
 ] as const;
 export type AttentionKind = (typeof ATTENTION_KINDS)[number];

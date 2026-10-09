@@ -189,17 +189,27 @@ describe("needs attention", () => {
     ]);
   });
 
-  it("lists a location with nothing to ask, and an organization that has used up a limit", () => {
+  it("lists a location with nothing to ask, and one that has used every prompt it is allowed", () => {
     const facts = healthy();
     facts.activePrompts = {};
     expect(kinds(facts)).toEqual(["no_prompts"]);
 
-    const full = healthy();
-    full.organizations = [org("a", { max_locations: 1 })];
-    expect(kinds(full)).toEqual(["at_limit"]);
     const fullOfPrompts = healthy();
     fullOfPrompts.activePrompts = { l1: 10 };
-    expect(kinds(fullOfPrompts)).toEqual(["at_limit"]);
+    expect(buildOperatorOverview(fullOfPrompts).attention).toEqual([
+      expect.objectContaining({
+        kind: "at_limit",
+        location_id: "l1",
+        detail: "Has used all 10 of its prompts.",
+      }),
+    ]);
+  });
+
+  it("does not count having every location it is allowed as a problem", () => {
+    // The default plan allows one location, so this is every customer who has started.
+    const full = healthy();
+    full.organizations = [org("a", { max_locations: 1 })];
+    expect(kinds(full)).toEqual([]);
   });
 
   it("puts what is broken before what a customer is stuck on, newest first within each", () => {

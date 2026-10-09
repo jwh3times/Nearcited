@@ -228,19 +228,18 @@ export function buildOperatorOverview(facts: OperatorFacts): Omit<OperatorOvervi
       });
     }
 
-    const mine = realLocations.filter((location) => location.organization_id === organization.id);
-    const full = [
-      mine.length >= organization.max_locations &&
-        `all ${organization.max_locations} of its locations`,
-      mine.some(
-        (location) =>
-          (facts.activePrompts[location.id] ?? 0) >= organization.max_queries_per_location,
-      ) && `all ${organization.max_queries_per_location} prompts on a location`,
-    ].filter((reached): reached is string => Boolean(reached));
-    if (full.length > 0) {
-      add("at_limit", `Has used ${full.join(", and ")}.`, null, {
-        organizationId: organization.id,
-      });
+    // A location with every prompt it may have cannot be given another. Having every location
+    // the plan allows is not listed: the default plan allows one, so that is everyone.
+    const allowed = organization.max_queries_per_location;
+    for (const location of realLocations) {
+      if (
+        location.organization_id === organization.id &&
+        (facts.activePrompts[location.id] ?? 0) >= allowed
+      ) {
+        add("at_limit", `Has used all ${allowed} of its prompts.`, null, {
+          locationId: location.id,
+        });
+      }
     }
   }
 
