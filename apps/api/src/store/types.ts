@@ -20,6 +20,7 @@ import type {
   ScanTrigger,
   SiteCheck,
   StoredAudit,
+  Surface,
   TrackedQuery,
   TrackedQueryInput,
   UsageByMonth,
@@ -80,6 +81,12 @@ export interface Store {
    */
   listPlans(): Promise<Plan[]>;
   renameOrganization(id: string, name: string): Promise<Organization | null>;
+  /**
+   * Sets which assistants an organization is checked on, within what its plan covers. Only its
+   * owner's call changes anything: for anyone else it returns null. Throws a limit, with a
+   * message for the owner, when the choice is not one the plan allows.
+   */
+  chooseAssistants(id: string, surfaces: readonly Surface[]): Promise<Organization | null>;
   /**
    * Changes an organization's limits. Only the operator's call changes anything: for anyone else,
    * and for an organization that does not exist, it returns null.

@@ -160,6 +160,21 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         .sort((a, b) => a.position - b.position);
     },
 
+    async chooseAssistants(id, surfaces) {
+      const owns = db.memberships.some(
+        (m) => m.organization_id === id && m.user_id === userId && m.role === "owner",
+      );
+      const organization = db.organizations.find((o) => o.id === id);
+      if (!owns || !organization) return null;
+      const plan = db.plans.find((candidate) => candidate.key === organization.plan_key);
+      if (!plan) throw new StoreError("limit", "This organization's assistants were set for it.");
+      const picked = (["chatgpt", "claude"] as const).filter((s) => surfaces.includes(s));
+      if (picked.length !== surfaces.length || picked.length !== Math.min(plan.assistants, 2)) {
+        throw new StoreError("limit", `This organization's plan checks ${plan.assistants}.`);
+      }
+      return Object.assign(organization, { surfaces: picked });
+    },
+
     async applyPlan(organizationId, planKey, locations) {
       if (userId !== null) throw new StoreError("forbidden", "worker only");
       const plan = db.plans.find((candidate) => candidate.key === planKey);

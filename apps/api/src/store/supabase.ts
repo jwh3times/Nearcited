@@ -55,7 +55,8 @@ const ERROR_KINDS: Record<string, StoreErrorKind> = {
   // Raised by the usage-cap triggers, each with a message written for the user.
   NC001: "limit", // locations per organization
   NC002: "limit", // active prompts per location
-  NC003: "limit", // manual scans per day
+  NC003: "limit", // manual scans per month
+  NC004: "limit", // a choice of assistants the plan does not allow
 };
 
 function fail(action: string, error: DbError): never {
@@ -133,6 +134,15 @@ export function createSupabaseStore(db: SupabaseClient): Store {
       const { data, error } = await db.from("plans").select(PLAN_COLUMNS).order("position");
       if (error) fail("List plans", error);
       return PlanSchema.array().parse(data);
+    },
+
+    async chooseAssistants(id, surfaces) {
+      const { data, error } = await db
+        .rpc("choose_assistants", { org: id, chosen: [...surfaces] })
+        .select(ORGANIZATION_COLUMNS)
+        .maybeSingle();
+      if (error) fail("Choose assistants", error);
+      return data ? OrganizationSchema.parse(data) : null;
     },
 
     async applyPlan(organizationId, planKey, locations) {

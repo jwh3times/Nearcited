@@ -1,4 +1,9 @@
-import { LocationInputSchema, type Me, OrganizationInputSchema } from "@nearcited/shared";
+import {
+  AssistantChoiceSchema,
+  LocationInputSchema,
+  type Me,
+  OrganizationInputSchema,
+} from "@nearcited/shared";
 import { Hono } from "hono";
 import type { AppEnv } from "../app";
 import { notFound } from "../errors";
@@ -30,6 +35,15 @@ organizationRoutes.patch("/organizations/:organizationId", async (c) => {
   const renamed = await c.get("store").renameOrganization(organizationId, name);
   if (!renamed) throw notFound("Organization");
   return c.json(renamed);
+});
+
+/** Which assistants the organization is checked on, within what its plan covers. Owner only. */
+organizationRoutes.put("/organizations/:organizationId/assistants", async (c) => {
+  const organizationId = uuidParam(c, "organizationId", "Organization");
+  const { surfaces } = await parseJson(c, AssistantChoiceSchema);
+  const organization = await c.get("store").chooseAssistants(organizationId, surfaces);
+  if (!organization) throw notFound("Organization");
+  return c.json(organization);
 });
 
 organizationRoutes.get("/organizations/:organizationId/locations", async (c) => {

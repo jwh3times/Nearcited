@@ -526,6 +526,15 @@ export const TrackedQueryInputSchema = z.object({
 });
 export type TrackedQueryInput = z.output<typeof TrackedQueryInputSchema>;
 
+/** The assistants a plan's scans can ask. A plan with fewer lets the owner choose which. */
+export const PLAN_ASSISTANTS = ["chatgpt", "claude"] as const satisfies readonly Surface[];
+
+/** An owner's choice of assistants. How many it must name is the plan's to say. */
+export const AssistantChoiceSchema = z.object({
+  surfaces: z.array(z.enum(PLAN_ASSISTANTS)).min(1, "Choose an assistant"),
+});
+export type AssistantChoice = z.infer<typeof AssistantChoiceSchema>;
+
 export const AUDIT_MAX_PROMPTS = 5;
 export const AUDIT_MAX_SAMPLES = 5;
 
