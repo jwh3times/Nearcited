@@ -1,0 +1,11 @@
+-- How often a location is scanned is its plan's to say (issue #9).
+--
+-- A location could ask for "weekly" or "off" where its plan allowed more. On a plan that scans
+-- every two days or every fourteen, "daily" and "weekly" both meant something else, and asking
+-- for less only threw away what the plan pays for. The setting has been taken out of the app, so
+-- no location is left on a pace its owner can no longer change: every one goes back to the
+-- plan's.
+--
+-- The column and the functions that read it stay for now, so the Worker running during this
+-- migration keeps working. Dropping them is a later migration.
+update public.locations set scan_frequency = 'daily' where scan_frequency <> 'daily';

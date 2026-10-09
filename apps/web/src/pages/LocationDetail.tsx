@@ -397,7 +397,6 @@ export function LocationDetail() {
               key={location.id}
               location={location}
               readOnly={readOnly}
-              planDays={organization?.scan_every_days}
               onSaved={async () => {
                 refresh();
                 await queryClient.invalidateQueries({ queryKey: ["locations"] });

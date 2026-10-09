@@ -88,17 +88,14 @@ test("checks a location's details beside each field, and saves them tidied", asy
   await expect(phone).toHaveValue("(919) 555-0100");
   await page.getByLabel("Postal code").fill("27601");
   await page.getByLabel("Website").fill("joespizza.example");
-  await page.getByRole("button", { name: "Weekly" }).click();
   await page.getByRole("button", { name: "Save changes" }).click();
   await expect(page.getByText("Saved.")).toBeVisible();
 
   await page.reload();
   await expect(phone).toHaveValue("(919) 555-0100");
   await expect(page.getByLabel("Website")).toHaveValue("https://joespizza.example");
-  await expect(page.getByRole("button", { name: "Weekly" })).toHaveAttribute(
-    "aria-pressed",
-    "true",
-  );
+  // How often it is scanned is the plan's to say: the page states it and offers no setting.
+  await expect(page.getByRole("group", { name: "Scheduled scans" })).toHaveCount(0);
 });
 
 test("ticks a step of the plan off, and remembers it in this browser", async ({ page }) => {

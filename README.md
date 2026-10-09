@@ -297,7 +297,7 @@ The migrations in `supabase/migrations/` define everything.
 | `organizations` | The tenant. Every other row belongs to one. Holds its usage limits (locations, active prompts per location, manual scans a calendar month) and its plan settings (which plan it is on, whether a report is emailed, how many days apart it is scanned, and on which surfaces). |
 | `platform_roles` | What an account is to the product as a whole (`operator` or `test`). A user reads only their own row, the operator reads all; rows are written with the secret key. An organization made by a `test` account is flagged `is_test` and scans on generated data. |
 | `memberships` | Which users belong to an organization, as `owner`, `admin` or `member`. |
-| `locations` | A business at an address. Its `scan_frequency` can pause it (`off`) or ask for less than the organization's cadence (`weekly`), never more. |
+| `locations` | A business at an address. How often it is scanned is its organization's plan's to say. Its `scan_frequency` column is a leftover: the app no longer sets it, every row is `daily`, and it is to be dropped. |
 | `tracked_queries` | The prompts and keywords checked for a location. A retired one is kept, with its results, but not scanned. |
 | `scans` | One run for a location: its trigger, status, whether it ran on sample data, the score over the window it closed, and the check of the location's website it made. |
 | `scan_results` | One row per query and surface: named or not, position, and who else was named. |
