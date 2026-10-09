@@ -20,9 +20,9 @@ const FIELDS: { name: keyof OrganizationLimits; label: string; hint: string }[] 
     hint: "Retired ones do not count.",
   },
   {
-    name: "max_manual_scans_per_day",
-    label: "Scans run by hand per day",
-    hint: "Across the organization, in any 24 hours.",
+    name: "max_manual_scans_per_month",
+    label: "Scans run by hand per month",
+    hint: "Across the organization, in a calendar month (UTC).",
   },
   { name: "scan_every_days", label: "Days between scheduled scans", hint: "1 is daily." },
 ];

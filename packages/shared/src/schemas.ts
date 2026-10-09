@@ -76,8 +76,11 @@ export const OrganizationSchema = z.object({
   max_locations: z.number().int().nonnegative(),
   /** How many active prompts and keywords each location may have. Retired ones do not count. */
   max_queries_per_location: z.number().int().nonnegative(),
-  /** How many scans members may start by hand, across the organization, in any 24 hours. */
-  max_manual_scans_per_day: z.number().int().nonnegative(),
+  /**
+   * How many scans members may start by hand, across the organization, in a calendar month
+   * (UTC). The first scan it ever runs is not counted.
+   */
+  max_manual_scans_per_month: z.number().int().nonnegative(),
   /** How many days apart its locations are scanned. 1 is daily. */
   scan_every_days: z.number().int().positive(),
   /** The surfaces its scans check. Null means every surface that is set up. */
@@ -87,6 +90,8 @@ export const OrganizationSchema = z.object({
    * the interface says so. See `docs/adr/0003-platform-roles-and-test-accounts.md`.
    */
   is_test: z.boolean(),
+  /** Whether its owners are emailed a report after each scheduled scan. */
+  emails_report: z.boolean(),
   /** The plan it is on. Null when its limits were set by hand, which no plan then changes. */
   plan_key: z.string().nullable(),
   created_at: Timestamp,
@@ -429,7 +434,7 @@ const limit = (least: number, most: number) =>
 export const OrganizationLimitsSchema = z.object({
   max_locations: limit(0, 1000),
   max_queries_per_location: limit(0, 200),
-  max_manual_scans_per_day: limit(0, 1000),
+  max_manual_scans_per_month: limit(0, 100_000),
   /** 1 is daily. */
   scan_every_days: limit(1, 30),
 });

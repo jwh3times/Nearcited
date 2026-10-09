@@ -18,7 +18,7 @@ test("lists the location with its score and how often each assistant named it", 
   await expect(row.first()).toBeVisible();
   // A rate for an assistant, as a percentage.
   await expect(page.locator(".rate-cell").first()).toHaveText(/^\d+%$/);
-  await expect(page.getByText("1 of 1 location")).toBeVisible();
+  await expect(page.getByText("1 of 3 locations")).toBeVisible();
 });
 
 test("moves between the tabs by click, by arrow key and by address", async ({ page }) => {

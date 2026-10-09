@@ -22,10 +22,12 @@ test("takes a new account from nothing to its first scan's results", async ({ pa
   await page.getByLabel("Website").fill("joespizza.example");
   await page.getByRole("button", { name: "Continue" }).click();
 
-  // Step 3 suggests prompts written from the business, with the first three chosen.
+  // Step 3 suggests prompts written from the business, with as many chosen as the free plan
+  // tracks. Another can be ticked only once one is unticked.
   await expect(page.getByRole("heading", { name: "What would a customer ask?" })).toBeVisible();
   await expect(page.getByLabel("Who is the best pizza restaurant in Raleigh?")).toBeChecked();
-  await expect(page.getByText("3 of 6 chosen")).toBeVisible();
+  await expect(page.getByText("2 of 2 chosen")).toBeVisible();
+  await expect(page.getByRole("checkbox").nth(2)).toBeDisabled();
   await page.getByRole("button", { name: "Continue" }).click();
 
   // Step 4 sums it up, and running the scan lands on the location while it is under way.
@@ -39,7 +41,7 @@ test("takes a new account from nothing to its first scan's results", async ({ pa
     timeout: 45_000,
   });
   await expect(page.getByText("/ 100")).toBeVisible();
-  await expect(page.getByRole("tab", { name: /Prompts/ })).toContainText("3");
+  await expect(page.getByRole("tab", { name: /Prompts/ })).toContainText("2");
   // These are generated results, and the page must say so.
   await expect(page.getByText("generated sample data, not real measurements")).toBeVisible();
   // The website was stored with the scheme the owner did not type.

@@ -62,7 +62,7 @@ The operator has one more screen, `/operator`: what needs attention (a failed sc
 overdue, a website that cannot be read, a failed audit, a location with no active prompts, an
 location that has used every prompt it is allowed), every organization, every account with how far it got (signed up, made an organization, added a location, had a scan succeed, scanned in the last week), every shareable audit, and what the deployment runs. From there the operator
 can read through a customer's pages, with everything that changes something hidden, and change the
-organization's limits (locations, prompts per location, manual scans a day, days between scans) on
+organization's limits (locations, prompts per location, manual scans a month, days between scans) on
 its plan page.
 
 The location page and the audit turn all of that into an action plan, "What to do next": fix
@@ -257,7 +257,7 @@ organization reads as missing and returns 404. Payloads are defined in
 | `GET /api/operator/audits` | Every shareable audit, with its link only while it is neither revoked nor expired. 404 to anyone who is not the operator. |
 | `POST /api/operator/audits` | Makes a shareable audit and queues one message per prompt. Takes `business_name`, `city`, `prompts` (1 to 5) and optionally `website`, `region`, `country_code`, `samples` (1 to 5). 404 to anyone who is not the operator, 409 where scans return sample data, 422 for a bad value. |
 | `GET /api/operator/organizations/:organizationId` | One organization, for the operator to read through its pages. 404 to anyone who is not the operator. |
-| `PUT /api/operator/organizations/:organizationId/limits` | Sets an organization's four limits (locations, prompts per location, manual scans a day, days between scans) and records the change. 404 to anyone who is not the operator, 422 for a value out of range. |
+| `PUT /api/operator/organizations/:organizationId/limits` | Sets an organization's four limits (locations, prompts per location, manual scans a month, days between scans) and records the change. 404 to anyone who is not the operator, 422 for a value out of range. |
 | `POST /api/organizations` | Create an organization; the caller becomes its owner. The name needs a letter. |
 | `PATCH /api/organizations/:organizationId` | Rename an organization. Owners and admins only; anyone else reads it as missing and gets 404. The name needs a letter. |
 | `GET /api/organizations/:organizationId/locations` | List an organization's locations. |
@@ -278,7 +278,7 @@ The migrations in `supabase/migrations/` define everything.
 
 | Table | Holds |
 | --- | --- |
-| `organizations` | The tenant. Every other row belongs to one. Holds its usage limits (locations, active prompts per location, manual scans a day) and its plan settings (how many days apart it is scanned, and on which surfaces). |
+| `organizations` | The tenant. Every other row belongs to one. Holds its usage limits (locations, active prompts per location, manual scans a calendar month) and its plan settings (which plan it is on, whether a report is emailed, how many days apart it is scanned, and on which surfaces). |
 | `platform_roles` | What an account is to the product as a whole (`operator` or `test`). A user reads only their own row, the operator reads all; rows are written with the secret key. An organization made by a `test` account is flagged `is_test` and scans on generated data. |
 | `memberships` | Which users belong to an organization, as `owner`, `admin` or `member`. |
 | `locations` | A business at an address. Its `scan_frequency` can pause it (`off`) or ask for less than the organization's cadence (`weekly`), never more. |

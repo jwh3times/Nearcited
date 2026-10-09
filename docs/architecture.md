@@ -375,11 +375,15 @@ Two rules follow, and breaking either one is a data leak:
 **Plans are rows** (`docs/adr/0006-plans-are-rows.md`). `plans` holds what is on sale, and
 `GET /api/plans` serves it without a sign-in. An organization's `plan_key` names its plan, or is
 null when its limits were set by hand, as for every organization made before plans and any the
-operator's limits editor has touched. Nothing charges yet and nothing copies a plan's limits onto
-an organization yet: the limit columns below are still what is enforced.
+operator's limits editor has touched. `apply_plan()` puts an organization on a plan and copies the
+plan's values onto it: its limits, its cadence, whether a report is emailed, and its assistants
+(a plan with one keeps the one the organization already had, and otherwise starts on ChatGPT).
+Only the worker may call it. `create_organization()` uses it to start every new organization on
+the free plan; a test account's organization is still set by hand. Nothing charges yet. The
+limit columns below are what is enforced.
 
 **Usage caps live on the organization** (`max_locations`, `max_queries_per_location`,
-`max_manual_scans_per_day`) and are enforced by triggers, because a limit checked only in a route
+`max_manual_scans_per_month`) and are enforced by triggers, because a limit checked only in a route
 handler could be skipped by calling the database directly. Four things about them are deliberate:
 
 - **The triggers fire after the row is written.** Row-level security has had its say by then, so
@@ -387,7 +391,10 @@ handler could be skipped by calling the database directly. Four things about the
 - **They lock the organization row**, so two inserts arriving together are counted one at a time.
 - **Only active prompts count**, and restoring a retired one is checked like adding one.
 - **A member cannot change the limits.** The update grant on `organizations` covers `name` only.
-  Limits are set with the secret key, by hand today and by billing later.
+  Limits come from the organization's plan, or from the operator's limits editor.
+- **Scans by hand are counted over a calendar month in UTC.** An organization's first scan ever
+  is let through and not counted (`first_scan_at` records it), which is how a new account on the
+  free plan, which allows none by hand, sees the product work once.
 
 **Plan settings live beside the caps**, protected the same way:
 
@@ -427,7 +434,7 @@ reuses the Locations and location pages with every control that changes somethin
 **The operator changes limits through one function.** `PUT /api/operator/organizations/:organizationId/limits`
 calls `operator_set_limits()`, a security-definer function that returns a row only while
 `is_operator()` is true and the organization exists (the route answers 404 otherwise). It locks the organization,
-changes `max_locations`, `max_queries_per_location`, `max_manual_scans_per_day` and
+changes `max_locations`, `max_queries_per_location`, `max_manual_scans_per_month` and
 `scan_every_days` and nothing else, and records the old and new values in `operator_actions`. The
 route refuses a value outside `OrganizationLimitsSchema` with 422, and the columns' own checks
 bound each value whatever calls the function. `operator_actions` has no write grant for any

@@ -62,9 +62,34 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
     const worker = await workerStore();
 
     // Organizations
-    const organization = await aliceStore.createOrganization(`Integration ${crypto.randomUUID()}`);
+    const fresh = await aliceStore.createOrganization(`Integration ${crypto.randomUUID()}`);
     // An ordinary account's organization is a real one. Only a test account makes test ones.
-    expect(organization.is_test).toBe(false);
+    expect(fresh.is_test).toBe(false);
+    // It starts on the free plan, with that plan's limits, and cannot move itself off it.
+    expect(fresh).toMatchObject({
+      plan_key: "free",
+      max_locations: 1,
+      max_queries_per_location: 2,
+      max_manual_scans_per_month: 0,
+      scan_every_days: 14,
+      emails_report: false,
+      surfaces: ["chatgpt"],
+    });
+    await expect(aliceStore.applyPlan(fresh.id, "enterprise")).rejects.toThrow();
+    // The worker moves it, as it will when a subscription starts. The rest of this test needs
+    // the room a paid plan gives.
+    // More locations than a plan includes are the ones paid for.
+    expect(await worker.applyPlan(fresh.id, "standard", 4)).toMatchObject({
+      plan_key: "standard",
+      max_locations: 4,
+      max_queries_per_location: 10,
+      max_manual_scans_per_month: 10,
+      emails_report: true,
+      surfaces: ["chatgpt", "claude"],
+    });
+    const organization = await worker.applyPlan(fresh.id, "starter");
+    if (!organization) throw new Error("The plan was not applied.");
+    expect(await worker.applyPlan(crypto.randomUUID(), "standard")).toBeNull();
     expect((await aliceStore.listOrganizations()).map((o) => o.id)).toContain(organization.id);
     expect((await bobStore.listOrganizations()).map((o) => o.id)).not.toContain(organization.id);
     // Its owner may rename it; a stranger's rename finds no row, and the name stays.
@@ -78,8 +103,7 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
       organization,
     );
 
-    // A new organization is on no plan yet, and the price list is read by anyone signed in.
-    expect(organization.plan_key).toBeNull();
+    // The price list is read by anyone signed in.
     expect((await aliceStore.listPlans()).map((plan) => plan.key)).toEqual([
       "free",
       "starter",
@@ -93,7 +117,7 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
       await aliceStore.setOrganizationLimits(organization.id, {
         max_locations: 50,
         max_queries_per_location: 50,
-        max_manual_scans_per_day: 50,
+        max_manual_scans_per_month: 50,
         scan_every_days: 1,
       }),
     ).toBeNull();
@@ -305,11 +329,12 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
     // limits are read back with it, and a member cannot raise them.
     const [mine] = await aliceStore.listOrganizations();
     expect(mine).toMatchObject({
+      plan_key: "starter",
       max_locations: 1,
-      max_queries_per_location: 10,
-      max_manual_scans_per_day: 5,
+      max_queries_per_location: 5,
+      max_manual_scans_per_month: 2,
       scan_every_days: 2,
-      surfaces: null,
+      surfaces: ["chatgpt"],
     });
     // A member reads their own organization, the worker reads any, and a non-member reads none.
     expect(await aliceStore.getOrganization(organization.id)).toEqual(mine);

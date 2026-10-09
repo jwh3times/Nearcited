@@ -1,5 +1,5 @@
 import { LocationInputSchema, OrganizationInputSchema } from "@nearcited/shared";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { z } from "zod";
@@ -39,11 +39,16 @@ export function Onboarding({ sampleData }: { sampleData: boolean }) {
     prompts: [],
   });
 
+  // A new organization starts on the free plan, which says how many prompts it may track.
+  const plans = useQuery({ queryKey: ["plans"], queryFn: api.plans, staleTime: 300_000 });
+  const allowed =
+    plans.data?.find((plan) => plan.key === "free")?.max_queries_per_location ?? PRESELECTED;
+
   const suggestions = suggestPrompts(location.category, location.city);
   // Until the reader changes the ticks, the first few suggestions are chosen for them.
-  const chosen = (picked ?? suggestions.slice(0, PRESELECTED)).filter((prompt) =>
-    suggestions.includes(prompt),
-  );
+  const chosen = (picked ?? suggestions.slice(0, Math.min(PRESELECTED, allowed)))
+    .filter((prompt) => suggestions.includes(prompt))
+    .slice(0, allowed);
   const place = [location.city, location.region].filter(Boolean).join(", ");
 
   const start = useMutation({
@@ -204,6 +209,8 @@ export function Onboarding({ sampleData }: { sampleData: boolean }) {
                     <input
                       type="checkbox"
                       checked={chosen.includes(prompt)}
+                      // At the limit, another can be ticked only after one is unticked.
+                      disabled={!chosen.includes(prompt) && chosen.length >= allowed}
                       onChange={(event) =>
                         setPicked(
                           event.target.checked
@@ -218,8 +225,9 @@ export function Onboarding({ sampleData }: { sampleData: boolean }) {
               ))}
             </ul>
             <p className="small muted">
-              {chosen.length} of {suggestions.length} chosen. Each is asked of every assistant your
-              plan checks, once per scan.
+              {chosen.length} of {allowed} chosen. You start on the free plan, which tracks{" "}
+              {allowed} {allowed === 1 ? "prompt" : "prompts"}; a paid plan tracks more. You can
+              change them later.
             </p>
           </>
         )}
