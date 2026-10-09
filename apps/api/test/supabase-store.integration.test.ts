@@ -100,6 +100,47 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
       emails_report: true,
       surfaces: ["chatgpt", "claude"],
     });
+    // Billing: only the owner is told where the organization stands, and only the worker
+    // keeps what the payment provider said.
+    expect(await bobStore.getBillingState(fresh.id)).toBeNull();
+    expect(await aliceStore.getBillingState(fresh.id)).toEqual({
+      organization_id: fresh.id,
+      is_test: false,
+      plan_key: "standard",
+      stripe_customer_id: null,
+      stripe_subscription_id: null,
+      status: null,
+    });
+    expect(await worker.getSubscription(fresh.id)).toBeNull();
+    const customer = `cus_${crypto.randomUUID()}`;
+    await expect(
+      aliceStore.recordSubscription(fresh.id, {
+        stripe_customer_id: customer,
+        stripe_subscription_id: null,
+        status: null,
+      }),
+    ).rejects.toMatchObject({ kind: "forbidden" });
+    for (const status of ["active", "past_due"]) {
+      const kept = {
+        stripe_customer_id: customer,
+        stripe_subscription_id: `sub_${customer}`,
+        status,
+      };
+      await worker.recordSubscription(fresh.id, kept);
+      expect(await worker.getSubscription(fresh.id)).toEqual(kept);
+    }
+    expect(await aliceStore.getSubscription(fresh.id)).toBeNull();
+    expect(await aliceStore.getBillingState(fresh.id)).toMatchObject({
+      stripe_customer_id: customer,
+      status: "past_due",
+    });
+    expect((await aliceStore.listPlanPrices()).find((plan) => plan.key === "standard")).toEqual({
+      key: "standard",
+      on_sale: true,
+      included_locations: 3,
+      stripe_price_id: null,
+      stripe_extra_location_price_id: null,
+    });
     const organization = await worker.applyPlan(fresh.id, "starter");
     if (!organization) throw new Error("The plan was not applied.");
     expect(await worker.applyPlan(crypto.randomUUID(), "standard")).toBeNull();

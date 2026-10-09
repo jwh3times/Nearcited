@@ -9,7 +9,10 @@ export interface Env {
   SUPABASE_URL: string;
   /** Safe to expose. Used with the caller's own token, so row-level security applies. */
   SUPABASE_PUBLISHABLE_KEY: string;
-  /** Secret. Bypasses row-level security. Only the scan worker and the scheduler use it. */
+  /**
+   * Secret. Bypasses row-level security. Only the scan worker, the scheduler and the payment
+   * provider's webhook use it.
+   */
   SUPABASE_SECRET_KEY: string;
 
   /** "mock" returns generated data and costs nothing. "live" calls real providers. */
@@ -26,4 +29,8 @@ export interface Env {
   ANTHROPIC_API_KEY?: string;
   /** Optional. Without it, scheduled scans finish without sending a report. */
   RESEND_API_KEY?: string;
+  /** Optional secret. Without both Stripe values nobody can subscribe and the webhook is off. */
+  STRIPE_SECRET_KEY?: string;
+  /** Optional secret. The signing secret of the webhook endpoint registered at Stripe. */
+  STRIPE_WEBHOOK_SECRET?: string;
 }

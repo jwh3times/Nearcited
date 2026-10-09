@@ -91,6 +91,31 @@ const AccountRowSchema = z.object({
 const PLAN_COLUMNS =
   "key, name, position, on_sale, price_cents, included_locations, extra_location_price_cents, max_queries_per_location, assistants, scan_every_days, max_manual_scans_per_month, emails_report, stronger_models";
 
+const PLAN_PRICE_COLUMNS =
+  "key, on_sale, included_locations, stripe_price_id, stripe_extra_location_price_id";
+const PlanPricesSchema = z.object({
+  key: z.string(),
+  on_sale: z.boolean(),
+  included_locations: z.number().int().positive(),
+  stripe_price_id: z.string().nullable(),
+  stripe_extra_location_price_id: z.string().nullable(),
+});
+
+const SUBSCRIPTION_COLUMNS = "stripe_customer_id, stripe_subscription_id, status";
+const SubscriptionRecordSchema = z.object({
+  stripe_customer_id: z.string(),
+  stripe_subscription_id: z.string().nullable(),
+  status: z.string().nullable(),
+});
+const BillingStateSchema = z.object({
+  organization_id: z.uuid(),
+  is_test: z.boolean(),
+  plan_key: z.string().nullable(),
+  stripe_customer_id: z.string().nullable(),
+  stripe_subscription_id: z.string().nullable(),
+  status: z.string().nullable(),
+});
+
 const LISTED_AUDIT_COLUMNS =
   "id, token, business_name, city, region, status, error, created_at, expires_at, revoked_at";
 
@@ -136,6 +161,37 @@ export function createSupabaseStore(db: SupabaseClient): Store {
       const { data, error } = await db.from("plans").select(PLAN_COLUMNS).order("position");
       if (error) fail("List plans", error);
       return PlanSchema.array().parse(data);
+    },
+
+    async listPlanPrices() {
+      const { data, error } = await db.from("plans").select(PLAN_PRICE_COLUMNS).order("position");
+      if (error) fail("List plan prices", error);
+      return PlanPricesSchema.array().parse(data);
+    },
+
+    async getBillingState(organizationId) {
+      const { data, error } = await db.rpc("billing_state", { org: organizationId }).maybeSingle();
+      if (error) fail("Get billing state", error);
+      return data ? BillingStateSchema.parse(data) : null;
+    },
+
+    async getSubscription(organizationId) {
+      const { data, error } = await db
+        .from("subscriptions")
+        .select(SUBSCRIPTION_COLUMNS)
+        .eq("organization_id", organizationId)
+        .maybeSingle();
+      if (error) fail("Get subscription", error);
+      return data ? SubscriptionRecordSchema.parse(data) : null;
+    },
+
+    async recordSubscription(organizationId, subscription) {
+      const { error } = await db.from("subscriptions").upsert({
+        organization_id: organizationId,
+        ...subscription,
+        updated_at: new Date().toISOString(),
+      });
+      if (error) fail("Record subscription", error);
     },
 
     async chooseAssistants(id, surfaces) {

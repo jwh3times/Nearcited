@@ -47,7 +47,12 @@ pass `pnpm check` and run in mock mode without it.
 
 - **Row-level security is the authorization layer.** Request handlers use the store from
   `c.get("store")`, which acts as the signed-in user. Never call `createAdminClient` on a request
-  path; it bypasses the policies.
+  path; it bypasses the policies. The one exception is the payment provider's webhook, on the
+  terms in `docs/adr/0007-the-payment-webhook-acts-as-the-worker.md`: do not add a second.
+- **A subscription changes a plan only through the webhook.** Checkout and the account pages are
+  the provider's; the app sends an owner there and writes nothing. The webhook verifies the
+  signature, reads the subscription back from the provider and calls `applyPlan`. `subscriptions`
+  has no write path from a request, and nothing an owner sends decides what they have paid for.
 - **The operator can read every row** (`docs/adr/0004-the-operator-reads-through-policies.md`), so
   a query must filter by what it means, never by what the caller happens to see. "This user's
   organizations" is `my_organizations()`, not `select` from `organizations`. The operator gets

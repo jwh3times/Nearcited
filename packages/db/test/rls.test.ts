@@ -1685,6 +1685,92 @@ describe("plans", () => {
   });
 });
 
+describe("subscriptions", () => {
+  const member = "c1000000-0000-4000-8000-000000000031";
+  const state = (user: string | null, role: Role = "authenticated") =>
+    as(role, user, () => rows("select * from public.billing_state($1)", [orgId]));
+
+  beforeAll(async () => {
+    await db.query("insert into auth.users (id, email) values ($1, 'member@example.com')", [
+      member,
+    ]);
+    await db.query(
+      "insert into public.memberships (organization_id, user_id, role) values ($1, $2, 'member')",
+      [orgId, member],
+    );
+  });
+  afterAll(async () => {
+    await db.query("delete from public.subscriptions where organization_id = $1", [orgId]);
+    await db.query("delete from public.memberships where user_id = $1", [member]);
+  });
+
+  it("tells an owner where their organization stands before it has ever subscribed", async () => {
+    const [organization] = await rows<{ plan_key: string | null; is_test: boolean }>(
+      "select plan_key, is_test from public.organizations where id = $1",
+      [orgId],
+    );
+    expect(await state(alice)).toEqual([
+      {
+        organization_id: orgId,
+        is_test: organization?.is_test,
+        plan_key: organization?.plan_key,
+        stripe_customer_id: null,
+        stripe_subscription_id: null,
+        status: null,
+      },
+    ]);
+  });
+
+  it("are written by the worker and read back by the owner", async () => {
+    await as("service_role", null, () =>
+      db.query(
+        "insert into public.subscriptions (organization_id, stripe_customer_id, stripe_subscription_id, status) values ($1, 'cus_1', 'sub_1', 'active')",
+        [orgId],
+      ),
+    );
+    expect(await state(alice)).toMatchObject([
+      { stripe_customer_id: "cus_1", stripe_subscription_id: "sub_1", status: "active" },
+    ]);
+  });
+
+  it("tell a member who is not the owner, a stranger and a visitor nothing", async () => {
+    expect(await state(member)).toEqual([]);
+    expect(await state(bob)).toEqual([]);
+    await expect(state(null, "anon")).rejects.toThrow(/permission denied/);
+  });
+
+  it("cannot be read from the table by a member, or by anyone not signed in", async () => {
+    for (const user of [alice, member, bob]) {
+      const seen = await as("authenticated", user, () =>
+        rows("select * from public.subscriptions"),
+      );
+      expect(seen, user).toEqual([]);
+    }
+    await expect(
+      as("anon", null, () => db.query("select * from public.subscriptions")),
+    ).rejects.toThrow(/permission denied/);
+  });
+
+  it("cannot be written through the API, so nobody grants themselves a subscription", async () => {
+    for (const sql of [
+      "insert into public.subscriptions (organization_id, stripe_customer_id) values ($1, 'cus_mine')",
+      "update public.subscriptions set status = 'active' where organization_id = $1",
+      "delete from public.subscriptions where organization_id = $1",
+    ]) {
+      for (const [role, user] of [
+        ["anon", null],
+        ["authenticated", alice],
+        ["authenticated", bob],
+      ] as const) {
+        await expect(
+          as(role, user, () => db.query(sql, [orgId])),
+          sql,
+        ).rejects.toThrow(/permission denied/);
+      }
+    }
+  });
+});
+
 describe("the operator", () => {
   const operator = "f0000000-0000-4000-8000-000000000006";
   const tables = [
@@ -1698,6 +1784,7 @@ describe("the operator", () => {
     "platform_roles",
     "audits",
     "provider_usage",
+    "subscriptions",
   ];
   const count = async (role: Role, user: string | null, table: string) =>
     Number(
@@ -1752,6 +1839,10 @@ describe("the operator", () => {
          (organization_id, scan_id, surface, model, calls, input_tokens, cached_input_tokens, output_tokens, searches)
        values ($1, $2, 'chatgpt', 'gpt-x', 1, 1, 0, 1, 0)`,
       [theirs, scan?.id],
+    );
+    await db.query(
+      "insert into public.subscriptions (organization_id, stripe_customer_id) values ($1, 'cus_operator_test')",
+      [theirs],
     );
     for (const table of tables) everything.set(table, await count("service_role", null, table));
   });
@@ -1824,6 +1915,8 @@ describe("the operator", () => {
       "insert into public.platform_roles (user_id, role) values ('a0000000-0000-4000-8000-000000000001', 'operator')",
       "update public.organizations set is_test = true",
       "delete from public.organizations",
+      "update public.subscriptions set status = 'active'",
+      "delete from public.subscriptions",
     ]) {
       await expect(
         as("authenticated", operator, () => db.query(sql)),

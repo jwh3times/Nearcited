@@ -554,6 +554,18 @@ export const AssistantChoiceSchema = z.object({
 });
 export type AssistantChoice = z.infer<typeof AssistantChoiceSchema>;
 
+/** The plan an owner is subscribing to, and how many locations they are paying for. */
+export const CheckoutInputSchema = z.object({
+  plan_key: z.string().min(1).max(31),
+  /** Left out, it is what the plan includes. More than that is paid for one at a time. */
+  locations: limit(1, 1000).optional(),
+});
+export type CheckoutInput = z.infer<typeof CheckoutInputSchema>;
+
+/** Where to send the owner next: the payment provider's checkout, or its account pages. */
+export const BillingRedirectSchema = z.object({ url: z.url() });
+export type BillingRedirect = z.infer<typeof BillingRedirectSchema>;
+
 export const AUDIT_MAX_PROMPTS = 5;
 export const AUDIT_MAX_SAMPLES = 5;
 
