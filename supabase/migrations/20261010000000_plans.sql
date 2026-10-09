@@ -43,7 +43,10 @@ values
   ('starter',    'Starter',    1,  2900,  1, 1000,  5, 1,  2,  2, true),
   ('standard',   'Standard',   2,  4900,  3, 1500, 10, 2,  2, 10, true),
   ('pro',        'Pro',        3, 12900,  3, 3500, 15, 2,  1, 30, true),
-  ('enterprise', 'Enterprise', 4, 39900, 10, 3500, 15, 2,  1, 30, true);
+  ('enterprise', 'Enterprise', 4, 39900, 10, 2900, 15, 2,  1, 60, true);
+
+-- The plan that will be offered stronger models first.
+update public.plans set stronger_models = true where key = 'enterprise';
 
 -- Everyone may read what is on sale, signed in or not: it is the price list. A plan taken off
 -- sale is read by the organizations still on it, and by the operator. Nobody writes through the
