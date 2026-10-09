@@ -13,12 +13,15 @@
   Once a day it also asks Postgres which locations are due (`locations_due_for_scan`), creates a
   `scheduled` scan row for each, and puts the scan IDs on the queue. It also calls
   `advancePriceChanges`, which queues the reminders a week before an announced price change and,
-  from its day on, a move for each subscription not yet moved.
+  from its day on, a move for each subscription not yet moved. It also calls `advanceLimitChanges`,
+  which queues the reminders a week before an announced reduction in a plan's limits and, on its
+  day, makes the reduction through `apply_limit_change()`.
 - **`queue`**: the consumer. For each scan ID it runs the scan and, for scheduled scans, emails
   the organization's owners. A message shaped `{ audit_id, prompt_index }` is one prompt of a
   shareable audit instead (see "Shareable audits"). A message shaped
   `{ price_change_id, organization_id, step }` is one step of a price change for one organization
-  (see "Price changes").
+  (see "Price changes"). A message shaped `{ limit_change_id, organization_id, step }` is one step of
+  a reduction for one organization (see "Reductions in limits").
 
 ## How a scan runs
 
@@ -500,7 +503,10 @@ and `PUT /api/operator/plans/:key` calls `operator_set_plan()`. That function an
 operator, changes a plan's name, on-sale flag, limits and emailed report (not its prices or included
 locations), records it in `operator_actions` with no organization, and in the same transaction
 re-applies the plan through `apply_plan()` to every organization on it, each keeping its own
-`max_locations`. An organization with no `plan_key` is untouched. It refuses to take the free plan
+`max_locations`. That reaches every organization at once for a raise, and for any change on a plan
+nobody pays for. On a plan with subscribers it refuses to lower anything and holds the fields an
+open announcement lowers where they are (see "Reductions in limits"); a cut to the free plan also
+writes an already completed `limit_changes` row. An organization with no `plan_key` is untouched. It refuses to take the free plan
 off sale, because `create_organization()` puts every new organization on it: the API answers 409
 `limit_reached` with the reason.
 
@@ -520,6 +526,18 @@ queue message per organization per step (announce, remind, call off, move) is ha
 `runPriceChangeStep`, the one place that changes what a running subscription is billed, and it moves a
 subscription to a higher price only when its owners were sent the announcement at least thirty days
 before. See `docs/adr/0008-a-price-change-reaches-subscribers-by-announcement.md`.
+
+**Reductions in limits.** On a plan with subscribers, `PUT /api/operator/plans/:key` saves the raises,
+the name and the on-sale flag at once and announces what goes down for `reduce_on`, at least thirty
+days out, through `operator_announce_limit_change()`. `operator_call_off_limit_change()` calls it off.
+Both answer only the operator and record the change in `operator_actions`. `limit_changes` (readable by
+anyone signed in) and `limit_change_notices` (readable by the operator) have no API role that writes
+them; the Worker writes notices. A queue message per organization per step (announce, remind, call
+off) is handled by `runLimitChangeStep`, which emails the owners. On the day `advanceLimitChanges`
+calls `apply_limit_change()`, which answers only the worker and lowers the plan and every
+organization on it together, told or not. An organization whose email failed is shown to the operator
+by name. Without `RESEND_API_KEY` a reduction on a paid plan cannot be announced. See
+`docs/adr/0009-a-reduction-is-announced-like-a-price-rise.md`.
 
 **The operator makes an audit the same way.** `POST /api/operator/audits` checks the body against
 `AuditInputSchema`, refuses with 409 where scans return sample data, and calls

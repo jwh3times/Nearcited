@@ -1,5 +1,6 @@
 import {
   BillingRedirectSchema,
+  type LimitChangeMessage,
   OperatorPlanSchema,
   type Organization,
   OrganizationAccountSchema,
@@ -42,7 +43,7 @@ let cardDeclines: boolean;
 /** The prices the stand-in provider was asked to make. */
 let made: { like: string | null; product_name: string; cents: number }[];
 /** The price change steps put on the queue. */
-let steps: PriceChangeMessage[];
+let steps: (PriceChangeMessage | LimitChangeMessage)[];
 
 /** A provider whose webhook body is just the subscription's ID, signed with the word "signed". */
 const payments: Payments = {
@@ -191,7 +192,7 @@ beforeEach(() => {
     APP_URL: "https://app.example",
     RESEND_API_KEY: "re_test",
     SCAN_QUEUE: {
-      sendBatch: async (messages: { body: PriceChangeMessage }[]) => {
+      sendBatch: async (messages: { body: PriceChangeMessage | LimitChangeMessage }[]) => {
         steps.push(...messages.map((message) => message.body));
       },
     },
@@ -343,6 +344,7 @@ describe("an organization's account", () => {
     const organization = await organizationFor(alice);
     expect(await account(alice, organization.id)).toEqual({
       manual_scans_used: 0,
+      limit_change: null,
       billing: {
         available: true,
         subscribed: false,
@@ -389,6 +391,7 @@ describe("an organization's account", () => {
     for (const user of [member, operator]) {
       expect(await account(user, organization.id), user).toEqual({
         manual_scans_used: 0,
+        limit_change: null,
         billing: null,
       });
     }
@@ -1102,5 +1105,210 @@ describe("announcing a price change", () => {
     expect(noEmail.status).toBe(503);
     expect(db.priceChanges).toEqual([]);
     expect(steps).toEqual([]);
+  });
+});
+
+describe("lowering what a plan allows", () => {
+  const DAY = 86_400_000;
+  const dayFrom = (days: number) => new Date(Date.now() + days * DAY).toISOString().slice(0, 10);
+  /** Standard as the tests set it up, to send back with something changed. */
+  const asIs = {
+    name: "standard",
+    on_sale: true,
+    max_queries_per_location: 4,
+    assistants: 2,
+    scan_every_days: 14,
+    max_manual_scans_per_month: 2,
+    emails_report: true,
+  };
+  const save = (user: string | null, key: string, body: unknown) =>
+    call(user, "PUT", `/operator/plans/${key}`, body);
+  const standard = () => db.plans.find((row) => row.key === "standard");
+
+  /** Alice subscribes to Standard; Bob is the operator. */
+  async function subscribed() {
+    const organization = await organizationFor(alice);
+    atProvider.set("sub_1", subscription(organization.id));
+    await webhook("sub_1");
+    db.operators.add(bob);
+    return organization;
+  }
+
+  it("is refused on a plan somebody pays for, until a day is given", async () => {
+    const organization = await subscribed();
+    const response = await save(bob, "standard", { ...asIs, max_queries_per_location: 2 });
+    expect(response.status).toBe(409);
+    expect(await errorCode(response)).toBe("needs_notice");
+    expect(standard()?.max_queries_per_location).toBe(4);
+    expect(current(organization.id)?.max_queries_per_location).toBe(4);
+    expect(steps).toEqual([]);
+  });
+
+  it("announces the reduction for the day, tells everyone on the plan, and changes nothing yet", async () => {
+    const organization = await subscribed();
+    const response = await save(bob, "standard", {
+      ...asIs,
+      max_queries_per_location: 2,
+      emails_report: false,
+      reduce_on: dayFrom(40),
+    });
+    expect(response.status).toBe(200);
+    expect(standard()).toMatchObject({ max_queries_per_location: 4, emails_report: true });
+    expect(db.limitChanges).toMatchObject([
+      {
+        plan_key: "standard",
+        lowered: {
+          max_queries_per_location: { from: 4, to: 2 },
+          emails_report: { from: true, to: false },
+        },
+        effective_at: `${dayFrom(40)}T00:00:00.000Z`,
+        completed_at: null,
+      },
+    ]);
+    expect(steps).toEqual([
+      {
+        limit_change_id: db.limitChanges[0]?.id,
+        organization_id: organization.id,
+        step: "announce",
+      },
+    ]);
+  });
+
+  it("saves what goes up, and the name, at once, and holds back only what goes down", async () => {
+    const organization = await subscribed();
+    await save(bob, "standard", {
+      ...asIs,
+      name: "Standard Plus",
+      max_queries_per_location: 2,
+      max_manual_scans_per_month: 9,
+      reduce_on: dayFrom(40),
+    });
+    expect(standard()).toMatchObject({
+      name: "Standard Plus",
+      max_manual_scans_per_month: 9,
+      max_queries_per_location: 4,
+    });
+    expect(current(organization.id)).toMatchObject({
+      max_manual_scans_per_month: 9,
+      max_queries_per_location: 4,
+    });
+    expect(Object.keys(db.limitChanges[0]?.lowered ?? {})).toEqual(["max_queries_per_location"]);
+  });
+
+  it("refuses a day less than thirty days away, and saves nothing else either", async () => {
+    await subscribed();
+    const response = await save(bob, "standard", {
+      ...asIs,
+      name: "Renamed",
+      max_queries_per_location: 2,
+      reduce_on: dayFrom(20),
+    });
+    expect(response.status).toBe(409);
+    expect(await errorCode(response)).toBe("limit_reached");
+    expect(standard()?.name).toBe("standard");
+    expect(db.limitChanges).toEqual([]);
+  });
+
+  it("holds what is going down where it is until the day, and leaves the rest editable", async () => {
+    await subscribed();
+    await save(bob, "standard", { ...asIs, max_queries_per_location: 2, reduce_on: dayFrom(40) });
+    const raised = await save(bob, "standard", { ...asIs, max_queries_per_location: 8 });
+    expect(raised.status).toBe(409);
+    expect(standard()?.max_queries_per_location).toBe(4);
+    const other = await save(bob, "standard", { ...asIs, max_manual_scans_per_month: 5 });
+    expect(other.status).toBe(200);
+    expect(standard()?.max_manual_scans_per_month).toBe(5);
+  });
+
+  it("shows the operator who has been told and who has not, and everyone in the organization what is coming", async () => {
+    const organization = await subscribed();
+    await save(bob, "standard", { ...asIs, max_queries_per_location: 2, reduce_on: dayFrom(40) });
+    const plans = async () =>
+      OperatorPlanSchema.array()
+        .parse(await (await call(bob, "GET", "/operator/plans")).json())
+        .find((row) => row.key === "standard")?.limit_change;
+    expect(await plans()).toMatchObject({ told: 0, not_told: ["Raleigh Pizza Group"] });
+    await memoryStore(db, null).recordLimitChangeNotice(
+      db.limitChanges[0]?.id ?? "",
+      organization.id,
+      { announced_at: new Date().toISOString() },
+    );
+    expect(await plans()).toMatchObject({ told: 1, not_told: [] });
+
+    const account = OrganizationAccountSchema.parse(
+      await (await call(alice, "GET", `/organizations/${organization.id}/account`)).json(),
+    );
+    expect(account.limit_change).toEqual({
+      lowered: { max_queries_per_location: { from: 4, to: 2 } },
+      at: `${dayFrom(40)}T00:00:00.000Z`,
+    });
+  });
+
+  it("can be called off before the day, telling everyone who was told", async () => {
+    const organization = await subscribed();
+    await save(bob, "standard", { ...asIs, max_queries_per_location: 2, reduce_on: dayFrom(40) });
+    const id = db.limitChanges[0]?.id ?? "";
+    await memoryStore(db, null).recordLimitChangeNotice(id, organization.id, {
+      announced_at: new Date().toISOString(),
+    });
+    steps = [];
+    const response = await call(bob, "DELETE", "/operator/plans/standard/limit-change");
+    expect(response.status).toBe(200);
+    expect(steps).toEqual([
+      { limit_change_id: id, organization_id: organization.id, step: "call_off" },
+    ]);
+    expect((await call(bob, "DELETE", "/operator/plans/standard/limit-change")).status).toBe(404);
+    expect((await call(alice, "DELETE", "/operator/plans/standard/limit-change")).status).toBe(404);
+  });
+
+  it("is made at once on a plan nobody pays for, with no email", async () => {
+    const organization = await organizationFor(alice);
+    await memoryStore(db, null).applyPlan(organization.id, "standard");
+    db.operators.add(bob);
+    const response = await save(bob, "standard", { ...asIs, max_queries_per_location: 2 });
+    expect(response.status).toBe(200);
+    expect(current(organization.id)?.max_queries_per_location).toBe(2);
+    expect(db.limitChanges).toEqual([]);
+    expect(steps).toEqual([]);
+  });
+
+  it("is made at once on the free plan, and each organization on it is told that day", async () => {
+    const organization = await organizationFor(alice);
+    db.operators.add(bob);
+    const free = db.plans.find((row) => row.key === "free");
+    const response = await save(bob, "free", {
+      name: "free",
+      on_sale: true,
+      max_queries_per_location: 1,
+      assistants: free?.assistants,
+      scan_every_days: free?.scan_every_days,
+      max_manual_scans_per_month: free?.max_manual_scans_per_month,
+      emails_report: free?.emails_report,
+    });
+    expect(response.status).toBe(200);
+    expect(current(organization.id)?.max_queries_per_location).toBe(1);
+    expect(db.limitChanges).toMatchObject([
+      { plan_key: "free", lowered: { max_queries_per_location: { to: 1 } } },
+    ]);
+    expect(db.limitChanges[0]?.completed_at).not.toBeNull();
+    expect(steps).toEqual([
+      {
+        limit_change_id: db.limitChanges[0]?.id,
+        organization_id: organization.id,
+        step: "announce",
+      },
+    ]);
+  });
+
+  it("needs outgoing email to announce, and saves nothing without it", async () => {
+    await subscribed();
+    env = { ...env, RESEND_API_KEY: undefined } as unknown as Env;
+    const response = await save(bob, "standard", {
+      ...asIs,
+      max_queries_per_location: 2,
+      reduce_on: dayFrom(40),
+    });
+    expect(response.status).toBe(503);
+    expect(db.limitChanges).toEqual([]);
   });
 });

@@ -42,6 +42,9 @@ system works; this file only settles vocabulary.
 - **Price change**: an announcement, for one plan, that its current subscribers will move to its
   present price version from a named day. It is not setting a plan's price, which affects only new
   subscribers. See `docs/adr/0008-a-price-change-reaches-subscribers-by-announcement.md`.
+- **Reduction**: a lower limit on a plan somebody pays for, or a report that stops. It is
+  announced for a day at least thirty days out and made for the whole plan on that day, not at once
+  as a raise is. See `docs/adr/0009-a-reduction-is-announced-like-a-price-rise.md`.
 - **Included location**: a location a plan's price covers. An **extra location** is one beyond
   those, paid for separately.
 - **Paused location**: a location its organization's plan no longer covers. It is not scanned and

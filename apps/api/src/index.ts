@@ -1,6 +1,8 @@
 import {
   type AuditMessage,
   AuditMessageSchema,
+  type LimitChangeMessage,
+  LimitChangeMessageSchema,
   type PriceChangeMessage,
   PriceChangeMessageSchema,
   type ScanMessage,
@@ -9,6 +11,7 @@ import {
 import { createApp } from "./app";
 import { runAuditPart } from "./audits/runner";
 import { authenticateWithSupabase } from "./auth";
+import { advanceLimitChanges, runLimitChangeStep } from "./billing/limit-change";
 import { advancePriceChanges, runPriceChangeStep } from "./billing/price-change";
 import { createStripePayments } from "./billing/stripe";
 import { buildScanReportEmail, sendEmail } from "./email/report";
@@ -56,6 +59,8 @@ export default {
     console.log(`Queued ${queued} scheduled scans`);
     const steps = await advancePriceChanges(store, env.SCAN_QUEUE);
     if (steps > 0) console.log(`Queued ${steps} price change steps`);
+    const reductions = await advanceLimitChanges(store, env.SCAN_QUEUE);
+    if (reductions > 0) console.log(`Made ${reductions} announced reductions`);
   },
 
   /** Queue consumer: run each scan, and email its report if it was a scheduled one. */
@@ -114,6 +119,31 @@ export default {
         continue;
       }
 
+      const limitChange = LimitChangeMessageSchema.safeParse(message.body);
+      if (limitChange.success) {
+        const { limit_change_id, organization_id, step } = limitChange.data;
+        const what = `Reduction ${limit_change_id} ${step} for ${organization_id}`;
+        // Telling people is all this does, so without email it waits for the dead-letter queue.
+        if (!env.RESEND_API_KEY) {
+          console.error(`${what} cannot run: outgoing email is not set up`);
+          message.retry();
+          continue;
+        }
+        try {
+          const outcome = await runLimitChangeStep(limitChange.data, {
+            store,
+            send: (to, email) => sendEmail(env, to, email),
+            appUrl: env.APP_URL,
+          });
+          console.log(`${what}: ${outcome}`);
+          message.ack();
+        } catch (error) {
+          console.error(`${what} failed, will retry`, error);
+          message.retry();
+        }
+        continue;
+      }
+
       const parsed = ScanMessageSchema.safeParse(message.body);
       if (!parsed.success) {
         console.error("Dropping malformed scan message", message.body);
@@ -146,4 +176,7 @@ export default {
       }
     }
   },
-} satisfies ExportedHandler<Env, ScanMessage | AuditMessage | PriceChangeMessage>;
+} satisfies ExportedHandler<
+  Env,
+  ScanMessage | AuditMessage | PriceChangeMessage | LimitChangeMessage
+>;

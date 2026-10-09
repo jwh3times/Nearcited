@@ -81,7 +81,7 @@ test("lets a subscriber change plan and locations, saying what it costs before i
   };
   const asked: unknown[] = [];
   await page.route("**/api/organizations/*/account", (route) =>
-    route.fulfill({ json: { manual_scans_used: 0, billing } }),
+    route.fulfill({ json: { manual_scans_used: 0, limit_change: null, billing } }),
   );
   await page.route("**/api/organizations/*/subscription/preview", (route) => {
     const input = route.request().postDataJSON() as { plan_key: string; locations: number };

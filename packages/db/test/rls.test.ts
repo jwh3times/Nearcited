@@ -2422,6 +2422,205 @@ describe("the operator", () => {
     });
   });
 
+  describe("lowering what a plan allows", () => {
+    // Standard allows 10 prompts, 2 assistants, a scan every 2 days, 10 by hand and a report.
+    const lower = (days: number) =>
+      `select * from public.operator_announce_limit_change('standard', 5, 2, 7, 100, true, now() + interval '${days} days')`;
+    const setStandard = (prompts: number, byHand = 10) =>
+      `select * from public.operator_set_plan('standard', 'Standard', true, ${prompts}, 2, 2, ${byHand}, true)`;
+    const callOff = "select * from public.operator_call_off_limit_change('standard')";
+    const standard = () =>
+      rows<Record<string, unknown>>(
+        "select max_queries_per_location, scan_every_days, max_manual_scans_per_month from public.plans where key = 'standard'",
+      );
+    const theirLimits = () =>
+      rows<Record<string, unknown>>(
+        "select max_queries_per_location, scan_every_days from public.organizations where id = $1",
+        [theirs],
+      );
+    let changeId: string;
+
+    beforeAll(async () => {
+      // A customer who pays for Standard.
+      await db.query("select public.apply_plan($1, 'standard')", [theirs]);
+      await db.query(
+        "update public.subscriptions set stripe_subscription_id = 'sub_paying' where organization_id = $1",
+        [theirs],
+      );
+    });
+    afterAll(async () => {
+      await db.query("delete from public.limit_changes");
+      await db.query(
+        "update public.subscriptions set stripe_subscription_id = null where organization_id = $1",
+        [theirs],
+      );
+      await db.query(
+        "update public.plans set max_queries_per_location = 10, scan_every_days = 2, max_manual_scans_per_month = 10 where key = 'standard'",
+      );
+      await db.query("update public.plans set max_queries_per_location = 2 where key = 'free'");
+      await db.query("update public.organizations set plan_key = null where id = $1", [theirs]);
+      await db.query(
+        "delete from public.operator_actions where action in ('set_plan', 'announce_limit_change', 'call_off_limit_change')",
+      );
+    });
+
+    it("cannot be done on the spot where somebody pays, though raising still can", async () => {
+      await expect(as("authenticated", operator, () => db.query(setStandard(5)))).rejects.toThrow(
+        /only be lowered with 30 days/,
+      );
+      expect(await standard()).toMatchObject([{ max_queries_per_location: 10 }]);
+
+      await as("authenticated", operator, () => db.query(setStandard(10, 12)));
+      expect(await standard()).toMatchObject([{ max_manual_scans_per_month: 12 }]);
+    });
+
+    it("is announced by the operator alone, for a day at least thirty days out", async () => {
+      for (const user of [alice, bob]) {
+        expect(await as("authenticated", user, () => rows(lower(45))), user).toEqual([]);
+        expect(await as("authenticated", user, () => rows(callOff)), user).toEqual([]);
+      }
+      await expect(as("anon", null, () => db.query(lower(45)))).rejects.toThrow(
+        /permission denied/,
+      );
+      await expect(as("authenticated", operator, () => db.query(lower(29)))).rejects.toThrow(
+        /at least 30 days/,
+      );
+      await expect(
+        as("authenticated", operator, () =>
+          db.query(
+            "select * from public.operator_announce_limit_change('standard', 10, 2, 2, 100, true, now() + interval '45 days')",
+          ),
+        ),
+      ).rejects.toThrow(/Nothing here is lower/);
+      expect(await rows("select 1 from public.limit_changes")).toEqual([]);
+    });
+
+    it("keeps only what goes down, with what it was, and changes nothing until the day", async () => {
+      const [change] = await as("authenticated", operator, () =>
+        rows<{ id: string; lowered: Record<string, unknown> }>(lower(45)),
+      );
+      changeId = change?.id ?? "";
+      expect(change?.lowered).toEqual({
+        max_queries_per_location: { from: 10, to: 5 },
+        scan_every_days: { from: 2, to: 7 },
+      });
+      expect(await standard()).toMatchObject([
+        { max_queries_per_location: 10, scan_every_days: 2 },
+      ]);
+      expect(await theirLimits()).toEqual([{ max_queries_per_location: 10, scan_every_days: 2 }]);
+      const [recorded] = await rows<{ actor_id: string; detail: unknown }>(
+        "select actor_id, detail from public.operator_actions where action = 'announce_limit_change'",
+      );
+      expect(recorded).toMatchObject({ actor_id: operator, detail: { plan: "standard" } });
+    });
+
+    it("holds what it lowers where it is, allows one at a time, and leaves the rest editable", async () => {
+      await expect(
+        as("authenticated", operator, () => db.query(setStandard(12, 12))),
+      ).rejects.toThrow(/A reduction has been announced/);
+      await expect(as("authenticated", operator, () => db.query(lower(60)))).rejects.toThrow(
+        /limit_changes_one_open|duplicate key/,
+      );
+      await as("authenticated", operator, () => db.query(setStandard(10, 15)));
+      expect(await standard()).toMatchObject([{ max_manual_scans_per_month: 15 }]);
+    });
+
+    it("is read by anyone signed in; who was told is the operator's; nobody writes either", async () => {
+      await db.query(
+        "insert into public.limit_change_notices (limit_change_id, organization_id, announced_at) values ($1, $2, now())",
+        [changeId, theirs],
+      );
+      const changes = "select id from public.limit_changes";
+      const notices = "select organization_id from public.limit_change_notices";
+      expect(await as("authenticated", alice, () => rows(changes))).toHaveLength(1);
+      await expect(as("anon", null, () => db.query(changes))).rejects.toThrow(/permission denied/);
+      expect(await as("authenticated", alice, () => rows(notices))).toEqual([]);
+      expect(await as("authenticated", operator, () => rows(notices))).toHaveLength(1);
+      for (const sql of [
+        "update public.limit_changes set effective_at = now()",
+        "delete from public.limit_changes",
+        "update public.limit_change_notices set announced_at = now() - interval '90 days'",
+        'insert into public.limit_changes (plan_key, lowered, effective_at) values (\'standard\', \'{"assistants": {"from": 2, "to": 1}}\', now())',
+      ]) {
+        for (const user of [alice, operator]) {
+          await expect(
+            as("authenticated", user, () => db.query(sql)),
+            sql,
+          ).rejects.toThrow(/permission denied/);
+        }
+      }
+    });
+
+    it("is not made before its day, and cannot be made by anyone but the worker", async () => {
+      const apply = "select public.apply_limit_change($1) as made";
+      for (const user of [alice, operator]) {
+        await expect(as("authenticated", user, () => db.query(apply, [changeId]))).rejects.toThrow(
+          /permission denied/,
+        );
+      }
+      const [early] = await as("service_role", null, () =>
+        rows<{ made: boolean }>(apply, [changeId]),
+      );
+      expect(early?.made).toBe(false);
+      expect(await theirLimits()).toEqual([{ max_queries_per_location: 10, scan_every_days: 2 }]);
+    });
+
+    it("can be called off before its day, and then is never made", async () => {
+      const [off] = await as("authenticated", operator, () =>
+        rows<{ called_off_at: string | null }>(callOff),
+      );
+      expect(off?.called_off_at).not.toBeNull();
+      expect(await as("authenticated", operator, () => rows(callOff))).toEqual([]);
+      await db.query("update public.limit_changes set effective_at = now() - interval '1 hour'");
+      const [late] = await as("service_role", null, () =>
+        rows<{ made: boolean }>("select public.apply_limit_change($1) as made", [changeId]),
+      );
+      expect(late?.made).toBe(false);
+      expect(await standard()).toMatchObject([{ max_queries_per_location: 10 }]);
+    });
+
+    it("is made on its day for the plan and everyone on it, once, leaving the rest as it was", async () => {
+      const [again] = await as("authenticated", operator, () => rows<{ id: string }>(lower(45)));
+      await db.query(
+        "update public.limit_changes set effective_at = now() - interval '1 hour' where id = $1",
+        [again?.id],
+      );
+      // Its day has come, so it can no longer be called off.
+      expect(await as("authenticated", operator, () => rows(callOff))).toEqual([]);
+
+      const apply = () =>
+        as("service_role", null, () =>
+          rows<{ made: boolean }>("select public.apply_limit_change($1) as made", [again?.id]),
+        );
+      expect((await apply())[0]?.made).toBe(true);
+      expect(await standard()).toEqual([
+        { max_queries_per_location: 5, scan_every_days: 7, max_manual_scans_per_month: 15 },
+      ]);
+      expect(await theirLimits()).toEqual([{ max_queries_per_location: 5, scan_every_days: 7 }]);
+      expect((await apply())[0]?.made).toBe(false);
+      // Made, the plan can be changed again.
+      expect(
+        await rows(
+          "select 1 from public.limit_changes where called_off_at is null and completed_at is null",
+        ),
+      ).toEqual([]);
+    });
+
+    it("is made at once on the free plan, and kept so its organizations can be told", async () => {
+      await as("authenticated", operator, () =>
+        db.query(
+          "select * from public.operator_set_plan('free', 'Free', true, 1, 1, 14, 0, false)",
+        ),
+      );
+      const made = await rows<{ lowered: unknown; done: boolean }>(
+        "select lowered, completed_at is not null as done from public.limit_changes where plan_key = 'free'",
+      );
+      expect(made).toEqual([
+        { lowered: { max_queries_per_location: { from: 2, to: 1 } }, done: true },
+      ]);
+    });
+  });
+
   describe("changing an organization's limits", () => {
     const setLimits = "select * from public.operator_set_limits($1, 3, 20, 10, 1)";
     const limits = (id: string) =>

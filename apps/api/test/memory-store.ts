@@ -1,6 +1,8 @@
 import type {
   AuditJob,
   AuditPart,
+  LimitChange,
+  LimitChangeNotice,
   Location,
   Organization,
   Plan,
@@ -14,6 +16,7 @@ import type {
   TrackedQuery,
   UsageByMonth,
 } from "@nearcited/shared";
+import { reductions } from "@nearcited/shared";
 import {
   type PriceVersion,
   type Store,
@@ -61,6 +64,8 @@ export interface MemoryDb {
   planPrices: Map<string, { base: string | null; extra: string | null }>;
   /** What the announcement functions take as the present moment, when a test sets one. */
   now?: string;
+  limitChanges: LimitChange[];
+  limitChangeNotices: LimitChangeNotice[];
   priceChanges: PriceChange[];
   priceChangeNotices: PriceChangeNotice[];
   /** Prices a plan was sold at before its present ones, newest first. */
@@ -106,6 +111,8 @@ export function createMemoryDb(): MemoryDb {
     planPrices: new Map(),
     pastPrices: [],
     priceChanges: [],
+    limitChanges: [],
+    limitChangeNotices: [],
     priceChangeNotices: [],
     subscriptions: new Map(),
   };
@@ -325,6 +332,32 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
       if (key === "free" && !settings.on_sale) {
         throw new StoreError("limit", "The free plan stays on sale.");
       }
+      // As the database function has it: no reduction on the spot where somebody pays, and
+      // nothing an open announcement is going to lower may move meanwhile.
+      const lowered = reductions(plan, settings);
+      const down = Object.keys(lowered).length > 0;
+      const paid = (await memoryStore(db, null).listPlanSubscribers(key)).length > 0;
+      if (down && key !== "free" && paid) {
+        throw new StoreError("limit", "What this plan allows can only be lowered with notice.");
+      }
+      const open = await this.getOpenLimitChange(key);
+      const held = (Object.keys(open?.lowered ?? {}) as (keyof typeof lowered)[]).some(
+        (field) => settings[field] !== plan[field],
+      );
+      if (held) throw new StoreError("limit", "A reduction has been announced for this plan.");
+      if (down && key === "free") {
+        const at = db.now ?? new Date().toISOString();
+        db.limitChanges.push({
+          id: crypto.randomUUID(),
+          plan_key: key,
+          lowered,
+          effective_at: at,
+          announced_at: at,
+          reminded_at: null,
+          called_off_at: null,
+          completed_at: at,
+        });
+      }
       Object.assign(plan, settings);
       // As the database function does: every organization on the plan takes the new values.
       const worker = memoryStore(db, null);
@@ -462,6 +495,121 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
       const change = db.priceChanges.find((candidate) => candidate.id === id);
       if (change)
         Object.assign(change, what === "reminded" ? { reminded_at: at } : { completed_at: at });
+    },
+
+    async getOpenLimitChange(planKey) {
+      return (
+        db.limitChanges.find(
+          (c) => c.plan_key === planKey && c.called_off_at === null && c.completed_at === null,
+        ) ?? null
+      );
+    },
+
+    async announceLimitChange(planKey, to, effectiveAt) {
+      const plan = db.plans.find((candidate) => candidate.key === planKey);
+      if (!isOperator || !plan) return null;
+      const lowered = reductions(plan, to);
+      if (Object.keys(lowered).length === 0) {
+        throw new StoreError("limit", "Nothing here is lower than what the plan allows now.");
+      }
+      const now = Date.parse(db.now ?? new Date().toISOString());
+      if (Date.parse(effectiveAt) < now + 30 * 86_400_000) {
+        throw new StoreError("limit", "A reduction needs at least 30 days' notice.");
+      }
+      if (await this.getOpenLimitChange(planKey)) {
+        throw new StoreError("conflict", "limit_changes_one_open");
+      }
+      const change: LimitChange = {
+        id: crypto.randomUUID(),
+        plan_key: planKey,
+        lowered,
+        effective_at: effectiveAt,
+        announced_at: new Date(now).toISOString(),
+        reminded_at: null,
+        called_off_at: null,
+        completed_at: null,
+      };
+      db.limitChanges.push(change);
+      return change;
+    },
+
+    async callOffLimitChange(planKey) {
+      const change = await this.getOpenLimitChange(planKey);
+      const now = db.now ?? new Date().toISOString();
+      if (!isOperator || !change || Date.parse(change.effective_at) <= Date.parse(now)) return null;
+      return Object.assign(change, { called_off_at: now });
+    },
+
+    async listPlanOrganizations(planKey) {
+      return db.organizations
+        .filter((o) => o.plan_key === planKey && !o.is_test && readsOrg(o.id))
+        .map((organization) => organization.id);
+    },
+
+    async listOpenLimitChanges() {
+      return db.limitChanges.filter((c) => c.called_off_at === null && c.completed_at === null);
+    },
+
+    async getLatestMadeLimitChange(planKey) {
+      return (
+        db.limitChanges.findLast((c) => c.plan_key === planKey && c.completed_at !== null) ?? null
+      );
+    },
+
+    async listLimitChangeNotices(limitChangeId) {
+      if (userId !== null && !isOperator) return [];
+      return db.limitChangeNotices.filter((notice) => notice.limit_change_id === limitChangeId);
+    },
+
+    async getLimitChange(id) {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      return db.limitChanges.find((change) => change.id === id) ?? null;
+    },
+
+    async recordLimitChangeNotice(limitChangeId, organizationId, done) {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      const kept = db.limitChangeNotices.find(
+        (n) => n.limit_change_id === limitChangeId && n.organization_id === organizationId,
+      );
+      if (kept) Object.assign(kept, done);
+      else {
+        db.limitChangeNotices.push({
+          limit_change_id: limitChangeId,
+          organization_id: organizationId,
+          announced_at: null,
+          reminded_at: null,
+          called_off_at: null,
+          ...done,
+        });
+      }
+    },
+
+    async markLimitChangeReminded(id, at) {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      const change = db.limitChanges.find((candidate) => candidate.id === id);
+      if (change) change.reminded_at = at;
+    },
+
+    async applyLimitChange(id) {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      const now = db.now ?? new Date().toISOString();
+      const change = db.limitChanges.find(
+        (c) =>
+          c.id === id &&
+          c.called_off_at === null &&
+          c.completed_at === null &&
+          Date.parse(c.effective_at) <= Date.parse(now),
+      );
+      const plan = db.plans.find((candidate) => candidate.key === change?.plan_key);
+      if (!change || !plan) return false;
+      for (const [field, { to }] of Object.entries(change.lowered)) {
+        Object.assign(plan, { [field]: to });
+      }
+      for (const organization of db.organizations.filter((o) => o.plan_key === plan.key)) {
+        await this.applyPlan(organization.id, plan.key, organization.max_locations);
+      }
+      change.completed_at = now;
+      return true;
     },
 
     async getPlatformRole(id) {

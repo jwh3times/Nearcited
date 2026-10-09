@@ -141,6 +141,36 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
       aliceStore.recordPriceChangeNotice(crypto.randomUUID(), fresh.id, { skipped: "mine" }),
     ).rejects.toMatchObject({ kind: "forbidden" });
     await worker.markPriceChange(crypto.randomUUID(), "completed", new Date().toISOString());
+    // Reductions: anyone signed in may ask whether one is open; announcing and calling off
+    // answer only the operator; who was told is kept by the worker, which alone makes one.
+    const lowerStandard = {
+      max_queries_per_location: 1,
+      assistants: 2,
+      scan_every_days: 2,
+      max_manual_scans_per_month: 10,
+      emails_report: true,
+    };
+    expect(await aliceStore.getOpenLimitChange("standard")).toBeNull();
+    expect(
+      await aliceStore.announceLimitChange("standard", lowerStandard, "2099-01-01T00:00:00.000Z"),
+    ).toBeNull();
+    expect(await aliceStore.callOffLimitChange("standard")).toBeNull();
+    expect(await worker.listOpenLimitChanges()).toEqual([]);
+    expect(await worker.getLatestMadeLimitChange("standard")).toBeNull();
+    expect(await worker.getLimitChange(crypto.randomUUID())).toBeNull();
+    expect(await worker.listPlanOrganizations("standard")).toContain(fresh.id);
+    expect(await bobStore.listPlanOrganizations("standard")).not.toContain(fresh.id);
+    expect(await aliceStore.listLimitChangeNotices(crypto.randomUUID())).toEqual([]);
+    await expect(
+      aliceStore.recordLimitChangeNotice(crypto.randomUUID(), fresh.id, {
+        announced_at: new Date().toISOString(),
+      }),
+    ).rejects.toMatchObject({ kind: "forbidden" });
+    await worker.markLimitChangeReminded(crypto.randomUUID(), new Date().toISOString());
+    expect(await worker.applyLimitChange(crypto.randomUUID())).toBe(false);
+    await expect(aliceStore.applyLimitChange(crypto.randomUUID())).rejects.toMatchObject({
+      kind: "forbidden",
+    });
     expect(await aliceStore.getManualScansUsed(fresh.id)).toBe(0);
     expect(await bobStore.getManualScansUsed(fresh.id)).toBeNull();
     expect(await worker.getSubscription(fresh.id)).toBeNull();

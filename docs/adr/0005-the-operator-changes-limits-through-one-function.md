@@ -51,4 +51,7 @@ a platform role are still set only with the secret key.
 - Announcing a price change and calling it off follow the same shape (October 2026):
   `operator_announce_price_change` and `operator_call_off_price_change` answer only the operator and
   record the change.
+- Announcing a reduction in a plan's limits and calling it off follow the same shape (October
+  2026): `operator_announce_limit_change` and `operator_call_off_limit_change` answer only the
+  operator and record the change.
 - The record covers changes, not reading. 0004's note about an access log still stands.

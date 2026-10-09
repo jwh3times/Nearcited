@@ -1,10 +1,18 @@
-import type { AuditMessage, PriceChangeMessage, ScanMessage } from "@nearcited/shared";
+import type {
+  AuditMessage,
+  LimitChangeMessage,
+  PriceChangeMessage,
+  ScanMessage,
+} from "@nearcited/shared";
 
 /** Bindings and variables from wrangler.jsonc, plus secrets set with `wrangler secret put`. */
 export interface Env {
   ASSETS: Fetcher;
-  /** Carries scans, the prompts of shareable audits, and the steps of a price change. */
-  SCAN_QUEUE: Queue<ScanMessage | AuditMessage | PriceChangeMessage>;
+  /**
+   * Carries scans, the prompts of shareable audits, and the steps of a price change or of a
+   * reduction in what a plan allows.
+   */
+  SCAN_QUEUE: Queue<ScanMessage | AuditMessage | PriceChangeMessage | LimitChangeMessage>;
 
   SUPABASE_URL: string;
   /** Safe to expose. Used with the caller's own token, so row-level security applies. */

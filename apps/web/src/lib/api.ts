@@ -4,6 +4,7 @@ import {
   type AuditFormValues,
   BillingRedirectSchema,
   type CheckoutInput,
+  LimitChangeSchema,
   type LocationDetail,
   LocationDetailSchema,
   type LocationFormValues,
@@ -17,6 +18,7 @@ import {
   OrganizationAccountSchema,
   type OrganizationLimits,
   OrganizationSchema,
+  type PlanChangeInput,
   PlanImpactSchema,
   type PlanPricesInput,
   PlanSchema,
@@ -99,8 +101,11 @@ export const api = {
   planImpact: (key: string, settings: PlanSettings) =>
     json(PlanImpactSchema, "POST", `/operator/plans/${key}/impact`, settings),
   /** Changes what a plan allows, for every organization on it at once. */
-  setPlan: (key: string, settings: PlanSettings) =>
-    json(PlanSchema, "PUT", `/operator/plans/${key}`, settings),
+  setPlan: (key: string, change: PlanChangeInput) =>
+    json(PlanSchema, "PUT", `/operator/plans/${key}`, change),
+  /** Calls off a plan's announced reduction, and tells everyone who was told. */
+  callOffLimitChange: (key: string) =>
+    json(LimitChangeSchema, "DELETE", `/operator/plans/${key}/limit-change`),
   /** Sets what a new subscriber pays for a plan. Current subscribers keep their price. */
   setPlanPrices: (key: string, prices: PlanPricesInput) =>
     json(PlanSchema, "PUT", `/operator/plans/${key}/prices`, prices),
