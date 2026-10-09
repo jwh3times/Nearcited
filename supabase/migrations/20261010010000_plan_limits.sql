@@ -32,7 +32,11 @@ from (
 ) first
 where first.organization_id = o.id;
 
-alter table public.organizations drop column max_manual_scans_per_day;
+-- The old column stays for now, unread: the Worker that is running while this migration is
+-- applied still selects it, and dropping it would fail every request until the next deploy. A
+-- later migration drops it.
+comment on column public.organizations.max_manual_scans_per_day is
+  'No longer read. Replaced by max_manual_scans_per_month; to be dropped.';
 
 -- Counts this calendar month's scans by hand, in UTC. An organization's first scan ever is let
 -- through whatever its plan allows and is not counted: it is how a new account sees the product
