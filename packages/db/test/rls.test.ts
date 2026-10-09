@@ -926,6 +926,150 @@ describe("usage caps", () => {
     await db.query("delete from public.organizations where id = $1", [org?.id]);
   });
 
+  describe("cannot be got around", () => {
+    const gina = "ab000000-0000-4000-8000-00000000ab02";
+    const asGina = <T>(sql: string, params: unknown[] = []) =>
+      as("authenticated", gina, () => rows<T>(sql, params));
+    let org = "";
+    let first = "";
+
+    beforeAll(async () => {
+      await db.query("insert into auth.users (id, email) values ($1, 'gina@example.com')", [gina]);
+      org =
+        (await asGina<{ id: string }>("select id from public.create_organization('Gina''s')"))[0]
+          ?.id ?? "";
+      first =
+        (
+          await asGina<{ id: string }>(
+            "insert into public.locations (organization_id, name, city) values ($1, 'First', 'Raleigh') returning id",
+            [org],
+          )
+        )[0]?.id ?? "";
+    });
+
+    it("by making a second organization, which would be a second free plan", async () => {
+      await expect(asGina("select id from public.create_organization('Another')")).rejects.toThrow(
+        /already has an organization/,
+      );
+      // Belonging to someone else's counts too: an account has one organization, not one of its own.
+      const guest = "ab000000-0000-4000-8000-00000000ab03";
+      await db.query("insert into auth.users (id, email) values ($1, 'guest@example.com')", [
+        guest,
+      ]);
+      await db.query(
+        "insert into public.memberships (organization_id, user_id, role) values ($1, $2, 'member')",
+        [org, guest],
+      );
+      await expect(
+        as("authenticated", guest, () => db.query("select public.create_organization('Mine')")),
+      ).rejects.toThrow(/already has an organization/);
+      expect(
+        await rows("select count(*)::int as n from public.memberships where user_id in ($1, $2)", [
+          gina,
+          guest,
+        ]),
+      ).toEqual([{ n: 2 }]);
+    });
+
+    it("except by the operator and a test account, who may have several", async () => {
+      for (const [user, role] of [
+        ["ab000000-0000-4000-8000-00000000ab04", "operator"],
+        ["ab000000-0000-4000-8000-00000000ab05", "test"],
+      ] as const) {
+        await db.query("insert into auth.users (id, email) values ($1, $2)", [
+          user,
+          `${role}2@example.com`,
+        ]);
+        await db.query("insert into public.platform_roles (user_id, role) values ($1, $2)", [
+          user,
+          role,
+        ]);
+        const made = [];
+        for (const name of ["One", "Two"]) {
+          made.push(
+            ...(await as("authenticated", user, () =>
+              rows<{ is_test: boolean; plan_key: string | null }>(
+                "select is_test, plan_key from public.create_organization($1)",
+                [name],
+              ),
+            )),
+          );
+        }
+        // The operator's are ordinary organizations on the free plan. A test account's are test ones.
+        expect(made, role).toEqual(
+          role === "test"
+            ? [
+                { is_test: true, plan_key: null },
+                { is_test: true, plan_key: null },
+              ]
+            : [
+                { is_test: false, plan_key: "free" },
+                { is_test: false, plan_key: "free" },
+              ],
+        );
+        await db.query("delete from public.organizations where created_by = $1", [user]);
+        await db.query("delete from public.platform_roles where user_id = $1", [user]);
+      }
+    });
+
+    it("by deleting the organization to start again", async () => {
+      await expect(asGina("delete from public.organizations where id = $1", [org])).rejects.toThrow(
+        /permission denied/,
+      );
+      expect(
+        await rows("select count(*)::int as n from public.organizations where id = $1", [org]),
+      ).toEqual([{ n: 1 }]);
+    });
+
+    it("by moving a location into an organization, or a prompt onto a location", async () => {
+      // Another organization she belongs to, as a member invited to it would.
+      await db.query(
+        "insert into public.memberships (organization_id, user_id, role) values ($1, $2, 'member')",
+        [orgId, gina],
+      );
+      const [theirs] = await rows<{ id: string }>(
+        "select id from public.locations where organization_id = $1 limit 1",
+        [orgId],
+      );
+      await expect(
+        asGina("update public.locations set organization_id = $1 where id = $2", [org, theirs?.id]),
+      ).rejects.toThrow(/cannot be moved to another organization/);
+
+      await asGina(
+        "insert into public.tracked_queries (location_id, kind, text) values ($1, 'ai_prompt', 'g1'), ($1, 'ai_prompt', 'g2')",
+        [first],
+      );
+      await db.query(
+        "insert into public.tracked_queries (location_id, kind, text, is_active) values ($1, 'ai_prompt', 'elsewhere', false)",
+        [theirs?.id],
+      );
+      await expect(
+        asGina("update public.tracked_queries set location_id = $1 where text = 'elsewhere'", [
+          first,
+        ]),
+      ).rejects.toThrow(/cannot be moved to another location/);
+      // Everything else about either row is still hers to change.
+      await asGina("update public.locations set name = 'First, renamed' where id = $1", [first]);
+      await asGina("update public.tracked_queries set text = 'g1, reworded' where text = 'g1'");
+      expect(
+        await rows(
+          "select count(*)::int as n from public.tracked_queries where location_id = $1 and is_active",
+          [first],
+        ),
+      ).toEqual([{ n: 2 }]);
+
+      await db.query("delete from public.tracked_queries where text = 'elsewhere'");
+      await db.query("delete from public.memberships where user_id = $1 and organization_id = $2", [
+        gina,
+        orgId,
+      ]);
+    });
+
+    afterAll(async () => {
+      await db.query("delete from public.organizations where id = $1", [org]);
+    });
+  });
+
   it("are copied from a plan only by the worker", async () => {
     for (const [role, user] of [
       ["anon", null],
@@ -1409,8 +1553,12 @@ describe("platform roles and test organizations", () => {
         ),
       ).rejects.toThrow(/permission denied/);
     }
-    const [fresh] = await as("authenticated", bob, () =>
-      rows<{ is_test: boolean }>("select is_test from public.create_organization('Bob''s')"),
+    const newcomer = "ab000000-0000-4000-8000-00000000ab01";
+    await db.query("insert into auth.users (id, email) values ($1, 'newcomer@example.com')", [
+      newcomer,
+    ]);
+    const [fresh] = await as("authenticated", newcomer, () =>
+      rows<{ is_test: boolean }>("select is_test from public.create_organization('Newcomer''s')"),
     );
     expect(fresh?.is_test).toBe(false);
   });
@@ -1651,7 +1799,6 @@ describe("the operator", () => {
     // Statements the grants allow reach the policies, which match no row of someone else's.
     for (const sql of [
       "update public.organizations set name = 'Defaced' where id = $1",
-      "delete from public.organizations where id = $1",
       "update public.locations set name = 'Defaced' where organization_id = $1",
       "delete from public.locations where organization_id = $1",
       "delete from public.memberships where organization_id = $1",
@@ -1676,6 +1823,7 @@ describe("the operator", () => {
       "update public.scans set status = 'failed'",
       "insert into public.platform_roles (user_id, role) values ('a0000000-0000-4000-8000-000000000001', 'operator')",
       "update public.organizations set is_test = true",
+      "delete from public.organizations",
     ]) {
       await expect(
         as("authenticated", operator, () => db.query(sql)),

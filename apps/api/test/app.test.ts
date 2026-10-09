@@ -237,6 +237,12 @@ describe("organizations and locations", () => {
   it("creates an organization and lists it for its creator only", async () => {
     await seed();
 
+    // One for each account: a second would be a second free plan.
+    const second = await call(alice, "POST", "/organizations", { name: "Another" });
+    expect(second.status).toBe(409);
+    expect(await errorCode(second)).toBe("limit_reached");
+    expect(db.organizations).toHaveLength(1);
+
     const mine = MeSchema.parse(await (await call(alice, "GET", "/me")).json());
     expect(mine.organizations.map((organization) => organization.name)).toEqual([
       "Raleigh Pizza Group",

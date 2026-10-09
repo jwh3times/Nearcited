@@ -401,6 +401,14 @@ handler could be skipped by calling the database directly. Four things about the
   The count lives on the organization (`manual_scans_month`, `manual_scans_used`), not in the
   `scans` table, so deleting a location does not give its scans back.
 
+**The limits are an organization's, so three things keep them from being stepped around.** An
+account has one organization: `create_organization()` refuses a second, to anyone but the operator
+and a test account, because each new one would be a new free plan with its own free first scan.
+An organization is not deleted through the API, since deleting one and starting again reset
+everything counted against it. And a location cannot change organization, nor a prompt its
+location: both limits are checked when a row is added, so a row that could be moved could be moved
+past them. Someone signing up again with another email address still gets a new free account.
+
 **An organization can have more than its plan covers**, after moving to a smaller one. Nothing is
 deleted. `fit_to_plan()`, which `apply_plan()` calls, marks the locations beyond the plan
 `paused_by_plan` and makes the prompts beyond it inactive with `set_aside_by_plan`, oldest kept
