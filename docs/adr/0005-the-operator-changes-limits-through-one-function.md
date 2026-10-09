@@ -48,4 +48,7 @@ a platform role are still set only with the secret key.
   in `operator_actions`.
 - Setting a plan's prices follows the same shape (October 2026): `operator_set_plan_prices` answers
   only the operator, records the change and touches no subscription.
+- Announcing a price change and calling it off follow the same shape (October 2026):
+  `operator_announce_price_change` and `operator_call_off_price_change` answer only the operator and
+  record the change.
 - The record covers changes, not reading. 0004's note about an access log still stands.
