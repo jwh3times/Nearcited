@@ -387,10 +387,16 @@ assistants than are offered, the organization's owner picks which through `choos
 enforced.
 
 **A subscription moves a plan only through the webhook** (`docs/adr/0007-the-payment-webhook-acts-as-the-worker.md`).
-An owner starts `POST /api/organizations/:organizationId/checkout` or opens
-`.../billing-portal`; both are ordinary requests that learn what they need from `billing_state()`,
-which answers only the organization's owner (the operator gets nothing), and write nothing. Stripe
-then calls `POST /api/stripe/webhook`, the one request path that uses the Worker's store. The
+An owner starts `POST /api/organizations/:organizationId/checkout`, opens
+`.../billing-portal`, or changes plan or locations with `.../subscription` (a `preview`, a `PUT`,
+and a `DELETE` of a waiting change at `.../subscription/pending`). These are ordinary requests that
+learn what they need from `billing_state()`, which answers only the organization's owner (the
+operator gets nothing), and write nothing here. A change goes to Stripe: an upgrade (a higher
+monthly price, or the same, as worked out on the server from the plans' prices) is made at once and
+the prorated difference charged, a downgrade is scheduled for the end of the paid period.
+`apps/api/src/billing/plans.ts` reads a subscription's lines for both these routes and the
+webhook. The organization's plan still moves only when Stripe
+reports the change by calling `POST /api/stripe/webhook`, the one request path that uses the Worker's store. The
 route verifies the signature, takes from the event only the subscription's ID, reads that
 subscription from Stripe, and `syncSubscription` (`apps/api/src/billing/sync.ts`) makes the plan
 agree with it, so events that arrive twice or out of order end in the same place. A subscription

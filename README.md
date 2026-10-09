@@ -81,14 +81,19 @@ built from each location's own endpoints. The location page has tabs (Overview, 
 Website, Answers, Settings); ticking a step of the action plan is remembered in the browser only.
 An Account settings page, linked from the sidebar, renames the organization and shows what its
 plan allows, read-only, and the scans run by hand this month. It links to the plans, and the
-owner of an organization that has been through checkout gets a "Manage billing" button (Stripe's
-account pages), a warning while a payment is being retried or after a subscription ended, and a
-thank-you on return from checkout that waits for the plan to move. A new user is walked through four steps, and nothing is created until the
+owner of an organization that has been through checkout sees what is paid for (plan, locations,
+when it renews), a change waiting for the end of the period with "Keep my current plan", a link to
+"Change plan or locations", a "Manage billing" button (Stripe's pages, for payment method,
+invoices and cancelling only), a warning while a payment is being retried or after a subscription
+ended, and a thank-you on return from checkout that waits for the plan to move. A new user is walked through four steps, and nothing is created until the
 last. The privacy policy (`/privacy`), the terms of service (`/terms`), a page describing the
 crawler (`/bot`) and the plans (`/pricing`) are readable without signing in. A visitor who
 chooses a plan signs in and is brought back to `/pricing?plan=<key>`; an owner with no
-subscription goes on to Stripe's checkout from there, a subscriber is sent to Stripe's account
-pages, and a member is told the owner decides.
+subscription goes on to Stripe's checkout from there, a subscriber gets a location stepper
+and a "Switch" button on every paid plan ("Update locations" on their own) and a confirm step that
+says what is charged today or when the change takes effect, and the free plan offers "Cancel
+subscription" (Stripe's pages). A member is told the owner decides. An upgrade is made at Stripe
+at once and the difference charged; a downgrade waits for the end of the paid period.
 
 Scans start from the "Run scan" button or from a daily schedule, and run on a queue. A scheduled
 scan emails its result to the organization's owners.
@@ -274,9 +279,12 @@ organization reads as missing and returns 404. Payloads are defined in
 | `PUT /api/organizations/:organizationId/assistants` | Sets which assistants the organization is checked on, from ChatGPT and Claude, as many as its plan covers. Owner only: 404 to anyone else. 409 with the reason when the choice is not one the plan allows. |
 | `GET /api/organizations/:organizationId/locations` | List an organization's locations. |
 | `POST /api/organizations/:organizationId/locations` | Add a location. The phone is stored as E.164 in the location's country, the website with `https://`, and the postal code, country, place ID, name and city are checked; a bad value answers 422. |
-| `GET /api/organizations/:organizationId/account` | What Account settings shows: `manual_scans_used` this month for anyone who can read the organization, and `billing` (`available`, `subscribed`, `status`, `has_customer`) for its owner alone. `billing` is null for a member and for the operator. 404 to a stranger. |
+| `GET /api/organizations/:organizationId/account` | What Account settings shows: `manual_scans_used` this month for anyone who can read the organization, and `billing` (`available`, `subscribed`, `status`, `has_customer`, `locations` paid for, `renews_at`, and `pending`, a change waiting for the period's end, read live from Stripe) for its owner alone. `billing` is null for a member and for the operator. 404 to a stranger. |
 | `POST /api/organizations/:organizationId/checkout` | Starts a subscription. Takes `plan_key` and optionally `locations`; answers `{ url }`, Stripe's checkout page. Changes no plan: the plan moves when the webhook reports the payment. Owner only: 404 to anyone else, the operator included. 409 for a test organization or one already subscribed, 422 `plan_unavailable` for a plan that cannot be bought, 503 `billing_unavailable` when Stripe is not set up. |
-| `POST /api/organizations/:organizationId/billing-portal` | Answers `{ url }`, Stripe's account pages, where the owner changes plan, pays a failed invoice or cancels. Owner only: 404 to anyone else. 409 `no_subscription` for an organization that never subscribed; 503 `billing_unavailable` when Stripe is not set up. |
+| `POST /api/organizations/:organizationId/billing-portal` | Answers `{ url }`, Stripe's account pages, where the owner changes the payment method, reads invoices, pays a failed invoice or cancels. Owner only: 404 to anyone else. 409 `no_subscription` for an organization that never subscribed; 503 `billing_unavailable` when Stripe is not set up. |
+| `POST /api/organizations/:organizationId/subscription/preview` | What changing to `plan_key` (and optionally `locations`) would do: `kind` (`upgrade` or `downgrade`, decided on the server from the plans' prices), the new `monthly_cents`, `due_now_cents` and `effective_at`. Changes nothing. Owner only: 404 to anyone else, the operator included. 503 `billing_unavailable` when Stripe is not set up. |
+| `PUT /api/organizations/:organizationId/subscription` | Makes that change, same body and answer. An upgrade (a higher monthly price, or the same) is made at Stripe now and the prorated difference charged; a downgrade is scheduled at Stripe for the end of the paid period and charges nothing. Changes no plan here: the plan moves when the webhook reports it. Owner only, 404 otherwise. 402 `payment_declined` when the card is refused (nothing changed), 409 `no_subscription`, 409 `payment_due` when the subscription is not `active`, 422 `no_change`, 422 `plan_unavailable`, 503 `billing_unavailable`. |
+| `DELETE /api/organizations/:organizationId/subscription/pending` | Drops a waiting downgrade; 204. Owner only, 404 otherwise. |
 | `GET /api/locations/:id` | One location with its queries, latest scan, rates over recent scans, the sites those answers cited, the surfaces being checked, recommendations, the latest website check and the action plan. |
 | `PATCH /api/locations/:id` | Replace a location's details with a whole location body, as when adding one; a field left out goes back to blank or its default. The same checks as adding. |
 | `POST /api/locations/:id/activate` | Brings a location the plan paused back into use. Takes `instead_of`, the location in use that is paused in its place, when the plan has no room; 409 with the reason without one. 404 to a non-member. |
@@ -488,10 +496,9 @@ pnpm sync:agents
   `claude.ts` in `apps/api/src/providers/`). Perplexity, Gemini and the three Google surfaces
   are not;
   `apps/api/src/providers/live.ts` has notes on what each needs.
-- **Changing plan in the app.** A visitor can read the plans, an owner can start a Stripe
-  checkout and open Stripe's account pages from the app, and a subscription moves an organization
-  between plans. Changing plan or the number of locations paid for from inside the app is not
-  built; it happens in Stripe's pages. Stripe is wired for test mode only. Limits can still be changed by hand, and the Account settings
+- **Billing, the rest.** A visitor can read the plans, and an owner can subscribe, change plan or
+  the number of locations paid for, and open Stripe's pages from the app. Not built: setting
+  plans from the operator page, and going live (Stripe is wired for test mode only). Limits can still be changed by hand, and the Account settings
   page shows them without editing them.
 - **Inviting teammates.** The schema and policies support members and roles; there is no API or
   screen for it.
