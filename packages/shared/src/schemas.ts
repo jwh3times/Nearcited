@@ -530,6 +530,56 @@ export const PriceChangeMessageSchema = z.object({
 });
 export type PriceChangeMessage = z.infer<typeof PriceChangeMessageSchema>;
 
+/** The limits of a plan that can go down, each with what it was and what it becomes. */
+export const LoweredLimitsSchema = z
+  .object({
+    max_queries_per_location: z.object({ from: z.number().int(), to: z.number().int() }),
+    assistants: z.object({ from: z.number().int(), to: z.number().int() }),
+    scan_every_days: z.object({ from: z.number().int(), to: z.number().int() }),
+    max_manual_scans_per_month: z.object({ from: z.number().int(), to: z.number().int() }),
+    emails_report: z.object({ from: z.boolean(), to: z.boolean() }),
+  })
+  .partial();
+export type LoweredLimits = z.infer<typeof LoweredLimitsSchema>;
+
+/**
+ * A reduction in what a plan allows, announced for a day: made for everyone on the plan on
+ * `effective_at`. The free plan's are made at once and arrive already completed.
+ */
+export const LimitChangeSchema = z.object({
+  id: Id,
+  plan_key: z.string(),
+  lowered: LoweredLimitsSchema,
+  effective_at: Timestamp,
+  announced_at: Timestamp,
+  reminded_at: Timestamp.nullable(),
+  called_off_at: Timestamp.nullable(),
+  completed_at: Timestamp.nullable(),
+});
+export type LimitChange = z.infer<typeof LimitChangeSchema>;
+
+/** What telling an organization of a reduction comes to, one step at a time. */
+export const LIMIT_CHANGE_STEPS = ["announce", "remind", "call_off"] as const;
+export type LimitChangeStep = (typeof LIMIT_CHANGE_STEPS)[number];
+
+/** A message asking the worker to tell one organization one thing about a reduction. */
+export const LimitChangeMessageSchema = z.object({
+  limit_change_id: Id,
+  organization_id: Id,
+  step: z.enum(LIMIT_CHANGE_STEPS),
+});
+export type LimitChangeMessage = z.infer<typeof LimitChangeMessageSchema>;
+
+/**
+ * What the operator sends to change a plan. `reduce_on` is the day any reductions take effect,
+ * needed when subscribers pay for the plan: whatever goes down waits for it, and the rest is
+ * saved at once.
+ */
+export const PlanChangeInputSchema = PlanSettingsSchema.extend({
+  reduce_on: z.iso.date("Choose a day").optional(),
+});
+export type PlanChangeInput = z.infer<typeof PlanChangeInputSchema>;
+
 /** A plan as the operator sees it: what is on sale, and who is on it. Test organizations are left out. */
 export const OperatorPlanSchema = PlanSchema.extend({
   /** How many organizations are on it. */
@@ -544,6 +594,13 @@ export const OperatorPlanSchema = PlanSchema.extend({
     told: z.number().int().nonnegative(),
     /** How many subscriptions have been moved to the new prices. */
     moved: z.number().int().nonnegative(),
+  }).nullable(),
+  /** The reduction announced to everyone on it and not yet made or called off. */
+  limit_change: LimitChangeSchema.extend({
+    /** How many organizations' owners have been sent the announcement. */
+    told: z.number().int().nonnegative(),
+    /** The organizations on the plan whose owners have not been, by name. */
+    not_told: z.array(z.string()),
   }).nullable(),
 });
 export type OperatorPlan = z.infer<typeof OperatorPlanSchema>;
@@ -667,6 +724,11 @@ export type CheckoutInput = z.infer<typeof CheckoutInputSchema>;
 export const OrganizationAccountSchema = z.object({
   /** Scans started by hand this calendar month (UTC) that count against the plan. */
   manual_scans_used: z.number().int().nonnegative(),
+  /**
+   * A reduction announced for the organization's plan and not made yet: what goes down, and the
+   * day. Anyone in the organization is shown it.
+   */
+  limit_change: z.object({ lowered: LoweredLimitsSchema, at: Timestamp }).nullable(),
   /** Null for everyone but the organization's owner, who alone manages billing. */
   billing: z
     .object({

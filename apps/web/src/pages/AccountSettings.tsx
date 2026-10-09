@@ -1,4 +1,5 @@
 import {
+  describeLowered,
   type Organization,
   OrganizationInputSchema,
   PLAN_ASSISTANTS,
@@ -109,6 +110,17 @@ export function AccountSettings({ organization, email }: AccountSettingsProps) {
             </ul>
             {plan && plan.assistants < PLAN_ASSISTANTS.length && (
               <AssistantChooser key={organization.id} organization={organization} />
+            )}
+            {account.data?.limit_change && (
+              <div role="status">
+                <p>What this plan includes changes on {formatDay(account.data.limit_change.at)}:</p>
+                <ul className="plan-facts">
+                  {describeLowered(account.data.limit_change.lowered).map((line) => (
+                    <li key={line}>{line}</li>
+                  ))}
+                </ul>
+                <p>Nothing is deleted: what it no longer covers is paused, and stays readable.</p>
+              </div>
             )}
             <Billing
               organization={organization}

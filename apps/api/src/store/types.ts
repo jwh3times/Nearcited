@@ -4,6 +4,8 @@ import type {
   AuditJob,
   AuditPart,
   DerivedRecommendation,
+  LimitChange,
+  LimitChangeNotice,
   Location,
   LocationInput,
   OperatorAudit,
@@ -243,6 +245,36 @@ export interface Store {
   listOpenPriceChanges(): Promise<PriceChange[]>;
   listPriceChangeNotices(priceChangeId: string): Promise<PriceChangeNotice[]>;
 
+  /** The reduction announced for a plan and not yet made, or null. Anyone signed in may ask. */
+  getOpenLimitChange(planKey: string): Promise<LimitChange | null>;
+  /**
+   * Announces that what a plan allows goes down on `effectiveAt`. `to` is the plan's limits as
+   * they would be; only what is lower than now is kept. Only the operator's call does anything:
+   * for anyone else, and for a plan that does not exist, it returns null. Throws a limit, with
+   * the reason, when the day gives too little notice or nothing is lower.
+   */
+  announceLimitChange(
+    planKey: string,
+    to: Pick<
+      PlanSettings,
+      | "max_queries_per_location"
+      | "assistants"
+      | "scan_every_days"
+      | "max_manual_scans_per_month"
+      | "emails_report"
+    >,
+    effectiveAt: string,
+  ): Promise<LimitChange | null>;
+  /** Calls off a plan's announced reduction before its day. Null when there is none. */
+  callOffLimitChange(planKey: string): Promise<LimitChange | null>;
+  /** The organizations on a plan, test ones left out, as far as the caller may read. */
+  listPlanOrganizations(planKey: string): Promise<string[]>;
+  /** Every reduction announced and not yet made. The operator's, and the worker's. */
+  listOpenLimitChanges(): Promise<LimitChange[]>;
+  /** The newest reduction for a plan that was made at once, if it was within the last hour. */
+  getLatestMadeLimitChange(planKey: string): Promise<LimitChange | null>;
+  listLimitChangeNotices(limitChangeId: string): Promise<LimitChangeNotice[]>;
+
   /** The on-page check from a location's latest successful scan, or null when it made none. */
   getSiteCheck(locationId: string): Promise<SiteCheck | null>;
 
@@ -296,6 +328,21 @@ export interface Store {
   ): Promise<void>;
   /** Marks a price change's reminders as queued, or the change as finished. Worker only. */
   markPriceChange(id: string, what: "reminded" | "completed", at: string): Promise<void>;
+  /** A reduction by its ID, made or not. Worker only. */
+  getLimitChange(id: string): Promise<LimitChange | null>;
+  /** Keeps that an organization was just told something about a reduction. Worker only. */
+  recordLimitChangeNotice(
+    limitChangeId: string,
+    organizationId: string,
+    done: Partial<Omit<LimitChangeNotice, "limit_change_id" | "organization_id">>,
+  ): Promise<void>;
+  /** Marks a reduction's reminders as queued. Worker only. */
+  markLimitChangeReminded(id: string, at: string): Promise<void>;
+  /**
+   * Makes a reduction whose day has come, for the plan and everyone on it. False when there was
+   * nothing to make yet. Worker only.
+   */
+  applyLimitChange(id: string): Promise<boolean>;
   recordUsage(source: UsageSource, usage: readonly ProviderUsage[]): Promise<void>;
   /** Throws a conflict when a different scan for the same location is already in flight. */
   markScanRunning(id: string, sampleData: boolean): Promise<void>;

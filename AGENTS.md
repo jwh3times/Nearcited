@@ -61,6 +61,13 @@ pass `pnpm check` and run in mock mode without it.
   `runPriceChangeStep` moves a subscription to a higher price only when its owners were sent the
   announcement at least thirty days before, checked per organization. Do not add another path
   that changes what a running subscription is billed, and never edit a price in place.
+- **What a paying subscriber gets goes down only after they were told.** On a plan with
+  subscribers a lower limit is announced for a day at least thirty days out and made on that day
+  by `apply_limit_change()`, which only the worker calls
+  (`docs/adr/0009-a-reduction-is-announced-like-a-price-rise.md`). `operator_set_plan()` refuses
+  to lower anything there on the spot. Raising a limit, and anything on a plan nobody pays for,
+  still happens at once. Do not add a path that lowers a paid plan's limits without the
+  announcement.
 - **The operator can read every row** (`docs/adr/0004-the-operator-reads-through-policies.md`), so
   a query must filter by what it means, never by what the caller happens to see. "This user's
   organizations" is `my_organizations()`, not `select` from `organizations`. The operator gets

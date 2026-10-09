@@ -346,3 +346,70 @@ test("has the operator ask twice before announcing a price change, and shows it 
   await expect(form.getByRole("button", { name: "Announce to current subscribers" })).toBeVisible();
   await expect(form.getByLabel("Price a month")).toBeEnabled();
 });
+
+test("has the operator announce a reduction for a day where subscribers pay, and shows who was told", async ({
+  page,
+}) => {
+  const operator = await createAccount();
+  await api(operator, "POST", "/organizations", { name: "The operator's own" });
+  await grantRole(operator, "operator");
+  // The local stack has no subscribers and sends no email, so Standard is shown as a plan with
+  // two, and the saving is stood in for.
+  let announced: Record<string, unknown> | null = null;
+  const sent: Record<string, unknown>[] = [];
+  await page.route("**/api/operator/plans", async (route) => {
+    const plans = (await (await route.fetch()).json()) as Record<string, unknown>[];
+    await route.fulfill({
+      json: plans.map((plan) =>
+        plan.key === "standard" ? { ...plan, subscribers: 2, limit_change: announced } : plan,
+      ),
+    });
+  });
+  await page.route("**/api/operator/plans/standard", async (route) => {
+    const input = route.request().postDataJSON() as Record<string, unknown>;
+    sent.push(input);
+    announced = {
+      id: "0d000000-0000-4000-8000-000000000001",
+      plan_key: "standard",
+      lowered: { max_queries_per_location: { from: 10, to: 5 } },
+      effective_at: `${input.reduce_on}T00:00:00.000Z`,
+      announced_at: new Date().toISOString(),
+      reminded_at: null,
+      called_off_at: null,
+      completed_at: null,
+      told: 1,
+      not_told: ["Raleigh Pizza Group"],
+    };
+    const plans = await api<{ key: string }[]>(operator, "GET", "/operator/plans");
+    await route.fulfill({ json: plans.find((plan) => plan.key === "standard") });
+  });
+
+  await signIn(page, operator, "/operator");
+  await page.getByRole("button", { name: "Edit Standard" }).click();
+  const form = page.getByRole("form", { name: "Edit Standard" });
+  await form.getByLabel("Prompts and keywords per location").fill("5");
+  await form.getByLabel("Scans run by hand per month").fill("20");
+  await form.getByRole("button", { name: "Save plan" }).click();
+
+  // It cannot be lowered today: a day is asked for, and nothing has been sent.
+  await expect(form.getByRole("alert")).toContainText("2 subscribers pay for this plan");
+  await expect(form.getByRole("alert")).toContainText(
+    "Anything you raised, and the name, are saved at once.",
+  );
+  await expect(form.getByLabel("Reduce from")).toBeVisible();
+  expect(sent).toEqual([]);
+
+  await form.getByRole("button", { name: "Announce the reduction, and send the emails" }).click();
+  await expect(form).toBeHidden();
+  expect(sent).toHaveLength(1);
+  expect(sent[0]).toMatchObject({ max_queries_per_location: 5, max_manual_scans_per_month: 20 });
+  expect(String(sent[0]?.reduce_on)).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+
+  // Open again, it says what is coming, who has not been told, and holds the field.
+  await page.getByRole("button", { name: "Edit Standard" }).click();
+  await expect(form.getByRole("heading", { name: "Reduction announced" })).toBeVisible();
+  await expect(form).toContainText("Prompts and keywords for each location: 10 now, 5 after");
+  await expect(form.getByRole("alert")).toContainText("Not told yet: Raleigh Pizza Group.");
+  await expect(form.getByLabel("Prompts and keywords per location")).toBeDisabled();
+  await expect(form.getByLabel("Scans run by hand per month")).toBeEnabled();
+});

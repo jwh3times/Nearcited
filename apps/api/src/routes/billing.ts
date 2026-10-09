@@ -70,8 +70,15 @@ billingRoutes.get("/organizations/:organizationId/account", async (c) => {
     }
   }
 
+  // A reduction announced for the plan, for anyone in the organization to see coming.
+  const organization = await store.getOrganization(organizationId);
+  const reduction = organization?.plan_key
+    ? await store.getOpenLimitChange(organization.plan_key)
+    : null;
+
   return c.json({
     manual_scans_used: used,
+    limit_change: reduction && { lowered: reduction.lowered, at: reduction.effective_at },
     billing: billing && {
       available: payments !== null,
       subscribed: billing.stripe_subscription_id !== null,

@@ -1,4 +1,6 @@
 import {
+  describeLowered,
+  type LoweredLimits,
   type OperatorPlan,
   type PlanImpact,
   PlanPricesInputSchema,
@@ -177,13 +179,18 @@ function PlanEditor({ plan, onDone }: { plan: OperatorPlan; onDone: () => void }
   // Lowering a limit takes something from the organizations on the plan, so it is asked first
   // who that is, and saved only once the operator has read the answer.
   const [impact, setImpact] = useState<PlanImpact | null>(null);
+  // Where subscribers pay for the plan, a reduction is announced for a day and made then.
+  const needsNotice = plan.key !== FREE_PLAN && plan.subscribers > 0 && lowers(plan, settings);
+  const [reduceOn, setReduceOn] = useState(dayFrom(31));
+  // What an open announcement is going to lower stays as it is until the day.
+  const held = (field: keyof LoweredLimits) => plan.limit_change?.lowered[field] !== undefined;
   const save = useMutation({
     mutationFn: async (confirmed: boolean) => {
       if (!confirmed && lowers(plan, settings) && plan.organizations > 0) {
         setImpact(await api.planImpact(plan.key, settings));
         return null;
       }
-      return api.setPlan(plan.key, settings);
+      return api.setPlan(plan.key, needsNotice ? { ...settings, reduce_on: reduceOn } : settings);
     },
     onSuccess: async (saved) => {
       if (!saved) return;
@@ -239,6 +246,7 @@ function PlanEditor({ plan, onDone }: { plan: OperatorPlan; onDone: () => void }
           hint={field.hint}
           inputMode="numeric"
           required
+          disabled={held(field.name)}
           value={text[field.name]}
           error={form$.error(field.name)}
           onBlur={() => form$.touch(field.name)}
@@ -252,6 +260,7 @@ function PlanEditor({ plan, onDone }: { plan: OperatorPlan; onDone: () => void }
         <input
           type="checkbox"
           checked={report}
+          disabled={held("emails_report")}
           onChange={(event) => {
             setReport(event.target.checked);
             changed();
@@ -275,26 +284,119 @@ function PlanEditor({ plan, onDone }: { plan: OperatorPlan; onDone: () => void }
           : "On sale: shown on the price list and open to new subscribers"}
       </label>
 
-      {impact && (
+      {impact && !needsNotice && (
         <p className="error" role="alert">
           This lowers what the plan allows for{" "}
           {count(impact.organizations, "organization", "organizations")}, starting now.{" "}
           {impact.prompts_set_aside > 0
             ? `${count(impact.prompts_set_aside, "of them has", "of them have")} more prompts than the new limit, and the newest of those are set aside. `
             : "None of them has more prompts than the new limit. "}
-          Nothing is deleted. Save again to go ahead.
+          Nothing is deleted.{" "}
+          {plan.key === FREE_PLAN ? "Each of them is emailed today, saying what changed. " : ""}
+          Save again to go ahead.
         </p>
+      )}
+      {impact && needsNotice && (
+        <>
+          <p className="error" role="alert">
+            {count(plan.subscribers, "subscriber pays", "subscribers pay")} for this plan, so what
+            it lowers cannot change today. Choose the day: at least 30 days from now. Everyone on
+            the plan, {count(impact.organizations, "organization", "organizations")}, is emailed now
+            and again a week before, and the reduction is made on the day.{" "}
+            {impact.prompts_set_aside > 0
+              ? `${count(impact.prompts_set_aside, "of them has", "of them have")} more prompts than the new limit. `
+              : ""}
+            Anything you raised, and the name, are saved at once.
+          </p>
+          <Field
+            label="Reduce from"
+            type="date"
+            min={dayFrom(30)}
+            value={reduceOn}
+            onChange={(event) => {
+              setReduceOn(event.target.value);
+              save.reset();
+            }}
+          />
+        </>
       )}
       <div className="button-row">
         <button type="submit" disabled={save.isPending || unchanged}>
-          {save.isPending ? "Saving" : impact ? "Save, and lower it for them" : "Save plan"}
+          {save.isPending
+            ? "Saving"
+            : !impact
+              ? "Save plan"
+              : needsNotice
+                ? "Announce the reduction, and send the emails"
+                : "Save, and lower it for them"}
         </button>
         <button type="button" className="secondary" onClick={onDone}>
           Cancel
         </button>
       </div>
       <ErrorNote error={save.error} />
+      {plan.limit_change && (
+        <>
+          <hr className="divider" />
+          <Reduction plan={plan} change={plan.limit_change} />
+        </>
+      )}
     </form>
+  );
+}
+
+/** A reduction that has been announced: what goes down, when, who has been told, and the way out. */
+function Reduction({
+  plan,
+  change,
+}: {
+  plan: OperatorPlan;
+  change: NonNullable<OperatorPlan["limit_change"]>;
+}) {
+  const queryClient = useQueryClient();
+  const callOff = useMutation({
+    mutationFn: () => api.callOffLimitChange(plan.key),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["operator-plans"] }),
+  });
+  const begun = Date.parse(change.effective_at) <= Date.now();
+  return (
+    <div className="stack-tight">
+      <h3>Reduction announced</h3>
+      <p className="small muted">
+        On {formatDay(change.effective_at)} this plan changes for everyone on it. Until then these
+        stay as they are:
+      </p>
+      <ul className="plan-facts">
+        {describeLowered(change.lowered).map((line) => (
+          <li key={line}>{line}</li>
+        ))}
+      </ul>
+      <p className="small muted">
+        {count(change.told, "organization", "organizations")} told so far. A reminder goes out a
+        week before.
+      </p>
+      {change.not_told.length > 0 && (
+        <p className="error" role="alert">
+          Not told yet: {change.not_told.join(", ")}. The reduction reaches them on the day all the
+          same, so if this is still here after a few minutes, write to them yourself.
+        </p>
+      )}
+      {!begun && (
+        <div className="button-row">
+          <button
+            type="button"
+            className="secondary"
+            disabled={callOff.isPending}
+            onClick={() => callOff.mutate()}
+          >
+            {callOff.isPending
+              ? "Calling it off"
+              : "Call off the reduction, and email everyone who was told"}
+          </button>
+        </div>
+      )}
+      <ErrorNote error={callOff.error} />
+    </div>
   );
 }
 

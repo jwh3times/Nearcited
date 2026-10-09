@@ -2,6 +2,7 @@ import type {
   AccountStage,
   AttentionItem,
   AttentionKind,
+  LimitChange,
   Location,
   OperatorAccount,
   OperatorAccounts,
@@ -379,6 +380,18 @@ export interface PlanFacts {
   /** Announcements still open. Left out, there are none. */
   priceChanges?: PriceChange[];
   notices?: PriceChangeNotice[];
+  /** Reductions announced and not yet made. Left out, there are none. */
+  limitChanges?: LimitChange[];
+  limitNotices?: LimitChangeNotice[];
+}
+
+/** Whether an organization was told of a reduction, and when. */
+export interface LimitChangeNotice {
+  limit_change_id: string;
+  organization_id: string;
+  announced_at: string | null;
+  reminded_at: string | null;
+  called_off_at: string | null;
 }
 
 /**
@@ -390,6 +403,21 @@ export function buildOperatorPlans(facts: PlanFacts): OperatorPlan[] {
   const subscribed = new Set(
     facts.subscriptions.filter((s) => s.subscribed).map((s) => s.organization_id),
   );
+  // Who was told of a plan's open reduction, and which of the organizations on it were not.
+  const limitChange = (planKey: string, on: Organization[]) => {
+    const open = facts.limitChanges?.find((c) => c.plan_key === planKey) ?? null;
+    if (!open) return null;
+    const told = new Set(
+      (facts.limitNotices ?? [])
+        .filter((n) => n.limit_change_id === open.id && n.announced_at !== null)
+        .map((notice) => notice.organization_id),
+    );
+    return {
+      ...open,
+      told: on.filter((o) => told.has(o.id)).length,
+      not_told: on.filter((o) => !told.has(o.id)).map((organization) => organization.name),
+    };
+  };
   return [...facts.plans]
     .sort((a, b) => a.position - b.position)
     .map((plan) => {
@@ -404,6 +432,7 @@ export function buildOperatorPlans(facts: PlanFacts): OperatorPlan[] {
           told: done.filter((notice) => notice.announced_at !== null).length,
           moved: done.filter((notice) => notice.moved_at !== null).length,
         },
+        limit_change: limitChange(plan.key, on),
         organizations: on.length,
         subscribers: paying.length,
         monthly_cents: paying.reduce(

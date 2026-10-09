@@ -1,5 +1,6 @@
 import {
   AuditJobSchema,
+  LimitChangeSchema,
   LocationSchema,
   OperatorAuditSchema,
   OrganizationSchema,
@@ -63,6 +64,7 @@ const ERROR_KINDS: Record<string, StoreErrorKind> = {
   NC007: "limit", // taking the free plan off sale
   NC008: "limit", // a price for the free plan
   NC009: "limit", // a price change that cannot be announced, or prices changed while one is open
+  NC010: "limit", // a reduction that needs announcing, cannot be, or is held while one is open
 };
 
 function fail(action: string, error: DbError): never {
@@ -130,6 +132,19 @@ const NoticeSchema = z.object({
   called_off_at: z.string().nullable(),
   moved_at: z.string().nullable(),
   skipped: z.string().nullable(),
+});
+
+const LIMIT_CHANGE_COLUMNS =
+  "id, plan_key, lowered, effective_at, announced_at, reminded_at, called_off_at, completed_at";
+
+const LIMIT_NOTICE_COLUMNS =
+  "limit_change_id, organization_id, announced_at, reminded_at, called_off_at";
+const LimitNoticeSchema = z.object({
+  limit_change_id: z.uuid(),
+  organization_id: z.uuid(),
+  announced_at: z.string().nullable(),
+  reminded_at: z.string().nullable(),
+  called_off_at: z.string().nullable(),
 });
 
 const ManualScansSchema = z.object({
@@ -456,6 +471,118 @@ export function createSupabaseStore(db: SupabaseClient): Store {
         .update(what === "reminded" ? { reminded_at: at } : { completed_at: at })
         .eq("id", id);
       if (error) fail("Mark price change", error);
+    },
+
+    async getOpenLimitChange(planKey) {
+      const { data, error } = await db
+        .from("limit_changes")
+        .select(LIMIT_CHANGE_COLUMNS)
+        .eq("plan_key", planKey)
+        .is("called_off_at", null)
+        .is("completed_at", null)
+        .maybeSingle();
+      if (error) fail("Get open limit change", error);
+      return data ? LimitChangeSchema.parse(data) : null;
+    },
+
+    async announceLimitChange(planKey, to, effectiveAt) {
+      const { data, error } = await db
+        .rpc("operator_announce_limit_change", {
+          plan: planKey,
+          queries_per_location: to.max_queries_per_location,
+          plan_assistants: to.assistants,
+          every_days: to.scan_every_days,
+          manual_scans_per_month: to.max_manual_scans_per_month,
+          report: to.emails_report,
+          effective: effectiveAt,
+        })
+        .select(LIMIT_CHANGE_COLUMNS)
+        .maybeSingle();
+      if (error) fail("Announce limit change", error);
+      return data ? LimitChangeSchema.parse(data) : null;
+    },
+
+    async callOffLimitChange(planKey) {
+      const { data, error } = await db
+        .rpc("operator_call_off_limit_change", { plan: planKey })
+        .select(LIMIT_CHANGE_COLUMNS)
+        .maybeSingle();
+      if (error) fail("Call off limit change", error);
+      return data ? LimitChangeSchema.parse(data) : null;
+    },
+
+    async listPlanOrganizations(planKey) {
+      const { data, error } = await db
+        .from("organizations")
+        .select("id")
+        .eq("plan_key", planKey)
+        .eq("is_test", false);
+      if (error) fail("List a plan's organizations", error);
+      return z
+        .array(z.object({ id: z.uuid() }))
+        .parse(data ?? [])
+        .map((row) => row.id);
+    },
+
+    async listOpenLimitChanges() {
+      const { data, error } = await db
+        .from("limit_changes")
+        .select(LIMIT_CHANGE_COLUMNS)
+        .is("called_off_at", null)
+        .is("completed_at", null)
+        .order("announced_at");
+      if (error) fail("List open limit changes", error);
+      return LimitChangeSchema.array().parse(data);
+    },
+
+    async getLatestMadeLimitChange(planKey) {
+      const { data, error } = await db
+        .from("limit_changes")
+        .select(LIMIT_CHANGE_COLUMNS)
+        .eq("plan_key", planKey)
+        .gte("completed_at", new Date(Date.now() - 3_600_000).toISOString())
+        .order("completed_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) fail("Get the latest limit change made", error);
+      return data ? LimitChangeSchema.parse(data) : null;
+    },
+
+    async listLimitChangeNotices(limitChangeId) {
+      const { data, error } = await db
+        .from("limit_change_notices")
+        .select(LIMIT_NOTICE_COLUMNS)
+        .eq("limit_change_id", limitChangeId);
+      if (error) fail("List limit change notices", error);
+      return LimitNoticeSchema.array().parse(data);
+    },
+
+    async getLimitChange(id) {
+      const { data, error } = await db
+        .from("limit_changes")
+        .select(LIMIT_CHANGE_COLUMNS)
+        .eq("id", id)
+        .maybeSingle();
+      if (error) fail("Get limit change", error);
+      return data ? LimitChangeSchema.parse(data) : null;
+    },
+
+    async recordLimitChangeNotice(limitChangeId, organizationId, done) {
+      const { error } = await db
+        .from("limit_change_notices")
+        .upsert({ limit_change_id: limitChangeId, organization_id: organizationId, ...done });
+      if (error) fail("Record limit change notice", error);
+    },
+
+    async markLimitChangeReminded(id, at) {
+      const { error } = await db.from("limit_changes").update({ reminded_at: at }).eq("id", id);
+      if (error) fail("Mark limit change reminded", error);
+    },
+
+    async applyLimitChange(id) {
+      const { data, error } = await db.rpc("apply_limit_change", { change_id: id });
+      if (error) fail("Apply limit change", error);
+      return data === true;
     },
 
     async getPlatformRole(userId) {

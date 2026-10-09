@@ -13,14 +13,18 @@ import {
   type OperatorPlan,
   type OperatorSpend,
   OrganizationLimitsSchema,
+  PlanChangeInputSchema,
   type PlanImpact,
   PlanPricesInputSchema,
   PlanSettingsSchema,
   PriceChangeInputSchema,
   planImpact,
+  reductions,
+  withoutReductions,
 } from "@nearcited/shared";
 import { Hono } from "hono";
 import type { AppEnv } from "../app";
+import { enqueueLimitChangeSteps } from "../billing/limit-change";
 import { enqueuePriceChangeSteps } from "../billing/price-change";
 import { ApiError, notFound } from "../errors";
 import { usesSampleData } from "../providers";
@@ -192,12 +196,16 @@ operatorRoutes.put("/operator/organizations/:organizationId/limits", async (c) =
 /** Every plan, on sale or not, with who is on it. */
 operatorRoutes.get("/operator/plans", async (c) => {
   const store = c.get("store");
-  const [plans, organizations, subscriptions, priceChanges] = await Promise.all([
+  const [plans, organizations, subscriptions, priceChanges, limitChanges] = await Promise.all([
     store.listPlans(),
     store.listEveryOrganization(),
     store.listEverySubscription(),
     store.listOpenPriceChanges(),
+    store.listOpenLimitChanges(),
   ]);
+  const limitNotices = (
+    await Promise.all(limitChanges.map((change) => store.listLimitChangeNotices(change.id)))
+  ).flat();
   const notices = (
     await Promise.all(priceChanges.map((change) => store.listPriceChangeNotices(change.id)))
   ).flat();
@@ -208,6 +216,8 @@ operatorRoutes.get("/operator/plans", async (c) => {
       subscriptions,
       priceChanges,
       notices,
+      limitChanges,
+      limitNotices,
     }) satisfies OperatorPlan[],
   );
 });
@@ -243,15 +253,83 @@ operatorRoutes.post("/operator/plans/:key/impact", async (c) => {
 });
 
 /**
- * Changes what a plan allows. Every organization on it takes the new limits at once, and the
- * database records who changed what. Prices are not changed here.
+ * Changes what a plan allows, and the database records who changed what.
+ *
+ * Whatever is raised, the name and the on-sale flag are saved at once, for every organization on
+ * the plan. Whatever is lowered depends on who pays. On a plan with subscribers it is announced
+ * for `reduce_on`, at least thirty days out, everyone on the plan is emailed, and it is made on
+ * the day; without the day the request is refused. On a plan nobody pays for it is made at once,
+ * and on the free plan each organization is told the same day.
  */
 operatorRoutes.put("/operator/plans/:key", async (c) => {
   const key = planKey(c.req.param("key"));
-  const settings = await parseJson(c, PlanSettingsSchema);
-  const plan = await c.get("store").setPlan(key, settings);
+  const { reduce_on, ...settings } = await parseJson(c, PlanChangeInputSchema);
+  const store = c.get("store");
+  const plan = (await store.listPlans()).find((candidate) => candidate.key === key);
   if (!plan) throw notFound("Plan");
-  return c.json(plan);
+
+  const lowered = reductions(plan, settings);
+  const lowers = Object.keys(lowered).length > 0;
+  const paid = key !== "free" && (await store.listPlanSubscribers(key)).length > 0;
+  if (!lowers || !paid) {
+    const saved = await store.setPlan(key, settings);
+    if (!saved) throw notFound("Plan");
+    // A cut to the free plan was made just now. Its organizations are told, where email is set
+    // up; where it is not, the cut stands and nobody is told.
+    const made = lowers && key === "free" ? await store.getLatestMadeLimitChange(key) : null;
+    if (made && c.env.RESEND_API_KEY) {
+      await enqueueLimitChangeSteps(
+        c.env.SCAN_QUEUE,
+        made,
+        await store.listPlanOrganizations(key),
+        "announce",
+      );
+    }
+    return c.json(saved);
+  }
+
+  if (!reduce_on) {
+    throw new ApiError(
+      409,
+      "needs_notice",
+      "Subscribers pay for this plan, so what it allows can only be lowered with 30 days' notice. Choose the day the reduction takes effect.",
+    );
+  }
+  if (!c.env.RESEND_API_KEY) {
+    throw new ApiError(
+      503,
+      "billing_unavailable",
+      "A reduction has to be announced by email, and outgoing email is not set up here.",
+    );
+  }
+  // The announcement first: if the day is refused, nothing else has been saved either.
+  const change = await store.announceLimitChange(key, settings, `${reduce_on}T00:00:00.000Z`);
+  if (!change) throw notFound("Plan");
+  const saved = await store.setPlan(key, withoutReductions(plan, settings));
+  if (!saved) throw notFound("Plan");
+  await enqueueLimitChangeSteps(
+    c.env.SCAN_QUEUE,
+    change,
+    await store.listPlanOrganizations(key),
+    "announce",
+  );
+  return c.json(saved);
+});
+
+/**
+ * Calls off a plan's announced reduction before its day. Everyone who was told is told it is
+ * off.
+ */
+operatorRoutes.delete("/operator/plans/:key/limit-change", async (c) => {
+  const key = planKey(c.req.param("key"));
+  const store = c.get("store");
+  const change = await store.callOffLimitChange(key);
+  if (!change) throw notFound("Reduction");
+  const told = (await store.listLimitChangeNotices(change.id))
+    .filter((notice) => notice.announced_at !== null)
+    .map((notice) => notice.organization_id);
+  await enqueueLimitChangeSteps(c.env.SCAN_QUEUE, change, told, "call_off");
+  return c.json(change);
 });
 
 /**
