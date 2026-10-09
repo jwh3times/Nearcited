@@ -55,6 +55,10 @@ The decisions billing is built on, so they are in one place:
 - Note (October 2026): how that notice is given and kept is
   [0008](0008-a-price-change-reaches-subscribers-by-announcement.md).
 
+- Note (October 2026): a change that lowers a limit on a plan with subscribers no longer applies at
+  once; it is announced first. See
+  [0009](0009-a-reduction-is-announced-like-a-price-rise.md).
+
 - The plan's values and the organization's can disagree if a copy is missed. Whatever changes a
   plan or an organization's plan must do the copy in the same transaction.
 - The provider's price IDs sit in the table beside the prices. They identify a price and grant
