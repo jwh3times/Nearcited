@@ -46,4 +46,6 @@ a platform role are still set only with the secret key.
 - Changing a plan follows the same shape (October 2026): `operator_set_plan` answers only the
   operator, changes what it names, re-applies the plan to its organizations and records the change
   in `operator_actions`.
+- Setting a plan's prices follows the same shape (October 2026): `operator_set_plan_prices` answers
+  only the operator, records the change and touches no subscription.
 - The record covers changes, not reading. 0004's note about an access log still stands.

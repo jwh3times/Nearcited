@@ -66,7 +66,9 @@ organization's limits (locations, prompts per location, manual scans a month, da
 its plan page. A Plans section lists each plan with its price, how many organizations and subscribers
 are on it and their monthly total, and edits its name, limits, emailed report and whether it is on
 sale; lowering a limit first shows how many organizations it reaches and asks to save again. Every
-organization on the plan takes the change at once.
+organization on the plan takes the change at once. A second form sets its prices, typed in dollars,
+for new subscribers; current subscribers keep the price they pay. The monthly total is worked out
+from each plan's present price, so it overstates or understates for subscribers still on an older one.
 
 The location page and the audit turn all of that into an action plan, "What to do next": fix
 what keeps the website from being read, get listed on the sites the assistants read without
@@ -276,6 +278,7 @@ organization reads as missing and returns 404. Payloads are defined in
 | `GET /api/operator/plans` | Every plan, on sale or not, with its `organizations`, `subscribers` and `monthly_cents`; test organizations are left out. 404 to anyone who is not the operator. |
 | `POST /api/operator/plans/:key/impact` | How many organizations a set of plan settings (`PlanSettingsSchema`) would reach and how many prompts it would set aside. Changes nothing. 404 to anyone who is not the operator. |
 | `PUT /api/operator/plans/:key` | Sets a plan's name, on-sale flag, limits and emailed report, re-applies it to every organization on it, and records the change. Not its prices. 404 to anyone who is not the operator, 422 for a value out of range. |
+| `PUT /api/operator/plans/:key/prices` | Sets what a plan is sold at from now: `price_cents` and `extra_location_price_cents` (nullable), each at least a dollar. Makes two new prices at Stripe (a price cannot be edited), then calls `operator_set_plan_prices()`, which keeps the pair in `plan_prices`, puts it on the plan and records the change. Touches no subscription: current subscribers keep the price they pay. Answers the plan. 404 to anyone who is not the operator or for an unknown plan, 409 `free_plan`, 422 `no_change` or a value out of range, 503 `billing_unavailable` when Stripe is not set up. |
 | `GET /api/operator/audits` | Every shareable audit, with its link only while it is neither revoked nor expired. 404 to anyone who is not the operator. |
 | `POST /api/operator/audits` | Makes a shareable audit and queues one message per prompt. Takes `business_name`, `city`, `prompts` (1 to 5) and optionally `website`, `region`, `country_code`, `samples` (1 to 5). 404 to anyone who is not the operator, 409 where scans return sample data, 422 for a bad value. |
 | `GET /api/operator/organizations/:organizationId` | One organization, for the operator to read through its pages. 404 to anyone who is not the operator. |
@@ -285,7 +288,7 @@ organization reads as missing and returns 404. Payloads are defined in
 | `PUT /api/organizations/:organizationId/assistants` | Sets which assistants the organization is checked on, from ChatGPT and Claude, as many as its plan covers. Owner only: 404 to anyone else. 409 with the reason when the choice is not one the plan allows. |
 | `GET /api/organizations/:organizationId/locations` | List an organization's locations. |
 | `POST /api/organizations/:organizationId/locations` | Add a location. The phone is stored as E.164 in the location's country, the website with `https://`, and the postal code, country, place ID, name and city are checked; a bad value answers 422. |
-| `GET /api/organizations/:organizationId/account` | What Account settings shows: `manual_scans_used` this month for anyone who can read the organization, and `billing` (`available`, `subscribed`, `status`, `has_customer`, `locations` paid for, `renews_at`, and `pending`, a change waiting for the period's end, read live from Stripe) for its owner alone. `billing` is null for a member and for the operator. 404 to a stranger. |
+| `GET /api/organizations/:organizationId/account` | What Account settings shows: `manual_scans_used` this month for anyone who can read the organization, and `billing` (`available`, `subscribed`, `status`, `has_customer`, `locations` paid for, `renews_at`, `paying` (the prices the subscription is billed at and its `monthly_cents`, which may be older than the plan's present price), and `pending`, a change waiting for the period's end, read live from Stripe) for its owner alone. `billing` is null for a member and for the operator. 404 to a stranger. |
 | `POST /api/organizations/:organizationId/checkout` | Starts a subscription. Takes `plan_key` and optionally `locations`; answers `{ url }`, Stripe's checkout page. Changes no plan: the plan moves when the webhook reports the payment. Owner only: 404 to anyone else, the operator included. 409 for a test organization or one already subscribed, 422 `plan_unavailable` for a plan that cannot be bought, 503 `billing_unavailable` when Stripe is not set up. |
 | `POST /api/organizations/:organizationId/billing-portal` | Answers `{ url }`, Stripe's account pages, where the owner changes the payment method, reads invoices, pays a failed invoice or cancels. Owner only: 404 to anyone else. 409 `no_subscription` for an organization that never subscribed; 503 `billing_unavailable` when Stripe is not set up. |
 | `POST /api/organizations/:organizationId/subscription/preview` | What changing to `plan_key` (and optionally `locations`) would do: `kind` (`upgrade` or `downgrade`, decided on the server from the plans' prices), the new `monthly_cents`, `due_now_cents` and `effective_at`. Changes nothing. Owner only: 404 to anyone else, the operator included. 503 `billing_unavailable` when Stripe is not set up. |
@@ -317,8 +320,9 @@ The migrations in `supabase/migrations/` define everything.
 | `scan_results` | One row per query and surface: named or not, position, and who else was named. |
 | `recommendations` | What a scan suggested, and whether the user has dealt with it. |
 | `audits` | A shareable audit: the business, its prompts, the results as each prompt finishes, and its token, expiry and revocation. Belongs to no organization; only the operator can read it through the API. |
-| `operator_actions` | What the operator changed or made, one row per action, with who and what: an organization's limits before and after, a plan's settings before and after, or the audit made. Written only by the function that does it; only the operator can read it through the API. |
+| `operator_actions` | What the operator changed or made, one row per action, with who and what: an organization's limits before and after, a plan's settings or prices before and after, or the audit made. Written only by the function that does it; only the operator can read it through the API. |
 | `plans` | What is on sale: a monthly price for the locations a plan includes, a price for each extra location, and its limits. Read by everyone; written by no API role. An organization's `plan_key` names its plan, or is null when its limits were set by hand. |
+| `plan_prices` | Every pair of prices a plan has been sold at (the plan's price and its extra-location price, in cents, with the Stripe price IDs). The newest is also on the plan's row. A subscription is matched to its plan by any of them. Read by anyone signed in, not by a visitor; written by no API role. |
 | `subscriptions` | An organization's Stripe customer and subscription IDs and the status Stripe last reported. Written only by the Worker, from the webhook; no API role can write it. The operator reads it directly, an owner through `billing_state()`. |
 | `provider_usage` | What the providers used for a scan or audit prompt, per surface and model: calls, input, cached input and output tokens, searches. Outlives the scan, audit or organization it describes. Written only by the Worker; only the operator can read it through the API. Not priced or shown anywhere yet. |
 
@@ -341,7 +345,7 @@ reader gets one audit only by its token, through the `get_audit()` function.
   on-page check and the action plan.
 - **`packages/db`**: applies the real migrations to in-process Postgres (PGlite) and checks, as
   different users, that one organization cannot read or write another's rows, that users cannot
-  forge scan results or grant themselves a platform role, that worker-only functions and the `audits` and `provider_usage` tables are closed to them, and that the operator reads every organization and changes only an organization's limits or a plan's settings, each through one function that records it. No Docker needed. It
+  forge scan results or grant themselves a platform role, that worker-only functions and the `audits` and `provider_usage` tables are closed to them, and that the operator reads every organization and changes only an organization's limits or a plan's settings or prices, each through one function that records it. No Docker needed. It
   also checks `private/tuning.json` against the tuning schema where that file exists.
 - **`apps/api`**: every route against an in-memory store, the scan runner (success, retry,
   permanent failure, reporting, scoring with given weights, refusing live scans on default tuning),
@@ -503,7 +507,7 @@ pnpm sync:agents
   are not;
   `apps/api/src/providers/live.ts` has notes on what each needs.
 - **Billing, the rest.** A visitor can read the plans, and an owner can subscribe, change plan or
-  the number of locations paid for, and open Stripe's pages from the app. Not built: changing a plan's prices and announcing a price change to current subscribers from the operator page, and going live (Stripe is wired for test mode only). Limits can still be changed by hand, and the Account settings
+  the number of locations paid for, and open Stripe's pages from the app. The operator can set a plan's prices for new subscribers. Not built: announcing a price change to current subscribers and moving them at renewal, and going live (Stripe is wired for test mode only). Limits can still be changed by hand, and the Account settings
   page shows them without editing them.
 - **Inviting teammates.** The schema and policies support members and roles; there is no API or
   screen for it.
