@@ -2403,9 +2403,19 @@ mark {
   margin-top: auto;
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  gap: 0.625rem;
+  align-items: stretch;
+  gap: 0.75rem;
   padding-top: 0.5rem;
+}
+
+/* As wide as the card, and free to wrap: a plan's name must never push it past the edge. */
+.plan-button {
+  width: 100%;
+  height: auto;
+  min-height: 2.625rem;
+  padding: 0.5rem 0.875rem;
+  white-space: normal;
+  text-align: center;
 }
 
 .plan-current {
@@ -2416,10 +2426,49 @@ mark {
 .plan-locations {
   display: flex;
   align-items: center;
-  gap: 0.625rem;
+  justify-content: space-between;
+  gap: 0.75rem;
   font-size: 0.875rem;
+  color: var(--muted);
 }
 
-.plan-locations input {
-  width: 5rem;
+/* A number with a button either side of it, drawn as one control. */
+.count-stepper {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.count-stepper button {
+  flex: none;
+  width: 2.25rem;
+  height: 2.25rem;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--ink);
+  font-size: 1.125rem;
+}
+
+.count-stepper button:hover:not(:disabled) {
+  background: var(--line);
+  opacity: 1;
+}
+
+.count-stepper input {
+  flex: none;
+  width: 2.75rem;
+  height: 2.25rem;
+  padding: 0;
+  border: 0;
+  border-inline: 1px solid var(--line);
+  border-radius: 0;
+  background: none;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
 }

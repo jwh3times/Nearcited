@@ -87,6 +87,9 @@ export function Pricing() {
   );
 }
 
+/** The most locations checkout takes, as the API has it. */
+const MOST_LOCATIONS = 1000;
+
 interface PlanCardProps {
   plan: Plan;
   /** True for the plan a visitor picked before signing in. */
@@ -98,11 +101,13 @@ interface PlanCardProps {
 
 function PlanCard({ plan, chosen, offer, organizationId, organizationName }: PlanCardProps) {
   const navigate = useNavigate();
-  const [locations, setLocations] = useState(plan.included_locations);
+  // What is typed, kept as text so the field can be emptied on the way to another number.
+  const [typed, setTyped] = useState(String(plan.included_locations));
   const sellsMore = plan.extra_location_price_cents !== null;
-  const count = Number.isInteger(locations)
-    ? Math.min(1000, Math.max(plan.included_locations, locations))
-    : plan.included_locations;
+  const least = plan.included_locations;
+  const count = /^\d+$/.test(typed)
+    ? Math.min(MOST_LOCATIONS, Math.max(least, Number(typed)))
+    : least;
 
   // Both answer with an address at the payment provider, and the browser goes there.
   const leave = useMutation({
@@ -152,7 +157,7 @@ function PlanCard({ plan, chosen, offer, organizationId, organizationName }: Pla
         {offer === "sign-in" && (
           <button
             type="button"
-            className={plan.price_cents === 0 ? "secondary" : undefined}
+            className={plan.price_cents === 0 ? "plan-button secondary" : "plan-button"}
             onClick={() => {
               rememberPlan(plan.key);
               navigate("/");
@@ -166,24 +171,46 @@ function PlanCard({ plan, chosen, offer, organizationId, organizationName }: Pla
         {offer === "subscribe" && (
           <>
             {sellsMore && (
-              <label className="plan-locations">
-                Locations
-                <input
-                  type="number"
-                  inputMode="numeric"
-                  min={plan.included_locations}
-                  max={1000}
-                  value={Number.isNaN(locations) ? "" : locations}
-                  onChange={(event) => setLocations(event.target.valueAsNumber)}
-                />
-              </label>
+              <div className="plan-locations">
+                <span id={`${plan.key}-locations`}>Locations</span>
+                <div className="count-stepper">
+                  <button
+                    type="button"
+                    aria-label="One location fewer"
+                    disabled={count <= least}
+                    onClick={() => setTyped(String(count - 1))}
+                  >
+                    −
+                  </button>
+                  <input
+                    inputMode="numeric"
+                    aria-labelledby={`${plan.key}-locations`}
+                    value={typed}
+                    onChange={(event) =>
+                      setTyped(event.target.value.replace(/\D/g, "").slice(0, 4))
+                    }
+                    // Leaving the field settles it on what will be charged for.
+                    onBlur={() => setTyped(String(count))}
+                  />
+                  <button
+                    type="button"
+                    aria-label="One location more"
+                    disabled={count >= MOST_LOCATIONS}
+                    onClick={() => setTyped(String(count + 1))}
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
             )}
             <button
               type="button"
+              className="plan-button"
+              aria-label={`Subscribe to ${plan.name}`}
               disabled={leave.isPending}
               onClick={() => leave.mutate("checkout")}
             >
-              {leave.isPending ? "Opening checkout" : `Subscribe to ${plan.name}`}
+              {leave.isPending ? "Opening checkout" : "Subscribe"}
             </button>
             <p className="small muted">You pay on Stripe's page. Tax is added there.</p>
           </>
@@ -191,7 +218,7 @@ function PlanCard({ plan, chosen, offer, organizationId, organizationName }: Pla
         {offer === "manage" && (
           <button
             type="button"
-            className="secondary"
+            className="plan-button secondary"
             disabled={leave.isPending}
             onClick={() => leave.mutate("portal")}
           >

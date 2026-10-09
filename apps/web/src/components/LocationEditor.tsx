@@ -3,46 +3,29 @@ import {
   type Location,
   type LocationFormValues,
   LocationInputSchema,
-  type ScanFrequency,
 } from "@nearcited/shared";
 import { useMutation } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
 import { api } from "../lib/api";
 import { useFormErrors } from "../lib/form";
-import { cadence } from "../lib/format";
 import { locationFormValues } from "../lib/location";
 import { ErrorNote } from "./ErrorNote";
 import { Field } from "./Field";
 
 type TextField = Exclude<keyof LocationFormValues, "scan_frequency">;
 
-const FREQUENCIES: { value: ScanFrequency; label: string }[] = [
-  { value: "daily", label: "Daily" },
-  { value: "weekly", label: "Weekly" },
-  { value: "off", label: "Off" },
-];
-
 interface LocationEditorProps {
   location: Location;
-  /** How many days apart the organization's plan scans. Undefined until it has loaded. */
-  planDays: number | undefined;
   onSaved: () => void;
   /** True while the operator is reading a customer's account: shown, and nothing to save. */
   readOnly?: boolean;
 }
 
-/** What "Daily" and "Weekly" come to on this plan. The plan sets the fastest pace. */
-function frequencyNote(frequency: ScanFrequency, planDays: number | undefined): string {
-  if (frequency === "off") return "No scheduled scans. You can still run one by hand.";
-  if (planDays === undefined) return "Scanned on a schedule.";
-  const pace = cadence(planDays, frequency);
-  return frequency === "daily"
-    ? `Scanned ${pace}, as often as your plan allows.`
-    : `Scanned ${pace}. A location can ask for less than its plan allows, never more.`;
-}
-
-/** The form that changes a location's details and how often it is scanned. */
-export function LocationEditor({ location, planDays, onSaved, readOnly }: LocationEditorProps) {
+/**
+ * The form that changes a location's details. How often it is scanned is the plan's to say, so
+ * there is nothing here to set it: `scan_frequency` is carried through unchanged.
+ */
+export function LocationEditor({ location, onSaved, readOnly }: LocationEditorProps) {
   const [form, setForm] = useState<Required<LocationFormValues>>(() =>
     locationFormValues(location),
   );
@@ -137,24 +120,6 @@ export function LocationEditor({ location, planDays, onSaved, readOnly }: Locati
           {...field("google_place_id")}
         />
       </div>
-
-      <hr className="divider" />
-      <h3>Scheduled scans</h3>
-      {/* biome-ignore lint/a11y/useSemanticElements: a fieldset cannot be laid out as a pill group */}
-      <div className="segmented" role="group" aria-label="Scheduled scans">
-        {FREQUENCIES.map(({ value, label }) => (
-          <button
-            key={value}
-            type="button"
-            disabled={readOnly}
-            aria-pressed={form.scan_frequency === value}
-            onClick={() => setForm((current) => ({ ...current, scan_frequency: value }))}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-      <p className="small muted">{frequencyNote(form.scan_frequency, planDays)}</p>
 
       {!readOnly && (
         <button type="submit" disabled={save.isPending}>
