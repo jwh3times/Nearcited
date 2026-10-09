@@ -128,6 +128,19 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
     expect((await aliceStore.listPlans()).find((plan) => plan.key === "standard")?.name).toBe(
       "Standard",
     );
+    // Price changes: anyone signed in may ask whether one is open; announcing and calling off
+    // answer only the operator; what was done for each organization is kept by the worker.
+    expect(await aliceStore.getOpenPriceChange("standard")).toBeNull();
+    expect(await aliceStore.announcePriceChange("standard", "2099-01-01T00:00:00.000Z")).toBeNull();
+    expect(await aliceStore.callOffPriceChange("standard")).toBeNull();
+    expect(await worker.listOpenPriceChanges()).toEqual([]);
+    expect(await worker.listPlanSubscribers("standard")).not.toContain(fresh.id);
+    expect(await worker.getPriceChange(crypto.randomUUID())).toBeNull();
+    expect(await aliceStore.listPriceChangeNotices(crypto.randomUUID())).toEqual([]);
+    await expect(
+      aliceStore.recordPriceChangeNotice(crypto.randomUUID(), fresh.id, { skipped: "mine" }),
+    ).rejects.toMatchObject({ kind: "forbidden" });
+    await worker.markPriceChange(crypto.randomUUID(), "completed", new Date().toISOString());
     expect(await aliceStore.getManualScansUsed(fresh.id)).toBe(0);
     expect(await bobStore.getManualScansUsed(fresh.id)).toBeNull();
     expect(await worker.getSubscription(fresh.id)).toBeNull();

@@ -1,12 +1,16 @@
 import {
   type AuditMessage,
   AuditMessageSchema,
+  type PriceChangeMessage,
+  PriceChangeMessageSchema,
   type ScanMessage,
   ScanMessageSchema,
 } from "@nearcited/shared";
 import { createApp } from "./app";
 import { runAuditPart } from "./audits/runner";
 import { authenticateWithSupabase } from "./auth";
+import { advancePriceChanges, runPriceChangeStep } from "./billing/price-change";
+import { createStripePayments } from "./billing/stripe";
 import { buildScanReportEmail, sendEmail } from "./email/report";
 import type { Env } from "./env";
 import { createProviders, liveScansUnavailable, usesSampleData } from "./providers";
@@ -50,6 +54,8 @@ export default {
 
     const queued = await enqueueDueScans(store, env.SCAN_QUEUE);
     console.log(`Queued ${queued} scheduled scans`);
+    const steps = await advancePriceChanges(store, env.SCAN_QUEUE);
+    if (steps > 0) console.log(`Queued ${steps} price change steps`);
   },
 
   /** Queue consumer: run each scan, and email its report if it was a scheduled one. */
@@ -76,6 +82,33 @@ export default {
           message.ack();
         } catch (error) {
           console.error(`Audit ${audit_id} prompt ${prompt_index} failed, will retry`, error);
+          message.retry();
+        }
+        continue;
+      }
+
+      const priceChange = PriceChangeMessageSchema.safeParse(message.body);
+      if (priceChange.success) {
+        const { price_change_id, organization_id, step } = priceChange.data;
+        const what = `Price change ${price_change_id} ${step} for ${organization_id}`;
+        // Both are needed to tell anyone or to move anyone. Without them the step is kept for
+        // the dead-letter queue instead of being quietly dropped.
+        if (!env.STRIPE_SECRET_KEY || !env.STRIPE_WEBHOOK_SECRET || !env.RESEND_API_KEY) {
+          console.error(`${what} cannot run: the payment provider or email is not set up`);
+          message.retry();
+          continue;
+        }
+        try {
+          const outcome = await runPriceChangeStep(priceChange.data, {
+            store,
+            payments: createStripePayments(env.STRIPE_SECRET_KEY, env.STRIPE_WEBHOOK_SECRET),
+            send: (to, email) => sendEmail(env, to, email),
+            appUrl: env.APP_URL,
+          });
+          console.log(`${what}: ${outcome}`);
+          message.ack();
+        } catch (error) {
+          console.error(`${what} failed, will retry`, error);
           message.retry();
         }
         continue;
@@ -113,4 +146,4 @@ export default {
       }
     }
   },
-} satisfies ExportedHandler<Env, ScanMessage | AuditMessage>;
+} satisfies ExportedHandler<Env, ScanMessage | AuditMessage | PriceChangeMessage>;

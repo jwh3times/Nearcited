@@ -8,7 +8,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
 import { api } from "../lib/api";
-import { centsToDollars, dollarsToCents, formatPrice } from "../lib/billing";
+import { centsToDollars, dollarsToCents, formatDay, formatPrice } from "../lib/billing";
 import { useFormErrors } from "../lib/form";
 import { ErrorNote } from "./ErrorNote";
 import { Field } from "./Field";
@@ -326,6 +326,9 @@ function PriceEditor({ plan }: { plan: OperatorPlan }) {
     },
   });
 
+  // What was announced is what is charged, so the prices stay put while a change is open.
+  const held = plan.price_change !== null;
+
   function submit(event: FormEvent) {
     event.preventDefault();
     if (form$.check()) save.mutate();
@@ -352,6 +355,7 @@ function PriceEditor({ plan }: { plan: OperatorPlan }) {
         label="Price a month"
         inputMode="decimal"
         required
+        disabled={held}
         value={price}
         error={form$.error("price_cents")}
         onBlur={() => form$.touch("price_cents")}
@@ -362,8 +366,13 @@ function PriceEditor({ plan }: { plan: OperatorPlan }) {
       />
       <Field
         label="Each extra location a month"
-        hint="Leave empty to sell no more locations than the plan includes."
+        hint={
+          held
+            ? "Held as announced until the price change below is finished or called off."
+            : "Leave empty to sell no more locations than the plan includes."
+        }
         inputMode="decimal"
+        disabled={held}
         value={extra}
         error={form$.error("extra_location_price_cents")}
         onBlur={() => form$.touch("extra_location_price_cents")}
@@ -373,7 +382,7 @@ function PriceEditor({ plan }: { plan: OperatorPlan }) {
         }}
       />
       <div className="button-row">
-        <button type="submit" disabled={save.isPending || unchanged}>
+        <button type="submit" disabled={save.isPending || unchanged || held}>
           {save.isPending
             ? "Saving"
             : unchanged || Number.isNaN(prices.price_cents)
@@ -387,6 +396,114 @@ function PriceEditor({ plan }: { plan: OperatorPlan }) {
         </p>
       )}
       <ErrorNote error={save.error} />
+      {(plan.price_change || plan.subscribers > 0) && (
+        <>
+          <hr className="divider" />
+          <PriceChange plan={plan} />
+        </>
+      )}
     </form>
+  );
+}
+
+const DAY_MS = 86_400_000;
+/** A day as a date field holds it, `days` from today. */
+const dayFrom = (days: number) => new Date(Date.now() + days * DAY_MS).toISOString().slice(0, 10);
+
+/**
+ * Moving the subscribers a plan already has to its present prices: announce a day, and each is
+ * moved at its first renewal on or after it. Announcing emails their owners, so it is asked
+ * twice. Until the day comes it can be called off, which emails them again.
+ */
+function PriceChange({ plan }: { plan: OperatorPlan }) {
+  const queryClient = useQueryClient();
+  const [day, setDay] = useState(dayFrom(31));
+  const [asked, setAsked] = useState(false);
+  const refresh = () => queryClient.invalidateQueries({ queryKey: ["operator-plans"] });
+  const announce = useMutation({
+    mutationFn: () => api.announcePriceChange(plan.key, day),
+    onSuccess: refresh,
+    onSettled: () => setAsked(false),
+  });
+  const callOff = useMutation({
+    mutationFn: () => api.callOffPriceChange(plan.key),
+    onSuccess: refresh,
+  });
+  const open = plan.price_change;
+
+  if (open) {
+    const begun = Date.parse(open.effective_at) <= Date.now();
+    return (
+      <div className="stack-tight">
+        <h3>Price change announced</h3>
+        <p className="small muted">
+          Current subscribers move to these prices at their first renewal on or after{" "}
+          {formatDay(open.effective_at)}. {count(open.told, "organization", "organizations")} told
+          so far, {open.moved} moved.{" "}
+          {begun
+            ? "It has taken effect and cannot be called off."
+            : "A reminder goes out a week before."}
+        </p>
+        {!begun && (
+          <div className="button-row">
+            <button
+              type="button"
+              className="secondary"
+              disabled={callOff.isPending}
+              onClick={() => callOff.mutate()}
+            >
+              {callOff.isPending
+                ? "Calling it off"
+                : "Call it off, and email everyone who was told"}
+            </button>
+          </div>
+        )}
+        <ErrorNote error={callOff.error} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="stack-tight">
+      <h3>Current subscribers</h3>
+      <p className="small muted">
+        To move them to these prices, announce a day. Each is moved at their first renewal on or
+        after it, with nothing charged before. A price that goes up needs at least 30 days. Their
+        owners are emailed now, and reminded a week before.
+      </p>
+      <Field
+        label="From"
+        type="date"
+        min={dayFrom(0)}
+        value={day}
+        onChange={(event) => {
+          setDay(event.target.value);
+          setAsked(false);
+          announce.reset();
+        }}
+      />
+      {asked && (
+        <p className="error" role="alert">
+          This emails the owners of every subscriber on an older price of {plan.name} now, saying it
+          changes on {day ? formatDay(`${day}T12:00:00.000Z`) : "that day"}. Announce again to send
+          it.
+        </p>
+      )}
+      <div className="button-row">
+        <button
+          type="button"
+          className="secondary"
+          disabled={announce.isPending || day === ""}
+          onClick={() => (asked ? announce.mutate() : setAsked(true))}
+        >
+          {announce.isPending
+            ? "Announcing"
+            : asked
+              ? "Announce, and send the emails"
+              : "Announce to current subscribers"}
+        </button>
+      </div>
+      <ErrorNote error={announce.error} />
+    </div>
   );
 }

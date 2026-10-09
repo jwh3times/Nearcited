@@ -13,6 +13,8 @@ import type {
   Plan,
   PlanSettings,
   PlatformRole,
+  PriceChange,
+  PriceChangeNotice,
   ProviderUsage,
   Recommendation,
   RecommendationStatus,
@@ -224,6 +226,23 @@ export interface Store {
     sampleData: boolean,
   ): Promise<ScanResult[][]>;
 
+  /** The price change announced for a plan and still open, or null. Anyone signed in may ask. */
+  getOpenPriceChange(planKey: string): Promise<PriceChange | null>;
+  /**
+   * Announces that a plan's current subscribers move to its present prices from `effectiveAt`.
+   * Only the operator's call does anything: for anyone else, and for a plan that does not
+   * exist, it returns null. Throws a limit, with the reason, when the day gives too little
+   * notice, and a conflict when one is already open.
+   */
+  announcePriceChange(planKey: string, effectiveAt: string): Promise<PriceChange | null>;
+  /** Calls off a plan's open price change before it takes effect. Null when there is none. */
+  callOffPriceChange(planKey: string): Promise<PriceChange | null>;
+  /** The organizations on a plan that have a subscription, as far as the caller may read. */
+  listPlanSubscribers(planKey: string): Promise<string[]>;
+  /** Every open price change, and what each has done so far. The operator's, and the worker's. */
+  listOpenPriceChanges(): Promise<PriceChange[]>;
+  listPriceChangeNotices(priceChangeId: string): Promise<PriceChangeNotice[]>;
+
   /** The on-page check from a location's latest successful scan, or null when it made none. */
   getSiteCheck(locationId: string): Promise<SiteCheck | null>;
 
@@ -264,6 +283,19 @@ export interface Store {
   getSubscription(organizationId: string): Promise<SubscriptionRecord | null>;
   /** Keeps what the payment provider last said about an organization's subscription. Worker only. */
   recordSubscription(organizationId: string, subscription: SubscriptionRecord): Promise<void>;
+  /** A price change by its ID, open or not. Worker only. */
+  getPriceChange(id: string): Promise<PriceChange | null>;
+  /**
+   * Keeps what a price change has just done for an organization: the fields given are set and
+   * the rest left as they were. Worker only.
+   */
+  recordPriceChangeNotice(
+    priceChangeId: string,
+    organizationId: string,
+    done: Partial<Omit<PriceChangeNotice, "price_change_id" | "organization_id">>,
+  ): Promise<void>;
+  /** Marks a price change's reminders as queued, or the change as finished. Worker only. */
+  markPriceChange(id: string, what: "reminded" | "completed", at: string): Promise<void>;
   recordUsage(source: UsageSource, usage: readonly ProviderUsage[]): Promise<void>;
   /** Throws a conflict when a different scan for the same location is already in flight. */
   markScanRunning(id: string, sampleData: boolean): Promise<void>;

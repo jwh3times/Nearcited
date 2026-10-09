@@ -204,6 +204,14 @@ function Billing({ organization, billing, loaded, returning, planName }: Billing
           on {formatDay(billing.renews_at)}.
         </p>
       )}
+      {billing.price_change && (
+        <p role="status">
+          The price of your plan is changing. From your first renewal on or after{" "}
+          {formatDay(billing.price_change.at)} it will be{" "}
+          {formatPrice(billing.price_change.monthly_cents)} a month before tax, for the locations
+          you pay for now.
+        </p>
+      )}
       {warning && (
         <p className="error" role="alert">
           {warning}

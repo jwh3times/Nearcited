@@ -38,6 +38,7 @@ billingRoutes.get("/organizations/:organizationId/account", async (c) => {
   let paid: PaidPlan | null = null;
   let renewsAt: string | null = null;
   let pending: NonNullable<OrganizationAccount["billing"]>["pending"] = null;
+  let priceChange: NonNullable<OrganizationAccount["billing"]>["price_change"] = null;
   if (billing?.stripe_subscription_id && payments) {
     try {
       const subscription = await payments.getSubscription(billing.stripe_subscription_id);
@@ -52,6 +53,17 @@ billingRoutes.get("/organizations/:organizationId/account", async (c) => {
           monthly_cents: monthlyCents(next),
           at: renewsAt,
         };
+      }
+      // A price change announced for their plan, when they have not been moved to it yet.
+      const announced = paid ? await store.getOpenPriceChange(paid.plan.key) : null;
+      const target = paid?.plan.versions.find(
+        (version) => version.stripe_price_id === announced?.stripe_price_id,
+      );
+      if (paid && announced && target && target.stripe_price_id !== paid.version.stripe_price_id) {
+        const moved = { ...paid, version: target };
+        if (itemsFor(moved)) {
+          priceChange = { monthly_cents: monthlyCents(moved), at: announced.effective_at };
+        }
       }
     } catch (error) {
       console.error(`Could not read the subscription of ${organizationId}`, error);
@@ -72,6 +84,7 @@ billingRoutes.get("/organizations/:organizationId/account", async (c) => {
         extra_location_price_cents: paid.version.extra_location_price_cents,
         monthly_cents: monthlyCents(paid),
       },
+      price_change: priceChange,
       pending,
     },
   } satisfies OrganizationAccount);

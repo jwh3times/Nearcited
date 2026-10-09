@@ -283,3 +283,66 @@ test("lets the operator set a plan's prices in dollars, and says who goes on pay
   await expect(page.getByRole("form", { name: "Edit Free" })).toBeVisible();
   await expect(page.getByRole("form", { name: "Prices of Free" })).toHaveCount(0);
 });
+
+test("has the operator ask twice before announcing a price change, and shows it once announced", async ({
+  page,
+}) => {
+  const operator = await createAccount();
+  await api(operator, "POST", "/organizations", { name: "The operator's own" });
+  await grantRole(operator, "operator");
+  // The local stack has no payment provider and sends no email, so the plan is shown as one
+  // with a subscriber, and the announcing is stood in for.
+  let announced: Record<string, unknown> | null = null;
+  const sent: unknown[] = [];
+  await page.route("**/api/operator/plans", async (route) => {
+    const plans = (await (await route.fetch()).json()) as Record<string, unknown>[];
+    await route.fulfill({
+      json: plans.map((plan) =>
+        plan.key === "standard" ? { ...plan, subscribers: 2, price_change: announced } : plan,
+      ),
+    });
+  });
+  await page.route("**/api/operator/plans/standard/price-change", async (route) => {
+    if (route.request().method() === "DELETE") {
+      const off = { ...announced, called_off_at: new Date().toISOString() };
+      announced = null;
+      return route.fulfill({ json: off });
+    }
+    const input = route.request().postDataJSON() as { effective_on: string };
+    sent.push(input);
+    announced = {
+      id: "0c000000-0000-4000-8000-000000000001",
+      plan_key: "standard",
+      stripe_price_id: "price_x",
+      effective_at: `${input.effective_on}T00:00:00.000Z`,
+      announced_at: new Date().toISOString(),
+      reminded_at: null,
+      called_off_at: null,
+      completed_at: null,
+      told: 2,
+      moved: 0,
+    };
+    await route.fulfill({ status: 201, json: announced });
+  });
+
+  await signIn(page, operator, "/operator");
+  await page.getByRole("button", { name: "Edit Standard" }).click();
+  const form = page.getByRole("form", { name: "Prices of Standard" });
+  await expect(form).toContainText("2 subscribers go on paying what they pay now.");
+
+  // The first click only says what it will do.
+  await form.getByRole("button", { name: "Announce to current subscribers" }).click();
+  await expect(form.getByRole("alert")).toContainText("This emails the owners");
+  expect(sent).toEqual([]);
+  await form.getByRole("button", { name: "Announce, and send the emails" }).click();
+
+  await expect(form.getByRole("heading", { name: "Price change announced" })).toBeVisible();
+  await expect(form).toContainText("2 organizations told so far, 0 moved.");
+  expect(sent).toHaveLength(1);
+  // The prices are held as announced.
+  await expect(form.getByLabel("Price a month")).toBeDisabled();
+
+  await form.getByRole("button", { name: /Call it off/ }).click();
+  await expect(form.getByRole("button", { name: "Announce to current subscribers" })).toBeVisible();
+  await expect(form.getByLabel("Price a month")).toBeEnabled();
+});

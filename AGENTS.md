@@ -55,6 +55,12 @@ pass `pnpm check` and run in mock mode without it.
   The webhook verifies the signature, reads the subscription back from the provider and calls
   `applyPlan`. `subscriptions` has no write path from a request, and whether a change is an
   upgrade is worked out on the server from the prices, never taken from the request.
+- **A subscriber's price goes up only after they were told.** Setting a plan's price changes it
+  for new subscribers; current ones keep the price version they joined at until an announced
+  change moves them (`docs/adr/0008-a-price-change-reaches-subscribers-by-announcement.md`).
+  `runPriceChangeStep` moves a subscription to a higher price only when its owners were sent the
+  announcement at least thirty days before, checked per organization. Do not add another path
+  that changes what a running subscription is billed, and never edit a price in place.
 - **The operator can read every row** (`docs/adr/0004-the-operator-reads-through-policies.md`), so
   a query must filter by what it means, never by what the caller happens to see. "This user's
   organizations" is `my_organizations()`, not `select` from `organizations`. The operator gets

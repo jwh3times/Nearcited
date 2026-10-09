@@ -1,8 +1,11 @@
 import {
   BillingRedirectSchema,
+  OperatorPlanSchema,
   type Organization,
   OrganizationAccountSchema,
   type Plan,
+  type PriceChangeMessage,
+  PriceChangeSchema,
   SubscriptionChangeSchema,
 } from "@nearcited/shared";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -30,10 +33,16 @@ let checkouts: CheckoutRequest[];
 let portals: { customerId: string; returnUrl: string }[];
 let configured: boolean;
 /** What the stand-in provider was asked to do to a subscription, in order. */
-let changes: { what: "now" | "at-period-end" | "keep"; id: string; items?: BilledItem[] }[];
+let changes: {
+  what: "now" | "at-period-end" | "keep" | "reprice";
+  id: string;
+  items?: BilledItem[];
+}[];
 let cardDeclines: boolean;
 /** The prices the stand-in provider was asked to make. */
 let made: { like: string | null; product_name: string; cents: number }[];
+/** The price change steps put on the queue. */
+let steps: PriceChangeMessage[];
 
 /** A provider whose webhook body is just the subscription's ID, signed with the word "signed". */
 const payments: Payments = {
@@ -64,6 +73,9 @@ const payments: Payments = {
   },
   async keepCurrent(id) {
     changes.push({ what: "keep", id });
+  },
+  async reprice(id, items) {
+    changes.push({ what: "reprice", id, items });
   },
   async createPrice(price) {
     made.push(price);
@@ -173,7 +185,17 @@ beforeEach(() => {
   changes = [];
   cardDeclines = false;
   made = [];
-  env = { PROVIDER_MODE: "mock", APP_URL: "https://app.example" } as unknown as Env;
+  steps = [];
+  env = {
+    PROVIDER_MODE: "mock",
+    APP_URL: "https://app.example",
+    RESEND_API_KEY: "re_test",
+    SCAN_QUEUE: {
+      sendBatch: async (messages: { body: PriceChangeMessage }[]) => {
+        steps.push(...messages.map((message) => message.body));
+      },
+    },
+  } as unknown as Env;
 });
 
 describe("checkout", () => {
@@ -329,6 +351,7 @@ describe("an organization's account", () => {
         locations: null,
         renews_at: null,
         paying: null,
+        price_change: null,
         pending: null,
       },
     });
@@ -952,5 +975,132 @@ describe("a plan's prices", () => {
     configured = false;
     expect(await errorCode(await setPrices(bob, "standard", dearer))).toBe("billing_unavailable");
     expect(made).toEqual([]);
+  });
+});
+
+describe("announcing a price change", () => {
+  const dearer = { price_cents: 5900, extra_location_price_cents: 1900 };
+  const DAY = 86_400_000;
+  const dayFrom = (days: number) => new Date(Date.now() + days * DAY).toISOString().slice(0, 10);
+  const announce = (user: string | null, key: string, effective_on: string) =>
+    call(user, "POST", `/operator/plans/${key}/price-change`, { effective_on });
+  const callOff = (user: string | null, key: string) =>
+    call(user, "DELETE", `/operator/plans/${key}/price-change`);
+
+  /** Alice subscribes to Standard, then Bob, the operator, puts its prices up. */
+  async function repriced() {
+    const organization = await organizationFor(alice);
+    atProvider.set("sub_1", subscription(organization.id));
+    await webhook("sub_1");
+    db.operators.add(bob);
+    await call(bob, "PUT", "/operator/plans/standard/prices", dearer);
+    return organization;
+  }
+
+  it("records the day, and queues the announcement for each subscriber on the plan", async () => {
+    const organization = await repriced();
+    const response = await announce(bob, "standard", dayFrom(45));
+    expect(response.status).toBe(201);
+    const change = PriceChangeSchema.parse(await response.json());
+    expect(change).toMatchObject({
+      plan_key: "standard",
+      stripe_price_id: "price_new_1",
+      effective_at: `${dayFrom(45)}T00:00:00.000Z`,
+    });
+    expect(steps).toEqual([
+      { price_change_id: change.id, organization_id: organization.id, step: "announce" },
+    ]);
+  });
+
+  it("refuses a price rise less than thirty days away, and a second announcement", async () => {
+    await repriced();
+    const soon = await announce(bob, "standard", dayFrom(29));
+    expect(soon.status).toBe(409);
+    expect(await errorCode(soon)).toBe("limit_reached");
+    expect(steps).toEqual([]);
+
+    expect((await announce(bob, "standard", dayFrom(31))).status).toBe(201);
+    expect((await announce(bob, "standard", dayFrom(60))).status).toBe(409);
+    expect(steps).toHaveLength(1);
+  });
+
+  it("holds the plan's prices as announced until the change is finished or called off", async () => {
+    await repriced();
+    await announce(bob, "standard", dayFrom(45));
+    const again = await call(bob, "PUT", "/operator/plans/standard/prices", {
+      price_cents: 6900,
+      extra_location_price_cents: 1900,
+    });
+    expect(again.status).toBe(409);
+    expect(db.plans.find((row) => row.key === "standard")?.price_cents).toBe(5900);
+  });
+
+  it("shows the operator the open change with how many were told and moved", async () => {
+    const organization = await repriced();
+    const change = PriceChangeSchema.parse(
+      await (await announce(bob, "standard", dayFrom(45))).json(),
+    );
+    await memoryStore(db, null).recordPriceChangeNotice(change.id, organization.id, {
+      announced_at: new Date().toISOString(),
+    });
+    const plans = OperatorPlanSchema.array().parse(
+      await (await call(bob, "GET", "/operator/plans")).json(),
+    );
+    expect(plans.find((row) => row.key === "standard")?.price_change).toMatchObject({
+      id: change.id,
+      told: 1,
+      moved: 0,
+    });
+    expect(plans.find((row) => row.key === "starter")?.price_change).toBeNull();
+  });
+
+  it("tells a subscriber on Account settings what they will pay, and from when", async () => {
+    const organization = await repriced();
+    await announce(bob, "standard", dayFrom(45));
+    const account = OrganizationAccountSchema.parse(
+      await (await call(alice, "GET", `/organizations/${organization.id}/account`)).json(),
+    );
+    expect(account.billing).toMatchObject({
+      paying: { monthly_cents: 2000 },
+      price_change: { monthly_cents: 5900, at: `${dayFrom(45)}T00:00:00.000Z` },
+    });
+  });
+
+  it("can be called off before the day, telling everyone who was told", async () => {
+    const organization = await repriced();
+    const change = PriceChangeSchema.parse(
+      await (await announce(bob, "standard", dayFrom(45))).json(),
+    );
+    await memoryStore(db, null).recordPriceChangeNotice(change.id, organization.id, {
+      announced_at: new Date().toISOString(),
+    });
+    steps = [];
+    const response = await callOff(bob, "standard");
+    expect(response.status).toBe(200);
+    expect(PriceChangeSchema.parse(await response.json()).called_off_at).not.toBeNull();
+    expect(steps).toEqual([
+      { price_change_id: change.id, organization_id: organization.id, step: "call_off" },
+    ]);
+    // There is nothing left to call off, and the prices can be changed again.
+    expect((await callOff(bob, "standard")).status).toBe(404);
+    const account = OrganizationAccountSchema.parse(
+      await (await call(alice, "GET", `/organizations/${organization.id}/account`)).json(),
+    );
+    expect(account.billing?.price_change).toBeNull();
+  });
+
+  it("is the operator's alone, and needs both the payment provider and outgoing email", async () => {
+    await repriced();
+    expect((await announce(alice, "standard", dayFrom(45))).status).toBe(404);
+    expect((await announce(null, "standard", dayFrom(45))).status).toBe(401);
+    expect((await callOff(alice, "standard")).status).toBe(404);
+    expect((await announce(bob, "standard", "soon")).status).toBe(422);
+    expect((await announce(bob, "nonesuch", dayFrom(45))).status).toBe(404);
+
+    env = { ...env, RESEND_API_KEY: undefined } as unknown as Env;
+    const noEmail = await announce(bob, "standard", dayFrom(45));
+    expect(noEmail.status).toBe(503);
+    expect(db.priceChanges).toEqual([]);
+    expect(steps).toEqual([]);
   });
 });
