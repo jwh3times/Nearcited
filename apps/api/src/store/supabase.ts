@@ -59,6 +59,7 @@ const ERROR_KINDS: Record<string, StoreErrorKind> = {
   NC004: "limit", // a choice of assistants the plan does not allow
   NC005: "limit", // a location paused by the plan, or no room to bring one back
   NC006: "limit", // a second organization for one account
+  NC007: "limit", // taking the free plan off sale
 };
 
 function fail(action: string, error: DbError): never {

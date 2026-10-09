@@ -48,6 +48,9 @@ function lowers(plan: OperatorPlan, to: PlanSettings): boolean {
   );
 }
 
+/** The plan every new organization is put on. */
+const FREE_PLAN = "free";
+
 const count = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
 /**
@@ -250,12 +253,16 @@ function PlanEditor({ plan, onDone }: { plan: OperatorPlan; onDone: () => void }
         <input
           type="checkbox"
           checked={onSale}
+          // Every new organization starts on the free plan, so it is always offered.
+          disabled={plan.key === FREE_PLAN}
           onChange={(event) => {
             setOnSale(event.target.checked);
             changed();
           }}
         />
-        On sale: shown on the price list and open to new subscribers
+        {plan.key === FREE_PLAN
+          ? "On sale. The free plan cannot be taken off sale: every new organization starts on it"
+          : "On sale: shown on the price list and open to new subscribers"}
       </label>
 
       {impact && (

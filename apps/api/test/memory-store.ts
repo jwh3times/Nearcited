@@ -298,6 +298,9 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
     async setPlan(key, settings) {
       const plan = db.plans.find((candidate) => candidate.key === key);
       if (!isOperator || !plan) return null;
+      if (key === "free" && !settings.on_sale) {
+        throw new StoreError("limit", "The free plan stays on sale.");
+      }
       Object.assign(plan, settings);
       // As the database function does: every organization on the plan takes the new values.
       const worker = memoryStore(db, null);

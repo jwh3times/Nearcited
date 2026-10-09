@@ -2125,6 +2125,20 @@ describe("the operator", () => {
       });
     });
 
+    it("will not take the free plan off sale, and records nothing when it refuses", async () => {
+      await expect(
+        as("authenticated", operator, () =>
+          db.query(
+            "select * from public.operator_set_plan('free', 'Free', false, 2, 1, 14, 0, false)",
+          ),
+        ),
+      ).rejects.toThrow(/free plan stays on sale/);
+      const [free] = await rows<{ on_sale: boolean }>(
+        "select on_sale from public.plans where key = 'free'",
+      );
+      expect(free?.on_sale).toBe(true);
+    });
+
     it("returns nothing for a plan that does not exist, and records nothing", async () => {
       const none = await as("authenticated", operator, () =>
         rows("select * from public.operator_set_plan('nonesuch', 'x', true, 1, 1, 1, 1, true)"),

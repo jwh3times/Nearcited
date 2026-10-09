@@ -494,7 +494,9 @@ and `PUT /api/operator/plans/:key` calls `operator_set_plan()`. That function an
 operator, changes a plan's name, on-sale flag, limits and emailed report (not its prices or included
 locations), records it in `operator_actions` with no organization, and in the same transaction
 re-applies the plan through `apply_plan()` to every organization on it, each keeping its own
-`max_locations`. An organization with no `plan_key` is untouched.
+`max_locations`. An organization with no `plan_key` is untouched. It refuses to take the free plan
+off sale, because `create_organization()` puts every new organization on it: the API answers 409
+`limit_reached` with the reason.
 
 **The operator makes an audit the same way.** `POST /api/operator/audits` checks the body against
 `AuditInputSchema`, refuses with 409 where scans return sample data, and calls

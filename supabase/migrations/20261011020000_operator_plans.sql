@@ -43,6 +43,12 @@ begin
     return;
   end if;
 
+  -- Every new organization is put on the free plan, so it cannot be one that is not offered.
+  if plan = 'free' and not sale then
+    raise exception 'The free plan stays on sale: every new organization starts on it.'
+      using errcode = 'NC007';
+  end if;
+
   insert into public.operator_actions (actor_id, organization_id, action, detail)
   values (
     (select auth.uid()),

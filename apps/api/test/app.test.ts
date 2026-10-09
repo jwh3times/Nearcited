@@ -1125,6 +1125,21 @@ describe("the operator's plans", () => {
     });
   });
 
+  it("keeps the free plan on sale, since every new organization starts on it", async () => {
+    await onStandard();
+    const response = await call(bob, "PUT", "/operator/plans/free", {
+      ...settings,
+      name: "Free",
+      on_sale: false,
+    });
+    expect(response.status).toBe(409);
+    expect(await errorCode(response)).toBe("limit_reached");
+    expect(db.plans.find((row) => row.key === "free")).toMatchObject({ on_sale: true });
+    // Everything else about it can still be changed.
+    const renamed = await call(bob, "PUT", "/operator/plans/free", { ...settings, name: "Free" });
+    expect(renamed.status).toBe(200);
+  });
+
   it("says who lowering a limit would reach, and changes nothing by asking", async () => {
     const { organization } = await onStandard();
     const impact = async (max_queries_per_location: number) =>
