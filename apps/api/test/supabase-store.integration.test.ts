@@ -97,6 +97,12 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
     expect(await aliceStore.getLocation(location.id)).toEqual(location);
     // The operator's reads return what the caller may read: for a member, only their own.
     expect(await aliceStore.getPlatformRole(alice)).toBeNull();
+    expect(await aliceStore.listPlatformRoles()).toEqual({});
+    // The accounts function answers the operator. A member is told nothing, not even about herself.
+    expect(await aliceStore.listAccounts()).toEqual([]);
+    expect(await aliceStore.listEveryMembership()).toEqual([
+      { user_id: alice, organization_id: organization.id },
+    ]);
     expect((await aliceStore.listEveryOrganization()).map((o) => o.id)).toEqual([organization.id]);
     expect(await aliceStore.listEveryLocation()).toEqual([location]);
     expect((await bobStore.listEveryLocation()).map((l) => l.id)).not.toContain(location.id);

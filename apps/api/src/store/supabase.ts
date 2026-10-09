@@ -1,7 +1,9 @@
 import {
   AuditJobSchema,
   LocationSchema,
+  OperatorAuditSchema,
   OrganizationSchema,
+  type PlatformRole,
   PlatformRoleSchema,
   RecommendationSchema,
   ScanResultSchema,
@@ -72,12 +74,13 @@ const OperatorScanSchema = ScanSchema.pick({
   created_at: true,
 }).extend({ site_check: SiteCheckSchema.nullable() });
 
-const OperatorAuditSchema = z.object({
-  id: z.uuid(),
-  business_name: z.string(),
-  status: z.enum(["queued", "ready", "failed"]),
-  error: z.string().nullable(),
+const ListedAuditSchema = OperatorAuditSchema.omit({ link: true }).extend({ token: z.string() });
+
+const AccountRowSchema = z.object({
+  user_id: z.uuid(),
+  email: z.string().nullable(),
   created_at: z.string(),
+  last_sign_in_at: z.string().nullable(),
 });
 
 const ORGANIZATION_COLUMNS =
@@ -181,10 +184,35 @@ export function createSupabaseStore(db: SupabaseClient): Store {
     async listEveryAudit() {
       const { data, error } = await db
         .from("audits")
-        .select("id, business_name, status, error, created_at")
+        .select(
+          "id, token, business_name, city, region, status, error, created_at, expires_at, revoked_at",
+        )
         .order("created_at", { ascending: false });
       if (error) fail("List every audit", error);
-      return OperatorAuditSchema.array().parse(data);
+      return ListedAuditSchema.array().parse(data);
+    },
+
+    async listAccounts() {
+      const { data, error } = await db.rpc("operator_accounts");
+      if (error) fail("List accounts", error);
+      return AccountRowSchema.array().parse(data);
+    },
+
+    async listEveryMembership() {
+      const { data, error } = await db
+        .from("memberships")
+        .select("user_id, organization_id")
+        .order("created_at");
+      if (error) fail("List every membership", error);
+      return z.array(z.object({ user_id: z.uuid(), organization_id: z.uuid() })).parse(data);
+    },
+
+    async listPlatformRoles() {
+      const { data, error } = await db.from("platform_roles").select("user_id, role");
+      if (error) fail("List platform roles", error);
+      const roles: Record<string, PlatformRole> = {};
+      for (const row of data ?? []) roles[String(row.user_id)] = PlatformRoleSchema.parse(row.role);
+      return roles;
     },
 
     async listLocations(organizationId) {

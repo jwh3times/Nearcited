@@ -2,6 +2,8 @@ import {
   LocationDetailSchema,
   LocationSchema,
   MeSchema,
+  OperatorAccountsSchema,
+  OperatorAuditSchema,
   OperatorOverviewSchema,
   OrganizationSchema,
   type ScanMessage,
@@ -506,6 +508,87 @@ describe("organizations and locations", () => {
     // And being able to read them all does not make them the operator's.
     const me = MeSchema.parse(await (await call(bob, "GET", "/me")).json());
     expect(me.organizations.map((row) => row.name)).toEqual(["Bob's Bakery"]);
+  });
+
+  it("lists every account and every audit for the operator, and for nobody else", async () => {
+    const { organization } = await seed();
+    db.operators.add(bob);
+    db.accounts.push(
+      {
+        user_id: alice,
+        email: "alice@example.com",
+        created_at: "2026-10-01T00:00:00.000Z",
+        last_sign_in_at: "2026-10-07T00:00:00.000Z",
+      },
+      {
+        user_id: bob,
+        email: "bob@example.com",
+        created_at: "2026-09-01T00:00:00.000Z",
+        last_sign_in_at: null,
+      },
+    );
+    db.audits.push({
+      id: "c0000000-0000-4000-8000-000000000003",
+      token: "ab".repeat(32),
+      business_name: "Tony's Slice House",
+      website: null,
+      city: "Raleigh",
+      region: "NC",
+      country_code: "US",
+      prompts: ["best pizza"],
+      samples: 3,
+      status: "ready",
+      parts: {},
+      error: null,
+      revoked_at: null,
+      created_at: "2026-10-07T00:00:00.000Z",
+      expires_at: "2999-01-01T00:00:00.000Z",
+    });
+    env.APP_URL = "https://app.example/";
+
+    for (const path of ["/operator/accounts", "/operator/audits"]) {
+      expect((await call(alice, "GET", path)).status, path).toBe(404);
+    }
+
+    const accounts = OperatorAccountsSchema.parse(
+      await (await call(bob, "GET", "/operator/accounts")).json(),
+    );
+    expect(
+      accounts.accounts.map((account) => [account.email, account.stage, account.platform_role]),
+    ).toEqual([
+      ["alice@example.com", "location", null],
+      ["bob@example.com", "signed_up", "operator"],
+    ]);
+    expect(accounts.accounts[0]).toMatchObject({
+      organization_id: organization.id,
+      organization_name: "Raleigh Pizza Group",
+    });
+    expect(accounts.funnel).toEqual([
+      { stage: "signed_up", count: 2 },
+      { stage: "organization", count: 1 },
+      { stage: "location", count: 1 },
+      { stage: "scanned", count: 0 },
+      { stage: "active", count: 0 },
+    ]);
+
+    const audits = OperatorAuditSchema.array().parse(
+      await (await call(bob, "GET", "/operator/audits")).json(),
+    );
+    expect(audits).toEqual([
+      expect.objectContaining({
+        business_name: "Tony's Slice House",
+        city: "Raleigh",
+        status: "ready",
+        link: `https://app.example/audit/${"ab".repeat(32)}`,
+      }),
+    ]);
+    // A revoked audit is still listed, and its link, which now leads nowhere, is not.
+    const [audit] = db.audits;
+    if (audit) audit.revoked_at = "2026-10-08T00:00:00.000Z";
+    const after = OperatorAuditSchema.array().parse(
+      await (await call(bob, "GET", "/operator/audits")).json(),
+    );
+    expect(after[0]).toMatchObject({ revoked_at: "2026-10-08T00:00:00.000Z", link: null });
   });
 
   it("renames an organization, and only for someone in it", async () => {

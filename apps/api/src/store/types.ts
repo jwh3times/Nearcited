@@ -1,9 +1,11 @@
 import type {
+  AccountFacts,
   AuditJob,
   AuditPart,
   DerivedRecommendation,
   Location,
   LocationInput,
+  OperatorAudit,
   OperatorFacts,
   Organization,
   PlatformRole,
@@ -21,7 +23,8 @@ import type {
 
 /** A scan as the operator's overview reads it: what happened, and what it found of the website. */
 export type OperatorScan = OperatorFacts["scans"][number];
-export type OperatorAudit = OperatorFacts["audits"][number];
+/** An audit as it is listed for the operator, before its token is turned into a link. */
+export type ListedAudit = Omit<OperatorAudit, "link"> & { token: string };
 
 /** What a set of usage is for: a scan of an organization's location, or an audit. */
 export type UsageSource = { organization_id: string; scan_id: string } | { audit_id: string };
@@ -81,7 +84,13 @@ export interface Store {
   countActiveQueries(): Promise<Record<string, number>>;
   /** Scans created since `since`, an ISO timestamp, each with the on-page check it made. */
   listScansSince(since: string): Promise<OperatorScan[]>;
-  listEveryAudit(): Promise<OperatorAudit[]>;
+  /** Every audit, newest first, with the token that makes its link. */
+  listEveryAudit(): Promise<ListedAudit[]>;
+  /** Every account, from the one function that may read the sign-in table. */
+  listAccounts(): Promise<AccountFacts["accounts"][number][]>;
+  listEveryMembership(): Promise<{ user_id: string; organization_id: string }[]>;
+  /** Every account's platform role, by account ID. */
+  listPlatformRoles(): Promise<Record<string, PlatformRole>>;
   createLocation(organizationId: string, input: LocationInput): Promise<Location>;
   getLocation(id: string): Promise<Location | null>;
   /** Replaces every field a user may set. Null when the caller cannot see the location. */

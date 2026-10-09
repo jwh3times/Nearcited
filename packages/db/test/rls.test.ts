@@ -1180,4 +1180,34 @@ describe("the operator", () => {
       /permission denied/,
     );
   });
+
+  it("lists every account for the operator, and none for anyone else", async () => {
+    await db.query("update auth.users set last_sign_in_at = now() where id = $1", [alice]);
+    const everyone = await as("authenticated", operator, () =>
+      rows<{ user_id: string; email: string; created_at: string; last_sign_in_at: string | null }>(
+        "select * from public.operator_accounts()",
+      ),
+    );
+    const all = await rows<{ n: string }>("select count(*) as n from auth.users");
+    expect(everyone).toHaveLength(Number(all[0]?.n));
+    const hers = everyone.find((account) => account.user_id === alice);
+    expect(hers).toMatchObject({ email: "alice@example.com" });
+    expect(hers?.created_at).toBeTruthy();
+    expect(hers?.last_sign_in_at).not.toBeNull();
+    expect(everyone.find((account) => account.user_id === bob)?.last_sign_in_at).toBeNull();
+
+    // A member, and the test account, get no rows, not even their own.
+    for (const user of [alice, bob, "e0000000-0000-4000-8000-000000000005"]) {
+      expect(
+        await as("authenticated", user, () => rows("select * from public.operator_accounts()")),
+      ).toEqual([]);
+    }
+    await expect(
+      as("anon", null, () => db.query("select * from public.operator_accounts()")),
+    ).rejects.toThrow(/permission denied/);
+    // And the table behind it stays out of reach, for the operator too.
+    await expect(
+      as("authenticated", operator, () => db.query("select * from auth.users")),
+    ).rejects.toThrow(/permission denied/);
+  });
 });

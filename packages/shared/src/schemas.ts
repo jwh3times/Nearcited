@@ -268,6 +268,57 @@ export const OperatorOverviewSchema = z.object({
 });
 export type OperatorOverview = z.infer<typeof OperatorOverviewSchema>;
 
+/**
+ * How far an account has got, each stage including the ones before it: signed up, made an
+ * organization, added a location, had a scan succeed, and had one succeed in the last week.
+ */
+export const ACCOUNT_STAGES = [
+  "signed_up",
+  "organization",
+  "location",
+  "scanned",
+  "active",
+] as const;
+export type AccountStage = (typeof ACCOUNT_STAGES)[number];
+
+export const OperatorAccountSchema = z.object({
+  user_id: Id,
+  email: z.string().nullable(),
+  created_at: Timestamp,
+  last_sign_in_at: Timestamp.nullable(),
+  platform_role: PlatformRoleSchema.nullable(),
+  /** The organization the account belongs to, when it has made or joined one. */
+  organization_id: Id.nullable(),
+  organization_name: z.string().nullable(),
+  stage: z.enum(ACCOUNT_STAGES),
+});
+export type OperatorAccount = z.infer<typeof OperatorAccountSchema>;
+
+/** Who has signed up and how far they got. Test accounts are listed and not counted. */
+export const OperatorAccountsSchema = z.object({
+  funnel: z.array(
+    z.object({ stage: z.enum(ACCOUNT_STAGES), count: z.number().int().nonnegative() }),
+  ),
+  accounts: z.array(OperatorAccountSchema),
+});
+export type OperatorAccounts = z.infer<typeof OperatorAccountsSchema>;
+
+/** A shareable audit as the operator lists it. The link is the permission to read it. */
+export const OperatorAuditSchema = z.object({
+  id: Id,
+  business_name: z.string(),
+  city: z.string(),
+  region: z.string().nullable(),
+  status: z.enum(["queued", "ready", "failed"]),
+  error: z.string().nullable(),
+  created_at: Timestamp,
+  expires_at: Timestamp,
+  revoked_at: Timestamp.nullable(),
+  /** Where the audit is read. Null once it is revoked or expired, when the link leads nowhere. */
+  link: z.string().nullable(),
+});
+export type OperatorAudit = z.infer<typeof OperatorAuditSchema>;
+
 // ---------------------------------------------------------------------------
 // Inputs
 // ---------------------------------------------------------------------------
