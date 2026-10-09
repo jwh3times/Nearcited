@@ -12,6 +12,7 @@ import type {
   Plan,
   PlanImpact,
   PlatformRole,
+  PriceChange,
   Scan,
   SiteCheck,
   SiteCheckId,
@@ -359,10 +360,25 @@ export interface SubscriptionFact {
   subscribed: boolean;
 }
 
+/** What a price change has done for one organization. */
+export interface PriceChangeNotice {
+  price_change_id: string;
+  organization_id: string;
+  announced_at: string | null;
+  reminded_at: string | null;
+  called_off_at: string | null;
+  moved_at: string | null;
+  /** Why nothing more is to be done for it, when that is so. */
+  skipped: string | null;
+}
+
 export interface PlanFacts {
   plans: Plan[];
   organizations: Organization[];
   subscriptions: SubscriptionFact[];
+  /** Announcements still open. Left out, there are none. */
+  priceChanges?: PriceChange[];
+  notices?: PriceChangeNotice[];
 }
 
 /**
@@ -379,8 +395,15 @@ export function buildOperatorPlans(facts: PlanFacts): OperatorPlan[] {
     .map((plan) => {
       const on = facts.organizations.filter((o) => o.plan_key === plan.key && !o.is_test);
       const paying = on.filter((o) => subscribed.has(o.id));
+      const change = facts.priceChanges?.find((c) => c.plan_key === plan.key) ?? null;
+      const done = (facts.notices ?? []).filter((n) => n.price_change_id === change?.id);
       return {
         ...plan,
+        price_change: change && {
+          ...change,
+          told: done.filter((notice) => notice.announced_at !== null).length,
+          moved: done.filter((notice) => notice.moved_at !== null).length,
+        },
         organizations: on.length,
         subscribers: paying.length,
         monthly_cents: paying.reduce(

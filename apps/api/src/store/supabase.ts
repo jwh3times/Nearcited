@@ -6,6 +6,7 @@ import {
   PlanSchema,
   type PlatformRole,
   PlatformRoleSchema,
+  PriceChangeSchema,
   RecommendationSchema,
   ScanResultSchema,
   ScanSchema,
@@ -61,6 +62,7 @@ const ERROR_KINDS: Record<string, StoreErrorKind> = {
   NC006: "limit", // a second organization for one account
   NC007: "limit", // taking the free plan off sale
   NC008: "limit", // a price for the free plan
+  NC009: "limit", // a price change that cannot be announced, or prices changed while one is open
 };
 
 function fail(action: string, error: DbError): never {
@@ -113,6 +115,21 @@ const PriceVersionRowSchema = z.object({
   extra_location_price_cents: z.number().int().positive().nullable(),
   stripe_price_id: z.string(),
   stripe_extra_location_price_id: z.string().nullable(),
+});
+
+const PRICE_CHANGE_COLUMNS =
+  "id, plan_key, stripe_price_id, effective_at, announced_at, reminded_at, called_off_at, completed_at";
+
+const NOTICE_COLUMNS =
+  "price_change_id, organization_id, announced_at, reminded_at, called_off_at, moved_at, skipped";
+const NoticeSchema = z.object({
+  price_change_id: z.uuid(),
+  organization_id: z.uuid(),
+  announced_at: z.string().nullable(),
+  reminded_at: z.string().nullable(),
+  called_off_at: z.string().nullable(),
+  moved_at: z.string().nullable(),
+  skipped: z.string().nullable(),
 });
 
 const ManualScansSchema = z.object({
@@ -340,6 +357,105 @@ export function createSupabaseStore(db: SupabaseClient): Store {
         .maybeSingle();
       if (error) fail("Set plan prices", error);
       return data ? PlanSchema.parse(data) : null;
+    },
+
+    async getOpenPriceChange(planKey) {
+      const { data, error } = await db
+        .from("price_changes")
+        .select(PRICE_CHANGE_COLUMNS)
+        .eq("plan_key", planKey)
+        .is("called_off_at", null)
+        .is("completed_at", null)
+        .maybeSingle();
+      if (error) fail("Get open price change", error);
+      return data ? PriceChangeSchema.parse(data) : null;
+    },
+
+    async announcePriceChange(planKey, effectiveAt) {
+      const { data, error } = await db
+        .rpc("operator_announce_price_change", { plan: planKey, effective: effectiveAt })
+        .select(PRICE_CHANGE_COLUMNS)
+        .maybeSingle();
+      if (error) fail("Announce price change", error);
+      return data ? PriceChangeSchema.parse(data) : null;
+    },
+
+    async callOffPriceChange(planKey) {
+      const { data, error } = await db
+        .rpc("operator_call_off_price_change", { plan: planKey })
+        .select(PRICE_CHANGE_COLUMNS)
+        .maybeSingle();
+      if (error) fail("Call off price change", error);
+      return data ? PriceChangeSchema.parse(data) : null;
+    },
+
+    async listPlanSubscribers(planKey) {
+      const [organizations, subscriptions] = await Promise.all([
+        db.from("organizations").select("id").eq("plan_key", planKey).eq("is_test", false),
+        db
+          .from("subscriptions")
+          .select("organization_id")
+          .not("stripe_subscription_id", "is", null),
+      ]);
+      if (organizations.error) fail("List a plan's organizations", organizations.error);
+      if (subscriptions.error) fail("List subscriptions", subscriptions.error);
+      const subscribed = new Set(
+        z
+          .array(z.object({ organization_id: z.uuid() }))
+          .parse(subscriptions.data ?? [])
+          .map((row) => row.organization_id),
+      );
+      return z
+        .array(z.object({ id: z.uuid() }))
+        .parse(organizations.data ?? [])
+        .map((row) => row.id)
+        .filter((id) => subscribed.has(id));
+    },
+
+    async listOpenPriceChanges() {
+      const { data, error } = await db
+        .from("price_changes")
+        .select(PRICE_CHANGE_COLUMNS)
+        .is("called_off_at", null)
+        .is("completed_at", null)
+        .order("announced_at");
+      if (error) fail("List open price changes", error);
+      return PriceChangeSchema.array().parse(data);
+    },
+
+    async listPriceChangeNotices(priceChangeId) {
+      const { data, error } = await db
+        .from("price_change_notices")
+        .select(NOTICE_COLUMNS)
+        .eq("price_change_id", priceChangeId);
+      if (error) fail("List price change notices", error);
+      return NoticeSchema.array().parse(data);
+    },
+
+    async getPriceChange(id) {
+      const { data, error } = await db
+        .from("price_changes")
+        .select(PRICE_CHANGE_COLUMNS)
+        .eq("id", id)
+        .maybeSingle();
+      if (error) fail("Get price change", error);
+      return data ? PriceChangeSchema.parse(data) : null;
+    },
+
+    async recordPriceChangeNotice(priceChangeId, organizationId, done) {
+      // An upsert of only the fields given: the others keep what an earlier step wrote.
+      const { error } = await db
+        .from("price_change_notices")
+        .upsert({ price_change_id: priceChangeId, organization_id: organizationId, ...done });
+      if (error) fail("Record price change notice", error);
+    },
+
+    async markPriceChange(id, what, at) {
+      const { error } = await db
+        .from("price_changes")
+        .update(what === "reminded" ? { reminded_at: at } : { completed_at: at })
+        .eq("id", id);
+      if (error) fail("Mark price change", error);
     },
 
     async getPlatformRole(userId) {

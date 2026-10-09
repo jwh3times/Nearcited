@@ -56,6 +56,7 @@ const owner = (billing: Partial<NonNullable<OrganizationAccount["billing"]>> = {
     locations: null,
     renews_at: null,
     paying: null,
+    price_change: null,
     pending: null,
     ...billing,
   },

@@ -21,6 +21,7 @@ import {
   type PlanPricesInput,
   PlanSchema,
   type PlanSettings,
+  PriceChangeSchema,
   PublicAuditSchema,
   RecommendationSchema,
   type RecommendationStatus,
@@ -103,6 +104,12 @@ export const api = {
   /** Sets what a new subscriber pays for a plan. Current subscribers keep their price. */
   setPlanPrices: (key: string, prices: PlanPricesInput) =>
     json(PlanSchema, "PUT", `/operator/plans/${key}/prices`, prices),
+  /** Announces a plan's present prices to its current subscribers, from a day. Emails them. */
+  announcePriceChange: (key: string, effective_on: string) =>
+    json(PriceChangeSchema, "POST", `/operator/plans/${key}/price-change`, { effective_on }),
+  /** Calls off a plan's announced price change, and tells everyone who was told. */
+  callOffPriceChange: (key: string) =>
+    json(PriceChangeSchema, "DELETE", `/operator/plans/${key}/price-change`),
   /** The one thing the operator changes on a customer's account. */
   setOrganizationLimits: (id: string, limits: OrganizationLimits) =>
     json(OrganizationSchema, "PUT", `/operator/organizations/${id}/limits`, limits),

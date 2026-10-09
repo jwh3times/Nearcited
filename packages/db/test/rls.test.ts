@@ -2275,6 +2275,153 @@ describe("the operator", () => {
     });
   });
 
+  describe("announcing a price change", () => {
+    const announce = (plan: string, days: number) =>
+      `select * from public.operator_announce_price_change('${plan}', now() + interval '${days} days')`;
+    const callOff = "select * from public.operator_call_off_price_change('pro')";
+    const open = () =>
+      rows<Record<string, unknown>>(
+        "select plan_key, stripe_price_id, called_off_at is not null as called_off from public.price_changes where called_off_at is null and completed_at is null",
+      );
+    let changeId: string;
+
+    beforeAll(async () => {
+      // Pro was sold at one price, and is now sold at a higher one.
+      await db.query(
+        "insert into public.plan_prices (plan_key, price_cents, extra_location_price_cents, stripe_price_id, stripe_extra_location_price_id, created_at) values ('pro', 9900, 2500, 'price_pro_a', 'price_pro_a_loc', now() - interval '1 day')",
+      );
+      await as("authenticated", operator, () =>
+        db.query(
+          "select * from public.operator_set_plan_prices('pro', 12900, 3500, 'price_pro_b', 'price_pro_b_loc')",
+        ),
+      );
+    });
+    afterAll(async () => {
+      await db.query("delete from public.price_changes");
+      await db.query("delete from public.plan_prices where plan_key = 'pro'");
+      await db.query(
+        "update public.plans set stripe_price_id = null, stripe_extra_location_price_id = null where key = 'pro'",
+      );
+      await db.query(
+        "delete from public.operator_actions where action in ('set_plan_prices', 'announce_price_change', 'call_off_price_change')",
+      );
+    });
+
+    it("is refused to everyone else", async () => {
+      for (const user of [alice, bob]) {
+        expect(await as("authenticated", user, () => rows(announce("pro", 45))), user).toEqual([]);
+        expect(await as("authenticated", user, () => rows(callOff)), user).toEqual([]);
+      }
+      await expect(as("anon", null, () => db.query(announce("pro", 45)))).rejects.toThrow(
+        /permission denied/,
+      );
+      expect(await open()).toEqual([]);
+    });
+
+    it("will not put a price up with less than thirty days' notice, or for a day gone by", async () => {
+      await expect(
+        as("authenticated", operator, () => db.query(announce("pro", 29))),
+      ).rejects.toThrow(/at least 30 days/);
+      await expect(
+        as("authenticated", operator, () => db.query(announce("pro", -3))),
+      ).rejects.toThrow(/30 days|not passed/);
+      expect(await open()).toEqual([]);
+    });
+
+    it("has nothing to announce for a plan with no price at the payment provider", async () => {
+      await expect(
+        as("authenticated", operator, () => db.query(announce("enterprise", 45))),
+      ).rejects.toThrow(/no price at the payment provider/);
+      expect(await as("authenticated", operator, () => rows(announce("nonesuch", 45)))).toEqual([]);
+    });
+
+    it("records the plan's present prices as what subscribers move to, and who announced it", async () => {
+      const [change] = await as("authenticated", operator, () =>
+        rows<{ id: string; stripe_price_id: string }>(announce("pro", 45)),
+      );
+      changeId = change?.id ?? "";
+      expect(change?.stripe_price_id).toBe("price_pro_b");
+      expect(await open()).toEqual([
+        { plan_key: "pro", stripe_price_id: "price_pro_b", called_off: false },
+      ]);
+      const [recorded] = await rows<{ actor_id: string; detail: unknown }>(
+        "select actor_id, detail from public.operator_actions where action = 'announce_price_change'",
+      );
+      expect(recorded).toMatchObject({
+        actor_id: operator,
+        detail: { plan: "pro", price_cents: 12900, stripe_price_id: "price_pro_b" },
+      });
+    });
+
+    it("allows one open announcement for a plan, and holds its prices while it is open", async () => {
+      await expect(
+        as("authenticated", operator, () => db.query(announce("pro", 60))),
+      ).rejects.toThrow(/price_changes_one_open|duplicate key/);
+      await expect(
+        as("authenticated", operator, () =>
+          db.query(
+            "select * from public.operator_set_plan_prices('pro', 13900, 3500, 'price_pro_c', 'price_pro_c_loc')",
+          ),
+        ),
+      ).rejects.toThrow(/has been announced for this plan/);
+      const [pro] = await rows<{ price_cents: number }>(
+        "select price_cents from public.plans where key = 'pro'",
+      );
+      expect(pro?.price_cents).toBe(12900);
+    });
+
+    it("is read by anyone signed in and by no visitor; what it did for each organization is the operator's", async () => {
+      await db.query(
+        "insert into public.price_change_notices (price_change_id, organization_id, announced_at) values ($1, $2, now())",
+        [changeId, theirs],
+      );
+      const changes = "select id from public.price_changes";
+      const notices = "select organization_id from public.price_change_notices";
+      expect(await as("authenticated", alice, () => rows(changes))).toHaveLength(1);
+      await expect(as("anon", null, () => db.query(changes))).rejects.toThrow(/permission denied/);
+      // Alice owns the organization the notice is about, and still does not read it.
+      expect(await as("authenticated", alice, () => rows(notices))).toEqual([]);
+      expect(await as("authenticated", operator, () => rows(notices))).toHaveLength(1);
+      await expect(as("anon", null, () => db.query(notices))).rejects.toThrow(/permission denied/);
+    });
+
+    it("cannot be written through the API by anyone, the operator included", async () => {
+      for (const sql of [
+        "update public.price_changes set effective_at = now()",
+        "delete from public.price_changes",
+        "insert into public.price_changes (plan_key, stripe_price_id, effective_at) values ('pro', 'price_pro_b', now())",
+        "update public.price_change_notices set announced_at = now() - interval '90 days'",
+        "delete from public.price_change_notices",
+      ]) {
+        for (const user of [alice, operator]) {
+          await expect(
+            as("authenticated", user, () => db.query(sql)),
+            sql,
+          ).rejects.toThrow(/permission denied/);
+        }
+      }
+    });
+
+    it("can be called off before its day, once, and then the prices can change again", async () => {
+      const [off] = await as("authenticated", operator, () =>
+        rows<{ called_off_at: string | null }>(callOff),
+      );
+      expect(off?.called_off_at).not.toBeNull();
+      expect(await as("authenticated", operator, () => rows(callOff))).toEqual([]);
+      expect(await open()).toEqual([]);
+      const again = await as("authenticated", operator, () => rows(announce("pro", 45)));
+      expect(again).toHaveLength(1);
+    });
+
+    it("cannot be called off once its day has come", async () => {
+      await db.query(
+        "update public.price_changes set effective_at = now() - interval '1 hour' where called_off_at is null",
+      );
+      expect(await as("authenticated", operator, () => rows(callOff))).toEqual([]);
+      expect(await open()).toHaveLength(1);
+    });
+  });
+
   describe("changing an organization's limits", () => {
     const setLimits = "select * from public.operator_set_limits($1, 3, 20, 10, 1)";
     const limits = (id: string) =>

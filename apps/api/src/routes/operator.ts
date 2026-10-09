@@ -16,10 +16,12 @@ import {
   type PlanImpact,
   PlanPricesInputSchema,
   PlanSettingsSchema,
+  PriceChangeInputSchema,
   planImpact,
 } from "@nearcited/shared";
 import { Hono } from "hono";
 import type { AppEnv } from "../app";
+import { enqueuePriceChangeSteps } from "../billing/price-change";
 import { ApiError, notFound } from "../errors";
 import { usesSampleData } from "../providers";
 import type { ListedAudit, Store } from "../store/types";
@@ -190,13 +192,23 @@ operatorRoutes.put("/operator/organizations/:organizationId/limits", async (c) =
 /** Every plan, on sale or not, with who is on it. */
 operatorRoutes.get("/operator/plans", async (c) => {
   const store = c.get("store");
-  const [plans, organizations, subscriptions] = await Promise.all([
+  const [plans, organizations, subscriptions, priceChanges] = await Promise.all([
     store.listPlans(),
     store.listEveryOrganization(),
     store.listEverySubscription(),
+    store.listOpenPriceChanges(),
   ]);
+  const notices = (
+    await Promise.all(priceChanges.map((change) => store.listPriceChangeNotices(change.id)))
+  ).flat();
   return c.json(
-    buildOperatorPlans({ plans, organizations, subscriptions }) satisfies OperatorPlan[],
+    buildOperatorPlans({
+      plans,
+      organizations,
+      subscriptions,
+      priceChanges,
+      notices,
+    }) satisfies OperatorPlan[],
   );
 });
 
@@ -291,4 +303,49 @@ operatorRoutes.put("/operator/plans/:key/prices", async (c) => {
   });
   if (!saved) throw notFound("Plan");
   return c.json(saved);
+});
+
+/**
+ * Announces a plan's present prices to the subscribers it already has: from the day given, each
+ * is moved to them at its next renewal. The database refuses a day that gives a price rise less
+ * than thirty days. The announcement emails are queued here, one organization to a message.
+ *
+ * Refused where no email can be sent: an announcement nobody receives is not notice.
+ */
+operatorRoutes.post("/operator/plans/:key/price-change", async (c) => {
+  const key = planKey(c.req.param("key"));
+  const { effective_on } = await parseJson(c, PriceChangeInputSchema);
+  if (!c.get("payments")() || !c.env.RESEND_API_KEY) {
+    throw new ApiError(
+      503,
+      "billing_unavailable",
+      "A price change needs the payment provider and outgoing email, and one is not set up here.",
+    );
+  }
+  const store = c.get("store");
+  const change = await store.announcePriceChange(key, `${effective_on}T00:00:00.000Z`);
+  if (!change) throw notFound("Plan");
+  await enqueuePriceChangeSteps(
+    c.env.SCAN_QUEUE,
+    change,
+    await store.listPlanSubscribers(key),
+    "announce",
+  );
+  return c.json(change, 201);
+});
+
+/**
+ * Calls off a plan's announced price change before it takes effect. Everyone who was told is
+ * told it is off. New subscribers go on paying the plan's present price either way.
+ */
+operatorRoutes.delete("/operator/plans/:key/price-change", async (c) => {
+  const key = planKey(c.req.param("key"));
+  const store = c.get("store");
+  const change = await store.callOffPriceChange(key);
+  if (!change) throw notFound("Price change");
+  const told = (await store.listPriceChangeNotices(change.id))
+    .filter((notice) => notice.announced_at !== null)
+    .map((notice) => notice.organization_id);
+  await enqueuePriceChangeSteps(c.env.SCAN_QUEUE, change, told, "call_off");
+  return c.json(change);
 });

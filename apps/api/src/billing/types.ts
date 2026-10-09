@@ -76,6 +76,13 @@ export interface Payments {
   changeNow(subscriptionId: string, items: BilledItem[]): Promise<void>;
   /** Makes the subscription bill for `items` from the end of the period paid for. Charges nothing. */
   changeAtPeriodEnd(subscriptionId: string, items: BilledItem[]): Promise<void>;
+  /**
+   * Makes the subscription bill for `items` from its next invoice on, charging and crediting
+   * nothing now. It is how a subscriber is moved to a plan's new price: what they have paid for
+   * this period stands, and the renewal is at the new amount. A change of their own that was
+   * waiting for the period to end is kept.
+   */
+  reprice(subscriptionId: string, items: BilledItem[]): Promise<void>;
   /** Drops a change that was waiting for the period to end. Nothing to do when there is none. */
   keepCurrent(subscriptionId: string): Promise<void>;
   /**

@@ -76,6 +76,7 @@ test("lets a subscriber change plan and locations, saying what it costs before i
     locations: 1,
     renews_at: "2026-11-09T00:00:00.000Z",
     paying: { price_cents: 2900, extra_location_price_cents: 1000, monthly_cents: 2900 },
+    price_change: null,
     pending: null as null | Record<string, unknown>,
   };
   const asked: unknown[] = [];

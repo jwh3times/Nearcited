@@ -495,6 +495,41 @@ export const PlanPricesInputSchema = z.object({
 });
 export type PlanPricesInput = z.infer<typeof PlanPricesInputSchema>;
 
+/**
+ * An announcement that a plan's current subscribers move to its present prices: each at their
+ * first renewal on or after `effective_at`.
+ */
+export const PriceChangeSchema = z.object({
+  id: Id,
+  plan_key: z.string(),
+  /** The provider's name for the plan's price they are moved to, which names the version. */
+  stripe_price_id: z.string(),
+  effective_at: Timestamp,
+  announced_at: Timestamp,
+  reminded_at: Timestamp.nullable(),
+  called_off_at: Timestamp.nullable(),
+  completed_at: Timestamp.nullable(),
+});
+export type PriceChange = z.infer<typeof PriceChangeSchema>;
+
+/** The day an announced price change takes effect, as the operator picks it. */
+export const PriceChangeInputSchema = z.object({
+  effective_on: z.iso.date("Choose a day"),
+});
+export type PriceChangeInput = z.infer<typeof PriceChangeInputSchema>;
+
+/** What a price change does for one organization, one step at a time. */
+export const PRICE_CHANGE_STEPS = ["announce", "remind", "call_off", "move"] as const;
+export type PriceChangeStep = (typeof PRICE_CHANGE_STEPS)[number];
+
+/** A message asking the worker to take one step of a price change for one organization. */
+export const PriceChangeMessageSchema = z.object({
+  price_change_id: Id,
+  organization_id: Id,
+  step: z.enum(PRICE_CHANGE_STEPS),
+});
+export type PriceChangeMessage = z.infer<typeof PriceChangeMessageSchema>;
+
 /** A plan as the operator sees it: what is on sale, and who is on it. Test organizations are left out. */
 export const OperatorPlanSchema = PlanSchema.extend({
   /** How many organizations are on it. */
@@ -503,6 +538,13 @@ export const OperatorPlanSchema = PlanSchema.extend({
   subscribers: z.number().int().nonnegative(),
   /** What those subscribers pay a month between them, in US cents and before tax. */
   monthly_cents: z.number().int().nonnegative(),
+  /** The change announced to its current subscribers and not yet finished or called off. */
+  price_change: PriceChangeSchema.extend({
+    /** How many organizations' owners have been sent the announcement. */
+    told: z.number().int().nonnegative(),
+    /** How many subscriptions have been moved to the new prices. */
+    moved: z.number().int().nonnegative(),
+  }).nullable(),
 });
 export type OperatorPlan = z.infer<typeof OperatorPlanSchema>;
 
@@ -650,6 +692,14 @@ export const OrganizationAccountSchema = z.object({
           extra_location_price_cents: z.number().int().positive().nullable(),
           monthly_cents: z.number().int().nonnegative(),
         })
+        .nullable(),
+      /**
+       * A price change announced for the plan that this subscription has not been moved to yet:
+       * what it will come to a month, in US cents before tax, from its first renewal on or
+       * after `at`.
+       */
+      price_change: z
+        .object({ monthly_cents: z.number().int().nonnegative(), at: Timestamp })
         .nullable(),
       /** A smaller plan or fewer locations chosen, waiting for the period paid for to end. */
       pending: z

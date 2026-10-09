@@ -4,6 +4,8 @@ import type {
   Location,
   Organization,
   Plan,
+  PriceChange,
+  PriceChangeNotice,
   ProviderUsage,
   Recommendation,
   Scan,
@@ -57,6 +59,10 @@ export interface MemoryDb {
   siteChecks: Map<string, SiteCheck | null>;
   /** The payment provider's names for each plan's prices, by plan key. */
   planPrices: Map<string, { base: string | null; extra: string | null }>;
+  /** What the announcement functions take as the present moment, when a test sets one. */
+  now?: string;
+  priceChanges: PriceChange[];
+  priceChangeNotices: PriceChangeNotice[];
   /** Prices a plan was sold at before its present ones, newest first. */
   pastPrices: (PriceVersion & { plan_key: string })[];
   /** What the worker has kept of each organization's subscription, by organization ID. */
@@ -99,6 +105,8 @@ export function createMemoryDb(): MemoryDb {
     siteChecks: new Map(),
     planPrices: new Map(),
     pastPrices: [],
+    priceChanges: [],
+    priceChangeNotices: [],
     subscriptions: new Map(),
   };
 }
@@ -330,6 +338,9 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
       const plan = db.plans.find((candidate) => candidate.key === key);
       if (!isOperator || !plan) return null;
       if (key === "free") throw new StoreError("limit", "The free plan has no price to change.");
+      if (await this.getOpenPriceChange(key)) {
+        throw new StoreError("limit", "A price change has been announced for this plan.");
+      }
       const was = db.planPrices.get(key);
       if (was?.base) {
         db.pastPrices.unshift({
@@ -348,6 +359,109 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         price_cents: version.price_cents,
         extra_location_price_cents: version.extra_location_price_cents,
       });
+    },
+
+    async getOpenPriceChange(planKey) {
+      return (
+        db.priceChanges.find(
+          (c) => c.plan_key === planKey && c.called_off_at === null && c.completed_at === null,
+        ) ?? null
+      );
+    },
+
+    async announcePriceChange(planKey, effectiveAt) {
+      const plan = db.plans.find((candidate) => candidate.key === planKey);
+      const ids = db.planPrices.get(planKey);
+      if (!isOperator || !plan) return null;
+      if (!ids?.base) throw new StoreError("limit", "This plan has no price to move anyone to.");
+      if (await this.getOpenPriceChange(planKey)) {
+        throw new StoreError("conflict", "price_changes_one_open");
+      }
+      // As the database function has it: anything dearer than a price it was sold at before.
+      const goesUp = db.pastPrices.some(
+        (v) =>
+          v.plan_key === planKey &&
+          (v.price_cents < plan.price_cents ||
+            (v.extra_location_price_cents !== null &&
+              (ids.extra === null ||
+                v.extra_location_price_cents < (plan.extra_location_price_cents ?? 0)))),
+      );
+      const now = Date.parse(db.now ?? new Date().toISOString());
+      if (goesUp && Date.parse(effectiveAt) < now + 30 * 86_400_000) {
+        throw new StoreError("limit", "A price that goes up needs at least 30 days' notice.");
+      }
+      const change: PriceChange = {
+        id: crypto.randomUUID(),
+        plan_key: planKey,
+        stripe_price_id: ids.base,
+        effective_at: effectiveAt,
+        announced_at: new Date(now).toISOString(),
+        reminded_at: null,
+        called_off_at: null,
+        completed_at: null,
+      };
+      db.priceChanges.push(change);
+      return change;
+    },
+
+    async callOffPriceChange(planKey) {
+      const change = await this.getOpenPriceChange(planKey);
+      const now = db.now ?? new Date().toISOString();
+      if (!isOperator || !change || Date.parse(change.effective_at) <= Date.parse(now)) return null;
+      return Object.assign(change, { called_off_at: now });
+    },
+
+    async listPlanSubscribers(planKey) {
+      return db.organizations
+        .filter(
+          (o) =>
+            o.plan_key === planKey &&
+            !o.is_test &&
+            readsOrg(o.id) &&
+            db.subscriptions.get(o.id)?.stripe_subscription_id,
+        )
+        .map((organization) => organization.id);
+    },
+
+    async listOpenPriceChanges() {
+      return db.priceChanges.filter((c) => c.called_off_at === null && c.completed_at === null);
+    },
+
+    async listPriceChangeNotices(priceChangeId) {
+      if (userId !== null && !isOperator) return [];
+      return db.priceChangeNotices.filter((notice) => notice.price_change_id === priceChangeId);
+    },
+
+    async getPriceChange(id) {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      return db.priceChanges.find((change) => change.id === id) ?? null;
+    },
+
+    async recordPriceChangeNotice(priceChangeId, organizationId, done) {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      const kept = db.priceChangeNotices.find(
+        (n) => n.price_change_id === priceChangeId && n.organization_id === organizationId,
+      );
+      if (kept) Object.assign(kept, done);
+      else {
+        db.priceChangeNotices.push({
+          price_change_id: priceChangeId,
+          organization_id: organizationId,
+          announced_at: null,
+          reminded_at: null,
+          called_off_at: null,
+          moved_at: null,
+          skipped: null,
+          ...done,
+        });
+      }
+    },
+
+    async markPriceChange(id, what, at) {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      const change = db.priceChanges.find((candidate) => candidate.id === id);
+      if (change)
+        Object.assign(change, what === "reminded" ? { reminded_at: at } : { completed_at: at });
     },
 
     async getPlatformRole(id) {

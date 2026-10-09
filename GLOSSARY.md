@@ -39,6 +39,9 @@ system works; this file only settles vocabulary.
 - **Price version**: one pair of prices a plan has been sold at: the plan's own and its extra
   location's. A plan's row carries the newest, which a new subscriber pays; `plan_prices` keeps
   them all, and a subscriber goes on paying the version they joined at until they are moved.
+- **Price change**: an announcement, for one plan, that its current subscribers will move to its
+  present price version from a named day. It is not setting a plan's price, which affects only new
+  subscribers. See `docs/adr/0008-a-price-change-reaches-subscribers-by-announcement.md`.
 - **Included location**: a location a plan's price covers. An **extra location** is one beyond
   those, paid for separately.
 - **Paused location**: a location its organization's plan no longer covers. It is not scanned and

@@ -11,10 +11,14 @@
   running for more than 30 minutes, so an abandoned scan cannot block its location for long. It
   also fails audits still `queued` after 30 minutes (see "Shareable audits").
   Once a day it also asks Postgres which locations are due (`locations_due_for_scan`), creates a
-  `scheduled` scan row for each, and puts the scan IDs on the queue.
+  `scheduled` scan row for each, and puts the scan IDs on the queue. It also calls
+  `advancePriceChanges`, which queues the reminders a week before an announced price change and,
+  from its day on, a move for each subscription not yet moved.
 - **`queue`**: the consumer. For each scan ID it runs the scan and, for scheduled scans, emails
   the organization's owners. A message shaped `{ audit_id, prompt_index }` is one prompt of a
-  shareable audit instead (see "Shareable audits").
+  shareable audit instead (see "Shareable audits"). A message shaped
+  `{ price_change_id, organization_id, step }` is one step of a price change for one organization
+  (see "Price changes").
 
 ## How a scan runs
 
@@ -505,8 +509,17 @@ off sale, because `create_organization()` puts every new organization on it: the
 `operator_set_plan_prices()`. That function answers only the operator, refuses the free plan, records
 the change in `operator_actions`, adds the pair to `plan_prices` and puts it on the plan's row. It
 touches no subscription and no organization. `plan_prices` is readable by anyone signed in and
-written by no API role. Announcing a change to current subscribers is not built. The Plans section's
+written by no API role. Moving current subscribers is a separate act (below). The Plans section's
 monthly total uses present prices, so it is off for subscribers on an older one.
+
+**Price changes.** `operator_announce_price_change()` and `operator_call_off_price_change()` follow
+the same shape: operator only, recorded in `operator_actions`. `price_changes` (readable by anyone
+signed in) and `price_change_notices` (readable by the operator) have no API role that writes them;
+the Worker writes notices. While an announcement is open `operator_set_plan_prices()` refuses. A
+queue message per organization per step (announce, remind, call off, move) is handled by
+`runPriceChangeStep`, the one place that changes what a running subscription is billed, and it moves a
+subscription to a higher price only when its owners were sent the announcement at least thirty days
+before. See `docs/adr/0008-a-price-change-reaches-subscribers-by-announcement.md`.
 
 **The operator makes an audit the same way.** `POST /api/operator/audits` checks the body against
 `AuditInputSchema`, refuses with 409 where scans return sample data, and calls

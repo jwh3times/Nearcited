@@ -210,6 +210,15 @@ export function createStripePayments(
       });
     },
 
+    async reprice(subscriptionId, items) {
+      const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+      await stripe.subscriptions.update(subscriptionId, {
+        items: replaceItems(subscription, items),
+        // No invoice, no credit: the new amount is first charged when the period renews.
+        proration_behavior: "none",
+      });
+    },
+
     async createPrice({ like, product_name, cents }) {
       const product = like
         ? idOf((await stripe.prices.retrieve(like)).product)
