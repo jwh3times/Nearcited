@@ -131,6 +131,21 @@ export function createSupabaseStore(db: SupabaseClient): Store {
       return data ? OrganizationSchema.parse(data) : null;
     },
 
+    async setOrganizationLimits(id, limits) {
+      const { data, error } = await db
+        .rpc("operator_set_limits", {
+          org: id,
+          locations: limits.max_locations,
+          queries_per_location: limits.max_queries_per_location,
+          manual_scans_per_day: limits.max_manual_scans_per_day,
+          every_days: limits.scan_every_days,
+        })
+        .select(ORGANIZATION_COLUMNS)
+        .maybeSingle();
+      if (error) fail("Set organization limits", error);
+      return data ? OrganizationSchema.parse(data) : null;
+    },
+
     async getPlatformRole(userId) {
       // By the account's ID, not by what is readable: the operator can read everyone's role.
       const { data, error } = await db

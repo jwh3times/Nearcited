@@ -78,6 +78,17 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
       organization,
     );
 
+    // Only the operator changes limits. An owner's own call changes nothing.
+    expect(
+      await aliceStore.setOrganizationLimits(organization.id, {
+        max_locations: 50,
+        max_queries_per_location: 50,
+        max_manual_scans_per_day: 50,
+        scan_every_days: 1,
+      }),
+    ).toBeNull();
+    expect(await aliceStore.getOrganization(organization.id)).toEqual(organization);
+
     // Locations
     const location = await aliceStore.createLocation(organization.id, {
       name: "Joe's Pizza",

@@ -61,7 +61,9 @@ itself as `NearcitedBot`, with a link to the public `/bot` page, and is skipped 
 The operator has one more screen, `/operator`: what needs attention (a failed scan, a scan stuck or
 overdue, a website that cannot be read, a failed audit, a location with no active prompts, an
 location that has used every prompt it is allowed), every organization, every account with how far it got (signed up, made an organization, added a location, had a scan succeed, scanned in the last week), every shareable audit, and what the deployment runs. From there the operator
-can read through a customer's pages, with everything that changes something hidden.
+can read through a customer's pages, with everything that changes something hidden, and change the
+organization's limits (locations, prompts per location, manual scans a day, days between scans) on
+its plan page.
 
 The location page and the audit turn all of that into an action plan, "What to do next": fix
 what keeps the website from being read, get listed on the sites the assistants read without
@@ -251,6 +253,7 @@ organization reads as missing and returns 404. Payloads are defined in
 | `GET /api/operator/accounts` | A funnel of how far accounts got, and every account with its stage; test accounts are listed and not counted. 404 to anyone who is not the operator. |
 | `GET /api/operator/audits` | Every shareable audit, with its link only while it is neither revoked nor expired. 404 to anyone who is not the operator. |
 | `GET /api/operator/organizations/:organizationId` | One organization, for the operator to read through its pages. 404 to anyone who is not the operator. |
+| `PUT /api/operator/organizations/:organizationId/limits` | Sets an organization's four limits (locations, prompts per location, manual scans a day, days between scans) and records the change. 404 to anyone who is not the operator, 422 for a value out of range. |
 | `POST /api/organizations` | Create an organization; the caller becomes its owner. The name needs a letter. |
 | `PATCH /api/organizations/:organizationId` | Rename an organization. Owners and admins only; anyone else reads it as missing and gets 404. The name needs a letter. |
 | `GET /api/organizations/:organizationId/locations` | List an organization's locations. |
@@ -280,6 +283,7 @@ The migrations in `supabase/migrations/` define everything.
 | `scan_results` | One row per query and surface: named or not, position, and who else was named. |
 | `recommendations` | What a scan suggested, and whether the user has dealt with it. |
 | `audits` | A shareable audit: the business, its prompts, the results as each prompt finishes, and its token, expiry and revocation. Belongs to no organization; only the operator can read it through the API. |
+| `operator_actions` | What the operator changed, one row per change, with who, which organization and the values before and after. Written only by the function that makes the change; only the operator can read it through the API. |
 | `provider_usage` | What the providers used for a scan or audit prompt, per surface and model: calls, input, cached input and output tokens, searches. Outlives the scan, audit or organization it describes. Written only by the Worker; only the operator can read it through the API. Not priced or shown anywhere yet. |
 
 Usage limits are enforced by database triggers, so they hold for the API and for anyone calling
@@ -301,7 +305,7 @@ reader gets one audit only by its token, through the `get_audit()` function.
   on-page check and the action plan.
 - **`packages/db`**: applies the real migrations to in-process Postgres (PGlite) and checks, as
   different users, that one organization cannot read or write another's rows, that users cannot
-  forge scan results or grant themselves a platform role, that worker-only functions and the `audits` and `provider_usage` tables are closed to them, and that the operator reads every organization but changes none. No Docker needed. It
+  forge scan results or grant themselves a platform role, that worker-only functions and the `audits` and `provider_usage` tables are closed to them, and that the operator reads every organization and changes only an organization's limits, through one function that records it. No Docker needed. It
   also checks `private/tuning.json` against the tuning schema where that file exists.
 - **`apps/api`**: every route against an in-memory store, the scan runner (success, retry,
   permanent failure, reporting, scoring with given weights, refusing live scans on default tuning),

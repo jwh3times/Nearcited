@@ -5,18 +5,21 @@ import {
   type OperatorAccounts,
   type OperatorAudit,
   type OperatorOverview,
+  OrganizationLimitsSchema,
 } from "@nearcited/shared";
 import { Hono } from "hono";
 import type { AppEnv } from "../app";
 import { ApiError, notFound } from "../errors";
 import { usesSampleData } from "../providers";
 import type { Store } from "../store/types";
-import { uuidParam } from "../validation";
+import { parseJson, uuidParam } from "../validation";
 
 /**
  * The operator's view: every organization, read through the same store as any request. The
  * database lets the operator read every row and write none of a customer's
  * (docs/adr/0004-the-operator-reads-through-policies.md), so nothing here uses the secret key.
+ * The one thing the operator changes is an organization's limits, through a database function
+ * that answers nobody else (docs/adr/0005-the-operator-changes-limits-through-one-function.md).
  */
 export const operatorRoutes = new Hono<AppEnv>();
 
@@ -106,6 +109,15 @@ operatorRoutes.get("/operator/audits", async (c) => {
 operatorRoutes.get("/operator/organizations/:organizationId", async (c) => {
   const id = uuidParam(c, "organizationId", "Organization");
   const organization = await c.get("store").getOrganization(id);
+  if (!organization) throw notFound("Organization");
+  return c.json(organization);
+});
+
+/** Changes what an organization's plan allows. The database records who changed what. */
+operatorRoutes.put("/operator/organizations/:organizationId/limits", async (c) => {
+  const id = uuidParam(c, "organizationId", "Organization");
+  const limits = await parseJson(c, OrganizationLimitsSchema);
+  const organization = await c.get("store").setOrganizationLimits(id, limits);
   if (!organization) throw notFound("Organization");
   return c.json(organization);
 });

@@ -16,6 +16,7 @@ import { Privacy } from "./pages/legal/Privacy";
 import { Terms } from "./pages/legal/Terms";
 import { Onboarding } from "./pages/Onboarding";
 import { Operator } from "./pages/Operator";
+import { OperatorPlan } from "./pages/OperatorPlan";
 import { SignIn } from "./pages/SignIn";
 
 export function App() {
@@ -86,7 +87,10 @@ function SignedIn() {
   );
 }
 
-/** A customer's account as the operator reads it: their sidebar, their pages, nothing to change. */
+/**
+ * A customer's account as the operator reads it: their sidebar and their pages, with nothing to
+ * change but the plan's limits.
+ */
 function ReadThrough({ me, organizationId }: { me: Me; organizationId: string }) {
   const organization = useQuery({
     queryKey: ["operator-organization", organizationId],
@@ -110,6 +114,10 @@ function ReadThrough({ me, organizationId }: { me: Me; organizationId: string })
           <Route path={base}>
             <Route index element={<Locations organization={organization.data} />} />
             <Route path="locations/:id" element={<LocationDetail />} />
+            <Route
+              path="plan"
+              element={<OperatorPlan key={organizationId} organization={organization.data} />}
+            />
             <Route path="*" element={<Navigate to={base} replace />} />
           </Route>
         </Routes>

@@ -510,6 +510,42 @@ describe("organizations and locations", () => {
     expect(me.organizations.map((row) => row.name)).toEqual(["Bob's Bakery"]);
   });
 
+  it("lets the operator change an organization's limits, and nobody else", async () => {
+    const { organization } = await seed();
+    const path = `/operator/organizations/${organization.id}/limits`;
+    const limits = {
+      max_locations: 3,
+      max_queries_per_location: 20,
+      max_manual_scans_per_day: 10,
+      scan_every_days: 1,
+    };
+
+    // Not its owner, and not by reaching the route signed out.
+    expect((await call(alice, "PUT", path, limits)).status).toBe(404);
+    expect((await call(null, "PUT", path, limits)).status).toBe(401);
+    expect(db.organizations[0]).toMatchObject({ max_locations: organization.max_locations });
+
+    db.operators.add(bob);
+    for (const bad of [
+      { ...limits, scan_every_days: 0 },
+      { ...limits, max_locations: -1 },
+      { ...limits, max_queries_per_location: 2.5 },
+      { max_locations: 3 },
+    ]) {
+      expect((await call(bob, "PUT", path, bad)).status, JSON.stringify(bad)).toBe(422);
+    }
+    expect(
+      (await call(bob, "PUT", `/operator/organizations/${crypto.randomUUID()}/limits`, limits))
+        .status,
+    ).toBe(404);
+
+    const changed = OrganizationSchema.parse(await (await call(bob, "PUT", path, limits)).json());
+    expect(changed).toEqual({ ...organization, ...limits });
+    // The owner now has room for a second location, which the default plan refused.
+    const me = MeSchema.parse(await (await call(alice, "GET", "/me")).json());
+    expect(me.organizations[0]).toMatchObject(limits);
+  });
+
   it("lists every account and every audit for the operator, and for nobody else", async () => {
     const { organization } = await seed();
     db.operators.add(bob);
