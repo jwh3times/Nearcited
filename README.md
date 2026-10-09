@@ -60,7 +60,7 @@ itself as `NearcitedBot`, with a link to the public `/bot` page, and is skipped 
 
 The operator has one more screen, `/operator`: what needs attention (a failed scan, a scan stuck or
 overdue, a website that cannot be read, a failed audit, a location with no active prompts, an
-location that has used every prompt it is allowed), every organization, and what the deployment runs. From there the operator
+location that has used every prompt it is allowed), every organization, every account with how far it got (signed up, made an organization, added a location, had a scan succeed, scanned in the last week), every shareable audit, and what the deployment runs. From there the operator
 can read through a customer's pages, with everything that changes something hidden.
 
 The location page and the audit turn all of that into an action plan, "What to do next": fix
@@ -248,6 +248,8 @@ organization reads as missing and returns 404. Payloads are defined in
 | `GET /api/audits/:token` | A shareable audit, for anyone holding its token. 404 if the token is unknown, revoked or past its 30 days. Never cached and not indexed. |
 | `GET /api/me` | The signed-in user, their platform role (`operator`, `test` or none) and their organizations. |
 | `GET /api/operator/overview` | The operator's view: totals, what needs attention, every organization (test ones apart) and what the deployment runs. 404 to anyone who is not the operator. |
+| `GET /api/operator/accounts` | A funnel of how far accounts got, and every account with its stage; test accounts are listed and not counted. 404 to anyone who is not the operator. |
+| `GET /api/operator/audits` | Every shareable audit, with its link only while it is neither revoked nor expired. 404 to anyone who is not the operator. |
 | `GET /api/operator/organizations/:organizationId` | One organization, for the operator to read through its pages. 404 to anyone who is not the operator. |
 | `POST /api/organizations` | Create an organization; the caller becomes its owner. The name needs a letter. |
 | `PATCH /api/organizations/:organizationId` | Rename an organization. Owners and admins only; anyone else reads it as missing and gets 404. The name needs a letter. |

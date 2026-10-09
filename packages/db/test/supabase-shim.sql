@@ -33,7 +33,10 @@ grant usage on schema auth to anon, authenticated, service_role;
 
 create table auth.users (
   id uuid primary key,
-  email text
+  email text,
+  -- As in Supabase's own table: when the account was made, and when it last signed in.
+  created_at timestamptz not null default now(),
+  last_sign_in_at timestamptz
 );
 
 -- Same definition Supabase ships: PostgREST sets request.jwt.claims; older versions set claim.sub.

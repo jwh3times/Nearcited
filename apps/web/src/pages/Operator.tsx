@@ -1,4 +1,5 @@
 import {
+  type AccountStage,
   type AttentionItem,
   type AttentionKind,
   type OperatorOrganization,
@@ -95,6 +96,9 @@ export function Operator() {
             <h2>Organizations</h2>
             <Organizations rows={overview.data.organizations} empty="No organizations yet." />
           </section>
+
+          <Accounts />
+          <Audits />
 
           <section className="stack">
             <div className="section-head">
@@ -228,5 +232,160 @@ function Organizations({ rows, empty }: { rows: OperatorOrganization[]; empty: s
         ))}
       </div>
     </div>
+  );
+}
+
+const STAGE_LABELS: Record<AccountStage, string> = {
+  signed_up: "Signed up",
+  organization: "Made an organization",
+  location: "Added a location",
+  scanned: "Had a scan succeed",
+  active: "Scanned in the last 7 days",
+};
+
+/** Who has signed up, and how far each of them got. */
+function Accounts() {
+  const accounts = useQuery({ queryKey: ["operator-accounts"], queryFn: api.operatorAccounts });
+  const columns = "minmax(13rem,1.6fr) minmax(8rem,1fr) minmax(8rem,1fr) minmax(10rem,1.2fr)";
+  const started = accounts.data?.funnel[0]?.count ?? 0;
+
+  return (
+    <section className="stack">
+      <div className="section-head">
+        <h2>Accounts</h2>
+        <span className="small">Each stage counts everyone who got at least that far.</span>
+      </div>
+      {accounts.isPending && <p className="status">Loading</p>}
+      <ErrorNote error={accounts.error} />
+      {accounts.data && (
+        <>
+          <ol className="funnel">
+            {accounts.data.funnel.map(({ stage, count }) => (
+              <li key={stage} className="card total">
+                <span className="small muted">{STAGE_LABELS[stage]}</span>
+                <span className="display">{count}</span>
+                <span className="bar ink">
+                  <i style={{ width: `${started === 0 ? 0 : (count / started) * 100}%` }} />
+                </span>
+              </li>
+            ))}
+          </ol>
+          {accounts.data.accounts.length === 0 ? (
+            <p className="lede">Nobody has signed up yet.</p>
+          ) : (
+            <div className="gtable-scroll">
+              <div
+                className="gtable stacks"
+                style={{ "--cols": columns, "--min": "44rem" } as never}
+              >
+                <div className="gtable-head">
+                  <span>Account</span>
+                  <span>Signed up</span>
+                  <span>Last signed in</span>
+                  <span>Got as far as</span>
+                </div>
+                {accounts.data.accounts.map((account) => (
+                  <div key={account.user_id} className="gtable-row">
+                    <span className="stack-tight">
+                      <span className="ellipsis">{account.email ?? "No email"}</span>
+                      <span className="small muted ellipsis">
+                        {account.platform_role === "operator" && "Operator · "}
+                        {account.platform_role === "test" && "Test account · "}
+                        {account.organization_id ? (
+                          <Link to={readThroughBase(account.organization_id)}>
+                            {account.organization_name}
+                          </Link>
+                        ) : (
+                          "No organization"
+                        )}
+                      </span>
+                    </span>
+                    <Labelled label="Signed up">
+                      <span className="small">{formatDate(account.created_at)}</span>
+                    </Labelled>
+                    <Labelled label="Last signed in">
+                      <span className="small">
+                        {account.last_sign_in_at ? formatDate(account.last_sign_in_at) : "Never"}
+                      </span>
+                    </Labelled>
+                    <Labelled label="Got as far as" wide>
+                      <span className="small">{STAGE_LABELS[account.stage]}</span>
+                    </Labelled>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
+const AUDIT_WORDS = { queued: "Still asking", ready: "Ready", failed: "Failed" } as const;
+
+/** Every shareable audit. They belong to no organization, so this is the only list they are on. */
+function Audits() {
+  const audits = useQuery({ queryKey: ["operator-audits"], queryFn: api.operatorAudits });
+  const columns = "minmax(12rem,1.5fr) 7rem minmax(8rem,1fr) minmax(8rem,1fr) 6rem";
+
+  return (
+    <section className="stack">
+      <div className="section-head">
+        <h2>Audits</h2>
+        <span className="small">Reports made for businesses that have not signed up.</span>
+      </div>
+      {audits.isPending && <p className="status">Loading</p>}
+      <ErrorNote error={audits.error} />
+      {audits.data?.length === 0 && <p className="lede">No audits have been made.</p>}
+      {audits.data && audits.data.length > 0 && (
+        <div className="gtable-scroll">
+          <div className="gtable stacks" style={{ "--cols": columns, "--min": "46rem" } as never}>
+            <div className="gtable-head">
+              <span>Business</span>
+              <span>Status</span>
+              <span>Made</span>
+              <span>Available until</span>
+              <span>Report</span>
+            </div>
+            {audits.data.map((audit) => (
+              <div key={audit.id} className="gtable-row">
+                <span className="stack-tight">
+                  <span className="ellipsis">{audit.business_name}</span>
+                  <span className="small muted">
+                    {[audit.city, audit.region].filter(Boolean).join(", ")}
+                  </span>
+                </span>
+                <Labelled label="Status">
+                  <span className={audit.status === "failed" ? "small change down" : "small"}>
+                    {audit.revoked_at ? "Withdrawn" : AUDIT_WORDS[audit.status]}
+                  </span>
+                </Labelled>
+                <Labelled label="Made">
+                  <span className="small">{formatDate(audit.created_at)}</span>
+                </Labelled>
+                <Labelled label="Available until">
+                  <span className="small">{formatDate(audit.expires_at)}</span>
+                </Labelled>
+                <Labelled label="Report">
+                  {audit.link ? (
+                    <a
+                      href={audit.link}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="small"
+                    >
+                      Open
+                    </a>
+                  ) : (
+                    <span className="small muted">Gone</span>
+                  )}
+                </Labelled>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </section>
   );
 }

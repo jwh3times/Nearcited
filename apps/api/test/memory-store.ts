@@ -32,6 +32,13 @@ export interface MemoryDb {
   audits: MemoryAudit[];
   /** What scans and audits used at the providers, as the worker recorded it. */
   usage: (UsageSource & ProviderUsage)[];
+  /** Sign-in accounts, as the one function that may read them returns them to the operator. */
+  accounts: {
+    user_id: string;
+    email: string | null;
+    created_at: string;
+    last_sign_in_at: string | null;
+  }[];
   /** Accounts with the `operator` platform role, which read every organization's rows. */
   operators: Set<string>;
   /** Accounts with the `test` platform role. Every organization one creates is a test one. */
@@ -50,6 +57,7 @@ export interface MemoryAudit extends AuditJob {
 
 export function createMemoryDb(): MemoryDb {
   return {
+    accounts: [],
     operators: new Set(),
     testAccounts: new Set(),
     usage: [],
@@ -181,6 +189,23 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
     async listEveryAudit() {
       // Only the operator's policy answers on this table.
       return userId === null || isOperator ? db.audits : [];
+    },
+
+    async listAccounts() {
+      // The function answers the operator and returns nothing to anyone else.
+      return isOperator ? db.accounts : [];
+    },
+
+    async listEveryMembership() {
+      return db.memberships.filter((membership) => readsOrg(membership.organization_id));
+    },
+
+    async listPlatformRoles() {
+      const roles: Record<string, "operator" | "test"> = {};
+      const mine = (id: string) => userId === null || isOperator || id === userId;
+      for (const id of db.operators) if (mine(id)) roles[id] = "operator";
+      for (const id of db.testAccounts) if (mine(id)) roles[id] = "test";
+      return roles;
     },
 
     async listLocations(organizationId) {

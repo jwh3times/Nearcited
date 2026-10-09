@@ -1,6 +1,9 @@
 import {
   ATTENTION_WINDOW_MS,
+  buildAccounts,
   buildOperatorOverview,
+  type OperatorAccounts,
+  type OperatorAudit,
   type OperatorOverview,
 } from "@nearcited/shared";
 import { Hono } from "hono";
@@ -59,6 +62,43 @@ operatorRoutes.get("/operator/overview", async (c) => {
       commit: c.env.COMMIT?.trim().slice(0, 7) || null,
     },
   };
+  return c.json(body);
+});
+
+/** Who has signed up, and how far each account has got. */
+operatorRoutes.get("/operator/accounts", async (c) => {
+  const store = c.get("store");
+  const [accounts, roles, memberships, organizations, locations] = await Promise.all([
+    store.listAccounts(),
+    store.listPlatformRoles(),
+    store.listEveryMembership(),
+    store.listEveryOrganization(),
+    store.listEveryLocation(),
+  ]);
+  const body: OperatorAccounts = buildAccounts({
+    now: new Date(),
+    accounts,
+    roles,
+    memberships,
+    organizations,
+    locations,
+  });
+  return c.json(body);
+});
+
+/**
+ * Every shareable audit. They belong to no organization, so this is the only list they are on.
+ * The link is given only while it works: holding it is the permission to read the report.
+ */
+operatorRoutes.get("/operator/audits", async (c) => {
+  const now = new Date().toISOString();
+  const app = c.env.APP_URL.replace(/\/$/, "");
+  const body: OperatorAudit[] = (await c.get("store").listEveryAudit()).map(
+    ({ token, ...audit }) => ({
+      ...audit,
+      link: audit.revoked_at === null && audit.expires_at > now ? `${app}/audit/${token}` : null,
+    }),
+  );
   return c.json(body);
 });
 

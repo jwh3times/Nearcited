@@ -18,8 +18,15 @@ test("shows the operator every organization, and lets them read a customer's acc
   await expect(page.getByRole("heading", { name: "Operator", level: 1 })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Needs attention" })).toBeVisible();
   await expect(page.getByText("Deployed commit")).toBeVisible();
+  // The customer is among the accounts, with how far they have got; the funnel counts them.
+  await expect(page.getByRole("heading", { name: "Accounts" })).toBeVisible();
+  const account = page.locator("div.gtable-row", { hasText: customer.email });
+  await expect(account).toContainText(customerName);
+  await expect(account).toContainText("Scanned in the last 7 days");
+  await expect(page.getByRole("heading", { name: "Audits" })).toBeVisible();
   // The customer also appears under "Needs attention", so the row is found in the table.
-  const row = page.locator(".gtable-row", { hasText: customerName });
+  // A row of the organizations table is a link; an account's row, which also names it, is not.
+  const row = page.locator("a.gtable-row", { hasText: customerName });
   await expect(row).toContainText("1 of");
   await expect(row).toContainText("Succeeded");
 

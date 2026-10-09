@@ -1,15 +1,19 @@
 import type {
+  AccountStage,
   AttentionItem,
   AttentionKind,
   Location,
+  OperatorAccount,
+  OperatorAccounts,
   OperatorOrganization,
   OperatorOverview,
   Organization,
+  PlatformRole,
   Scan,
   SiteCheck,
   SiteCheckId,
 } from "./schemas";
-import { ATTENTION_KINDS } from "./schemas";
+import { ACCOUNT_STAGES, ATTENTION_KINDS } from "./schemas";
 import { SITE_CHECKS } from "./site";
 
 /**
@@ -281,5 +285,65 @@ export function buildOperatorOverview(facts: OperatorFacts): Omit<OperatorOvervi
     attention,
     organizations: rows.filter((row) => !row.is_test).sort(troubleFirst),
     test_organizations: rows.filter((row) => row.is_test).sort(troubleFirst),
+  };
+}
+
+/** What the accounts list is worked out from. Only the operator may read any of it. */
+export interface AccountFacts {
+  now: Date;
+  accounts: readonly {
+    user_id: string;
+    email: string | null;
+    created_at: string;
+    last_sign_in_at: string | null;
+  }[];
+  /** Platform roles by account ID. An account not here has none. */
+  roles: Readonly<Record<string, PlatformRole>>;
+  memberships: readonly { user_id: string; organization_id: string }[];
+  organizations: readonly Pick<Organization, "id" | "name">[];
+  locations: readonly Pick<Location, "organization_id" | "last_scanned_at">[];
+}
+
+/**
+ * Every account with how far it has got, newest first, and how many reached each stage. A stage
+ * counts everyone who got at least that far. Test accounts are listed, so the operator can see
+ * them, and are left out of the counts: they are not people trying the product.
+ */
+export function buildAccounts(facts: AccountFacts): OperatorAccounts {
+  const now = facts.now.getTime();
+  const organizations = new Map(facts.organizations.map((org) => [org.id, org.name]));
+  const stageOf = (organizationId: string | undefined): AccountStage => {
+    if (!organizationId) return "signed_up";
+    const scans = facts.locations
+      .filter((location) => location.organization_id === organizationId)
+      .map((location) => location.last_scanned_at);
+    if (scans.length === 0) return "organization";
+    const scanned = scans.filter((at): at is string => at !== null);
+    if (scanned.length === 0) return "location";
+    return scanned.some((at) => now - Date.parse(at) <= ATTENTION_WINDOW_MS) ? "active" : "scanned";
+  };
+
+  const accounts: OperatorAccount[] = [...facts.accounts]
+    .sort((a, b) => b.created_at.localeCompare(a.created_at))
+    .map((account) => {
+      const organizationId = facts.memberships.find(
+        (membership) => membership.user_id === account.user_id,
+      )?.organization_id;
+      return {
+        ...account,
+        platform_role: facts.roles[account.user_id] ?? null,
+        organization_id: organizationId ?? null,
+        organization_name: organizationId ? (organizations.get(organizationId) ?? null) : null,
+        stage: stageOf(organizationId),
+      };
+    });
+
+  const counted = accounts.filter((account) => account.platform_role !== "test");
+  return {
+    funnel: ACCOUNT_STAGES.map((stage, index) => ({
+      stage,
+      count: counted.filter((account) => ACCOUNT_STAGES.indexOf(account.stage) >= index).length,
+    })),
+    accounts,
   };
 }
