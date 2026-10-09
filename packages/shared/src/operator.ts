@@ -139,14 +139,20 @@ export function buildOperatorOverview(facts: OperatorFacts): Omit<OperatorOvervi
     }
 
     const prompts = facts.activePrompts[location.id] ?? 0;
-    if (prompts === 0) {
+    // A location its plan has paused is not scanned on purpose: nothing about that is wrong.
+    if (prompts === 0 && !location.paused_by_plan) {
       add("no_prompts", "Has no active prompts or keywords, so it is never scanned.", null, {
         locationId: location.id,
       });
     }
 
     const organization = organizations.get(location.organization_id);
-    if (organization && prompts > 0 && location.scan_frequency !== "off") {
+    if (
+      organization &&
+      prompts > 0 &&
+      location.scan_frequency !== "off" &&
+      !location.paused_by_plan
+    ) {
       // The plan sets the pace; a location set to weekly asks for less.
       const days = Math.max(
         organization.scan_every_days,

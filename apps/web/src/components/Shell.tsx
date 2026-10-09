@@ -84,7 +84,10 @@ export function Shell({ me, organization, children }: ShellProps) {
                 >
                   <span>
                     <span className="nav-name">{location.name}</span>
-                    <span className="nav-place">{placeOf(location)}</span>
+                    <span className="nav-place">
+                      {placeOf(location)}
+                      {location.paused_by_plan ? " · paused" : ""}
+                    </span>
                   </span>
                   <span className="mono">{score ?? "—"}</span>
                 </Link>

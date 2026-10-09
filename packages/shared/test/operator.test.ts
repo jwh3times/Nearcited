@@ -38,6 +38,7 @@ const location = (
   google_place_id: null,
   primary_category: null,
   scan_frequency: "daily",
+  paused_by_plan: false,
   last_scanned_at: ago(2),
   created_at: ago(24 * 20),
   ...change,
@@ -124,6 +125,11 @@ describe("needs attention", () => {
     facts.locations = [location("l1", "a", { last_scanned_at: ago(50) })];
     expect(kinds(facts)).toEqual(["scan_missed"]);
 
+    // One its plan has paused is not scanned on purpose.
+    facts.locations = [location("l1", "a", { last_scanned_at: ago(50), paused_by_plan: true })];
+    expect(kinds(facts)).toEqual([]);
+    facts.locations = [location("l1", "a", { last_scanned_at: ago(50) })];
+
     // Weekly is not late after two days, and a paused location is never late.
     facts.locations = [location("l1", "a", { last_scanned_at: ago(50), scan_frequency: "weekly" })];
     expect(kinds(facts)).toEqual([]);
@@ -195,6 +201,8 @@ describe("needs attention", () => {
     const facts = healthy();
     facts.activePrompts = {};
     expect(kinds(facts)).toEqual(["no_prompts"]);
+    facts.locations = facts.locations.map((row) => ({ ...row, paused_by_plan: true }));
+    expect(kinds(facts)).toEqual([]);
 
     const fullOfPrompts = healthy();
     fullOfPrompts.activePrompts = { l1: 10 };

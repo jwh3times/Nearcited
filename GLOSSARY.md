@@ -33,3 +33,7 @@ system works; this file only settles vocabulary.
   `docs/adr/0006-plans-are-rows.md`.
 - **Included location**: a location a plan's price covers. An **extra location** is one beyond
   those, paid for separately.
+- **Paused location**: a location its organization's plan no longer covers. It is not scanned and
+  everything measured stays readable. Not the same as a location whose scans its owner turned off.
+- **Set aside**: said of a prompt made inactive because the plan covers fewer. A larger plan
+  restores it. A **retired** prompt is one its owner made inactive, which no plan restores.

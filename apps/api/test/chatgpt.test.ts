@@ -96,6 +96,7 @@ const location: Location = {
   google_place_id: null,
   primary_category: null,
   scan_frequency: "weekly",
+  paused_by_plan: false,
   last_scanned_at: null,
   created_at: "2026-10-01T00:00:00Z",
 };
@@ -106,6 +107,7 @@ const query: TrackedQuery = {
   kind: "ai_prompt",
   text: "best pizza",
   is_active: true,
+  set_aside_by_plan: false,
   created_at: "2026-10-01T00:00:00Z",
 };
 

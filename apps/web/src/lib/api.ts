@@ -106,6 +106,9 @@ export const api = {
     json(TrackedQuerySchema, "POST", `/locations/${locationId}/queries`, input),
   setQueryActive: (id: string, is_active: boolean) =>
     json(TrackedQuerySchema, "PATCH", `/queries/${id}`, { is_active }),
+  /** Brings a location the plan paused back into use, in place of `insteadOf` when there is no room. */
+  activateLocation: (locationId: string, insteadOf: string | null) =>
+    json(LocationSchema, "POST", `/locations/${locationId}/activate`, { instead_of: insteadOf }),
   startScan: (locationId: string) => json(ScanSchema, "POST", `/locations/${locationId}/scans`),
   listScans: (locationId: string) =>
     json(ScanSchema.array(), "GET", `/locations/${locationId}/scans`),
