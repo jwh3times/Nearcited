@@ -32,6 +32,8 @@ export interface MemoryDb {
   audits: MemoryAudit[];
   /** What scans and audits used at the providers, as the worker recorded it. */
   usage: (UsageSource & ProviderUsage)[];
+  /** Accounts with the `operator` platform role, which read every organization's rows. */
+  operators: Set<string>;
   /** Accounts with the `test` platform role. Every organization one creates is a test one. */
   testAccounts: Set<string>;
   /** The on-page check each scan made, by scan ID. */
@@ -48,6 +50,7 @@ export interface MemoryAudit extends AuditJob {
 
 export function createMemoryDb(): MemoryDb {
   return {
+    operators: new Set(),
     testAccounts: new Set(),
     usage: [],
     organizations: [],
@@ -79,9 +82,16 @@ export const DEFAULT_LIMITS = {
 
 /** `userId: null` is the worker's view: no filtering. */
 export function memoryStore(db: MemoryDb, userId: string | null): Store {
+  /** Membership: what every write is checked against. */
   const seesOrg = (organizationId: string) =>
     userId === null ||
     db.memberships.some((m) => m.organization_id === organizationId && m.user_id === userId);
+  /** Mirrors the operator's select policies: reads everything, and that is all. */
+  const isOperator = userId !== null && db.operators.has(userId);
+  const readsOrg = (organizationId: string) => isOperator || seesOrg(organizationId);
+  const readableLocation = (id: string) =>
+    db.locations.find((location) => location.id === id && readsOrg(location.organization_id));
+  const readsLocation = (id: string) => readableLocation(id) !== undefined;
   const visibleLocation = (id: string) =>
     db.locations.find((location) => location.id === id && seesOrg(location.organization_id));
   const seesLocation = (id: string) => visibleLocation(id) !== undefined;
@@ -116,7 +126,7 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
     },
 
     async getOrganization(id) {
-      return db.organizations.find((o) => o.id === id && seesOrg(id)) ?? null;
+      return db.organizations.find((o) => o.id === id && readsOrg(id)) ?? null;
     },
 
     async renameOrganization(id, name) {
@@ -138,9 +148,44 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
       return organization;
     },
 
+    async getPlatformRole(id) {
+      // An account reads its own role; the operator can read anyone's.
+      if (userId !== null && id !== userId && !isOperator) return null;
+      return db.operators.has(id) ? "operator" : db.testAccounts.has(id) ? "test" : null;
+    },
+
+    async listEveryOrganization() {
+      return db.organizations.filter((organization) => readsOrg(organization.id));
+    },
+
+    async listEveryLocation() {
+      return db.locations.filter((location) => readsOrg(location.organization_id));
+    },
+
+    async countActiveQueries() {
+      const counts: Record<string, number> = {};
+      for (const query of db.queries) {
+        if (query.is_active && readsLocation(query.location_id)) {
+          counts[query.location_id] = (counts[query.location_id] ?? 0) + 1;
+        }
+      }
+      return counts;
+    },
+
+    async listScansSince(since) {
+      return db.scans
+        .filter((scan) => scan.created_at >= since && readsLocation(scan.location_id))
+        .map((scan) => ({ ...scan, site_check: db.siteChecks.get(scan.id) ?? null }));
+    },
+
+    async listEveryAudit() {
+      // Only the operator's policy answers on this table.
+      return userId === null || isOperator ? db.audits : [];
+    },
+
     async listLocations(organizationId) {
       return db.locations.filter(
-        (location) => location.organization_id === organizationId && seesOrg(organizationId),
+        (location) => location.organization_id === organizationId && readsOrg(organizationId),
       );
     },
 
@@ -163,7 +208,7 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
     },
 
     async getLocation(id) {
-      return visibleLocation(id) ?? null;
+      return readableLocation(id) ?? null;
     },
 
     async updateLocation(id, input) {
@@ -179,7 +224,7 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
     },
 
     async listQueries(locationId) {
-      return seesLocation(locationId)
+      return readsLocation(locationId)
         ? db.queries.filter((query) => query.location_id === locationId)
         : [];
     },
@@ -247,7 +292,7 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
     },
 
     async listScans(locationId, limit) {
-      if (!seesLocation(locationId)) return [];
+      if (!readsLocation(locationId)) return [];
       return db.scans
         .filter((scan) => scan.location_id === locationId)
         .sort((a, b) => b.created_at.localeCompare(a.created_at))
@@ -256,17 +301,17 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
 
     async getScan(id) {
       const scan = db.scans.find((candidate) => candidate.id === id);
-      return scan && seesLocation(scan.location_id) ? scan : null;
+      return scan && readsLocation(scan.location_id) ? scan : null;
     },
 
     async listScanResults(scanId) {
       const scan = db.scans.find((candidate) => candidate.id === scanId);
-      if (!scan || !seesLocation(scan.location_id)) return [];
+      if (!scan || !readsLocation(scan.location_id)) return [];
       return db.results.filter((result) => result.scan_id === scanId);
     },
 
     async listRecentResults(locationId, scans, sampleData) {
-      if (!seesLocation(locationId)) return [];
+      if (!readsLocation(locationId)) return [];
       // Newest first by insertion, since scans made in the same millisecond share a timestamp.
       return db.scans
         .filter(
@@ -281,7 +326,7 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
     },
 
     async listRecommendations(locationId) {
-      return seesLocation(locationId)
+      return readsLocation(locationId)
         ? db.recommendations.filter((recommendation) => recommendation.location_id === locationId)
         : [];
     },
@@ -361,7 +406,7 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
     },
 
     async getSiteCheck(locationId) {
-      if (!seesLocation(locationId)) return null;
+      if (!readsLocation(locationId)) return null;
       const latest = db.scans
         .filter((scan) => scan.location_id === locationId && scan.status === "succeeded")
         .sort((a, b) => (b.finished_at ?? "").localeCompare(a.finished_at ?? ""))[0];

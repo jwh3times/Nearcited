@@ -21,7 +21,8 @@ interface Props {
   window: ScanWindow;
   /** The surfaces a scan checks right now. */
   surfaces: readonly Surface[];
-  onRetire: (queryId: string) => void;
+  /** Left out where the reader may not change anything, and the Retire buttons with it. */
+  onRetire?: (queryId: string) => void;
 }
 
 /** One group per query kind: queries down the side, surfaces across the top. */
@@ -60,14 +61,18 @@ export function PromptGrid({ queries, results, window, surfaces, onRetire }: Pro
                         : "Google results aren't checked yet"}
                     </span>
                   )}
-                  <button
-                    type="button"
-                    className="link"
-                    aria-label={`Retire "${row.query.text}"`}
-                    onClick={() => onRetire(row.query.id)}
-                  >
-                    Retire
-                  </button>
+                  {onRetire ? (
+                    <button
+                      type="button"
+                      className="link"
+                      aria-label={`Retire "${row.query.text}"`}
+                      onClick={() => onRetire(row.query.id)}
+                    >
+                      Retire
+                    </button>
+                  ) : (
+                    <span />
+                  )}
                 </div>
               ))}
             </div>

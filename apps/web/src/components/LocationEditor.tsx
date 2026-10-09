@@ -27,6 +27,8 @@ interface LocationEditorProps {
   /** How many days apart the organization's plan scans. Undefined until it has loaded. */
   planDays: number | undefined;
   onSaved: () => void;
+  /** True while the operator is reading a customer's account: shown, and nothing to save. */
+  readOnly?: boolean;
 }
 
 /** What "Daily" and "Weekly" come to on this plan. The plan sets the fastest pace. */
@@ -40,7 +42,7 @@ function frequencyNote(frequency: ScanFrequency, planDays: number | undefined): 
 }
 
 /** The form that changes a location's details and how often it is scanned. */
-export function LocationEditor({ location, planDays, onSaved }: LocationEditorProps) {
+export function LocationEditor({ location, planDays, onSaved, readOnly }: LocationEditorProps) {
   const [form, setForm] = useState<Required<LocationFormValues>>(() =>
     locationFormValues(location),
   );
@@ -57,9 +59,10 @@ export function LocationEditor({ location, planDays, onSaved }: LocationEditorPr
 
   function submit(event: FormEvent) {
     event.preventDefault();
-    if (form$.check()) save.mutate(form);
+    if (!readOnly && form$.check()) save.mutate(form);
   }
   const field = (name: TextField) => ({
+    disabled: readOnly,
     value: form[name] ?? "",
     error: form$.error(name),
     onBlur: () => form$.touch(name),
@@ -143,6 +146,7 @@ export function LocationEditor({ location, planDays, onSaved }: LocationEditorPr
           <button
             key={value}
             type="button"
+            disabled={readOnly}
             aria-pressed={form.scan_frequency === value}
             onClick={() => setForm((current) => ({ ...current, scan_frequency: value }))}
           >
@@ -152,9 +156,11 @@ export function LocationEditor({ location, planDays, onSaved }: LocationEditorPr
       </div>
       <p className="small muted">{frequencyNote(form.scan_frequency, planDays)}</p>
 
-      <button type="submit" disabled={save.isPending}>
-        {save.isPending ? "Saving" : "Save changes"}
-      </button>
+      {!readOnly && (
+        <button type="submit" disabled={save.isPending}>
+          {save.isPending ? "Saving" : "Save changes"}
+        </button>
+      )}
       {save.isSuccess && !save.isPending && (
         <p className="small muted" role="status">
           Saved.

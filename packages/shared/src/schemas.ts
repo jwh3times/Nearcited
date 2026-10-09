@@ -184,6 +184,91 @@ export const ProviderUsageSchema = z.object({
 export type ProviderUsage = z.infer<typeof ProviderUsageSchema>;
 
 // ---------------------------------------------------------------------------
+// The operator's view (docs/adr/0004-the-operator-reads-through-policies.md)
+// ---------------------------------------------------------------------------
+
+/** What an account is to the product itself. Most accounts have none. */
+export const PLATFORM_ROLES = ["operator", "test"] as const;
+export const PlatformRoleSchema = z.enum(PLATFORM_ROLES);
+export type PlatformRole = z.infer<typeof PlatformRoleSchema>;
+
+/**
+ * The things worth the operator's attention, in the order they are shown: what is broken in the
+ * product first, then what a customer is stuck on and may not know.
+ */
+export const ATTENTION_KINDS = [
+  "organization_failing",
+  "scan_failed",
+  "scan_stuck",
+  "scan_missed",
+  "site_unloaded",
+  "site_blocked",
+  "audit_failed",
+  "no_prompts",
+  // A location with every prompt its plan allows. Having every location allowed is not listed.
+  "at_limit",
+] as const;
+export type AttentionKind = (typeof ATTENTION_KINDS)[number];
+
+export const AttentionItemSchema = z.object({
+  kind: z.enum(ATTENTION_KINDS),
+  organization_id: Id.nullable(),
+  organization_name: z.string().nullable(),
+  location_id: Id.nullable(),
+  location_name: z.string().nullable(),
+  audit_id: Id.nullable(),
+  /** What happened, in a sentence. */
+  detail: z.string(),
+  /** When it happened, or null for a standing condition such as having no prompts. */
+  at: Timestamp.nullable(),
+});
+export type AttentionItem = z.infer<typeof AttentionItemSchema>;
+
+const ScanCountSchema = z.object({
+  total: z.number().int().nonnegative(),
+  failed: z.number().int().nonnegative(),
+});
+
+export const OperatorOrganizationSchema = z.object({
+  id: Id,
+  name: z.string(),
+  is_test: z.boolean(),
+  /** True for an organization the operator is a member of. */
+  is_yours: z.boolean(),
+  created_at: Timestamp,
+  locations: z.number().int().nonnegative(),
+  max_locations: z.number().int().nonnegative(),
+  /** Its most recent scan of any location, whatever became of it. */
+  last_scan: z.object({ status: ScanStatusSchema, at: Timestamp }).nullable(),
+  failed_7d: z.number().int().nonnegative(),
+  scan_every_days: z.number().int().positive(),
+  surfaces: z.array(SurfaceSchema).nullable(),
+});
+export type OperatorOrganization = z.infer<typeof OperatorOrganizationSchema>;
+
+/** What the operator's first screen shows. Test organizations are listed apart and never counted. */
+export const OperatorOverviewSchema = z.object({
+  totals: z.object({
+    organizations: z.number().int().nonnegative(),
+    locations: z.number().int().nonnegative(),
+    scans_24h: ScanCountSchema,
+    scans_7d: ScanCountSchema,
+  }),
+  attention: z.array(AttentionItemSchema),
+  organizations: z.array(OperatorOrganizationSchema),
+  test_organizations: z.array(OperatorOrganizationSchema),
+  deployment: z.object({
+    /** True when every scan in this deployment is generated. */
+    sample_data: z.boolean(),
+    /** The model each assistant is asked with, by surface. */
+    models: z.record(z.string(), z.string()),
+    /** The commit that was deployed, when the deploy recorded it. */
+    commit: z.string().nullable(),
+  }),
+});
+export type OperatorOverview = z.infer<typeof OperatorOverviewSchema>;
+
+// ---------------------------------------------------------------------------
 // Inputs
 // ---------------------------------------------------------------------------
 
@@ -312,6 +397,8 @@ export const MeSchema = z.object({
   organizations: z.array(OrganizationSchema),
   /** True when scans return generated data instead of real measurements. */
   sample_data: z.boolean(),
+  /** What the account is to the product itself. Null for nearly everyone. */
+  platform_role: PlatformRoleSchema.nullable(),
 });
 export type Me = z.infer<typeof MeSchema>;
 

@@ -4,7 +4,9 @@ import type {
   DerivedRecommendation,
   Location,
   LocationInput,
+  OperatorFacts,
   Organization,
+  PlatformRole,
   ProviderUsage,
   Recommendation,
   RecommendationStatus,
@@ -16,6 +18,10 @@ import type {
   TrackedQuery,
   TrackedQueryInput,
 } from "@nearcited/shared";
+
+/** A scan as the operator's overview reads it: what happened, and what it found of the website. */
+export type OperatorScan = OperatorFacts["scans"][number];
+export type OperatorAudit = OperatorFacts["audits"][number];
 
 /** What a set of usage is for: a scan of an organization's location, or an audit. */
 export type UsageSource = { organization_id: string; scan_id: string } | { audit_id: string };
@@ -63,6 +69,19 @@ export interface Store {
    */
   renameOrganization(id: string, name: string): Promise<Organization | null>;
   listLocations(organizationId: string): Promise<Location[]>;
+
+  /** What the account is to the product itself, or null. An account reads its own. */
+  getPlatformRole(userId: string): Promise<PlatformRole | null>;
+
+  // The operator's reads. Each returns every row the caller may read, which for the operator is
+  // every row there is and for anyone else only their own, so a route must check the role first.
+  listEveryOrganization(): Promise<Organization[]>;
+  listEveryLocation(): Promise<Location[]>;
+  /** How many active prompts and keywords each location has, by location ID. */
+  countActiveQueries(): Promise<Record<string, number>>;
+  /** Scans created since `since`, an ISO timestamp, each with the on-page check it made. */
+  listScansSince(since: string): Promise<OperatorScan[]>;
+  listEveryAudit(): Promise<OperatorAudit[]>;
   createLocation(organizationId: string, input: LocationInput): Promise<Location>;
   getLocation(id: string): Promise<Location | null>;
   /** Replaces every field a user may set. Null when the caller cannot see the location. */

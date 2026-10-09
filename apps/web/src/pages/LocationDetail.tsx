@@ -28,6 +28,7 @@ import { tallyCompetitors } from "../lib/matrix";
 import { windowRate } from "../lib/summary";
 import { neighbour, TAB_LABELS, TABS, type Tab, tabFrom } from "../lib/tabs";
 import { buildTrend } from "../lib/trend";
+import { useViewing } from "../lib/viewing";
 
 const inFlight = (scan: ScanWithResults | null) =>
   scan?.status === "queued" || scan?.status === "running";
@@ -40,6 +41,8 @@ export function LocationDetail() {
   const queryClient = useQueryClient();
   const [params, setParams] = useSearchParams();
   const tab = tabFrom(params.get("tab"));
+  const { base, readOnly } = useViewing();
+  const home = base || "/";
   const tabbar = useRef<HTMLDivElement>(null);
   const queryKey = locationKey(id);
   const historyKey = scansKey(id);
@@ -65,6 +68,13 @@ export function LocationDetail() {
   }, [id, latestScan?.id, latestScan?.status]);
   // Already loaded by the page shell, so this reads the cache.
   const me = useQuery({ queryKey: ["me"], queryFn: api.me });
+  // Reading through, the organization is a customer's, which the shell has loaded the same way.
+  const theirId = detail.data?.location.organization_id;
+  const theirs = useQuery({
+    queryKey: ["operator-organization", theirId],
+    queryFn: () => api.operatorOrganization(theirId ?? ""),
+    enabled: readOnly && theirId !== undefined,
+  });
 
   const startScan = useMutation({ mutationFn: () => api.startScan(id), onSuccess: refresh });
   const setQueryActive = useMutation({
@@ -84,7 +94,7 @@ export function LocationDetail() {
     return (
       <main className="page">
         <ErrorNote error={detail.error} />
-        <Link to="/">Back to locations</Link>
+        <Link to={home}>Back to locations</Link>
       </main>
     );
   }
@@ -99,9 +109,9 @@ export function LocationDetail() {
     site,
     actions,
   } = detail.data;
-  const organization = me.data?.organizations.find(
-    (candidate) => candidate.id === location.organization_id,
-  );
+  const organization = readOnly
+    ? theirs.data
+    : me.data?.organizations.find((candidate) => candidate.id === location.organization_id);
   const active = queries.filter((query) => query.is_active);
   const retired = queries.filter((query) => !query.is_active);
   const results = scan?.status === "succeeded" ? scan.results : [];
@@ -141,7 +151,7 @@ export function LocationDetail() {
     <main>
       <div className="detail-head">
         <p className="breadcrumb">
-          <Link to="/">Locations</Link> / {location.name}
+          <Link to={home}>Locations</Link> / {location.name}
         </p>
         <div className="title-row">
           <div>
@@ -162,16 +172,18 @@ export function LocationDetail() {
               )}
             </p>
           </div>
-          <div className="head-actions">
-            <button
-              type="button"
-              className="fill-narrow"
-              onClick={() => startScan.mutate()}
-              disabled={scanning || active.length === 0}
-            >
-              {scanning ? "Scanning…" : "Run scan"}
-            </button>
-          </div>
+          {!readOnly && (
+            <div className="head-actions">
+              <button
+                type="button"
+                className="fill-narrow"
+                onClick={() => startScan.mutate()}
+                disabled={scanning || active.length === 0}
+              >
+                {scanning ? "Scanning…" : "Run scan"}
+              </button>
+            </div>
+          )}
         </div>
         {scanning && (
           <p className="card scan-bar" role="status">
@@ -227,7 +239,12 @@ export function LocationDetail() {
               <div>
                 {actions.length > 0 ? (
                   <>
-                    <ActionPlan locationId={location.id} actions={actions} onOpenTab={openTab} />
+                    <ActionPlan
+                      locationId={location.id}
+                      actions={actions}
+                      onOpenTab={openTab}
+                      readOnly={readOnly}
+                    />
                     <p className="footnote">
                       Worked out by rule from the answers of the last {scans(scanWindow.scans)} and
                       the latest check of your website. Each step says what was seen, so later scans
@@ -243,7 +260,9 @@ export function LocationDetail() {
                     </p>
                   </>
                 )}
-                {open.length > 0 && <Recommendations items={open} onChanged={refresh} />}
+                {open.length > 0 && (
+                  <Recommendations items={open} onChanged={refresh} readOnly={readOnly} />
+                )}
               </div>
               <div>
                 <ScoreCard trend={trend} named={windowRate(scanWindow.cells)} />
@@ -281,16 +300,22 @@ export function LocationDetail() {
                 results={results}
                 window={scanWindow}
                 surfaces={surfaces}
-                onRetire={(queryId) => setQueryActive.mutate({ id: queryId, active: false })}
+                onRetire={
+                  readOnly
+                    ? undefined
+                    : (queryId) => setQueryActive.mutate({ id: queryId, active: false })
+                }
               />
             )}
             <ErrorNote error={setQueryActive.error} />
-            <AddQuery
-              locationId={location.id}
-              onAdded={refresh}
-              used={active.length}
-              allowed={organization?.max_queries_per_location}
-            />
+            {!readOnly && (
+              <AddQuery
+                locationId={location.id}
+                onAdded={refresh}
+                used={active.length}
+                allowed={organization?.max_queries_per_location}
+              />
+            )}
           </>
         )}
 
@@ -364,6 +389,7 @@ export function LocationDetail() {
               // Another location starts the form from what is on file for it.
               key={location.id}
               location={location}
+              readOnly={readOnly}
               planDays={organization?.scan_every_days}
               onSaved={async () => {
                 refresh();
@@ -384,37 +410,41 @@ export function LocationDetail() {
                     {retired.map((query) => (
                       <li key={query.id}>
                         <span>{query.text}</span>
-                        <button
-                          type="button"
-                          className="link"
-                          aria-label={`Restore "${query.text}"`}
-                          onClick={() => setQueryActive.mutate({ id: query.id, active: true })}
-                        >
-                          Restore
-                        </button>
+                        {!readOnly && (
+                          <button
+                            type="button"
+                            className="link"
+                            aria-label={`Restore "${query.text}"`}
+                            onClick={() => setQueryActive.mutate({ id: query.id, active: true })}
+                          >
+                            Restore
+                          </button>
+                        )}
                       </li>
                     ))}
                   </ul>
                 )}
                 <ErrorNote error={setQueryActive.error} />
               </div>
-              <div className="card side-card danger">
-                <h3 className="side-title bad">Delete this location</h3>
-                <p>Removes the location, its prompts and keywords, and every scan.</p>
-                <button
-                  type="button"
-                  className="danger"
-                  disabled={removeLocation.isPending}
-                  onClick={() => {
-                    if (window.confirm(`Delete ${location.name} and all of its scans?`)) {
-                      removeLocation.mutate();
-                    }
-                  }}
-                >
-                  Delete location
-                </button>
-                <ErrorNote error={removeLocation.error} />
-              </div>
+              {!readOnly && (
+                <div className="card side-card danger">
+                  <h3 className="side-title bad">Delete this location</h3>
+                  <p>Removes the location, its prompts and keywords, and every scan.</p>
+                  <button
+                    type="button"
+                    className="danger"
+                    disabled={removeLocation.isPending}
+                    onClick={() => {
+                      if (window.confirm(`Delete ${location.name} and all of its scans?`)) {
+                        removeLocation.mutate();
+                      }
+                    }}
+                  >
+                    Delete location
+                  </button>
+                  <ErrorNote error={removeLocation.error} />
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -538,9 +568,12 @@ function AddQuery({
 function Recommendations({
   items,
   onChanged,
+  readOnly,
 }: {
   items: Detail["recommendations"];
   onChanged: () => unknown;
+  /** True while the operator is reading a customer's account: the list is shown, not acted on. */
+  readOnly: boolean;
 }) {
   const update = useMutation({
     mutationFn: ({ id, status }: { id: string; status: "done" | "dismissed" }) =>
@@ -558,24 +591,26 @@ function Recommendations({
               <h3>{item.title}</h3>
               <p>{item.detail}</p>
             </div>
-            <div className="row-actions">
-              <button
-                type="button"
-                className="secondary"
-                disabled={update.isPending}
-                onClick={() => update.mutate({ id: item.id, status: "done" })}
-              >
-                Mark done
-              </button>
-              <button
-                type="button"
-                className="link"
-                disabled={update.isPending}
-                onClick={() => update.mutate({ id: item.id, status: "dismissed" })}
-              >
-                Dismiss
-              </button>
-            </div>
+            {!readOnly && (
+              <div className="row-actions">
+                <button
+                  type="button"
+                  className="secondary"
+                  disabled={update.isPending}
+                  onClick={() => update.mutate({ id: item.id, status: "done" })}
+                >
+                  Mark done
+                </button>
+                <button
+                  type="button"
+                  className="link"
+                  disabled={update.isPending}
+                  onClick={() => update.mutate({ id: item.id, status: "dismissed" })}
+                >
+                  Dismiss
+                </button>
+              </div>
+            )}
           </li>
         ))}
       </ul>

@@ -2,6 +2,7 @@ import {
   LocationDetailSchema,
   LocationSchema,
   MeSchema,
+  OperatorOverviewSchema,
   OrganizationSchema,
   type ScanMessage,
   ScanSchema,
@@ -29,6 +30,7 @@ const app = createApp({
       ? { user: { id: userId, email: `${userId}@example.com` }, store: memoryStore(db, userId) }
       : null;
   },
+  deployment: { models: { chatgpt: "test-gpt", claude: "test-claude" } },
 });
 
 function call(user: string | null, method: string, path: string, body?: unknown) {
@@ -80,6 +82,7 @@ beforeEach(() => {
   sent = [];
   env = {
     PROVIDER_MODE: "mock",
+    COMMIT: "abc1234",
     SCAN_QUEUE: {
       send: async (message: ScanMessage) => {
         sent.push(message);
@@ -436,6 +439,73 @@ describe("organizations and locations", () => {
     );
     expect(real.organization.is_test).toBe(false);
     expect(theirs.surfaces).toEqual([]);
+  });
+
+  it("tells an account its platform role, which nearly nobody has", async () => {
+    await seed();
+    const role = async (user: string) =>
+      MeSchema.parse(await (await call(user, "GET", "/me")).json()).platform_role;
+    expect(await role(alice)).toBeNull();
+    db.operators.add(alice);
+    db.testAccounts.add(bob);
+    expect(await role(alice)).toBe("operator");
+    expect(await role(bob)).toBe("test");
+  });
+
+  it("shows the operator every organization, and nobody else that there is anything to show", async () => {
+    const { organization, location } = await seed();
+    await call(bob, "POST", "/organizations", { name: "Bob's Bakery" });
+
+    // To anyone else the operator's routes do not exist.
+    for (const path of ["/operator/overview", `/operator/organizations/${organization.id}`]) {
+      expect((await call(alice, "GET", path)).status, path).toBe(404);
+      expect((await call(null, "GET", path)).status, path).toBe(401);
+    }
+
+    db.operators.add(bob);
+    const overview = OperatorOverviewSchema.parse(
+      await (await call(bob, "GET", "/operator/overview")).json(),
+    );
+    expect(overview.totals).toMatchObject({ organizations: 2, locations: 1 });
+    expect(overview.organizations.map((row) => [row.name, row.is_yours])).toEqual([
+      ["Bob's Bakery", true],
+      ["Raleigh Pizza Group", false],
+    ]);
+    expect(overview.deployment).toEqual({
+      sample_data: true,
+      models: { chatgpt: "test-gpt", claude: "test-claude" },
+      commit: "abc1234",
+    });
+    expect(
+      OrganizationSchema.parse(
+        await (await call(bob, "GET", `/operator/organizations/${organization.id}`)).json(),
+      ).name,
+    ).toBe("Raleigh Pizza Group");
+
+    // The operator reads a customer's pages and can change nothing on them.
+    expect((await call(bob, "GET", `/locations/${location.id}`)).status).toBe(200);
+    expect((await call(bob, "GET", `/organizations/${organization.id}/locations`)).status).toBe(
+      200,
+    );
+    for (const [method, path, body] of [
+      ["PATCH", `/locations/${location.id}`, { name: "Defaced", city: "Raleigh" }],
+      ["DELETE", `/locations/${location.id}`, undefined],
+      ["PATCH", `/organizations/${organization.id}`, { name: "Defaced" }],
+      ["POST", `/locations/${location.id}/queries`, { kind: "ai_prompt", text: "best pizza" }],
+      ["POST", `/locations/${location.id}/scans`, undefined],
+      ["POST", `/organizations/${organization.id}/locations`, { name: "Planted", city: "X" }],
+    ] as const) {
+      const response = await call(bob, method, path, body);
+      expect([403, 404], `${method} ${path}`).toContain(response.status);
+    }
+    expect(db.locations.map((row) => row.name)).toEqual(["Joe's Pizza"]);
+    expect(db.organizations.map((row) => row.name).sort()).toEqual([
+      "Bob's Bakery",
+      "Raleigh Pizza Group",
+    ]);
+    // And being able to read them all does not make them the operator's.
+    const me = MeSchema.parse(await (await call(bob, "GET", "/me")).json());
+    expect(me.organizations.map((row) => row.name)).toEqual(["Bob's Bakery"]);
   });
 
   it("renames an organization, and only for someone in it", async () => {

@@ -1766,6 +1766,93 @@ mark {
   margin-left: auto;
 }
 
+/* The operator's view */
+
+.operator-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.375rem 1.5rem;
+  padding: 0.625rem var(--gutter);
+  /* Not the highlighter: yellow is kept for a business's name in a quoted answer. */
+  background: var(--soft);
+  border-bottom: 2px solid var(--ink);
+  font-size: 0.875rem;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.attention {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.attention-item {
+  display: grid;
+  grid-template-columns: 12rem minmax(0, 1fr) auto;
+  gap: 0.375rem 1rem;
+  align-items: start;
+  padding: 0.875rem 1.25rem;
+}
+
+.attention-item .badge {
+  justify-self: start;
+  padding: 0.3125rem 0.5rem;
+  font-size: 0.75rem;
+}
+
+.attention-who {
+  font-weight: 500;
+}
+
+.totals {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 0.75rem;
+}
+
+.total {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 1rem 1.25rem;
+}
+
+.total .display {
+  font-size: 2rem;
+  line-height: 1.1;
+  letter-spacing: -0.022em;
+}
+
+.deployment {
+  max-width: 34rem;
+  padding: 0.25rem 1.25rem;
+}
+
+.fact-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.625rem 0;
+  font-size: 0.875rem;
+}
+
+.fact-row + .fact-row {
+  border-top: 1px solid var(--line);
+}
+
+@media (max-width: 700px) {
+  .attention-item {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 /* Policies: long-form reading, signed in or not */
 
 .prose {

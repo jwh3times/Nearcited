@@ -5,6 +5,7 @@ import {
   type LocationFormValues,
   LocationSchema,
   MeSchema,
+  OperatorOverviewSchema,
   OrganizationSchema,
   PublicAuditSchema,
   RecommendationSchema,
@@ -62,6 +63,11 @@ export const api = {
   me: () => json(MeSchema, "GET", "/me"),
   createOrganization: (name: string) =>
     json(OrganizationSchema, "POST", "/organizations", { name }),
+  /** The operator's first screen. Answers 404 to anyone else. */
+  operatorOverview: () => json(OperatorOverviewSchema, "GET", "/operator/overview"),
+  /** An organization the operator is reading through. */
+  operatorOrganization: (id: string) =>
+    json(OrganizationSchema, "GET", `/operator/organizations/${id}`),
   renameOrganization: (id: string, name: string) =>
     json(OrganizationSchema, "PATCH", `/organizations/${id}`, { name }),
   listLocations: (organizationId: string) =>

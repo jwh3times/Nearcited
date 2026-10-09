@@ -58,6 +58,11 @@ it carry structured business details. Each failed check is a recommendation that
 later scan finds it fixed. The shareable audit shows the whole checklist. The fetch identifies
 itself as `NearcitedBot`, with a link to the public `/bot` page, and is skipped while the deployment serves sample data.
 
+The operator has one more screen, `/operator`: what needs attention (a failed scan, a scan stuck or
+overdue, a website that cannot be read, a failed audit, a location with no active prompts, an
+location that has used every prompt it is allowed), every organization, and what the deployment runs. From there the operator
+can read through a customer's pages, with everything that changes something hidden.
+
 The location page and the audit turn all of that into an action plan, "What to do next": fix
 what keeps the website from being read, get listed on the sites the assistants read without
 naming the business, keep the listings that did lead to its name accurate, and see who is
@@ -180,6 +185,7 @@ The Worker reads its settings from `vars` in `apps/api/wrangler.jsonc`. Locally,
 | `SUPABASE_SECRET_KEY` | yes | Bypasses row-level security. Only the scheduler and the scan worker use it. |
 | `PROVIDER_MODE` | no | Exactly `mock` serves generated data. Any other value is live. |
 | `APP_URL` | no | Where the web app is served. |
+| `COMMIT` | no | Optional. The commit a deployment was built from, shown in the operator's view. The deploy workflow sets it. |
 | `EMAIL_FROM` | no | The sender of scan reports. |
 | `EMAIL_REPLY_TO` | no | Optional. Where a reply to a scan report goes. Without it, replies go to `EMAIL_FROM`. |
 | `OPENAI_API_KEY` | yes | Optional. In live mode, scans check ChatGPT when it is set and skip that surface when it is not. |
@@ -240,7 +246,9 @@ organization reads as missing and returns 404. Payloads are defined in
 | --- | --- |
 | `GET /api/health` | Liveness check. No sign-in needed. |
 | `GET /api/audits/:token` | A shareable audit, for anyone holding its token. 404 if the token is unknown, revoked or past its 30 days. Never cached and not indexed. |
-| `GET /api/me` | The signed-in user and their organizations. |
+| `GET /api/me` | The signed-in user, their platform role (`operator`, `test` or none) and their organizations. |
+| `GET /api/operator/overview` | The operator's view: totals, what needs attention, every organization (test ones apart) and what the deployment runs. 404 to anyone who is not the operator. |
+| `GET /api/operator/organizations/:organizationId` | One organization, for the operator to read through its pages. 404 to anyone who is not the operator. |
 | `POST /api/organizations` | Create an organization; the caller becomes its owner. The name needs a letter. |
 | `PATCH /api/organizations/:organizationId` | Rename an organization. Owners and admins only; anyone else reads it as missing and gets 404. The name needs a letter. |
 | `GET /api/organizations/:organizationId/locations` | List an organization's locations. |
@@ -303,7 +311,7 @@ reader gets one audit only by its token, through the `get_audit()` function.
   the locations table's summary figures, the onboarding suggestions, and the location page's tabs.
 - **`apps/e2e`**: `pnpm e2e` drives the real web app and Worker in Chromium against the local
   Supabase stack, in mock mode: sign-in by the emailed link, onboarding through the first scan, the
-  location page, account settings, the public pages and one phone-sized run. It starts the Worker
+  location page, account settings, the operator's view and reading through an account, the public pages and one phone-sized run. It starts the Worker
   and web app itself, or reuses them if `pnpm dev` is up. `pnpm smoke` is a separate run against a
   real deployment: it signs in as the test account, refuses to go on unless that account's
   organization is a test one, then adds a location and a prompt, runs a scan (generated data), reads

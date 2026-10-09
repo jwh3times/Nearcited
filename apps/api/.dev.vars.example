@@ -4,6 +4,8 @@ SUPABASE_PUBLISHABLE_KEY=sb_publishable_from_supabase_status
 SUPABASE_SECRET_KEY=sb_secret_from_supabase_status
 PROVIDER_MODE=mock
 APP_URL=http://localhost:5173
+# Optional. The commit this deployment was built from; shown in the operator's view.
+COMMIT=
 EMAIL_FROM=Nearcited <reports@example.com>
 # Optional. Where a reply to a scan report goes. Blank leaves replies to go to EMAIL_FROM.
 EMAIL_REPLY_TO=

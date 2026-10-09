@@ -20,6 +20,7 @@ import { formatDate } from "../lib/format";
 import { placeOf, useDetails, useTrends } from "../lib/locations";
 import { CHANGE_OVER_SCANS, scoreChange, signed, sparkline, surfaceRates } from "../lib/summary";
 import type { TrendPoint } from "../lib/trend";
+import { useViewing } from "../lib/viewing";
 
 const EMPTY: LocationFormValues = { name: "", city: "", region: "", website: "" };
 /** The columns shown before any location says which assistants its scans check. */
@@ -28,7 +29,8 @@ const USUAL_SURFACES: Surface[] = ["chatgpt", "claude"];
 /** Every location in the organization, as one table: how visible, which way it is moving, what next. */
 export function Locations({ organization }: { organization: Organization }) {
   const [params, setParams] = useSearchParams();
-  const adding = params.has("add");
+  const { base, readOnly } = useViewing();
+  const adding = params.has("add") && !readOnly;
   const locations = useQuery({
     queryKey: ["locations", organization.id],
     queryFn: () => api.listLocations(organization.id),
@@ -52,7 +54,7 @@ export function Locations({ organization }: { organization: Organization }) {
           </p>
           <h1>Locations</h1>
         </div>
-        {!adding && (
+        {!adding && !readOnly && (
           <button type="button" className="fill-narrow" onClick={() => setParams({ add: "1" })}>
             Add location
           </button>
@@ -68,7 +70,9 @@ export function Locations({ organization }: { organization: Organization }) {
 
       {locations.data && list.length === 0 && !adding && (
         <p className="lede">
-          No locations yet. Add the first storefront or service area you want to track.
+          {readOnly
+            ? "This organization has no locations yet."
+            : "No locations yet. Add the first storefront or service area you want to track."}
         </p>
       )}
 
@@ -94,6 +98,7 @@ export function Locations({ organization }: { organization: Organization }) {
               {list.map((location) => (
                 <Row
                   key={location.id}
+                  to={`${base}/locations/${location.id}`}
                   location={location}
                   trend={trends.get(location.id) ?? []}
                   detail={details.get(location.id)}
@@ -115,13 +120,15 @@ export function Locations({ organization }: { organization: Organization }) {
 }
 
 interface RowProps {
+  /** Where the row leads. */
+  to: string;
   location: Location;
   trend: TrendPoint[];
   detail: LocationDetail | undefined;
   surfaces: readonly Surface[];
 }
 
-function Row({ location, trend, detail, surfaces }: RowProps) {
+function Row({ to, location, trend, detail, surfaces }: RowProps) {
   const score = trend[trend.length - 1]?.score;
   const change = scoreChange(trend);
   const line = sparkline(
@@ -135,7 +142,7 @@ function Row({ location, trend, detail, surfaces }: RowProps) {
   const steps = detail?.actions ?? [];
 
   return (
-    <Link to={`/locations/${location.id}`} className="gtable-row">
+    <Link to={to} className="gtable-row">
       <span className="stack-tight">
         <span className="loc-name ellipsis">{location.name}</span>
         <span className="small muted ellipsis">

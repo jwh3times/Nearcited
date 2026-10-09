@@ -6,11 +6,13 @@ import { api } from "../lib/api";
 import { placeOf, useTrends } from "../lib/locations";
 import { supabase } from "../lib/supabase";
 import { useTheme } from "../lib/theme";
+import { useViewing } from "../lib/viewing";
 import { LegalLinks } from "./LegalLinks";
 import { Logo } from "./Logo";
 
 interface ShellProps {
   me: Me;
+  /** The organization shown: the reader's own, or one the operator is reading through. */
   organization: Organization;
   children: ReactNode;
 }
@@ -23,8 +25,11 @@ export function Shell({ me, organization, children }: ShellProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   // biome-ignore lint/correctness/useExhaustiveDependencies: the page changing is the trigger
   useEffect(() => setMenuOpen(false), [pathname, search]);
-  const open = useMatch("/locations/:id")?.params.id;
+  const { base, readOnly } = useViewing();
+  const open = useMatch(`${base}/locations/:id`)?.params.id;
   const onSettings = useMatch("/settings") !== null;
+  const onOperator = useMatch("/operator") !== null;
+  const home = base || "/";
   const locations = useQuery({
     queryKey: ["locations", organization.id],
     queryFn: () => api.listLocations(organization.id),
@@ -52,7 +57,11 @@ export function Shell({ me, organization, children }: ShellProps) {
           </div>
 
           <nav className="nav" aria-label="Locations">
-            <Link to="/" className="nav-row" aria-current={open || onSettings ? undefined : "page"}>
+            <Link
+              to={home}
+              className="nav-row"
+              aria-current={open || onSettings || onOperator ? undefined : "page"}
+            >
               <span>All locations</span>
               {locations.data && (
                 <span className="mono">
@@ -68,7 +77,7 @@ export function Shell({ me, organization, children }: ShellProps) {
                 <Link
                   key={location.id}
                   // The tab stays put when moving between locations.
-                  to={`/locations/${location.id}${open ? search : ""}`}
+                  to={`${base}/locations/${location.id}${open ? search : ""}`}
                   className="nav-row"
                   aria-current={open === location.id ? "page" : undefined}
                 >
@@ -80,15 +89,32 @@ export function Shell({ me, organization, children }: ShellProps) {
                 </Link>
               );
             })}
-            <Link to="/?add=1" className="nav-add">
-              + Add location
-            </Link>
+            {!readOnly && (
+              <Link to="/?add=1" className="nav-add">
+                + Add location
+              </Link>
+            )}
           </nav>
 
           <div className="sidebar-foot">
-            <Link to="/settings" className="nav-row" aria-current={onSettings ? "page" : undefined}>
-              <span>Account settings</span>
-            </Link>
+            {me.platform_role === "operator" && (
+              <Link
+                to="/operator"
+                className="nav-row"
+                aria-current={onOperator || readOnly ? "page" : undefined}
+              >
+                <span>Operator</span>
+              </Link>
+            )}
+            {!readOnly && (
+              <Link
+                to="/settings"
+                className="nav-row"
+                aria-current={onSettings ? "page" : undefined}
+              >
+                <span>Account settings</span>
+              </Link>
+            )}
             <div className="account">
               <span className="avatar" aria-hidden="true">
                 {initials}
@@ -117,6 +143,15 @@ export function Shell({ me, organization, children }: ShellProps) {
       </aside>
 
       <div className="main">
+        {readOnly && (
+          <p className="operator-bar" role="status">
+            <span>
+              You are reading <strong>{organization.name}</strong> as the operator. Nothing here can
+              be changed.
+            </span>
+            <Link to="/operator">Back to the operator view</Link>
+          </p>
+        )}
         {(me.sample_data || organization.is_test) && (
           <p className="sample-banner">
             Scans are returning generated sample data, not real measurements.

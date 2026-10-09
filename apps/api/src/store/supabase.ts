@@ -2,6 +2,7 @@ import {
   AuditJobSchema,
   LocationSchema,
   OrganizationSchema,
+  PlatformRoleSchema,
   RecommendationSchema,
   ScanResultSchema,
   ScanSchema,
@@ -60,6 +61,25 @@ function fail(action: string, error: DbError): never {
   throw new StoreError(kind, message, { cause: error });
 }
 
+/** The rows the operator's overview reads, as the database returns them. */
+const OperatorScanSchema = ScanSchema.pick({
+  id: true,
+  location_id: true,
+  status: true,
+  trigger: true,
+  error: true,
+  sample_data: true,
+  created_at: true,
+}).extend({ site_check: SiteCheckSchema.nullable() });
+
+const OperatorAuditSchema = z.object({
+  id: z.uuid(),
+  business_name: z.string(),
+  status: z.enum(["queued", "ready", "failed"]),
+  error: z.string().nullable(),
+  created_at: z.string(),
+});
+
 const ORGANIZATION_COLUMNS =
   "id, name, max_locations, max_queries_per_location, max_manual_scans_per_day, scan_every_days, surfaces, is_test, created_at";
 
@@ -106,6 +126,65 @@ export function createSupabaseStore(db: SupabaseClient): Store {
         .maybeSingle();
       if (error) fail("Rename organization", error);
       return data ? OrganizationSchema.parse(data) : null;
+    },
+
+    async getPlatformRole(userId) {
+      // By the account's ID, not by what is readable: the operator can read everyone's role.
+      const { data, error } = await db
+        .from("platform_roles")
+        .select("role")
+        .eq("user_id", userId)
+        .maybeSingle();
+      if (error) fail("Get platform role", error);
+      return data ? PlatformRoleSchema.parse(data.role) : null;
+    },
+
+    async listEveryOrganization() {
+      const { data, error } = await db
+        .from("organizations")
+        .select(ORGANIZATION_COLUMNS)
+        .order("created_at");
+      if (error) fail("List every organization", error);
+      return OrganizationSchema.array().parse(data);
+    },
+
+    async listEveryLocation() {
+      const { data, error } = await db.from("locations").select(LOCATION_COLUMNS).order("name");
+      if (error) fail("List every location", error);
+      return LocationSchema.array().parse(data);
+    },
+
+    async countActiveQueries() {
+      const { data, error } = await db
+        .from("tracked_queries")
+        .select("location_id")
+        .eq("is_active", true);
+      if (error) fail("Count active queries", error);
+      const counts: Record<string, number> = {};
+      for (const row of data ?? []) {
+        const id = String(row.location_id);
+        counts[id] = (counts[id] ?? 0) + 1;
+      }
+      return counts;
+    },
+
+    async listScansSince(since) {
+      const { data, error } = await db
+        .from("scans")
+        .select("id, location_id, status, trigger, error, sample_data, created_at, site_check")
+        .gte("created_at", since)
+        .order("created_at", { ascending: false });
+      if (error) fail("List recent scans", error);
+      return OperatorScanSchema.array().parse(data);
+    },
+
+    async listEveryAudit() {
+      const { data, error } = await db
+        .from("audits")
+        .select("id, business_name, status, error, created_at")
+        .order("created_at", { ascending: false });
+      if (error) fail("List every audit", error);
+      return OperatorAuditSchema.array().parse(data);
     },
 
     async listLocations(organizationId) {
