@@ -206,6 +206,11 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
 
     async createOrganization(name) {
       if (userId === null) throw new StoreError("forbidden", "not authenticated");
+      // One organization for each account, as the database function has it.
+      const exempt = db.operators.has(userId) || db.testAccounts.has(userId);
+      if (!exempt && db.memberships.some((m) => m.user_id === userId)) {
+        throw new StoreError("limit", "This account already has an organization.");
+      }
       const organization: Organization = {
         id: crypto.randomUUID(),
         name,

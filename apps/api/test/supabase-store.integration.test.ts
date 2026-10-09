@@ -65,6 +65,11 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
     const fresh = await aliceStore.createOrganization(`Integration ${crypto.randomUUID()}`);
     // An ordinary account's organization is a real one. Only a test account makes test ones.
     expect(fresh.is_test).toBe(false);
+    // One for each account: a second would be a second free plan.
+    await expect(aliceStore.createOrganization("Another")).rejects.toMatchObject({
+      kind: "limit",
+      message: "This account already has an organization.",
+    });
     // It starts on the free plan, with that plan's limits, and cannot move itself off it.
     expect(fresh).toMatchObject({
       plan_key: "free",
