@@ -34,6 +34,38 @@ export type ListedAudit = Omit<OperatorAudit, "link"> & { token: string };
 /** What a set of usage is for: a scan of an organization's location, or an audit. */
 export type UsageSource = { organization_id: string; scan_id: string } | { audit_id: string };
 
+/** What the payment provider knows about an organization, as its owner's checkout needs it. */
+export interface BillingState {
+  organization_id: string;
+  is_test: boolean;
+  plan_key: string | null;
+  /** Null until the organization has been through checkout. */
+  stripe_customer_id: string | null;
+  /** Null when it has never subscribed, or its subscription has ended. */
+  stripe_subscription_id: string | null;
+  /** The provider's own word for the subscription: active, past_due, canceled and so on. */
+  status: string | null;
+}
+
+/** What the worker keeps of a subscription. */
+export interface SubscriptionRecord {
+  stripe_customer_id: string;
+  /** Null once a subscription has ended and before another starts. */
+  stripe_subscription_id: string | null;
+  status: string | null;
+}
+
+/** A plan as the payment provider knows it: the two prices it is sold at there. */
+export interface PlanPrices {
+  key: string;
+  on_sale: boolean;
+  included_locations: number;
+  /** Null until the plan is set up at the provider, and always for a plan that costs nothing. */
+  stripe_price_id: string | null;
+  /** For each location beyond those included. Null when no more can be added. */
+  stripe_extra_location_price_id: string | null;
+}
+
 /** "limit" is a usage cap reached. Its message is written for the user and safe to show. */
 export type StoreErrorKind = "conflict" | "forbidden" | "limit" | "unexpected";
 
@@ -81,6 +113,13 @@ export interface Store {
    */
   listPlans(): Promise<Plan[]>;
   renameOrganization(id: string, name: string): Promise<Organization | null>;
+  /** The plans the caller may read, with the payment provider's names for their prices. */
+  listPlanPrices(): Promise<PlanPrices[]>;
+  /**
+   * What the payment provider knows about an organization. Only its owner's call is answered:
+   * for anyone else, the operator included, it returns null.
+   */
+  getBillingState(organizationId: string): Promise<BillingState | null>;
   /**
    * Sets which assistants an organization is checked on, within what its plan covers. Only its
    * owner's call changes anything: for anyone else it returns null. Throws a limit, with a
@@ -190,6 +229,10 @@ export interface Store {
     planKey: string,
     locations?: number,
   ): Promise<Organization | null>;
+  /** What is kept of an organization's subscription, or null when it has never had one. Worker only. */
+  getSubscription(organizationId: string): Promise<SubscriptionRecord | null>;
+  /** Keeps what the payment provider last said about an organization's subscription. Worker only. */
+  recordSubscription(organizationId: string, subscription: SubscriptionRecord): Promise<void>;
   recordUsage(source: UsageSource, usage: readonly ProviderUsage[]): Promise<void>;
   /** Throws a conflict when a different scan for the same location is already in flight. */
   markScanRunning(id: string, sampleData: boolean): Promise<void>;

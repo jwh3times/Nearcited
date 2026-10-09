@@ -112,6 +112,7 @@ Worker imposes, and the known gaps.
 | Assistants | OpenAI's Responses API and Anthropic's Messages API (through its SDK), both with web search |
 | Data and auth | Supabase (Postgres with row-level security, email sign-in) |
 | Email | Resend |
+| Payments | Stripe (Checkout, the billing portal and webhooks), test mode so far |
 | Tooling | pnpm workspaces, Biome, Vitest |
 
 ## Layout
@@ -184,7 +185,7 @@ The Worker reads its settings from `vars` in `apps/api/wrangler.jsonc`. Locally,
 | --- | --- | --- |
 | `SUPABASE_URL` | no | The Supabase project URL. |
 | `SUPABASE_PUBLISHABLE_KEY` | no | Used with the caller's own token, so row-level security applies. |
-| `SUPABASE_SECRET_KEY` | yes | Bypasses row-level security. Only the scheduler and the scan worker use it. |
+| `SUPABASE_SECRET_KEY` | yes | Bypasses row-level security. Only the scheduler, the scan worker and the Stripe webhook use it. |
 | `PROVIDER_MODE` | no | Exactly `mock` serves generated data. Any other value is live. |
 | `APP_URL` | no | Where the web app is served. |
 | `COMMIT` | no | Optional. The commit a deployment was built from, shown in the operator's view. The deploy workflow sets it. |
@@ -193,6 +194,8 @@ The Worker reads its settings from `vars` in `apps/api/wrangler.jsonc`. Locally,
 | `OPENAI_API_KEY` | yes | Optional. In live mode, scans check ChatGPT when it is set and skip that surface when it is not. |
 | `ANTHROPIC_API_KEY` | yes | Optional. The same, for Claude. |
 | `RESEND_API_KEY` | yes | Optional. Without it, scheduled scans finish without sending a report. |
+| `STRIPE_SECRET_KEY` | yes | Optional. A Stripe secret key (a test-mode one outside production). Needed with the next one before anyone can subscribe. |
+| `STRIPE_WEBHOOK_SECRET` | yes | Optional. The signing secret of the webhook endpoint registered at Stripe, which points at `/api/stripe/webhook`. |
 
 The web app reads two values at build time, from `apps/web/.env.local` or the environment. Both
 are safe to ship to the browser.
@@ -240,7 +243,8 @@ same audit from the Audits section of the operator page, with no keys to hand.
 
 ## API
 
-Every route is under `/api`. All except `/api/health` and `/api/audits/:token` need a Supabase
+Every route is under `/api`. All except `/api/health`, `/api/audits/:token`, `/api/plans` and
+`/api/stripe/webhook` need a Supabase
 access token in the `Authorization: Bearer` header. Requests run in Postgres as that user, so a row in someone else's
 organization reads as missing and returns 404. Payloads are defined in
 `packages/shared/src/schemas.ts`.
@@ -250,6 +254,7 @@ organization reads as missing and returns 404. Payloads are defined in
 | `GET /api/health` | Liveness check. No sign-in needed. |
 | `GET /api/audits/:token` | A shareable audit, for anyone holding its token. 404 if the token is unknown, revoked or past its 30 days. Never cached and not indexed. |
 | `GET /api/plans` | The price list: every plan on sale, cheapest first, with its prices in US cents and its limits. Needs no sign-in. A signed-in member also gets the plan their organization is on if it has been taken off sale. |
+| `POST /api/stripe/webhook` | Stripe reporting on a subscription. No sign-in: the signature on the request is checked against `STRIPE_WEBHOOK_SECRET` (400 `invalid_signature` if it fails), the subscription is read back from Stripe, and the organization's plan is made to agree with it. The one route that uses the Worker's secret key on a request. 503 `billing_unavailable` when Stripe is not set up. |
 | `GET /api/me` | The signed-in user, their platform role (`operator`, `test` or none) and their organizations. |
 | `GET /api/operator/overview` | The operator's view: totals, what needs attention, every organization (test ones apart) and what the deployment runs. 404 to anyone who is not the operator. |
 | `GET /api/operator/spend` | What the providers were paid in this calendar month (UTC) and the two before: a total, each organization, audits, and deleted organizations, in US dollars, with any model that has no rate named and left out. 404 to anyone who is not the operator. |
@@ -263,6 +268,8 @@ organization reads as missing and returns 404. Payloads are defined in
 | `PUT /api/organizations/:organizationId/assistants` | Sets which assistants the organization is checked on, from ChatGPT and Claude, as many as its plan covers. Owner only: 404 to anyone else. 409 with the reason when the choice is not one the plan allows. |
 | `GET /api/organizations/:organizationId/locations` | List an organization's locations. |
 | `POST /api/organizations/:organizationId/locations` | Add a location. The phone is stored as E.164 in the location's country, the website with `https://`, and the postal code, country, place ID, name and city are checked; a bad value answers 422. |
+| `POST /api/organizations/:organizationId/checkout` | Starts a subscription. Takes `plan_key` and optionally `locations`; answers `{ url }`, Stripe's checkout page. Changes no plan: the plan moves when the webhook reports the payment. Owner only: 404 to anyone else, the operator included. 409 for a test organization or one already subscribed, 422 `plan_unavailable` for a plan that cannot be bought, 503 `billing_unavailable` when Stripe is not set up. |
+| `POST /api/organizations/:organizationId/billing-portal` | Answers `{ url }`, Stripe's account pages, where the owner changes plan, pays a failed invoice or cancels. Owner only: 404 to anyone else. 409 `no_subscription` for an organization that never subscribed; 503 `billing_unavailable` when Stripe is not set up. |
 | `GET /api/locations/:id` | One location with its queries, latest scan, rates over recent scans, the sites those answers cited, the surfaces being checked, recommendations, the latest website check and the action plan. |
 | `PATCH /api/locations/:id` | Replace a location's details with a whole location body, as when adding one; a field left out goes back to blank or its default. The same checks as adding. |
 | `POST /api/locations/:id/activate` | Brings a location the plan paused back into use. Takes `instead_of`, the location in use that is paused in its place, when the plan has no room; 409 with the reason without one. 404 to a non-member. |
@@ -291,6 +298,7 @@ The migrations in `supabase/migrations/` define everything.
 | `audits` | A shareable audit: the business, its prompts, the results as each prompt finishes, and its token, expiry and revocation. Belongs to no organization; only the operator can read it through the API. |
 | `operator_actions` | What the operator changed or made, one row per action, with who and what: an organization's limits before and after, or the audit made. Written only by the function that does it; only the operator can read it through the API. |
 | `plans` | What is on sale: a monthly price for the locations a plan includes, a price for each extra location, and its limits. Read by everyone; written by no API role. An organization's `plan_key` names its plan, or is null when its limits were set by hand. |
+| `subscriptions` | An organization's Stripe customer and subscription IDs and the status Stripe last reported. Written only by the Worker, from the webhook; no API role can write it. The operator reads it directly, an owner through `billing_state()`. |
 | `provider_usage` | What the providers used for a scan or audit prompt, per surface and model: calls, input, cached input and output tokens, searches. Outlives the scan, audit or organization it describes. Written only by the Worker; only the operator can read it through the API. Not priced or shown anywhere yet. |
 
 Usage limits are enforced by database triggers, so they hold for the API and for anyone calling
@@ -317,7 +325,7 @@ reader gets one audit only by its token, through the `get_audit()` function.
 - **`apps/api`**: every route against an in-memory store, the scan runner (success, retry,
   permanent failure, reporting, scoring with given weights, refusing live scans on default tuning),
   the ChatGPT and Claude providers against responses in the shape the real APIs return, the
-  scheduler, the audit runner, the site fetch (what it refuses and how it follows redirects), and
+  scheduler, billing (checkout, the portal and the Stripe webhook, against a stand-in for Stripe), the audit runner, the site fetch (what it refuses and how it follows redirects), and
   the mock providers.
 - **`apps/web`**: the logic that lays results out as a grid, the logic behind the chart of the
   score over time, the logic behind the audit page, the logic that fills the location edit form,
@@ -373,6 +381,8 @@ The `integration` job in `.github/workflows/ci.yml` is a working example.
    pnpm exec wrangler secret put RESEND_API_KEY   # optional: scheduled-scan reports
    pnpm exec wrangler secret put OPENAI_API_KEY   # optional: live ChatGPT checks
    pnpm exec wrangler secret put ANTHROPIC_API_KEY   # optional: live Claude checks
+   pnpm exec wrangler secret put STRIPE_SECRET_KEY   # optional: subscriptions, with the next
+   pnpm exec wrangler secret put STRIPE_WEBHOOK_SECRET
    ```
    Until `SUPABASE_SECRET_KEY` is set, the app serves and sign-in works, but no scan can run.
 
@@ -471,9 +481,10 @@ pnpm sync:agents
   `claude.ts` in `apps/api/src/providers/`). Perplexity, Gemini and the three Google surfaces
   are not;
   `apps/api/src/providers/live.ts` has notes on what each needs.
-- **Billing.** Each organization has limits, a scan cadence and a list of surfaces, but nothing
-  sets them by plan or takes payment. They are changed by hand in the database, and the Account
-  settings page shows them without editing them.
+- **Billing in the app.** The API can start a Stripe checkout and open its account pages, and a
+  subscription moves an organization between plans, but no screen offers either yet, and Stripe
+  is wired for test mode only. Limits can still be changed by hand, and the Account settings
+  page shows them without editing them.
 - **Inviting teammates.** The schema and policies support members and roles; there is no API or
   screen for it.
 - **Switching organizations.** A user in several organizations always sees the first.

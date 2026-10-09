@@ -31,6 +31,11 @@ system works; this file only settles vocabulary.
 - **Plan**: something on sale: a monthly price and what an organization on it may do. An
   organization is on one plan, or on none when its limits were **set by hand**. See
   `docs/adr/0006-plans-are-rows.md`.
+- **Subscription**: an organization's standing arrangement with the payment provider to pay for a
+  plan each month. It lives at the provider; the app keeps only its ID and last reported status.
+  **In force** while paid or while a failed payment is being retried; **ended** when cancelled or
+  left unpaid, which moves the organization to the free plan. See
+  `docs/adr/0007-the-payment-webhook-acts-as-the-worker.md`.
 - **Included location**: a location a plan's price covers. An **extra location** is one beyond
   those, paid for separately.
 - **Paused location**: a location its organization's plan no longer covers. It is not scanned and

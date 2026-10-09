@@ -368,7 +368,8 @@ as missing, which is why those routes return 404 and not 403.
 Two rules follow, and breaking either one is a data leak:
 
 1. **Never construct the admin client on a request path.** `createAdminClient` uses the secret
-   key, which bypasses row-level security. It belongs in `scheduled` and `queue` only.
+   key, which bypasses row-level security. It belongs in `scheduled` and `queue`, and in the
+   one exception below: the payment webhook.
 2. **A new table needs policies and explicit grants in the same migration**, and a test in
    `packages/db` that tries to read and write it as a non-member.
 
@@ -382,8 +383,23 @@ Only the worker may call it. `create_organization()` uses it to start every new 
 the free plan; a test account's organization is still set by hand. Where a plan covers fewer
 assistants than are offered, the organization's owner picks which through `choose_assistants()`
 (`PUT /api/organizations/:organizationId/assistants`), which checks the pick against the plan;
-`surfaces` is still not a column a member can write. Nothing charges yet. The
-limit columns below are what is enforced.
+`surfaces` is still not a column a member can write. The limit columns below are what is
+enforced.
+
+**A subscription moves a plan only through the webhook** (`docs/adr/0007-the-payment-webhook-acts-as-the-worker.md`).
+An owner starts `POST /api/organizations/:organizationId/checkout` or opens
+`.../billing-portal`; both are ordinary requests that learn what they need from `billing_state()`,
+which answers only the organization's owner (the operator gets nothing), and write nothing. Stripe
+then calls `POST /api/stripe/webhook`, the one request path that uses the Worker's store. The
+route verifies the signature, takes from the event only the subscription's ID, reads that
+subscription from Stripe, and `syncSubscription` (`apps/api/src/billing/sync.ts`) makes the plan
+agree with it, so events that arrive twice or out of order end in the same place. A subscription
+in force (`active`, `trialing`, `past_due`) calls `apply_plan()` for the plan its price belongs to,
+with the locations paid for, and records it in `subscriptions`. One that is over (`canceled`,
+`unpaid`, `incomplete_expired`) moves the organization to the free plan, but only when it is the
+subscription recorded for that organization. A subscription billing a price no plan has is an
+error, so Stripe retries and someone sees it. `subscriptions` has no write grant for any API role;
+the operator has a `select` policy on it. A test organization cannot subscribe.
 
 **Usage caps live on the organization** (`max_locations`, `max_queries_per_location`,
 `max_manual_scans_per_month`) and are enforced by triggers, because a limit checked only in a route

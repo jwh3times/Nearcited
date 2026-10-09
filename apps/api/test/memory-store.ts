@@ -12,7 +12,12 @@ import type {
   TrackedQuery,
   UsageByMonth,
 } from "@nearcited/shared";
-import { type Store, StoreError, type UsageSource } from "../src/store/types";
+import {
+  type Store,
+  StoreError,
+  type SubscriptionRecord,
+  type UsageSource,
+} from "../src/store/types";
 
 /**
  * An in-memory Store for tests. It mimics the one property of the real database the API relies
@@ -49,6 +54,10 @@ export interface MemoryDb {
   testAccounts: Set<string>;
   /** The on-page check each scan made, by scan ID. */
   siteChecks: Map<string, SiteCheck | null>;
+  /** The payment provider's names for each plan's prices, by plan key. */
+  planPrices: Map<string, { base: string | null; extra: string | null }>;
+  /** What the worker has kept of each organization's subscription, by organization ID. */
+  subscriptions: Map<string, SubscriptionRecord>;
 }
 
 export interface MemoryAudit extends AuditJob {
@@ -85,6 +94,8 @@ export function createMemoryDb(): MemoryDb {
     audits: [],
     plans: [],
     siteChecks: new Map(),
+    planPrices: new Map(),
+    subscriptions: new Map(),
   };
 }
 
@@ -158,6 +169,43 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
       return db.plans
         .filter((plan) => plan.on_sale || isOperator || mine.includes(plan.key))
         .sort((a, b) => a.position - b.position);
+    },
+
+    async listPlanPrices() {
+      return (await this.listPlans()).map((plan) => ({
+        key: plan.key,
+        on_sale: plan.on_sale,
+        included_locations: plan.included_locations,
+        stripe_price_id: db.planPrices.get(plan.key)?.base ?? null,
+        stripe_extra_location_price_id: db.planPrices.get(plan.key)?.extra ?? null,
+      }));
+    },
+
+    async getBillingState(organizationId) {
+      const owns = db.memberships.some(
+        (m) => m.organization_id === organizationId && m.user_id === userId && m.role === "owner",
+      );
+      const organization = db.organizations.find((o) => o.id === organizationId);
+      if (!owns || !organization) return null;
+      const kept = db.subscriptions.get(organizationId);
+      return {
+        organization_id: organization.id,
+        is_test: organization.is_test,
+        plan_key: organization.plan_key,
+        stripe_customer_id: kept?.stripe_customer_id ?? null,
+        stripe_subscription_id: kept?.stripe_subscription_id ?? null,
+        status: kept?.status ?? null,
+      };
+    },
+
+    async getSubscription(organizationId) {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      return db.subscriptions.get(organizationId) ?? null;
+    },
+
+    async recordSubscription(organizationId, subscription) {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      db.subscriptions.set(organizationId, { ...subscription });
     },
 
     async chooseAssistants(id, surfaces) {

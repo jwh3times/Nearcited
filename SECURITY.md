@@ -26,6 +26,12 @@ Nearcited is multi-tenant, and tenant isolation is enforced by Postgres row-leve
 - Granting yourself a platform role, or marking an organization as a test one.
 - Calling a worker-only database function through the public API.
 - Getting past token verification on `/api/*`.
+- Forging the payment webhook: getting `/api/stripe/webhook` to act on a request Stripe did not
+  sign, or on a replayed or reordered one. It needs no sign-in and uses the Worker's secret key,
+  so the signature is its only guard.
+- Getting a plan without paying for it, or keeping one after the subscription ended: changing an
+  organization's plan or limits, or writing `subscriptions`, as a signed-in user. Checkout and
+  the billing portal are for an organization's owner only.
 - Reading a shareable audit without its link, or after it was revoked or expired; listing audits;
   or creating one. `/api/audits/:token` is the one data route that needs no sign-in, and the
   token in the link is the only key to it.
