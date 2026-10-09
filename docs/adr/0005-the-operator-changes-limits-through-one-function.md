@@ -43,4 +43,7 @@ a platform role are still set only with the secret key.
   and its own row in `operator_actions`. Still no policy that writes.
 - Lowering a limit below what an organization already has removes nothing. The limits are checked
   when something is added.
+- Changing a plan follows the same shape (October 2026): `operator_set_plan` answers only the
+  operator, changes what it names, re-applies the plan to its organizations and records the change
+  in `operator_actions`.
 - The record covers changes, not reading. 0004's note about an access log still stands.

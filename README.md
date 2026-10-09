@@ -63,7 +63,10 @@ overdue, a website that cannot be read, a failed audit, a location with no activ
 every organization with its plan and how many of its locations are at their prompt limit, every account with how far it got (signed up, made an organization, added a location, had a scan succeed, scanned in the last week), every shareable audit, and what the deployment runs. From there the operator
 can read through a customer's pages, with everything that changes something hidden, and change the
 organization's limits (locations, prompts per location, manual scans a month, days between scans) on
-its plan page.
+its plan page. A Plans section lists each plan with its price, how many organizations and subscribers
+are on it and their monthly total, and edits its name, limits, emailed report and whether it is on
+sale; lowering a limit first shows how many organizations it reaches and asks to save again. Every
+organization on the plan takes the change at once.
 
 The location page and the audit turn all of that into an action plan, "What to do next": fix
 what keeps the website from being read, get listed on the sites the assistants read without
@@ -270,6 +273,9 @@ organization reads as missing and returns 404. Payloads are defined in
 | `GET /api/operator/overview` | The operator's view: totals, what needs attention, every organization (test ones apart) and what the deployment runs. 404 to anyone who is not the operator. |
 | `GET /api/operator/spend` | What the providers were paid in this calendar month (UTC) and the two before: a total, each organization, audits, and deleted organizations, in US dollars, with any model that has no rate named and left out. 404 to anyone who is not the operator. |
 | `GET /api/operator/accounts` | A funnel of how far accounts got, and every account with its stage; test accounts are listed and not counted. 404 to anyone who is not the operator. |
+| `GET /api/operator/plans` | Every plan, on sale or not, with its `organizations`, `subscribers` and `monthly_cents`; test organizations are left out. 404 to anyone who is not the operator. |
+| `POST /api/operator/plans/:key/impact` | How many organizations a set of plan settings (`PlanSettingsSchema`) would reach and how many prompts it would set aside. Changes nothing. 404 to anyone who is not the operator. |
+| `PUT /api/operator/plans/:key` | Sets a plan's name, on-sale flag, limits and emailed report, re-applies it to every organization on it, and records the change. Not its prices. 404 to anyone who is not the operator, 422 for a value out of range. |
 | `GET /api/operator/audits` | Every shareable audit, with its link only while it is neither revoked nor expired. 404 to anyone who is not the operator. |
 | `POST /api/operator/audits` | Makes a shareable audit and queues one message per prompt. Takes `business_name`, `city`, `prompts` (1 to 5) and optionally `website`, `region`, `country_code`, `samples` (1 to 5). 404 to anyone who is not the operator, 409 where scans return sample data, 422 for a bad value. |
 | `GET /api/operator/organizations/:organizationId` | One organization, for the operator to read through its pages. 404 to anyone who is not the operator. |
@@ -311,7 +317,7 @@ The migrations in `supabase/migrations/` define everything.
 | `scan_results` | One row per query and surface: named or not, position, and who else was named. |
 | `recommendations` | What a scan suggested, and whether the user has dealt with it. |
 | `audits` | A shareable audit: the business, its prompts, the results as each prompt finishes, and its token, expiry and revocation. Belongs to no organization; only the operator can read it through the API. |
-| `operator_actions` | What the operator changed or made, one row per action, with who and what: an organization's limits before and after, or the audit made. Written only by the function that does it; only the operator can read it through the API. |
+| `operator_actions` | What the operator changed or made, one row per action, with who and what: an organization's limits before and after, a plan's settings before and after, or the audit made. Written only by the function that does it; only the operator can read it through the API. |
 | `plans` | What is on sale: a monthly price for the locations a plan includes, a price for each extra location, and its limits. Read by everyone; written by no API role. An organization's `plan_key` names its plan, or is null when its limits were set by hand. |
 | `subscriptions` | An organization's Stripe customer and subscription IDs and the status Stripe last reported. Written only by the Worker, from the webhook; no API role can write it. The operator reads it directly, an owner through `billing_state()`. |
 | `provider_usage` | What the providers used for a scan or audit prompt, per surface and model: calls, input, cached input and output tokens, searches. Outlives the scan, audit or organization it describes. Written only by the Worker; only the operator can read it through the API. Not priced or shown anywhere yet. |
@@ -335,7 +341,7 @@ reader gets one audit only by its token, through the `get_audit()` function.
   on-page check and the action plan.
 - **`packages/db`**: applies the real migrations to in-process Postgres (PGlite) and checks, as
   different users, that one organization cannot read or write another's rows, that users cannot
-  forge scan results or grant themselves a platform role, that worker-only functions and the `audits` and `provider_usage` tables are closed to them, and that the operator reads every organization and changes only an organization's limits, through one function that records it. No Docker needed. It
+  forge scan results or grant themselves a platform role, that worker-only functions and the `audits` and `provider_usage` tables are closed to them, and that the operator reads every organization and changes only an organization's limits or a plan's settings, each through one function that records it. No Docker needed. It
   also checks `private/tuning.json` against the tuning schema where that file exists.
 - **`apps/api`**: every route against an in-memory store, the scan runner (success, retry,
   permanent failure, reporting, scoring with given weights, refusing live scans on default tuning),
@@ -497,8 +503,7 @@ pnpm sync:agents
   are not;
   `apps/api/src/providers/live.ts` has notes on what each needs.
 - **Billing, the rest.** A visitor can read the plans, and an owner can subscribe, change plan or
-  the number of locations paid for, and open Stripe's pages from the app. Not built: setting
-  plans from the operator page, and going live (Stripe is wired for test mode only). Limits can still be changed by hand, and the Account settings
+  the number of locations paid for, and open Stripe's pages from the app. Not built: changing a plan's prices and announcing a price change to current subscribers from the operator page, and going live (Stripe is wired for test mode only). Limits can still be changed by hand, and the Account settings
   page shows them without editing them.
 - **Inviting teammates.** The schema and policies support members and roles; there is no API or
   screen for it.

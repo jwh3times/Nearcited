@@ -111,6 +111,23 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
       stripe_subscription_id: null,
       status: null,
     });
+    // The operator's two plan methods answer nobody else: a member reads no subscriptions and
+    // changes no plan.
+    expect(await aliceStore.listEverySubscription()).toEqual([]);
+    expect(
+      await aliceStore.setPlan("standard", {
+        name: "Mine now",
+        on_sale: true,
+        max_queries_per_location: 99,
+        assistants: 2,
+        scan_every_days: 1,
+        max_manual_scans_per_month: 99,
+        emails_report: true,
+      }),
+    ).toBeNull();
+    expect((await aliceStore.listPlans()).find((plan) => plan.key === "standard")?.name).toBe(
+      "Standard",
+    );
     expect(await aliceStore.getManualScansUsed(fresh.id)).toBe(0);
     expect(await bobStore.getManualScansUsed(fresh.id)).toBeNull();
     expect(await worker.getSubscription(fresh.id)).toBeNull();

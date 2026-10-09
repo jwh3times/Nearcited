@@ -3,14 +3,19 @@ import {
   AuditInputSchema,
   buildAccounts,
   buildOperatorOverview,
+  buildOperatorPlans,
   buildSpend,
   monthOf,
   monthStart,
   type OperatorAccounts,
   type OperatorAudit,
   type OperatorOverview,
+  type OperatorPlan,
   type OperatorSpend,
   OrganizationLimitsSchema,
+  type PlanImpact,
+  PlanSettingsSchema,
+  planImpact,
 } from "@nearcited/shared";
 import { Hono } from "hono";
 import type { AppEnv } from "../app";
@@ -179,4 +184,59 @@ operatorRoutes.put("/operator/organizations/:organizationId/limits", async (c) =
   const organization = await c.get("store").setOrganizationLimits(id, limits);
   if (!organization) throw notFound("Organization");
   return c.json(organization);
+});
+
+/** Every plan, on sale or not, with who is on it. */
+operatorRoutes.get("/operator/plans", async (c) => {
+  const store = c.get("store");
+  const [plans, organizations, subscriptions] = await Promise.all([
+    store.listPlans(),
+    store.listEveryOrganization(),
+    store.listEverySubscription(),
+  ]);
+  return c.json(
+    buildOperatorPlans({ plans, organizations, subscriptions }) satisfies OperatorPlan[],
+  );
+});
+
+/** A plan's key as it is in the database. Anything else cannot name one, so it is a 404. */
+const PLAN_KEY = /^[a-z][a-z0-9_]{1,30}$/;
+
+function planKey(key: string): string {
+  if (!PLAN_KEY.test(key)) throw notFound("Plan");
+  return key;
+}
+
+/**
+ * Who a change to a plan would reach, for the operator to read before lowering a limit. Changes
+ * nothing.
+ */
+operatorRoutes.post("/operator/plans/:key/impact", async (c) => {
+  const key = planKey(c.req.param("key"));
+  const settings = await parseJson(c, PlanSettingsSchema);
+  const store = c.get("store");
+  const [organizations, locations, activePrompts] = await Promise.all([
+    store.listEveryOrganization(),
+    store.listEveryLocation(),
+    store.countActiveQueries(),
+  ]);
+  return c.json(
+    planImpact(key, settings.max_queries_per_location, {
+      organizations,
+      locations,
+      activePrompts,
+    }) satisfies PlanImpact,
+  );
+});
+
+/**
+ * Changes what a plan allows. Every organization on it takes the new limits at once, and the
+ * database records who changed what. Prices are not changed here.
+ */
+operatorRoutes.put("/operator/plans/:key", async (c) => {
+  const key = planKey(c.req.param("key"));
+  const settings = await parseJson(c, PlanSettingsSchema);
+  const plan = await c.get("store").setPlan(key, settings);
+  if (!plan) throw notFound("Plan");
+  return c.json(plan);
 });

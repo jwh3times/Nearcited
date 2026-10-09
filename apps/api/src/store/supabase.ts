@@ -59,6 +59,7 @@ const ERROR_KINDS: Record<string, StoreErrorKind> = {
   NC004: "limit", // a choice of assistants the plan does not allow
   NC005: "limit", // a location paused by the plan, or no room to bring one back
   NC006: "limit", // a second organization for one account
+  NC007: "limit", // taking the free plan off sale
 };
 
 function fail(action: string, error: DbError): never {
@@ -258,6 +259,40 @@ export function createSupabaseStore(db: SupabaseClient): Store {
         .maybeSingle();
       if (error) fail("Set organization limits", error);
       return data ? OrganizationSchema.parse(data) : null;
+    },
+
+    async listEverySubscription() {
+      const { data, error } = await db
+        .from("subscriptions")
+        .select("organization_id, stripe_subscription_id");
+      if (error) fail("List subscriptions", error);
+      return z
+        .array(
+          z.object({ organization_id: z.uuid(), stripe_subscription_id: z.string().nullable() }),
+        )
+        .parse(data ?? [])
+        .map((row) => ({
+          organization_id: row.organization_id,
+          subscribed: row.stripe_subscription_id !== null,
+        }));
+    },
+
+    async setPlan(key, settings) {
+      const { data, error } = await db
+        .rpc("operator_set_plan", {
+          plan: key,
+          new_name: settings.name,
+          sale: settings.on_sale,
+          queries_per_location: settings.max_queries_per_location,
+          plan_assistants: settings.assistants,
+          every_days: settings.scan_every_days,
+          manual_scans_per_month: settings.max_manual_scans_per_month,
+          report: settings.emails_report,
+        })
+        .select(PLAN_COLUMNS)
+        .maybeSingle();
+      if (error) fail("Set plan", error);
+      return data ? PlanSchema.parse(data) : null;
     },
 
     async getPlatformRole(userId) {

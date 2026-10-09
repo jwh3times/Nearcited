@@ -3,6 +3,7 @@ import {
   api,
   createAccount,
   grantRole,
+  onPlan,
   recordUsage,
   signIn,
   withScannedLocation,
@@ -184,4 +185,62 @@ test("has no operator page for anyone else", async ({ page }) => {
   // The address leads nowhere and the sidebar offers no way in.
   await expect(page.getByRole("heading", { name: "Locations", level: 1 })).toBeVisible();
   await expect(page.getByRole("link", { name: "Operator", exact: true })).toHaveCount(0);
+});
+
+test("shows the operator who is on each plan, and changes what one allows for everyone on it", async ({
+  page,
+}) => {
+  const customer = await createAccount();
+  const organization = await api<{ id: string }>(customer, "POST", "/organizations", {
+    name: `Enterprise customer ${Date.now()}`,
+  });
+  // Enterprise, because no other test reads what it allows: a plan is shared by everyone.
+  await onPlan(organization.id, "enterprise");
+  const operator = await createAccount();
+  await api(operator, "POST", "/organizations", { name: "The operator's own" });
+  await grantRole(operator, "operator");
+  const [before] = (
+    await api<{ key: string; max_manual_scans_per_month: number }[]>(
+      operator,
+      "GET",
+      "/operator/plans",
+    )
+  ).filter((plan) => plan.key === "enterprise");
+
+  await signIn(page, operator, "/operator");
+  await expect(page.getByRole("heading", { name: "Plans" })).toBeVisible();
+  const row = page.locator("div.gtable-row", { hasText: "Enterprise" }).first();
+  await expect(row).toContainText("$399");
+  await row.getByRole("button", { name: "Edit Enterprise" }).click();
+
+  const form = page.getByRole("form", { name: "Edit Enterprise" });
+  await expect(form.getByRole("button", { name: "Save plan" })).toBeDisabled();
+  const byHand = form.getByLabel("Scans run by hand per month");
+  try {
+    // Lowering a limit says who it reaches, and waits to be told again.
+    await byHand.fill("7");
+    await form.getByRole("button", { name: "Save plan" }).click();
+    await expect(form.getByRole("alert")).toContainText("This lowers what the plan allows for");
+    await expect(form.getByRole("alert")).toContainText("Nothing is deleted.");
+    const me = () =>
+      api<{ organizations: { max_manual_scans_per_month: number }[] }>(customer, "GET", "/me");
+    expect((await me()).organizations[0]?.max_manual_scans_per_month).toBe(
+      before?.max_manual_scans_per_month,
+    );
+
+    await form.getByRole("button", { name: "Save, and lower it for them" }).click();
+    await expect(form).toBeHidden();
+    // The customer has the new limit without doing anything.
+    expect((await me()).organizations[0]?.max_manual_scans_per_month).toBe(7);
+  } finally {
+    await api(operator, "PUT", "/operator/plans/enterprise", {
+      name: "Enterprise",
+      on_sale: true,
+      max_queries_per_location: 15,
+      assistants: 2,
+      scan_every_days: 1,
+      max_manual_scans_per_month: before?.max_manual_scans_per_month ?? 60,
+      emails_report: true,
+    });
+  }
 });

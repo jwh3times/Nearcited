@@ -12,11 +12,14 @@ import {
   OperatorAccountsSchema,
   OperatorAuditSchema,
   OperatorOverviewSchema,
+  OperatorPlanSchema,
   OperatorSpendSchema,
   OrganizationAccountSchema,
   type OrganizationLimits,
   OrganizationSchema,
+  PlanImpactSchema,
   PlanSchema,
+  type PlanSettings,
   PublicAuditSchema,
   RecommendationSchema,
   type RecommendationStatus,
@@ -88,6 +91,14 @@ export const api = {
   /** An organization the operator is reading through. */
   operatorOrganization: (id: string) =>
     json(OrganizationSchema, "GET", `/operator/organizations/${id}`),
+  /** Every plan, on sale or not, with who is on it. */
+  operatorPlans: () => json(OperatorPlanSchema.array(), "GET", "/operator/plans"),
+  /** Who a change to a plan would reach. Changes nothing. */
+  planImpact: (key: string, settings: PlanSettings) =>
+    json(PlanImpactSchema, "POST", `/operator/plans/${key}/impact`, settings),
+  /** Changes what a plan allows, for every organization on it at once. */
+  setPlan: (key: string, settings: PlanSettings) =>
+    json(PlanSchema, "PUT", `/operator/plans/${key}`, settings),
   /** The one thing the operator changes on a customer's account. */
   setOrganizationLimits: (id: string, limits: OrganizationLimits) =>
     json(OrganizationSchema, "PUT", `/operator/organizations/${id}/limits`, limits),
