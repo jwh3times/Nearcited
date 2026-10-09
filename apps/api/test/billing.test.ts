@@ -3,11 +3,14 @@ import {
   type Organization,
   OrganizationAccountSchema,
   type Plan,
+  SubscriptionChangeSchema,
 } from "@nearcited/shared";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createApp } from "../src/app";
 import {
+  type BilledItem,
   type CheckoutRequest,
+  PaymentDeclinedError,
   type Payments,
   type ProviderSubscription,
   SignatureError,
@@ -26,6 +29,9 @@ let atProvider: Map<string, ProviderSubscription>;
 let checkouts: CheckoutRequest[];
 let portals: { customerId: string; returnUrl: string }[];
 let configured: boolean;
+/** What the stand-in provider was asked to do to a subscription, in order. */
+let changes: { what: "now" | "at-period-end" | "keep"; id: string; items?: BilledItem[] }[];
+let cardDeclines: boolean;
 
 /** A provider whose webhook body is just the subscription's ID, signed with the word "signed". */
 const payments: Payments = {
@@ -43,6 +49,19 @@ const payments: Payments = {
   },
   async getSubscription(id) {
     return atProvider.get(id) ?? null;
+  },
+  async previewChange() {
+    return 1234;
+  },
+  async changeNow(id, items) {
+    if (cardDeclines) throw new PaymentDeclinedError();
+    changes.push({ what: "now", id, items });
+  },
+  async changeAtPeriodEnd(id, items) {
+    changes.push({ what: "at-period-end", id, items });
+  },
+  async keepCurrent(id) {
+    changes.push({ what: "keep", id });
   },
 };
 
@@ -123,6 +142,8 @@ const subscription = (
   status: "active",
   organization_id: organizationId,
   items: [{ price_id: "price_standard", quantity: 1 }],
+  period_end: "2026-11-09T00:00:00.000Z",
+  pending: null,
   ...extra,
 });
 
@@ -143,6 +164,8 @@ beforeEach(() => {
   checkouts = [];
   portals = [];
   configured = true;
+  changes = [];
+  cardDeclines = false;
   env = { PROVIDER_MODE: "mock", APP_URL: "https://app.example" } as unknown as Env;
 });
 
@@ -291,7 +314,15 @@ describe("an organization's account", () => {
     const organization = await organizationFor(alice);
     expect(await account(alice, organization.id)).toEqual({
       manual_scans_used: 0,
-      billing: { available: true, subscribed: false, status: null, has_customer: false },
+      billing: {
+        available: true,
+        subscribed: false,
+        status: null,
+        has_customer: false,
+        locations: null,
+        renews_at: null,
+        pending: null,
+      },
     });
 
     atProvider.set("sub_1", subscription(organization.id, { status: "past_due" }));
@@ -343,6 +374,213 @@ describe("an organization's account", () => {
     expect(await account(alice, organization.id)).toMatchObject({
       billing: { available: false },
     });
+  });
+});
+
+describe("changing a subscription", () => {
+  /** Alice's organization on Standard with four locations paid for: one more than it includes. */
+  async function onStandard() {
+    const organization = await organizationFor(alice);
+    atProvider.set(
+      "sub_1",
+      subscription(organization.id, {
+        items: [
+          { price_id: "price_standard", quantity: 1 },
+          { price_id: "price_standard_location", quantity: 1 },
+        ],
+      }),
+    );
+    await webhook("sub_1");
+    return organization;
+  }
+  const change = async (
+    user: string,
+    organizationId: string,
+    body: unknown,
+    method: "preview" | "apply" = "apply",
+  ) => {
+    const response =
+      method === "preview"
+        ? await call(user, "POST", `/organizations/${organizationId}/subscription/preview`, body)
+        : await call(user, "PUT", `/organizations/${organizationId}/subscription`, body);
+    return response.status === 200
+      ? SubscriptionChangeSchema.parse(await response.json())
+      : `${response.status} ${await errorCode(response)}`;
+  };
+
+  beforeEach(() => {
+    db.plans.push(plan("pro", 13, { included_locations: 3, extra_location_price_cents: 3500 }));
+    db.planPrices.set("pro", { base: "price_pro", extra: "price_pro_location" });
+  });
+
+  it("shows the owner what is paid for, when it renews and what is waiting", async () => {
+    const organization = await onStandard();
+    atProvider.set(
+      "sub_1",
+      subscription(organization.id, {
+        items: [
+          { price_id: "price_standard", quantity: 1 },
+          { price_id: "price_standard_location", quantity: 1 },
+        ],
+        pending: [{ price_id: "price_starter", quantity: 1 }],
+      }),
+    );
+    const response = await call(alice, "GET", `/organizations/${organization.id}/account`);
+    expect(OrganizationAccountSchema.parse(await response.json()).billing).toMatchObject({
+      locations: 4,
+      renews_at: "2026-11-09T00:00:00.000Z",
+      pending: {
+        plan_key: "starter",
+        locations: 1,
+        monthly_cents: 1000,
+        at: "2026-11-09T00:00:00.000Z",
+      },
+    });
+  });
+
+  it("previews an upgrade with what is charged now, and changes nothing", async () => {
+    const organization = await onStandard();
+    expect(await change(alice, organization.id, { plan_key: "pro" }, "preview")).toEqual({
+      kind: "upgrade",
+      plan_key: "pro",
+      locations: 3,
+      monthly_cents: 13000,
+      due_now_cents: 1234,
+      effective_at: null,
+    });
+    expect(changes).toEqual([]);
+  });
+
+  it("makes an upgrade at once", async () => {
+    const organization = await onStandard();
+    expect(await change(alice, organization.id, { plan_key: "pro", locations: 5 })).toMatchObject({
+      kind: "upgrade",
+      locations: 5,
+      monthly_cents: 13000 + 2 * 3500,
+    });
+    expect(changes).toEqual([
+      {
+        what: "now",
+        id: "sub_1",
+        items: [
+          { price_id: "price_pro", quantity: 1 },
+          { price_id: "price_pro_location", quantity: 2 },
+        ],
+      },
+    ]);
+    // The plan itself moves when the provider reports the change, not on the owner's request.
+    expect(current(organization.id)?.plan_key).toBe("standard");
+  });
+
+  it("counts more locations on the same plan as an upgrade", async () => {
+    const organization = await onStandard();
+    expect(
+      await change(alice, organization.id, { plan_key: "standard", locations: 6 }),
+    ).toMatchObject({ kind: "upgrade", locations: 6 });
+    expect(changes[0]).toMatchObject({
+      what: "now",
+      items: [
+        { price_id: "price_standard", quantity: 1 },
+        { price_id: "price_standard_location", quantity: 3 },
+      ],
+    });
+  });
+
+  it("holds a downgrade until the period paid for ends, and charges nothing", async () => {
+    const organization = await onStandard();
+    for (const [body, items] of [
+      [{ plan_key: "starter" }, [{ price_id: "price_starter", quantity: 1 }]],
+      [{ plan_key: "standard", locations: 3 }, [{ price_id: "price_standard", quantity: 1 }]],
+    ] as const) {
+      changes = [];
+      expect(await change(alice, organization.id, body)).toMatchObject({
+        kind: "downgrade",
+        due_now_cents: null,
+        effective_at: "2026-11-09T00:00:00.000Z",
+      });
+      expect(changes).toEqual([{ what: "at-period-end", id: "sub_1", items }]);
+    }
+  });
+
+  it("judges a bigger plan with fewer locations by what it costs", async () => {
+    const organization = await organizationFor(alice);
+    // Standard with eleven locations costs more here than Pro with the three it includes.
+    atProvider.set(
+      "sub_1",
+      subscription(organization.id, {
+        items: [
+          { price_id: "price_standard", quantity: 1 },
+          { price_id: "price_standard_location", quantity: 8 },
+        ],
+      }),
+    );
+    await webhook("sub_1");
+    expect(await change(alice, organization.id, { plan_key: "pro" })).toMatchObject({
+      kind: "downgrade",
+    });
+  });
+
+  it("refuses the plan it is already on, a plan not for sale and more locations than one takes", async () => {
+    const organization = await onStandard();
+    expect(await change(alice, organization.id, { plan_key: "standard", locations: 4 })).toBe(
+      "422 no_change",
+    );
+    expect(await change(alice, organization.id, { plan_key: "free" })).toBe("422 plan_unavailable");
+    expect(await change(alice, organization.id, { plan_key: "retired" })).toBe(
+      "422 plan_unavailable",
+    );
+    expect(await change(alice, organization.id, { plan_key: "starter", locations: 2 })).toBe(
+      "422 plan_unavailable",
+    );
+    expect(changes).toEqual([]);
+  });
+
+  it("says so, having changed nothing, when the card is declined", async () => {
+    const organization = await onStandard();
+    cardDeclines = true;
+    expect(await change(alice, organization.id, { plan_key: "pro" })).toBe("402 payment_declined");
+    expect(changes).toEqual([]);
+  });
+
+  it("waits for an outstanding payment to be settled", async () => {
+    const organization = await onStandard();
+    atProvider.set("sub_1", subscription(organization.id, { status: "past_due" }));
+    expect(await change(alice, organization.id, { plan_key: "pro" })).toBe("409 payment_due");
+    expect(changes).toEqual([]);
+  });
+
+  it("lets the owner keep the current plan instead of a change that is waiting", async () => {
+    const organization = await onStandard();
+    const response = await call(
+      alice,
+      "DELETE",
+      `/organizations/${organization.id}/subscription/pending`,
+    );
+    expect(response.status).toBe(204);
+    expect(changes).toEqual([{ what: "keep", id: "sub_1" }]);
+  });
+
+  it("is the owner's alone, and needs a subscription", async () => {
+    const organization = await onStandard();
+    const member = "c0000000-0000-4000-8000-000000000003";
+    db.memberships.push({ organization_id: organization.id, user_id: member, role: "member" });
+    db.operators.add(operator);
+    for (const user of [member, bob, operator]) {
+      expect(await change(user, organization.id, { plan_key: "pro" })).toBe("404 not_found");
+      expect(await change(user, organization.id, { plan_key: "pro" }, "preview")).toBe(
+        "404 not_found",
+      );
+      const kept = await call(
+        user,
+        "DELETE",
+        `/organizations/${organization.id}/subscription/pending`,
+      );
+      expect(kept.status).toBe(404);
+    }
+    expect(changes).toEqual([]);
+
+    db.subscriptions.clear();
+    expect(await change(alice, organization.id, { plan_key: "pro" })).toBe("409 no_subscription");
   });
 });
 

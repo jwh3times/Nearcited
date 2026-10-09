@@ -50,9 +50,11 @@ pass `pnpm check` and run in mock mode without it.
   path; it bypasses the policies. The one exception is the payment provider's webhook, on the
   terms in `docs/adr/0007-the-payment-webhook-acts-as-the-worker.md`: do not add a second.
 - **A subscription changes a plan only through the webhook.** Checkout and the account pages are
-  the provider's; the app sends an owner there and writes nothing. The webhook verifies the
-  signature, reads the subscription back from the provider and calls `applyPlan`. `subscriptions`
-  has no write path from a request, and nothing an owner sends decides what they have paid for.
+  the provider's. An owner's request may start a checkout, or change the subscription at the
+  provider (an upgrade now, a downgrade at the end of the paid period), and writes nothing here.
+  The webhook verifies the signature, reads the subscription back from the provider and calls
+  `applyPlan`. `subscriptions` has no write path from a request, and whether a change is an
+  upgrade is worked out on the server from the prices, never taken from the request.
 - **The operator can read every row** (`docs/adr/0004-the-operator-reads-through-policies.md`), so
   a query must filter by what it means, never by what the caller happens to see. "This user's
   organizations" is `my_organizations()`, not `select` from `organizations`. The operator gets

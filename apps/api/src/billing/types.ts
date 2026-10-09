@@ -7,7 +7,25 @@ export interface ProviderSubscription {
   /** The organization it was bought for, as checkout recorded it. Null when it was not ours. */
   organization_id: string | null;
   /** What it bills for: each price and how many of it. */
-  items: { price_id: string; quantity: number }[];
+  items: BilledItem[];
+  /** When the period paid for ends, an ISO timestamp. Null when it bills for nothing. */
+  period_end: string | null;
+  /** What it will bill for from the end of the period instead, when a change is waiting. */
+  pending: BilledItem[] | null;
+}
+
+/** One line of a subscription: a price at the provider, and how many of it. */
+export interface BilledItem {
+  price_id: string;
+  quantity: number;
+}
+
+/** Thrown when the provider could not take the payment a change needed. Nothing was changed. */
+export class PaymentDeclinedError extends Error {
+  constructor(options?: ErrorOptions) {
+    super("The payment did not go through.", options);
+    this.name = "PaymentDeclinedError";
+  }
 }
 
 export interface CheckoutRequest {
@@ -16,7 +34,7 @@ export interface CheckoutRequest {
   customer_id: string | null;
   /** Fills in the email field for an organization checking out for the first time. */
   email: string | null;
-  items: { price_id: string; quantity: number }[];
+  items: BilledItem[];
   success_url: string;
   cancel_url: string;
 }
@@ -45,4 +63,19 @@ export interface Payments {
   readEvent(body: string, signature: string | null): Promise<string | null>;
   /** The subscription as it stands now, or null when the provider has none by that ID. */
   getSubscription(id: string): Promise<ProviderSubscription | null>;
+  /**
+   * What would be charged now, in cents and with tax, if the subscription billed for `items`
+   * from this moment: the new price for the rest of the period, less what is unused of the old.
+   */
+  previewChange(subscriptionId: string, items: BilledItem[]): Promise<number>;
+  /**
+   * Makes the subscription bill for `items` from now and charges the difference for the rest of
+   * the period. A change that was waiting for the period to end is dropped. Throws
+   * `PaymentDeclinedError`, having changed nothing, when the charge fails.
+   */
+  changeNow(subscriptionId: string, items: BilledItem[]): Promise<void>;
+  /** Makes the subscription bill for `items` from the end of the period paid for. Charges nothing. */
+  changeAtPeriodEnd(subscriptionId: string, items: BilledItem[]): Promise<void>;
+  /** Drops a change that was waiting for the period to end. Nothing to do when there is none. */
+  keepCurrent(subscriptionId: string): Promise<void>;
 }

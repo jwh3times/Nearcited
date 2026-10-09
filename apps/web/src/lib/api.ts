@@ -21,6 +21,7 @@ import {
   RecommendationSchema,
   type RecommendationStatus,
   ScanSchema,
+  SubscriptionChangeSchema,
   type TrackedQueryInput,
   TrackedQuerySchema,
 } from "@nearcited/shared";
@@ -102,6 +103,14 @@ export const api = {
   /** Where the payment provider's account pages are: payment method, invoices, cancelling. */
   billingPortal: (id: string) =>
     json(BillingRedirectSchema, "POST", `/organizations/${id}/billing-portal`),
+  /** What changing plan or the number of locations would come to. Changes nothing. */
+  previewSubscriptionChange: (id: string, input: CheckoutInput) =>
+    json(SubscriptionChangeSchema, "POST", `/organizations/${id}/subscription/preview`, input),
+  /** Makes the change: an upgrade now, charging the card; a downgrade when the period ends. */
+  changeSubscription: (id: string, input: CheckoutInput) =>
+    json(SubscriptionChangeSchema, "PUT", `/organizations/${id}/subscription`, input),
+  /** Drops a change that was waiting for the period to end. */
+  keepCurrentPlan: (id: string) => send("DELETE", `/organizations/${id}/subscription/pending`),
   renameOrganization: (id: string, name: string) =>
     json(OrganizationSchema, "PATCH", `/organizations/${id}`, { name }),
   listLocations: (organizationId: string) =>
