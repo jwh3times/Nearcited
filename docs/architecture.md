@@ -487,6 +487,15 @@ bound each value whatever calls the function. `operator_actions` has no write gr
 API role; the operator has a `select` policy on it. The page is `/operator/o/:organizationId/plan`.
 See `docs/adr/0005-the-operator-changes-limits-through-one-function.md`.
 
+**The operator changes a plan the same way.** `GET /api/operator/plans` lists every plan with who is
+on it (`buildOperatorPlans`, test organizations left out), `POST /api/operator/plans/:key/impact`
+says how many organizations a lower prompt limit would reach without changing anything (`planImpact`),
+and `PUT /api/operator/plans/:key` calls `operator_set_plan()`. That function answers only the
+operator, changes a plan's name, on-sale flag, limits and emailed report (not its prices or included
+locations), records it in `operator_actions` with no organization, and in the same transaction
+re-applies the plan through `apply_plan()` to every organization on it, each keeping its own
+`max_locations`. An organization with no `plan_key` is untouched.
+
 **The operator makes an audit the same way.** `POST /api/operator/audits` checks the body against
 `AuditInputSchema`, refuses with 409 where scans return sample data, and calls
 `operator_create_audit()`, which inserts the row for the operator alone and records it in
