@@ -263,9 +263,13 @@ test("lets the operator set a plan's prices in dollars, and says who goes on pay
   await page.getByRole("button", { name: "Edit Pro" }).click();
   const form = page.getByRole("form", { name: "Prices of Pro" });
   await expect(form).toContainText("Nobody subscribes to this plan yet.");
+  // Nothing is set up at the payment provider locally, so the plan can be saved as it stands.
+  await expect(form).toContainText("This plan has no price at Stripe yet");
+  await expect(
+    form.getByRole("button", { name: "Set up at Stripe, and sell at $129" }),
+  ).toBeEnabled();
   const price = form.getByLabel("Price a month");
   await expect(price).toHaveValue("129");
-  await expect(form.getByRole("button", { name: "Save prices" })).toBeDisabled();
 
   // Something that is not an amount is refused beside the field, before anything is sent.
   await price.fill("lots");
@@ -274,7 +278,7 @@ test("lets the operator set a plan's prices in dollars, and says who goes on pay
 
   // The button says the price back in dollars, which is where a slipped digit shows.
   await price.fill("149.50");
-  await form.getByRole("button", { name: "Sell at $149.50 from now" }).click();
+  await form.getByRole("button", { name: "Set up at Stripe, and sell at $149.50" }).click();
   await expect(form.getByRole("status")).toContainText("New subscribers pay this from now.");
   expect(sent).toEqual([{ price_cents: 14950, extra_location_price_cents: 3500 }]);
 

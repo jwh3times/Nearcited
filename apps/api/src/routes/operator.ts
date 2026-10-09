@@ -203,6 +203,9 @@ operatorRoutes.get("/operator/plans", async (c) => {
     store.listOpenPriceChanges(),
     store.listOpenLimitChanges(),
   ]);
+  const atProvider = (await store.listPlanPrices())
+    .filter((plan) => plan.current !== null)
+    .map((plan) => plan.key);
   const limitNotices = (
     await Promise.all(limitChanges.map((change) => store.listLimitChangeNotices(change.id)))
   ).flat();
@@ -214,6 +217,7 @@ operatorRoutes.get("/operator/plans", async (c) => {
       plans,
       organizations,
       subscriptions,
+      atProvider,
       priceChanges,
       notices,
       limitChanges,

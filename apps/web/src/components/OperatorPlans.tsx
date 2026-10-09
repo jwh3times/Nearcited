@@ -446,6 +446,9 @@ function PriceEditor({ plan }: { plan: OperatorPlan }) {
       <div>
         <h3>{plan.name}: prices</h3>
         <p className="small muted">
+          {plan.at_provider
+            ? ""
+            : "This plan has no price at Stripe yet, so nobody can subscribe to it. Saving makes one. "}
           In dollars a month, before tax. A new price is charged to new subscribers from the moment
           it is saved.{" "}
           {plan.subscribers > 0
@@ -484,12 +487,15 @@ function PriceEditor({ plan }: { plan: OperatorPlan }) {
         }}
       />
       <div className="button-row">
-        <button type="submit" disabled={save.isPending || unchanged || held}>
+        {/* A plan with no price at the provider can be saved as it stands: that is what makes one. */}
+        <button type="submit" disabled={save.isPending || (unchanged && plan.at_provider) || held}>
           {save.isPending
             ? "Saving"
-            : unchanged || Number.isNaN(prices.price_cents)
+            : Number.isNaN(prices.price_cents) || (unchanged && plan.at_provider)
               ? "Save prices"
-              : `Sell at ${formatPrice(prices.price_cents)} from now`}
+              : plan.at_provider
+                ? `Sell at ${formatPrice(prices.price_cents)} from now`
+                : `Set up at Stripe, and sell at ${formatPrice(prices.price_cents)}`}
         </button>
       </div>
       {save.isSuccess && (
