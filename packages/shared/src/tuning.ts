@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { ProviderUsage } from "./schemas";
 
 /**
  * The values that decide what the product measures and how it scores: prompt wording and score
@@ -50,6 +51,23 @@ export const PromptsSchema = z.object({
 });
 export type Prompts = z.infer<typeof PromptsSchema>;
 
+const Price = z.number().min(0);
+
+/** What a vendor charges for one model, in US dollars. */
+export const ModelRateSchema = z.object({
+  /** Input tokens that were not read from the vendor's cache. */
+  input_per_million: Price,
+  cached_input_per_million: Price,
+  output_per_million: Price,
+  /** The fee for web searches, charged on top of the tokens their results add. */
+  per_thousand_searches: Price,
+});
+export type ModelRate = z.infer<typeof ModelRateSchema>;
+
+/** Keyed by model name, as the vendor reports it. */
+export const RatesSchema = z.record(z.string().trim().min(1), ModelRateSchema);
+export type Rates = z.infer<typeof RatesSchema>;
+
 export const TuningSchema = z.object({
   score: ScoreWeightsSchema,
   prompts: PromptsSchema,
@@ -66,6 +84,11 @@ export const TuningSchema = z.object({
      */
     max_searches: z.number().int().min(1).max(10),
   }),
+  /**
+   * What each model costs, for turning recorded usage into spend. A model that answered but has
+   * no entry here has no known cost: it is never priced as another model.
+   */
+  rates: RatesSchema,
 });
 export type Tuning = z.infer<typeof TuningSchema>;
 
@@ -87,6 +110,7 @@ export const defaultTuning: Tuning = {
   },
   chatgpt: { model: "gpt-6.1-sol" },
   claude: { model: "claude-sonnet-5-5", effort: "low", max_searches: 1 },
+  rates: {},
 };
 
 export type TuningSource = "private" | "default";
@@ -111,6 +135,33 @@ export function resolveTuning(bundled: unknown): ActiveTuning {
   return parsed.source === "private"
     ? { source: "private", tuning: parsed.tuning }
     : { source: "default", tuning: defaultTuning };
+}
+
+/**
+ * The rate for the model that answered. A vendor can report a dated snapshot of the model that
+ * was asked for (`name-2026-08-01`), so a name with no entry of its own takes the longest entry
+ * it extends.
+ */
+export function rateFor(rates: Rates, model: string): ModelRate | null {
+  const exact = rates[model];
+  if (exact) return exact;
+  const base = Object.keys(rates)
+    .filter((name) => model.startsWith(`${name}-`))
+    .sort((a, b) => b.length - a.length)[0];
+  return base === undefined ? null : (rates[base] ?? null);
+}
+
+/** What some recorded usage cost in US dollars, or null when its model has no rate. */
+export function usageCost(rates: Rates, usage: ProviderUsage): number | null {
+  const rate = rateFor(rates, usage.model);
+  if (!rate) return null;
+  return (
+    (usage.input_tokens * rate.input_per_million +
+      usage.cached_input_tokens * rate.cached_input_per_million +
+      usage.output_tokens * rate.output_per_million) /
+      1_000_000 +
+    (usage.searches * rate.per_thousand_searches) / 1000
+  );
 }
 
 export interface PromptValues {

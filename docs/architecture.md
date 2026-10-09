@@ -49,7 +49,9 @@ A provider only fetches. Whether the business was named is decided by `analyzeOb
 `packages/shared`, so every surface is judged by the same rules and those rules are tested without
 network access. A provider also reports what each call it is charged for used (`onUsage`); the
 scan and audit runners add those up and store them in `provider_usage`. A failure to store them
-is logged and does not change the outcome. Nothing reads or prices the table yet.
+is logged and does not change the outcome. Nothing reads the table yet. What a row cost is
+`usageCost` in `packages/shared`, from the tuning's `rates`: one entry per model, which a public
+clone leaves empty, so a model without an entry has no cost and is never priced as another.
 
 ## Tuning
 
