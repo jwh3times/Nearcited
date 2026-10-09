@@ -190,6 +190,7 @@ export function createChatGptProvider(options: ChatGptOptions): SurfaceProvider 
         },
         body: JSON.stringify({
           model: options.tuning.chatgpt.model,
+          reasoning: { effort: options.tuning.chatgpt.effort },
           input: prompt,
           tools: [
             {

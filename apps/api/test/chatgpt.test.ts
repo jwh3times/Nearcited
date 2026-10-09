@@ -232,20 +232,21 @@ describe("createChatGptProvider", () => {
     expect(init?.signal).toBeInstanceOf(AbortSignal);
   });
 
-  it("uses the surface's own prompt and the model from the tuning", async () => {
+  it("uses the surface's own prompt, and the model and effort from the tuning", async () => {
     const fetchStub = respondWith(apiResponse(goodAnswer));
     const tuned = createChatGptProvider({
       apiKey: "test-key",
       fetch: fetchStub,
       tuning: {
         prompts: { default: "{query}", by_surface: { chatgpt: "Near {city}: {query}" } },
-        chatgpt: { model: "some-other-model" },
+        chatgpt: { model: "some-other-model", effort: "high" },
       },
     });
     await tuned.observe(input);
     const body = JSON.parse(String(fetchStub.mock.calls[0]?.[1]?.body));
     expect(body.input).toBe("Near Raleigh: best pizza");
     expect(body.model).toBe("some-other-model");
+    expect(body.reasoning).toEqual({ effort: "high" });
   });
 
   it("tells the caller what the call used, in the form every provider reports it", async () => {
