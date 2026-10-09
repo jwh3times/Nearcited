@@ -399,6 +399,13 @@ organization's rows: the routes answer 404 for an update or delete and 403 for a
 `my_organizations()`, which goes by membership. See
 `docs/adr/0004-the-operator-reads-through-policies.md`.
 
+The operator's view is `/operator` in the web app, served by `GET /api/operator/overview` and
+`GET /api/operator/organizations/:organizationId`, both 404 to anyone who is not the operator. It
+reads through the request's store, never the secret key. `buildOperatorOverview` in
+`packages/shared/src/operator.ts` decides what needs attention over the last seven days, and never
+counts a test organization. Reading through a customer's account (`/operator/o/:organizationId/...`)
+reuses the Locations and location pages with every control that changes something hidden.
+
 **Platform roles** (`platform_roles`) say what an account is to the product, apart from any
 organization. A signed-in user can read their own row and nothing else (the operator reads all);
 rows are written only with the secret key. `create_organization()` marks an organization made by a `test` account
