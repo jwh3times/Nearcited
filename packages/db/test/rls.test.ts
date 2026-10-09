@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 /**
  * Applies the real migrations to an in-process Postgres and exercises the policies as
@@ -1012,6 +1012,78 @@ describe("what scans used at the providers", () => {
   });
 });
 
+describe("plans", () => {
+  const keys = (role: Role, user: string | null) =>
+    as(role, user, async () =>
+      (await rows<{ key: string }>("select key from public.plans order by position")).map(
+        (plan) => plan.key,
+      ),
+    );
+  const onSale = ["free", "starter", "standard", "pro", "enterprise"];
+
+  beforeAll(async () => {
+    await db.query(
+      `insert into public.plans
+        (key, name, position, on_sale, price_cents, included_locations, max_queries_per_location,
+         assistants, scan_every_days, max_manual_scans_per_month, emails_report)
+       values ('retired', 'Retired', 9, false, 1900, 1, 3, 1, 7, 1, true)`,
+    );
+  });
+  afterAll(async () => {
+    await db.query("update public.organizations set plan_key = null where plan_key = 'retired'");
+    await db.query("delete from public.plans where key = 'retired'");
+  });
+
+  it("shows everyone what is on sale, signed in or not, and nothing that is not", async () => {
+    expect(await keys("anon", null)).toEqual(onSale);
+    expect(await keys("authenticated", alice)).toEqual(onSale);
+    const [standard] = await as("anon", null, () =>
+      rows(
+        "select price_cents, included_locations, extra_location_price_cents, assistants from public.plans where key = 'standard'",
+      ),
+    );
+    expect(standard).toEqual({
+      price_cents: 4900,
+      included_locations: 3,
+      extra_location_price_cents: 1500,
+      assistants: 2,
+    });
+  });
+
+  it("shows a plan that is off sale to the organizations still on it, and to no one else", async () => {
+    await db.query("update public.organizations set plan_key = 'retired' where id = $1", [orgId]);
+    expect(await keys("authenticated", alice)).toEqual([...onSale, "retired"]);
+    expect(await keys("authenticated", bob)).toEqual(onSale);
+    expect(await keys("anon", null)).toEqual(onSale);
+  });
+
+  it("cannot be changed through the API by anyone", async () => {
+    for (const sql of [
+      "update public.plans set price_cents = 0",
+      "delete from public.plans",
+      "insert into public.plans (key, name, position, price_cents, included_locations, max_queries_per_location, assistants, scan_every_days, max_manual_scans_per_month, emails_report) values ('mine', 'Mine', 5, 0, 99, 99, 2, 1, 99, true)",
+    ]) {
+      for (const [role, user] of [
+        ["anon", null],
+        ["authenticated", alice],
+      ] as const) {
+        await expect(
+          as(role, user, () => db.query(sql)),
+          sql,
+        ).rejects.toThrow(/permission denied/);
+      }
+    }
+  });
+
+  it("is not something an owner can put their own organization on", async () => {
+    await expect(
+      as("authenticated", alice, () =>
+        db.query("update public.organizations set plan_key = 'enterprise' where id = $1", [orgId]),
+      ),
+    ).rejects.toThrow(/permission denied/);
+  });
+});
+
 describe("the operator", () => {
   const operator = "f0000000-0000-4000-8000-000000000006";
   const tables = [
@@ -1285,6 +1357,9 @@ describe("the operator", () => {
     });
 
     it("changes the four limits and nothing else, and writes down what it did", async () => {
+      await db.query("update public.organizations set plan_key = 'standard' where id = $1", [
+        theirs,
+      ]);
       const [before] = await rows<Record<string, unknown>>(
         "select * from public.organizations where id = $1",
         [theirs],
@@ -1293,6 +1368,8 @@ describe("the operator", () => {
         rows<Record<string, unknown>>(setLimits, [theirs]),
       );
       const changed = {
+        // Limits set by hand take the organization off its plan, so nothing puts them back.
+        plan_key: null,
         max_locations: 3,
         max_queries_per_location: 20,
         max_manual_scans_per_day: 10,
@@ -1306,6 +1383,7 @@ describe("the operator", () => {
           action: "set_limits",
           detail: {
             from: {
+              plan_key: "standard",
               max_locations: before?.max_locations,
               max_queries_per_location: before?.max_queries_per_location,
               max_manual_scans_per_day: before?.max_manual_scans_per_day,

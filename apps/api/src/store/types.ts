@@ -10,6 +10,7 @@ import type {
   OperatorFacts,
   Organization,
   OrganizationLimits,
+  Plan,
   PlatformRole,
   ProviderUsage,
   Recommendation,
@@ -73,6 +74,11 @@ export interface Store {
    * Renames an organization. Null when the caller may not: they are not in it, or are a plain
    * member, and only its owners and admins change it.
    */
+  /**
+   * The plans the caller may read, cheapest first: everything on sale, plus the one their own
+   * organization is on if that has been taken off sale. Needs no sign-in.
+   */
+  listPlans(): Promise<Plan[]>;
   renameOrganization(id: string, name: string): Promise<Organization | null>;
   /**
    * Changes an organization's limits. Only the operator's call changes anything: for anyone else,

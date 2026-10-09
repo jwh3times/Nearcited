@@ -78,6 +78,16 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
       organization,
     );
 
+    // A new organization is on no plan yet, and the price list is read by anyone signed in.
+    expect(organization.plan_key).toBeNull();
+    expect((await aliceStore.listPlans()).map((plan) => plan.key)).toEqual([
+      "free",
+      "starter",
+      "standard",
+      "pro",
+      "enterprise",
+    ]);
+
     // Only the operator changes limits. An owner's own call changes nothing.
     expect(
       await aliceStore.setOrganizationLimits(organization.id, {

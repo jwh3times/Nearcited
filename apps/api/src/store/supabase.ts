@@ -3,6 +3,7 @@ import {
   LocationSchema,
   OperatorAuditSchema,
   OrganizationSchema,
+  PlanSchema,
   type PlatformRole,
   PlatformRoleSchema,
   RecommendationSchema,
@@ -84,11 +85,14 @@ const AccountRowSchema = z.object({
   last_sign_in_at: z.string().nullable(),
 });
 
+const PLAN_COLUMNS =
+  "key, name, position, on_sale, price_cents, included_locations, extra_location_price_cents, max_queries_per_location, assistants, scan_every_days, max_manual_scans_per_month, emails_report, stronger_models";
+
 const LISTED_AUDIT_COLUMNS =
   "id, token, business_name, city, region, status, error, created_at, expires_at, revoked_at";
 
 const ORGANIZATION_COLUMNS =
-  "id, name, max_locations, max_queries_per_location, max_manual_scans_per_day, scan_every_days, surfaces, is_test, created_at";
+  "id, name, max_locations, max_queries_per_location, max_manual_scans_per_day, scan_every_days, surfaces, is_test, plan_key, created_at";
 
 const LOCATION_COLUMNS =
   "id, organization_id, name, website, phone, address_line, city, region, postal_code, country_code, google_place_id, primary_category, scan_frequency, last_scanned_at, created_at";
@@ -122,6 +126,13 @@ export function createSupabaseStore(db: SupabaseClient): Store {
       const { data, error } = await db.rpc("create_organization", { org_name: name });
       if (error) fail("Create organization", error);
       return OrganizationSchema.parse(data);
+    },
+
+    async listPlans() {
+      // Named columns: no page needs the payment provider's price IDs.
+      const { data, error } = await db.from("plans").select(PLAN_COLUMNS).order("position");
+      if (error) fail("List plans", error);
+      return PlanSchema.array().parse(data);
     },
 
     async renameOrganization(id, name) {

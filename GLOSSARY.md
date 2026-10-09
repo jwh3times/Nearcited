@@ -28,3 +28,8 @@ system works; this file only settles vocabulary.
   Its platform role is `test`.
 - **Test organization**: an organization created by a test account. Its scans run on generated
   sample data and say so, and it is never a customer.
+- **Plan**: something on sale: a monthly price and what an organization on it may do. An
+  organization is on one plan, or on none when its limits were **set by hand**. See
+  `docs/adr/0006-plans-are-rows.md`.
+- **Included location**: a location a plan's price covers. An **extra location** is one beyond
+  those, paid for separately.
