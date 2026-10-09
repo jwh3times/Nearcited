@@ -690,9 +690,15 @@ describe("audits", () => {
       ["anon", null],
       ["authenticated", alice],
     ] as const) {
-      await expect(as(role, user, () => db.query("select * from public.audits"))).rejects.toThrow(
-        /permission denied/,
-      );
+      // Signed out, the table cannot even be asked. Signed in, it can, and answers nothing:
+      // the only policy on it is the operator's.
+      if (role === "anon") {
+        await expect(as(role, user, () => db.query("select * from public.audits"))).rejects.toThrow(
+          /permission denied/,
+        );
+      } else {
+        expect(await as(role, user, () => rows("select * from public.audits"))).toEqual([]);
+      }
       await expect(
         as(role, user, () =>
           db.query(
@@ -973,8 +979,14 @@ describe("what scans used at the providers", () => {
   });
 
   it("cannot be read or written by a member, even for their own organization's scans", async () => {
+    // A member may ask and is told nothing; a signed-out caller may not even ask.
+    expect(
+      await as("authenticated", alice, () => rows("select * from public.provider_usage")),
+    ).toEqual([]);
+    await expect(
+      as("anon", null, () => db.query("select * from public.provider_usage")),
+    ).rejects.toThrow(/permission denied/);
     for (const sql of [
-      "select * from public.provider_usage",
       "insert into public.provider_usage (surface, model, calls, input_tokens, cached_input_tokens, output_tokens, searches) values ('chatgpt', 'x', 1, 1, 0, 1, 0)",
       "update public.provider_usage set calls = 1",
       "delete from public.provider_usage",
@@ -997,5 +1009,175 @@ describe("what scans used at the providers", () => {
       [usageId],
     );
     expect(row).toEqual({ scan_id: null, organization_id: orgId, calls: 2 });
+  });
+});
+
+describe("the operator", () => {
+  const operator = "f0000000-0000-4000-8000-000000000006";
+  const tables = [
+    "organizations",
+    "memberships",
+    "locations",
+    "tracked_queries",
+    "scans",
+    "scan_results",
+    "recommendations",
+    "platform_roles",
+    "audits",
+    "provider_usage",
+  ];
+  const count = async (role: Role, user: string | null, table: string) =>
+    Number(
+      (
+        await as(role, user, () => rows<{ n: string }>(`select count(*) as n from public.${table}`))
+      )[0]?.n,
+    );
+  const everything = new Map<string, number>();
+  let own: string;
+  /** A customer's organization, with one of everything in it. */
+  let theirs: string;
+
+  beforeAll(async () => {
+    await db.query("insert into auth.users (id, email) values ($1, 'operator@example.com')", [
+      operator,
+    ]);
+    // A customer with one of everything, so every table has a row that is not the operator's.
+    const [customer] = await rows<{ id: string }>(
+      "insert into public.organizations (name, created_by) values ('A customer', $1) returning id",
+      [alice],
+    );
+    theirs = customer?.id ?? "";
+    await db.query(
+      "insert into public.memberships (organization_id, user_id, role) values ($1, $2, 'owner')",
+      [theirs, alice],
+    );
+    const [location] = await rows<{ id: string }>(
+      "insert into public.locations (organization_id, name, city) values ($1, 'Operator Test', 'Raleigh') returning id",
+      [theirs],
+    );
+    const [query] = await rows<{ id: string }>(
+      "insert into public.tracked_queries (location_id, kind, text) values ($1, 'ai_prompt', 'x') returning id",
+      [location?.id],
+    );
+    const [scan] = await rows<{ id: string }>(
+      "insert into public.scans (location_id, trigger, status) values ($1, 'scheduled', 'succeeded') returning id",
+      [location?.id],
+    );
+    await db.query(
+      "insert into public.scan_results (scan_id, tracked_query_id, surface, mentioned) values ($1, $2, 'chatgpt', true)",
+      [scan?.id, query?.id],
+    );
+    await db.query(
+      "insert into public.recommendations (location_id, rule, title, detail) values ($1, 'operator:test', 't', 'd')",
+      [location?.id],
+    );
+    await db.query(
+      "insert into public.audits (business_name, city, prompts) values ('Operator Test', 'Raleigh', array['x'])",
+    );
+    await db.query(
+      `insert into public.provider_usage
+         (organization_id, scan_id, surface, model, calls, input_tokens, cached_input_tokens, output_tokens, searches)
+       values ($1, $2, 'chatgpt', 'gpt-x', 1, 1, 0, 1, 0)`,
+      [theirs, scan?.id],
+    );
+    for (const table of tables) everything.set(table, await count("service_role", null, table));
+  });
+
+  it("is an ordinary account, seeing only its own organization, until it is named operator", async () => {
+    const [mine] = await as("authenticated", operator, () =>
+      rows<{ id: string }>("select id from public.create_organization('The operator''s own')"),
+    );
+    own = mine?.id ?? "";
+    everything.set("organizations", (everything.get("organizations") ?? 0) + 1);
+    everything.set("memberships", (everything.get("memberships") ?? 0) + 1);
+
+    expect(await count("authenticated", operator, "organizations")).toBe(1);
+    expect(await count("authenticated", operator, "locations")).toBe(0);
+    expect(await count("authenticated", operator, "audits")).toBe(0);
+    expect(await count("authenticated", operator, "provider_usage")).toBe(0);
+  });
+
+  it("reads every row of every table once named", async () => {
+    await db.query("insert into public.platform_roles (user_id, role) values ($1, 'operator')", [
+      operator,
+    ]);
+    everything.set("platform_roles", (everything.get("platform_roles") ?? 0) + 1);
+
+    for (const table of tables) {
+      const all = everything.get(table) ?? 0;
+      expect(all, `${table} has rows to find`).toBeGreaterThan(0);
+      expect(await count("authenticated", operator, table), table).toBe(all);
+    }
+  });
+
+  it("still belongs only to its own organization", async () => {
+    const mine = await as("authenticated", operator, () =>
+      rows<{ id: string }>("select id from public.my_organizations()"),
+    );
+    expect(mine).toEqual([{ id: own }]);
+    // And an ordinary member's list is theirs alone, as before.
+    const alices = await as("authenticated", alice, () =>
+      rows<{ id: string }>("select id from public.my_organizations()"),
+    );
+    expect(alices.map((row) => row.id).sort()).toEqual([orgId, theirs].sort());
+  });
+
+  it("can change nothing that is not its own", async () => {
+    // Statements the grants allow reach the policies, which match no row of someone else's.
+    for (const sql of [
+      "update public.organizations set name = 'Defaced' where id = $1",
+      "delete from public.organizations where id = $1",
+      "update public.locations set name = 'Defaced' where organization_id = $1",
+      "delete from public.locations where organization_id = $1",
+      "delete from public.memberships where organization_id = $1",
+    ]) {
+      const result = await as("authenticated", operator, () => db.query(sql, [theirs]));
+      expect(result.affectedRows, sql).toBe(0);
+    }
+    // Statements the policies check on the way in are refused.
+    for (const sql of [
+      "insert into public.locations (organization_id, name, city) values ($1, 'Planted', 'x')",
+      "insert into public.memberships (organization_id, user_id, role) values ($1, 'f0000000-0000-4000-8000-000000000006', 'owner')",
+    ]) {
+      await expect(
+        as("authenticated", operator, () => db.query(sql, [theirs])),
+        sql,
+      ).rejects.toThrow(/row-level security/);
+    }
+    // And the tables no API role may write stay that way.
+    for (const sql of [
+      "update public.audits set revoked_at = now()",
+      "delete from public.provider_usage",
+      "update public.scans set status = 'failed'",
+      "insert into public.platform_roles (user_id, role) values ('a0000000-0000-4000-8000-000000000001', 'operator')",
+      "update public.organizations set is_test = true",
+    ]) {
+      await expect(
+        as("authenticated", operator, () => db.query(sql)),
+        sql,
+      ).rejects.toThrow(/permission denied/);
+    }
+    const [name] = await rows<{ name: string }>(
+      "select name from public.organizations where id = $1",
+      [theirs],
+    );
+    expect(name?.name).not.toBe("Defaced");
+  });
+
+  it("gives nobody else its reach", async () => {
+    // The test account has a platform role too, and it is not this one.
+    const robot = "e0000000-0000-4000-8000-000000000005";
+    for (const user of [alice, bob, robot]) {
+      expect(
+        await as("authenticated", user, () =>
+          rows<{ ok: boolean }>("select public.is_operator() as ok"),
+        ),
+      ).toEqual([{ ok: false }]);
+      expect(await count("authenticated", user, "audits")).toBe(0);
+      expect(await count("authenticated", user, "provider_usage")).toBe(0);
+    }
+    await expect(as("anon", null, () => db.query("select public.is_operator()"))).rejects.toThrow(
+      /permission denied/,
+    );
   });
 });

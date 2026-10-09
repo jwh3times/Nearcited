@@ -329,8 +329,9 @@ queue consumer: runAuditPart()
 
 **Access is by token through a function, not by row-level security.** An audit belongs to no
 organization, so there is no membership for a policy to test, and the reader has no account. The
-table is closed to `anon` and `authenticated` (row-level security on, every grant revoked, all
-granted to `service_role`). `get_audit(token)` is `SECURITY DEFINER` and callable by `anon`: it
+table is closed to `anon`, and to `authenticated` except for the operator (row-level security on;
+`authenticated` has `select` and one policy that answers only `is_operator()`; writes are granted to
+`service_role` alone). `get_audit(token)` is `SECURITY DEFINER` and callable by `anon`: it
 returns the one audit whose 64-character token matches while it is neither revoked nor past
 `expires_at` (30 days), and only the fields the page shows. Otherwise it returns null, which
 `GET /api/audits/:token` reports as 404 without saying which case it was. The route is registered
@@ -346,8 +347,8 @@ audit is queued.
 
 Every row belongs to an organization, and a user reaches a row only through a membership. The
 exceptions are `audits`, described above, and `provider_usage`, which keeps its rows after the
-organization, scan or audit they describe is deleted. No API role can read or write either table;
-only the Worker's secret key does.
+organization, scan or audit they describe is deleted. No API role can write either table, and
+the only account that can read them is the operator's; the Worker's secret key writes them.
 
 The API does not check ownership in application code. For each request it builds a Supabase
 client that carries the caller's own access token (`createUserClient`), so Postgres evaluates the
@@ -390,9 +391,17 @@ Users can insert exactly one kind of scan row: a queued, manual scan in their ow
 location they can see. Results, scores and recommendations are written only by the worker.
 Organizations are created only through `create_organization()`, which makes the caller the owner.
 
+**The operator reads every row, through policies.** `is_operator()` is true for an account with the
+`operator` platform role, and each table, including `audits` and `provider_usage`, has a `select`
+policy that answers it. Only `select` policies exist, so the operator cannot change another
+organization's rows: the routes answer 404 for an update or delete and 403 for an insert. Because
+"every organization I can read" now means all of them for the operator, `listOrganizations` asks
+`my_organizations()`, which goes by membership. See
+`docs/adr/0004-the-operator-reads-through-policies.md`.
+
 **Platform roles** (`platform_roles`) say what an account is to the product, apart from any
-organization. A signed-in user can read their own row and nothing else; rows are written only with
-the secret key. `create_organization()` marks an organization made by a `test` account
+organization. A signed-in user can read their own row and nothing else (the operator reads all);
+rows are written only with the secret key. `create_organization()` marks an organization made by a `test` account
 `is_test`, with roomy limits and a daily cadence. A test organization's scans run on generated
 sample data even on a live deployment: the runner uses the mock providers, records
 `sample_data`, skips the on-page fetch, is not stopped by the default-tuning check, and sends no

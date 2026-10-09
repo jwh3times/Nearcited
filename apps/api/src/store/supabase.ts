@@ -74,10 +74,9 @@ const RESULT_COLUMNS =
 export function createSupabaseStore(db: SupabaseClient): Store {
   return {
     async listOrganizations() {
-      const { data, error } = await db
-        .from("organizations")
-        .select(ORGANIZATION_COLUMNS)
-        .order("created_at");
+      // By membership, not by what the caller can read: the operator can read every organization
+      // and still belongs only to their own.
+      const { data, error } = await db.rpc("my_organizations");
       if (error) fail("List organizations", error);
       return OrganizationSchema.array().parse(data);
     },

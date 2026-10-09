@@ -16,7 +16,8 @@ Nearcited is multi-tenant, and tenant isolation is enforced by Postgres row-leve
 (see `docs/architecture.md`). The reports that matter most are:
 
 - Reading or changing another organization's locations, queries, scans, results or
-  recommendations.
+  recommendations. The operator may read them but not change them; reading them, or the
+  `audits` and `provider_usage` tables, without the operator role is a report.
 - Writing scan results, scores or recommendations as a signed-in user. Only the worker should be
   able to.
 - Granting yourself a platform role, or marking an organization as a test one.
