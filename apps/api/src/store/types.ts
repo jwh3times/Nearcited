@@ -315,6 +315,12 @@ export interface Store {
   getSubscription(organizationId: string): Promise<SubscriptionRecord | null>;
   /** Keeps what the payment provider last said about an organization's subscription. Worker only. */
   recordSubscription(organizationId: string, subscription: SubscriptionRecord): Promise<void>;
+  /**
+   * Claims the thanks for a subscription starting, so it is said once however many times the
+   * provider reports it. True for the first caller for that subscription and false after, and
+   * false for an organization with no subscription kept. Worker only.
+   */
+  claimSubscriptionStart(organizationId: string, subscriptionId: string): Promise<boolean>;
   /** A price change by its ID, open or not. Worker only. */
   getPriceChange(id: string): Promise<PriceChange | null>;
   /**

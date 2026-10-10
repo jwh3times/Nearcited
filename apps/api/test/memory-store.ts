@@ -72,6 +72,8 @@ export interface MemoryDb {
   pastPrices: (PriceVersion & { plan_key: string })[];
   /** What the worker has kept of each organization's subscription, by organization ID. */
   subscriptions: Map<string, SubscriptionRecord>;
+  /** The subscription each organization's owners were last thanked for starting. */
+  welcomed: Map<string, string>;
 }
 
 export interface MemoryAudit extends AuditJob {
@@ -115,6 +117,7 @@ export function createMemoryDb(): MemoryDb {
     limitChangeNotices: [],
     priceChangeNotices: [],
     subscriptions: new Map(),
+    welcomed: new Map(),
   };
 }
 
@@ -251,6 +254,14 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
     async recordSubscription(organizationId, subscription) {
       if (userId !== null) throw new StoreError("forbidden", "worker only");
       db.subscriptions.set(organizationId, { ...subscription });
+    },
+
+    async claimSubscriptionStart(organizationId, subscriptionId) {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      if (!db.subscriptions.has(organizationId)) return false;
+      if (db.welcomed.get(organizationId) === subscriptionId) return false;
+      db.welcomed.set(organizationId, subscriptionId);
+      return true;
     },
 
     async chooseAssistants(id, surfaces) {

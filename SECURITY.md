@@ -28,7 +28,7 @@ Nearcited is multi-tenant, and tenant isolation is enforced by Postgres row-leve
 - Getting past token verification on `/api/*`.
 - Forging the payment webhook: getting `/api/stripe/webhook` to act on a request Stripe did not
   sign, or on a replayed or reordered one. It needs no sign-in and uses the Worker's secret key,
-  so the signature is its only guard.
+  so the signature is its only guard. The same applies to `claim_subscription_start()`, which only the worker may call.
 - Getting a plan without paying for it, or keeping one after the subscription ended: changing an
   organization's plan or limits, or writing `subscriptions`, as a signed-in user. Checkout and
   the billing portal are for an organization's owner only.

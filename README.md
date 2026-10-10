@@ -111,7 +111,7 @@ subscription" (Stripe's pages). A member is told the owner decides. An upgrade i
 at once and the difference charged; a downgrade waits for the end of the paid period.
 
 Scans start from the "Run scan" button or from a daily schedule, and run on a queue. A scheduled
-scan emails its result to the organization's owners. The same queue carries the steps of an
+scan emails its result to the organization's owners. When a subscription starts, the owners are thanked by email once. The same queue carries the steps of an
 announced price change or reduction in a plan's limits, and the daily run queues the reminders, the
 moves and the reductions on their day. Account settings shows anyone in the organization a
 reduction that is coming and when.
@@ -345,7 +345,7 @@ The migrations in `supabase/migrations/` define everything.
 | `price_change_notices` | One row per organization in an announcement: when it was told, reminded, told it was called off, moved, or skipped. Read by the operator; written only by the Worker. |
 | `limit_changes` | One announced reduction per plan: what goes down (each limit's `from` and `to`), the day it is made, and when it was reminded, called off or completed. Read by anyone signed in; written by no API role, only by the operator's functions and the Worker's. |
 | `limit_change_notices` | One row per organization in an announcement: when it was told, reminded, told it was called off. Read by the operator; written only by the Worker. |
-| `subscriptions` | An organization's Stripe customer and subscription IDs and the status Stripe last reported. Written only by the Worker, from the webhook; no API role can write it. The operator reads it directly, an owner through `billing_state()`. |
+| `subscriptions` | An organization's Stripe customer and subscription IDs and the status Stripe last reported. Also the subscription its owners were last thanked for by email. Written only by the Worker, from the webhook; no API role can write it. The operator reads it directly, an owner through `billing_state()`. |
 | `provider_usage` | What the providers used for a scan or audit prompt, per surface and model: calls, input, cached input and output tokens, searches. Outlives the scan, audit or organization it describes. Written only by the Worker; only the operator can read it through the API. Not priced or shown anywhere yet. |
 
 Usage limits are enforced by database triggers, so they hold for the API and for anyone calling

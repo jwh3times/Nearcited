@@ -192,6 +192,14 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
       expect(await worker.getSubscription(fresh.id)).toEqual(kept);
     }
     expect(await aliceStore.getSubscription(fresh.id)).toBeNull();
+    // The thanks for a subscription starting are claimed once for each subscription.
+    expect(await worker.claimSubscriptionStart(fresh.id, "sub_first")).toBe(true);
+    expect(await worker.claimSubscriptionStart(fresh.id, "sub_first")).toBe(false);
+    expect(await worker.claimSubscriptionStart(fresh.id, "sub_second")).toBe(true);
+    await expect(aliceStore.claimSubscriptionStart(fresh.id, "sub_third")).rejects.toMatchObject({
+      kind: "forbidden",
+    });
+    expect(await worker.claimSubscriptionStart(crypto.randomUUID(), "sub_first")).toBe(false);
     expect(await aliceStore.getBillingState(fresh.id)).toMatchObject({
       stripe_customer_id: customer,
       status: "past_due",
