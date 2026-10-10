@@ -1751,6 +1751,33 @@ describe("subscriptions", () => {
     ).rejects.toThrow(/permission denied/);
   });
 
+  it("are claimed for the thanks once each, and only by the worker", async () => {
+    const claim = (subscription: string, role: Role = "service_role", user: string | null = null) =>
+      as(role, user, () =>
+        rows<{ claimed: boolean }>("select public.claim_subscription_start($1, $2) as claimed", [
+          orgId,
+          subscription,
+        ]),
+      );
+    expect(await claim("sub_1")).toEqual([{ claimed: true }]);
+    expect(await claim("sub_1")).toEqual([{ claimed: false }]);
+    expect(await claim("sub_2")).toEqual([{ claimed: true }]);
+    for (const [role, user] of [
+      ["anon", null],
+      ["authenticated", alice],
+      ["authenticated", bob],
+    ] as const) {
+      await expect(claim("sub_3", role, user)).rejects.toThrow(/permission denied/);
+    }
+    // An organization that has never been through checkout has nothing to claim.
+    const none = await as("service_role", null, () =>
+      rows<{ claimed: boolean }>("select public.claim_subscription_start($1, 'sub_1') as claimed", [
+        "00000000-0000-4000-8000-000000000000",
+      ]),
+    );
+    expect(none).toEqual([{ claimed: false }]);
+  });
+
   it("cannot be written through the API, so nobody grants themselves a subscription", async () => {
     for (const sql of [
       "insert into public.subscriptions (organization_id, stripe_customer_id) values ($1, 'cus_mine')",

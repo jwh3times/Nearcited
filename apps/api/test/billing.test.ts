@@ -40,6 +40,9 @@ let changes: {
   items?: BilledItem[];
 }[];
 let cardDeclines: boolean;
+/** The emails the webhook sent. */
+let sent: { to: string[]; subject: string; text: string }[];
+let mailFails: boolean;
 /** The prices the stand-in provider was asked to make. */
 let made: { like: string | null; product_name: string; cents: number }[];
 /** The price change steps put on the queue. */
@@ -94,6 +97,10 @@ const app = createApp({
   publicStore: () => memoryStore(db, "nobody"),
   workerStore: () => memoryStore(db, null),
   payments: () => (configured ? payments : null),
+  sendEmail: async (_env, to, email) => {
+    if (mailFails) throw new Error("The mail service is down.");
+    sent.push({ to, ...email });
+  },
 });
 
 function call(user: string | null, method: string, path: string, body?: unknown) {
@@ -185,6 +192,8 @@ beforeEach(() => {
   configured = true;
   changes = [];
   cardDeclines = false;
+  sent = [];
+  mailFails = false;
   made = [];
   steps = [];
   env = {
@@ -1330,5 +1339,76 @@ describe("lowering what a plan allows", () => {
     });
     expect(response.status).toBe(503);
     expect(db.limitChanges).toEqual([]);
+  });
+});
+
+describe("the thanks for subscribing", () => {
+  it("are sent to the owners once, however often the provider reports the subscription", async () => {
+    const organization = await organizationFor(alice);
+    db.emails.set(alice, "alice@example.com");
+    atProvider.set(
+      "sub_1",
+      subscription(organization.id, {
+        items: [
+          { price_id: "price_standard", quantity: 1 },
+          { price_id: "price_standard_location", quantity: 2 },
+        ],
+      }),
+    );
+    await Promise.all([webhook("sub_1"), webhook("sub_1")]);
+    await webhook("sub_1");
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.to).toEqual(["alice@example.com"]);
+    expect(sent[0]?.subject).toBe("Your Nearcited standard subscription has started");
+    expect(sent[0]?.text).toContain("Raleigh Pizza Group is now on the standard plan.");
+    expect(sent[0]?.text).toContain("Locations: 5");
+    expect(sent[0]?.text).toContain("Price: $50 a month, before tax");
+    expect(sent[0]?.text).toContain("Renews: November 9, 2026");
+    expect(sent[0]?.text).toContain("https://app.example/settings");
+  });
+
+  it("are not said again for a change of plan, a retried payment or the end", async () => {
+    const organization = await organizationFor(alice);
+    db.emails.set(alice, "alice@example.com");
+    atProvider.set("sub_1", subscription(organization.id));
+    await webhook("sub_1");
+    for (const next of [
+      { items: [{ price_id: "price_starter", quantity: 1 }] },
+      { status: "past_due" },
+      { status: "canceled" },
+    ]) {
+      atProvider.set("sub_1", subscription(organization.id, next));
+      await webhook("sub_1");
+    }
+    expect(sent).toHaveLength(1);
+  });
+
+  it("are said again for a new subscription after the last one ended", async () => {
+    const organization = await organizationFor(alice);
+    db.emails.set(alice, "alice@example.com");
+    atProvider.set("sub_1", subscription(organization.id));
+    await webhook("sub_1");
+    atProvider.set("sub_1", subscription(organization.id, { status: "canceled" }));
+    await webhook("sub_1");
+    atProvider.set("sub_2", subscription(organization.id, { id: "sub_2" }));
+    await webhook("sub_2");
+    expect(sent).toHaveLength(2);
+  });
+
+  it("are not sent for a subscription that has not been paid for yet", async () => {
+    const organization = await organizationFor(alice);
+    db.emails.set(alice, "alice@example.com");
+    atProvider.set("sub_1", subscription(organization.id, { status: "incomplete" }));
+    await webhook("sub_1");
+    expect(sent).toHaveLength(0);
+  });
+
+  it("do not fail the webhook when the email cannot be sent", async () => {
+    const organization = await organizationFor(alice);
+    db.emails.set(alice, "alice@example.com");
+    mailFails = true;
+    atProvider.set("sub_1", subscription(organization.id));
+    expect((await webhook("sub_1")).status).toBe(200);
+    expect(current(organization.id)?.plan_key).toBe("standard");
   });
 });

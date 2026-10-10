@@ -280,6 +280,15 @@ export function createSupabaseStore(db: SupabaseClient): Store {
       if (error) fail("Record subscription", error);
     },
 
+    async claimSubscriptionStart(organizationId, subscriptionId) {
+      const { data, error } = await db.rpc("claim_subscription_start", {
+        org: organizationId,
+        subscription: subscriptionId,
+      });
+      if (error) fail("Claim subscription start", error);
+      return z.boolean().parse(data);
+    },
+
     async chooseAssistants(id, surfaces) {
       const { data, error } = await db
         .rpc("choose_assistants", { org: id, chosen: [...surfaces] })

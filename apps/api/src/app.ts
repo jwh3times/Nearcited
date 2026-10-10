@@ -1,9 +1,11 @@
 import { type Rates, toPublicAudit } from "@nearcited/shared";
 import { Hono } from "hono";
 import { type AuthedUser, type Authenticate, authenticateWithSupabase } from "./auth";
+import { thankForSubscription } from "./billing/started";
 import { createStripePayments } from "./billing/stripe";
 import { syncSubscription } from "./billing/sync";
 import { type Payments, SignatureError } from "./billing/types";
+import { type Email, sendEmail } from "./email/report";
 import type { Env } from "./env";
 import { ApiError } from "./errors";
 import { billingRoutes } from "./routes/billing";
@@ -36,6 +38,8 @@ export interface AppDeps {
   workerStore?: (env: Env) => Store;
   /** The payment provider, or null when this deployment has none set up. */
   payments?: (env: Env) => Payments | null;
+  /** Sends an email. The webhook uses it to thank an organization's owners for subscribing. */
+  sendEmail?: (env: Env, to: string[], email: Email) => Promise<void>;
   /**
    * What the operator's view says about this deployment. Passed in by the Worker's entry point,
    * the one place allowed to read the tuning.
@@ -124,6 +128,20 @@ export function createApp(deps: AppDeps = { authenticate: authenticateWithSupaba
       );
       const outcome = await syncSubscription(subscription, store);
       console.log(`Subscription ${subscription.id} ${outcome}`);
+      if (outcome === "applied" && subscription.organization_id) {
+        // The plan is already right, and the provider would only send the news again: an email
+        // that cannot be sent is not a reason to tell it the webhook failed.
+        try {
+          const send = deps.sendEmail ?? sendEmail;
+          await thankForSubscription(subscription.organization_id, subscription, {
+            store,
+            send: (to, email) => send(c.env, to, email),
+            appUrl: c.env.APP_URL,
+          });
+        } catch (error) {
+          console.error(`Thanking for subscription ${subscription.id} failed`, error);
+        }
+      }
     }
     return c.json({ received: true });
   });
