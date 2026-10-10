@@ -141,7 +141,7 @@ Worker imposes, and the known gaps.
 | Assistants | OpenAI's Responses API and Anthropic's Messages API (through its SDK), both with web search |
 | Data and auth | Supabase (Postgres with row-level security, email sign-in) |
 | Email | Resend |
-| Payments | Stripe (Checkout, the billing portal and webhooks), test mode so far |
+| Payments | Stripe (Checkout, the billing portal and webhooks), taking live payments |
 | Tooling | pnpm workspaces, Biome, Vitest |
 
 ## Layout
@@ -528,9 +528,9 @@ pnpm sync:agents
   `claude.ts` in `apps/api/src/providers/`). Perplexity, Gemini and the three Google surfaces
   are not;
   `apps/api/src/providers/live.ts` has notes on what each needs.
-- **Billing, the rest.** A visitor can read the plans, and an owner can subscribe, change plan or
-  the number of locations paid for, and open Stripe's pages from the app. The operator can set a plan's prices and announce a change to current subscribers, who are moved at renewal, and a reduction in a paid plan's limits, made on a named day. Not built in code: going live, which is an operator's cutover from Stripe's test mode to live (`pnpm billing:check` verifies the setup). Limits can still be changed by hand, and the Account settings
-  page shows them without editing them.
+- **Closing an account.** An owner can cancel a subscription on Stripe's pages, which puts the
+  organization back on the free plan. There is no way for an owner to delete the organization
+  ([#104](https://github.com/jwh3times/Nearcited/issues/104)).
 - **Inviting teammates.** The schema and policies support members and roles; there is no API or
   screen for it.
 - **Switching organizations.** A user in several organizations always sees the first.
