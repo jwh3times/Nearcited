@@ -413,7 +413,14 @@ in force (`active`, `trialing`, `past_due`) calls `apply_plan()` for the plan it
 with the locations paid for, and records it in `subscriptions`. One that is over (`canceled`,
 `unpaid`, `incomplete_expired`) moves the organization to the free plan, but only when it is the
 subscription recorded for that organization. A subscription billing a price no plan has is an
-error, so Stripe retries and someone sees it. `subscriptions` has no write grant for any API role;
+error, so Stripe retries and someone sees it. When the outcome is `applied` the route also thanks the
+organization's owners by email (`thankForSubscription`, `apps/api/src/billing/started.ts`): the plan,
+the locations paid for, the monthly price before tax and the renewal day, with a link to settings.
+Stripe reports a new subscription several times close together, so the Worker first calls
+`claim_subscription_start()` (`service_role` only), which sets `subscriptions.welcomed_subscription_id`
+in one statement and answers true to the first caller for a subscription. Only that caller sends. A
+failure to send is logged and does not fail the webhook, and since the claim is made the email is not
+retried. Subscriptions that existed before the column were marked as thanked. `subscriptions` has no write grant for any API role;
 the operator has a `select` policy on it. A test organization cannot subscribe.
 
 **Usage caps live on the organization** (`max_locations`, `max_queries_per_location`,
