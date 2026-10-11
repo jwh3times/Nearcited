@@ -81,6 +81,15 @@ pass `pnpm check` and run in mock mode without it.
   without a `revoke` is open.
 - **Migrations are append-only.** Add a new file in `supabase/migrations`; do not edit one that
   has been applied anywhere.
+- **A migration leaves the running Worker working.** It is applied before the deploy, so the
+  Worker from before it must still work against the database after it. Add a new column first
+  and drop the old one later, once no deployed code reads it. A change that drops something its
+  own code has just stopped using says in the pull request that it is deployed first and
+  migrated second.
+- **An organization's limits come from its plan.** `apply_plan()`, which only the worker calls,
+  copies them from the plan, and the operator's limits editor changes them through its function.
+  Nothing on a request path writes a limit, `plan_key`, `paused_by_plan` or `set_aside_by_plan`.
+  An account has one organization: `create_organization()` refuses a second.
 - **`packages/shared/src/schemas.ts` defines every wire type.** Change the schema first, then the
   API and the client. Field names stay snake_case end to end.
 - **All database access goes through the `Store` interface** (`apps/api/src/store/types.ts`). A

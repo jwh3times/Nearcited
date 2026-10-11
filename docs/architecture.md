@@ -340,9 +340,10 @@ queue consumer: runAuditPart()
   that finished stay and the page keeps showing them; if the missing prompt reports later, the
   audit becomes ready as before.
 - **A revoked audit is skipped.**
-- **No endpoint creates an audit.** A public one would let anyone spend the provider budget, and
-  a signed-in one would have to decide whose budget it was. The owner creates audits with the
-  secret key, from `scripts/create-audit.mjs`.
+- **No public endpoint creates an audit.** One would let anyone spend the provider budget, and
+  a customer's would have to decide whose budget it was. The operator makes one with
+  `POST /api/operator/audits` (see "The operator makes an audit the same way" below), or with the
+  secret key from `scripts/create-audit.mjs`.
 
 **Access is by token through a function, not by row-level security.** An audit belongs to no
 organization, so there is no membership for a policy to test, and the reader has no account. The

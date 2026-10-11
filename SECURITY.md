@@ -16,11 +16,26 @@ Nearcited is multi-tenant, and tenant isolation is enforced by Postgres row-leve
 (see `docs/architecture.md`). The reports that matter most are:
 
 - Reading or changing another organization's locations, queries, scans, results or
-  recommendations. The operator may read them, and may change only an organization's limits and a plan's settings and prices, through `operator_set_limits()`, `operator_set_plan()` and `operator_set_plan_prices()`; reading them, or the
-  `audits` and `provider_usage` tables, without the operator role is a report (`usage_by_month()` adds up `provider_usage`, and getting a
-  row from it without the role counts). So is calling `operator_accounts()`, which lists every account's email and sign-in
-  times, without it, and so is changing limits through `operator_set_limits()`, changing a plan through `operator_set_plan()` or its prices through `operator_set_plan_prices()`, writing `plan_prices`, `price_changes` or `price_change_notices`, announcing or calling off a price change through `operator_announce_price_change()` or `operator_call_off_price_change()`, announcing or calling off a reduction in a plan's limits through `operator_announce_limit_change()` or `operator_call_off_limit_change()`, writing `limit_changes` or `limit_change_notices`, making an audit through
-  `operator_create_audit()` or reading `operator_actions` without it.
+  recommendations.
+- Acting as the operator without the role. The operator may read every organization, and may
+  change only an organization's limits and a plan's settings and prices, each through a function
+  that records it. Without the role, each of these is a report:
+  - reading another organization's rows, the `audits`, `provider_usage` or `operator_actions`
+    tables, or a row from `usage_by_month()`, which adds up `provider_usage`;
+  - calling `operator_accounts()`, which lists every account's email and sign-in times;
+  - calling `operator_set_limits()`, `operator_set_plan()` or `operator_set_plan_prices()`;
+  - announcing or calling off a price change (`operator_announce_price_change()`,
+    `operator_call_off_price_change()`) or a reduction in a plan's limits
+    (`operator_announce_limit_change()`, `operator_call_off_limit_change()`);
+  - writing `plan_prices`, `price_changes`, `price_change_notices`, `limit_changes` or
+    `limit_change_notices`;
+  - making an audit through `operator_create_audit()`.
+- Changing what an organization's plan allows from a member's request: calling `apply_plan()` or
+  `fit_to_plan()`, or writing a limit, `plan_key`, `paused_by_plan` or `set_aside_by_plan`
+  directly.
+- Getting `choose_assistants()` or `activate_location()` to act on an organization the caller
+  does not belong to.
+- Getting a second organization on one account, or deleting or moving an organization.
 - Writing scan results, scores or recommendations as a signed-in user. Only the worker should be
   able to.
 - Granting yourself a platform role, or marking an organization as a test one.
@@ -37,8 +52,9 @@ Nearcited is multi-tenant, and tenant isolation is enforced by Postgres row-leve
 - Moving a subscription to a higher price without its owners having been told at least thirty
   days before.
 - Reading a shareable audit without its link, or after it was revoked or expired; listing audits;
-  or creating one. `/api/audits/:token` is the one data route that needs no sign-in, and the
-  token in the link is the only key to it.
+  or creating one. `/api/audits/:token` is the one route that gives out an organization's data
+  with no sign-in, and the token in the link is the only key to it. `/api/plans` needs no sign-in
+  either: it is the price list, and holds nothing that belongs to a tenant.
 
 ## Supported versions
 

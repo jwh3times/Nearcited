@@ -94,14 +94,15 @@ locations page is a table of score, change, rate per assistant, top competitor a
 built from each location's own endpoints. The location page has tabs (Overview, Prompts, Sources,
 Website, Answers, Settings); ticking a step of the action plan is remembered in the browser only.
 An Account settings page, linked from the sidebar, renames the organization and shows what its
-plan allows, read-only, and the scans run by hand this month. It links to the plans, and the
+plan allows, which is not edited there, and the scans run by hand this month. On a plan that
+checks one assistant the owner chooses which. It links to the plans, and the
 owner of an organization that has been through checkout sees what is paid for (plan, locations,
 when it renews), a change waiting for the end of the period with "Keep my current plan", a link to
 "Change plan or locations", a "Manage billing" button (Stripe's pages, for payment method,
 invoices and cancelling only), a warning while a payment is being retried or after a subscription
 ended, and a thank-you on return from checkout that waits for the plan to move, and, for a subscriber not yet
-moved, the new amount and from when after an announced price change. A new user is walked through four steps, and nothing is created until the
-last. The privacy policy (`/privacy`), the terms of service (`/terms`), a page describing the
+moved, the new amount and from when after an announced price change. A new user is walked through four steps (organization, location, prompts, first scan), and nothing is created until the
+last. The prompts step says how many the free plan tracks and takes them from the suggestions or in the owner's own words. The privacy policy (`/privacy`), the terms of service (`/terms`), a page describing the
 crawler (`/bot`) and the plans (`/pricing`) are readable without signing in. A visitor who
 chooses a plan signs in and is brought back to `/pricing?plan=<key>`; an owner with no
 subscription goes on to Stripe's checkout from there, a subscriber gets a location stepper
@@ -346,7 +347,7 @@ The migrations in `supabase/migrations/` define everything.
 | `limit_changes` | One announced reduction per plan: what goes down (each limit's `from` and `to`), the day it is made, and when it was reminded, called off or completed. Read by anyone signed in; written by no API role, only by the operator's functions and the Worker's. |
 | `limit_change_notices` | One row per organization in an announcement: when it was told, reminded, told it was called off. Read by the operator; written only by the Worker. |
 | `subscriptions` | An organization's Stripe customer and subscription IDs and the status Stripe last reported. Also the subscription its owners were last thanked for by email. Written only by the Worker, from the webhook; no API role can write it. The operator reads it directly, an owner through `billing_state()`. |
-| `provider_usage` | What the providers used for a scan or audit prompt, per surface and model: calls, input, cached input and output tokens, searches. Outlives the scan, audit or organization it describes. Written only by the Worker; only the operator can read it through the API. Not priced or shown anywhere yet. |
+| `provider_usage` | What the providers used for a scan or audit prompt, per surface and model: calls, input, cached input and output tokens, searches. Outlives the scan, audit or organization it describes. Written only by the Worker; only the operator can read it through the API. `GET /api/operator/spend` prices it and the operator's view shows it. |
 
 Usage limits are enforced by database triggers, so they hold for the API and for anyone calling
 the database directly. Going over one returns 409 `limit_reached` with a message that names the
