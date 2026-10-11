@@ -1,6 +1,7 @@
 import { hostOf, normalizeName } from "./analysis";
 import type { Action, SiteCheck, SiteCheckId, SourceSummary } from "./schemas";
 import { SITE_CHECKS } from "./site";
+import { belongsTo, unnamedSources } from "./sources";
 
 /**
  * The action plan: what the evidence says to do next, in order.
@@ -32,8 +33,6 @@ export interface ActionPlanInput {
 
 /** Fewer answers than this say too little to call the business's own site unread. */
 const MIN_ANSWERS_FOR_OWN_SITE = 4;
-/** A site has to be cited this often before the plan sends anyone to it. */
-const MIN_SOURCE_ANSWERS = 2;
 const MAX_ITEMS = 5;
 /** The failed checks that mean a crawler gets nothing from the page. */
 const BLOCKS_READING: ReadonlySet<SiteCheckId> = new Set([
@@ -61,19 +60,6 @@ export function tallyNames(counts: readonly NameCount[], limit?: number): NameCo
   return [...tally.values()]
     .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
     .slice(0, limit);
-}
-
-const compact = (value: string) => normalizeName(value).replaceAll(" ", "");
-
-/**
- * Whether a site looks like a named business's own: its address contains the name run together,
- * as "theedigital.com" does for "TheeDigital". A guess, used only to avoid telling someone to get
- * listed on a competitor's website. Short names are never matched.
- */
-function belongsTo(host: string, name: string): boolean {
-  const needle = compact(name);
-  if (needle.length < 6) return false;
-  return compact(host.split(".").slice(0, -1).join(" ")).includes(needle);
 }
 
 const plural = (count: number, one: string, many: string) => (count === 1 ? one : many);
@@ -148,16 +134,15 @@ function websiteAction(input: ActionPlanInput): Action | null {
 export function buildActionPlan(input: ActionPlanInput): Action[] {
   const actions: Action[] = [];
   const competitors = tallyNames(input.competitors);
+  const names = input.competitors.map(({ name }) => name);
   const others = input.sources.filter(
-    (source) => !source.own && !competitors.some(({ name }) => belongsTo(source.host, name)),
+    (source) => !source.own && !names.some((name) => belongsTo(source.host, name)),
   );
 
   const website = websiteAction(input);
   if (website) actions.push(website);
 
-  const missing = others
-    .filter((source) => source.named === 0 && source.answers >= MIN_SOURCE_ANSWERS)
-    .slice(0, MAX_ITEMS);
+  const missing = unnamedSources(input.sources, names);
   if (missing.length > 0) {
     actions.push({
       id: "get_listed",

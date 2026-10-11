@@ -178,6 +178,9 @@ const LOCATION_COLUMNS =
 const SCAN_COLUMNS =
   "id, location_id, status, trigger, visibility_score, error, sample_data, created_at, started_at, finished_at";
 
+const RECOMMENDATION_COLUMNS =
+  "id, location_id, scan_id, rule, title, detail, status, acted_at, created_at";
+
 const RESULT_COLUMNS =
   "id, scan_id, tracked_query_id, surface, mentioned, position, competitors, cited_urls, answer_excerpt, sampled_at";
 
@@ -849,10 +852,41 @@ export function createSupabaseStore(db: SupabaseClient): Store {
       return ids.map((id) => results.filter((result) => result.scan_id === id));
     },
 
+    async listResultsAround(locationId, at, scansBefore, scansSince, sampleData) {
+      const scansOn = (side: "before" | "since") => {
+        const query = db
+          .from("scans")
+          .select("id")
+          .eq("location_id", locationId)
+          .eq("status", "succeeded")
+          .eq("sample_data", sampleData);
+        return (side === "before" ? query.lt("created_at", at) : query.gte("created_at", at))
+          .order("created_at", { ascending: false })
+          .limit(side === "before" ? scansBefore : scansSince);
+      };
+      const [before, since] = await Promise.all([scansOn("before"), scansOn("since")]);
+      if (before.error) fail("List scans before", before.error);
+      if (since.error) fail("List scans since", since.error);
+      const idsOf = (rows: { id: unknown }[] | null) => (rows ?? []).map((scan) => String(scan.id));
+      const ids = { before: idsOf(before.data), since: idsOf(since.data) };
+      const all = [...ids.before, ...ids.since];
+      if (all.length === 0) return { before: [], since: [] };
+
+      const { data, error } = await db
+        .from("scan_results")
+        .select(RESULT_COLUMNS)
+        .in("scan_id", all);
+      if (error) fail("List results around", error);
+      const results = ScanResultSchema.array().parse(data);
+      const byScan = (scans: string[]) =>
+        scans.map((id) => results.filter((result) => result.scan_id === id));
+      return { before: byScan(ids.before), since: byScan(ids.since) };
+    },
+
     async listRecommendations(locationId) {
       const { data, error } = await db
         .from("recommendations")
-        .select("id, location_id, scan_id, rule, title, detail, status, created_at")
+        .select(RECOMMENDATION_COLUMNS)
         .eq("location_id", locationId)
         .order("created_at");
       if (error) fail("List recommendations", error);
@@ -864,9 +898,21 @@ export function createSupabaseStore(db: SupabaseClient): Store {
         .from("recommendations")
         .update({ status })
         .eq("id", id)
-        .select("id, location_id, scan_id, rule, title, detail, status, created_at")
+        .select(RECOMMENDATION_COLUMNS)
         .maybeSingle();
       if (error) fail("Update recommendation", error);
+      return data ? RecommendationSchema.parse(data) : null;
+    },
+
+    async setRecommendationActed(id, acted) {
+      const { data, error } = await db
+        .from("recommendations")
+        // The database replaces the time with its own; null takes the mark back.
+        .update({ acted_at: acted ? new Date().toISOString() : null })
+        .eq("id", id)
+        .select(RECOMMENDATION_COLUMNS)
+        .maybeSingle();
+      if (error) fail("Mark recommendation", error);
       return data ? RecommendationSchema.parse(data) : null;
     },
 

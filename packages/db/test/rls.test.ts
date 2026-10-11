@@ -410,6 +410,48 @@ describe("worker functions", () => {
     ).rejects.toThrow(/permission denied/);
   });
 
+  it("lets a member say the work was done, at the database's time, and nobody else", async () => {
+    const acted = async () =>
+      (
+        await rows<{ acted_at: Date | null }>(
+          "select acted_at from public.recommendations where location_id = $1 and rule = 'add_website'",
+          [locationId],
+        )
+      )[0]?.acted_at ?? null;
+    const mark = (who: string, value: string) =>
+      as("authenticated", who, () =>
+        db.query(
+          `update public.recommendations set acted_at = ${value} where location_id = $1 and rule = 'add_website'`,
+          [locationId],
+        ),
+      );
+
+    // A non-member's update finds no row.
+    await mark(bob, "now()");
+    expect(await acted()).toBeNull();
+
+    // A member cannot choose the day: whatever is sent, the time is now.
+    await mark(alice, "'2020-01-01T00:00:00Z'");
+    const stamped = await acted();
+    expect(stamped).not.toBeNull();
+    expect(Date.now() - (stamped?.getTime() ?? 0)).toBeLessThan(60_000);
+
+    // A scan leaves it alone, whether the rule fires again or has stopped.
+    for (const rules of [["add_website"], []]) {
+      await as("service_role", null, () =>
+        db.query("select public.complete_scan($1, 0, $2::jsonb, $3::jsonb)", [
+          scanId,
+          results(false),
+          JSON.stringify(rules.map(recommendation)),
+        ]),
+      );
+      expect((await acted())?.getTime()).toBe(stamped?.getTime());
+    }
+
+    await mark(alice, "null");
+    expect(await acted()).toBeNull();
+  });
+
   it("resolves rules that stop firing, reopens ones that fire again, and keeps dismissals", async () => {
     const statuses = async () =>
       Object.fromEntries(

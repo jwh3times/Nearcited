@@ -181,7 +181,7 @@ describe("the listings steps", () => {
     ).toEqual(["Mythos Interactive", "Big Pixel", "Centerline"]);
   });
 
-  it("lists at most five sites and three competitors", () => {
+  it("lists at most three sites to get listed on and three competitors", () => {
     const many = Array.from({ length: 8 }, (_, index) =>
       source(`dir${index}.example`, 9 - index, 0),
     );
@@ -189,7 +189,7 @@ describe("the listings steps", () => {
       sources: many,
       competitors: ["A", "B", "C", "D"].map((name, index) => ({ name, count: 9 - index })),
     });
-    expect(actions.find((action) => action.id === "get_listed")?.items).toHaveLength(5);
+    expect(actions.find((action) => action.id === "get_listed")?.items).toHaveLength(3);
     expect(actions.find((action) => action.id === "competitors")?.items).toHaveLength(3);
   });
 });

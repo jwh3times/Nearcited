@@ -1028,6 +1028,7 @@ describe("recommendations", () => {
       title: "Add the website",
       detail: "Detail",
       status: "open",
+      acted_at: null,
       created_at: "2026-10-01T00:00:00Z",
     });
 
@@ -1040,6 +1041,106 @@ describe("recommendations", () => {
     const response = await call(alice, "PATCH", `/recommendations/${id}`, { status: "done" });
     expect(response.status).toBe(200);
     expect(db.recommendations[0]?.status).toBe("done");
+  });
+});
+
+describe("tasks", () => {
+  const yelp = { rule: "source:yelp.com", title: "Check your listing", detail: "Detail" };
+
+  /** Runs one scan whose single answer cited yelp.com, and named the business or did not. */
+  async function scanOnce(locationId: string, queryId: string, mentioned: boolean, fires = true) {
+    const worker = memoryStore(db, null);
+    const scan = await worker.createScan(locationId, "scheduled", null);
+    await worker.markScanRunning(scan.id, true);
+    await worker.completeScan(scan.id, {
+      score: 0,
+      results: [
+        {
+          tracked_query_id: queryId,
+          surface: "chatgpt",
+          mentioned,
+          position: null,
+          competitors: [],
+          cited_urls: ["https://www.yelp.com/biz/somewhere"],
+          answer_excerpt: null,
+        },
+      ],
+      recommendations: fires ? [yelp] : [],
+    });
+  }
+  const tasksOf = async (locationId: string) =>
+    LocationDetailSchema.parse(await (await call(alice, "GET", `/locations/${locationId}`)).json())
+      .tasks;
+
+  it("gives a task for a source the answers read without naming the business", async () => {
+    const { location, query } = await seed();
+    await scanOnce(location.id, query.id, false);
+    await scanOnce(location.id, query.id, false);
+
+    const [task] = await tasksOf(location.id);
+    expect(task).toMatchObject({
+      host: "yelp.com",
+      kind: "reviews_unasked",
+      url: "https://www.yelp.com/biz/somewhere",
+      open: true,
+      acted_at: null,
+      before: null,
+      since: null,
+    });
+  });
+
+  it("lets a member mark it done, and shows the scans before beside the scans since", async () => {
+    const { location, query } = await seed();
+    await scanOnce(location.id, query.id, false);
+    await scanOnce(location.id, query.id, false);
+    const [task] = await tasksOf(location.id);
+    if (!task) throw new Error("no task");
+
+    expect((await call(bob, "PATCH", `/recommendations/${task.id}`, { acted: true })).status).toBe(
+      404,
+    );
+    expect((await call(alice, "PATCH", `/recommendations/${task.id}`, {})).status).toBe(422);
+    const marked = await call(alice, "PATCH", `/recommendations/${task.id}`, { acted: true });
+    expect(marked.status).toBe(200);
+    expect(await tasksOf(location.id)).toMatchObject([
+      { before: { answers: 2, named: 0 }, since: { answers: 0, named: 0 } },
+    ]);
+
+    // Later scans leave the mark where it was put, whether the rule still fires or has stopped.
+    await scanOnce(location.id, query.id, false);
+    await scanOnce(location.id, query.id, true, false);
+    const [after] = await tasksOf(location.id);
+    expect(after).toMatchObject({
+      id: task.id,
+      open: false,
+      before: { answers: 2, named: 0 },
+      since: { answers: 2, named: 1 },
+    });
+    expect(after?.acted_at).not.toBeNull();
+  });
+
+  it("lets the mark be taken back", async () => {
+    const { location, query } = await seed();
+    await scanOnce(location.id, query.id, false);
+    const [task] = await tasksOf(location.id);
+    if (!task) throw new Error("no task");
+
+    await call(alice, "PATCH", `/recommendations/${task.id}`, { acted: true });
+    const undone = await call(alice, "PATCH", `/recommendations/${task.id}`, { acted: false });
+    expect(undone.status).toBe(200);
+    expect(await tasksOf(location.id)).toMatchObject([
+      { acted_at: null, before: null, since: null },
+    ]);
+  });
+
+  it("has none for a dismissed recommendation", async () => {
+    const { location, query } = await seed();
+    await scanOnce(location.id, query.id, false);
+    const [task] = await tasksOf(location.id);
+    if (!task) throw new Error("no task");
+
+    await call(alice, "PATCH", `/recommendations/${task.id}`, { status: "dismissed" });
+    expect(await tasksOf(location.id)).toEqual([]);
   });
 });
 

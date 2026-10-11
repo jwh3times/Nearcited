@@ -203,6 +203,8 @@ export const RecommendationSchema = z.object({
   title: z.string(),
   detail: z.string(),
   status: RecommendationStatusSchema,
+  /** When a member said they did the work. A scan never changes it. */
+  acted_at: Timestamp.nullable(),
   created_at: Timestamp,
 });
 export type Recommendation = z.infer<typeof RecommendationSchema>;
@@ -847,9 +849,15 @@ export const TrackedQueryUpdateSchema = z.object({
 });
 export type TrackedQueryUpdate = z.output<typeof TrackedQueryUpdateSchema>;
 
-export const RecommendationUpdateSchema = z.object({
-  status: RecommendationStatusSchema,
-});
+/** One or both: the status, and whether the member has done the work. */
+export const RecommendationUpdateSchema = z
+  .object({
+    status: RecommendationStatusSchema.optional(),
+    acted: z.boolean().optional(),
+  })
+  .refine((update) => update.status !== undefined || update.acted !== undefined, {
+    message: "Give a status, or say whether the work was done.",
+  });
 export type RecommendationUpdate = z.output<typeof RecommendationUpdateSchema>;
 
 // ---------------------------------------------------------------------------
@@ -953,6 +961,50 @@ export const ActionSchema = z.object({
 });
 export type Action = z.infer<typeof ActionSchema>;
 
+/**
+ * What sort of site a source is, which decides what an owner can usefully do about it. `reviews`
+ * lets a business ask its customers for reviews and `reviews_unasked` forbids it. `unknown` is a
+ * site on no list, which is most of them.
+ */
+export const SOURCE_KINDS = [
+  "reviews",
+  "reviews_unasked",
+  "directory",
+  "editorial",
+  "unknown",
+] as const;
+export const SourceKindSchema = z.enum(SOURCE_KINDS);
+export type SourceKind = z.infer<typeof SourceKindSchema>;
+
+/** Of the answers that cited a site, how many named the business. */
+export const NamedCountSchema = z.object({
+  answers: z.number().int().nonnegative(),
+  named: z.number().int().nonnegative(),
+});
+export type NamedCount = z.infer<typeof NamedCountSchema>;
+
+/** One piece of work for an owner, because of one source. Composed by rule, never by a model. */
+export const TaskSchema = z.object({
+  /** The recommendation the task stands on, which is what marking it done updates. */
+  id: Id,
+  host: z.string(),
+  kind: SourceKindSchema,
+  title: z.string(),
+  /** The observation the task rests on, with its counts. */
+  summary: z.string(),
+  /** What to do, for a site of this kind. */
+  detail: z.string(),
+  /** The page of the site an answer cited most, when the window still has one. */
+  url: z.string().nullable(),
+  /** False once the rule stopped firing for the site. */
+  open: z.boolean(),
+  acted_at: Timestamp.nullable(),
+  /** Counted over the scans before `acted_at` and over those since. Null until it is marked. */
+  before: NamedCountSchema.nullable(),
+  since: NamedCountSchema.nullable(),
+});
+export type Task = z.infer<typeof TaskSchema>;
+
 export const LocationDetailSchema = z.object({
   location: LocationSchema,
   queries: z.array(TrackedQuerySchema),
@@ -965,6 +1017,8 @@ export const LocationDetailSchema = z.object({
   site: SiteCheckSchema.nullable(),
   /** What the evidence in the window says to do next, most direct first. */
   actions: z.array(ActionSchema),
+  /** The work that follows from the sources, with whether it has been done and what moved. */
+  tasks: z.array(TaskSchema),
 });
 export type LocationDetail = z.infer<typeof LocationDetailSchema>;
 

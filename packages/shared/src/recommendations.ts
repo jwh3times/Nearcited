@@ -8,7 +8,7 @@ import {
 } from "./schemas";
 import { summarizeBySurface } from "./scoring";
 import { SITE_CHECKS } from "./site";
-import { summarizeSources } from "./sources";
+import { summarizeSources, unnamedSources } from "./sources";
 
 export interface DerivedRecommendation {
   /** Stable key. One open recommendation per rule per location. */
@@ -30,10 +30,6 @@ interface ResultFacts {
   cited_urls?: readonly string[];
 }
 
-/** A site has to be cited this often before it is worth a recommendation. */
-const MIN_SOURCE_ANSWERS = 2;
-/** At most this many sites are recommended at once, most cited first. */
-const MAX_SOURCE_RECOMMENDATIONS = 3;
 /** Fewer answers than this say too little to call the business's own site unread. */
 const MIN_ANSWERS_FOR_OWN_SITE = 4;
 
@@ -63,7 +59,8 @@ function mostNamed(results: readonly ResultFacts[], limit: number): string[] {
  *   The second is raised only once a scan has checked Google, the one place the ID is used.
  * - `absent:<surface>`: clears when any check on that surface names the business.
  * - `source:<host>`: a site the answers keep citing, where no answer that cited it named the
- *   business. Clears when an answer that cites the site names the business.
+ *   business, and which does not look like a competitor's own. Clears when an answer that cites
+ *   the site names the business.
  * - `own_site_uncited`: no answer cited the business's own website. Clears when one does.
  * - `site:<check>`: the on-page check of the business's home page found something an assistant
  *   cannot read past. Clears when the next scan's fetch of the page passes that check. `site` is
@@ -119,9 +116,8 @@ export function deriveRecommendations(
     .map((result) => ({ mentioned: result.mentioned, cited_urls: result.cited_urls ?? [] }));
   const sources = summarizeSources(answers, location.website, Number.POSITIVE_INFINITY);
 
-  for (const source of sources
-    .filter((site) => !site.own && site.named === 0 && site.answers >= MIN_SOURCE_ANSWERS)
-    .slice(0, MAX_SOURCE_RECOMMENDATIONS)) {
+  const competitors = results.flatMap((result) => result.competitors);
+  for (const source of unnamedSources(sources, competitors)) {
     recommendations.push({
       rule: `source:${source.host}`,
       title: `Check your listing on ${source.host}`,

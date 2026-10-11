@@ -6,6 +6,7 @@ import {
   onPlan,
   signIn,
   withScannedLocation,
+  withUnnamedSource,
 } from "../support/account";
 
 let account: Account;
@@ -108,6 +109,25 @@ test("ticks a step of the plan off, and remembers it in this browser", async ({ 
   await expect(page.getByText(/^1 of \d+ done$/)).toBeVisible();
   await page.reload();
   await expect(page.getByText(/^1 of \d+ done$/)).toBeVisible();
+});
+
+test("marks a task done, keeps that with the location, and takes it back", async ({ page }) => {
+  await withUnnamedSource(locationPath.replace("/locations/", ""), "yelp.com");
+  await signIn(page, account, locationPath);
+  const task = page
+    .getByRole("listitem")
+    .filter({ hasText: "Claim and complete your listing on yelp.com" });
+  await expect(task).toBeVisible();
+
+  await task.getByRole("button", { name: "Mark done" }).click();
+  await expect(task.getByText(/^Marked done /)).toContainText("Since: too early to say.");
+
+  // It is kept with the location, not in this browser.
+  await page.reload();
+  await expect(task.getByText(/^Marked done /)).toBeVisible();
+  await task.getByRole("button", { name: "Undo" }).click();
+  await expect(task.getByText(/^Marked done /)).toHaveCount(0);
+  await expect(task.getByRole("button", { name: "Mark done" })).toBeVisible();
 });
 
 test("opens the menu on a phone, and stacks the tables @phone", async ({ page }) => {

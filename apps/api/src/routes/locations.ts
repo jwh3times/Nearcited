@@ -1,9 +1,11 @@
 import {
   ActivateLocationSchema,
   buildActionPlan,
+  buildTasks,
   CITING_SURFACES,
   type LocationDetail,
   LocationInputSchema,
+  MAX_SCANS_SINCE,
   poolWindow,
   RecommendationUpdateSchema,
   SCAN_WINDOW,
@@ -11,6 +13,7 @@ import {
   scansCounted,
   summarizeSources,
   summarizeWindow,
+  type TaskEvidence,
   TrackedQueryInputSchema,
   TrackedQueryUpdateSchema,
 } from "@nearcited/shared";
@@ -52,6 +55,32 @@ locationRoutes.get("/locations/:id", async (c) => {
   // Every site, so the plan never calls the business's own site uncited because a list was cut.
   const sources = summarizeSources(answers, location.website, Number.POSITIVE_INFINITY);
 
+  // For each recommendation a member marked, the answers either side of the mark. They are
+  // read separately from the window: the window moves on, and the mark stays where it was put.
+  const citing = (scans: Awaited<typeof recent>) =>
+    scans.flat().filter((result) => CITING_SURFACES.includes(result.surface));
+  const evidence = new Map<string, TaskEvidence>(
+    await Promise.all(
+      recommendations
+        .filter(
+          (recommendation) => recommendation.acted_at && recommendation.status !== "dismissed",
+        )
+        .map(async (recommendation) => {
+          const around = await store.listResultsAround(
+            location.id,
+            recommendation.acted_at ?? "",
+            SCAN_WINDOW,
+            MAX_SCANS_SINCE,
+            sample,
+          );
+          return [
+            recommendation.id,
+            { before: citing(around.before), since: citing(around.since) },
+          ] as const;
+        }),
+    ),
+  );
+
   const detail: LocationDetail = {
     location,
     queries,
@@ -79,6 +108,13 @@ locationRoutes.get("/locations/:id", async (c) => {
       organization?.surfaces ?? null,
     ),
     recommendations,
+    tasks: buildTasks({
+      name: location.name,
+      recommendations,
+      sources,
+      answers: answers.length,
+      evidence,
+    }),
   };
   return c.json(detail);
 });
@@ -138,9 +174,15 @@ locationRoutes.patch("/queries/:id", async (c) => {
 });
 
 locationRoutes.patch("/recommendations/:id", async (c) => {
+  const store = c.get("store");
   const id = uuidParam(c, "id", "Recommendation");
-  const { status } = await parseJson(c, RecommendationUpdateSchema);
-  const updated = await c.get("store").setRecommendationStatus(id, status);
+  const { status, acted } = await parseJson(c, RecommendationUpdateSchema);
+  let updated = null;
+  if (acted !== undefined) {
+    updated = await store.setRecommendationActed(id, acted);
+    if (!updated) throw notFound("Recommendation");
+  }
+  if (status !== undefined) updated = await store.setRecommendationStatus(id, status);
   if (!updated) throw notFound("Recommendation");
   return c.json(updated);
 });

@@ -1,4 +1,4 @@
-import { hostOf, hostsMatch } from "./analysis";
+import { hostOf, hostsMatch, normalizeName } from "./analysis";
 import type { SourceSummary } from "./schemas";
 
 /**
@@ -21,6 +21,48 @@ export interface SourcedAnswer {
 export const MAX_SOURCES = 12;
 /** How many of a site's pages are kept, most cited first. */
 export const MAX_SOURCE_URLS = 3;
+
+/** A site has to be cited this often before anyone is sent to it. */
+export const MIN_SOURCE_ANSWERS = 2;
+/** At most this many sites are worked on at once, most cited first. */
+export const MAX_UNNAMED_SOURCES = 3;
+
+const compact = (value: string) => normalizeName(value).replaceAll(" ", "");
+
+/**
+ * Whether a site looks like a named business's own: its address contains the name run together,
+ * as "theedigital.com" does for "TheeDigital", or "oak-ember.com" for "Oak & Ember". A guess,
+ * used only to avoid telling someone to get listed on a competitor's website. Short names are
+ * never matched.
+ */
+export function belongsTo(host: string, name: string): boolean {
+  const address = compact(host.split(".").slice(0, -1).join(" "));
+  // An address usually drops the "and" a name spells out or writes as "&".
+  return [name, name.replace(/&|\band\b/gi, " ")]
+    .map(compact)
+    .some((needle) => needle.length >= 6 && address.includes(needle));
+}
+
+/**
+ * The sites to work on: read for answers that never named the business, and not the business's
+ * own or one that looks like a competitor's. `sources` is most cited first, as `summarizeSources`
+ * returns it. The recommendation rule and the action plan both choose with this, so the page and
+ * the stored recommendations name the same sites.
+ */
+export function unnamedSources(
+  sources: readonly SourceSummary[],
+  competitors: readonly string[],
+): SourceSummary[] {
+  return sources
+    .filter(
+      (source) =>
+        !source.own &&
+        source.named === 0 &&
+        source.answers >= MIN_SOURCE_ANSWERS &&
+        !competitors.some((name) => belongsTo(source.host, name)),
+    )
+    .slice(0, MAX_UNNAMED_SOURCES);
+}
 
 const isWebLink = (url: string) => /^https?:\/\//i.test(url);
 

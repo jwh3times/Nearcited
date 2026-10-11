@@ -1086,6 +1086,16 @@ button.go {
   color: var(--muted);
 }
 
+.task-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.also .task-proof {
+  color: var(--ink);
+}
+
 .also .row-actions {
   display: flex;
   align-items: center;
