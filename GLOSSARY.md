@@ -19,6 +19,16 @@ system works; this file only settles vocabulary.
   `docs/architecture.md`.
 - **Action plan**: the ordered steps shown as "What to do next", composed by rule from the sources
   and the on-page check. A step states an observation; it does not promise a result.
+- **Source kind**: what sort of site a source is, which decides what an owner can usefully do
+  about it: a review platform that lets a business ask for reviews, one that forbids it, a
+  directory, or an editorial page.
+- **Task**: one piece of work handed to an owner because of one source, sized to finish in about
+  fifteen minutes and marked done by the owner. A step of the action plan states an observation;
+  a task is the work that follows from it. See
+  `docs/adr/0010-the-product-drafts-and-the-owner-acts.md`.
+- **Draft**: text a model wrote for an owner to send or publish themselves, labelled as such. The
+  only thing a model writes. Never a measurement, a step or a recommendation, and never sent by
+  the product.
 - **Organization role**: what a person may do inside one organization: owner, admin or member.
   Whoever creates an organization is its owner. It says nothing about the product as a whole.
 - **Platform role**: what an account is to Nearcited itself, apart from any organization. Most
