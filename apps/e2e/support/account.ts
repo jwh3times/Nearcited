@@ -116,6 +116,19 @@ export async function onPlan(organizationId: string, plan: string): Promise<void
   await asWorker("rpc/apply_plan", { org: organizationId, plan });
 }
 
+/**
+ * Gives a location a source its answers read without naming it, as a scan's rule would. The
+ * sample data has none, and a task stands on one. Local stack only.
+ */
+export async function withUnnamedSource(locationId: string, host: string): Promise<void> {
+  await asWorker("recommendations", {
+    location_id: locationId,
+    rule: `source:${host}`,
+    title: `Check your listing on ${host}`,
+    detail: "Detail",
+  });
+}
+
 /** Writes a row with the secret key. Never against a deployment: its data is not a test's. */
 async function asWorker(table: string, row: unknown): Promise<void> {
   if (process.env.E2E_APP_URL) throw new Error("Tests do not write to a deployment's database.");

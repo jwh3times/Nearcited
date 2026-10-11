@@ -275,11 +275,29 @@ export interface Store {
   getLatestMadeLimitChange(planKey: string): Promise<LimitChange | null>;
   listLimitChangeNotices(limitChangeId: string): Promise<LimitChangeNotice[]>;
 
+  /**
+   * A location's successful scans either side of a moment: the last `scansBefore` created before
+   * it, and those created since, at most `scansSince` of the newest. One array per scan, newest
+   * first, and only scans of the given kind.
+   */
+  listResultsAround(
+    locationId: string,
+    at: string,
+    scansBefore: number,
+    scansSince: number,
+    sampleData: boolean,
+  ): Promise<{ before: ScanResult[][]; since: ScanResult[][] }>;
+
   /** The on-page check from a location's latest successful scan, or null when it made none. */
   getSiteCheck(locationId: string): Promise<SiteCheck | null>;
 
   listRecommendations(locationId: string): Promise<Recommendation[]>;
   setRecommendationStatus(id: string, status: RecommendationStatus): Promise<Recommendation | null>;
+  /**
+   * Records that a member did the work a recommendation points at, or takes that back. The time
+   * is the database's. Null when the caller cannot see the recommendation.
+   */
+  setRecommendationActed(id: string, acted: boolean): Promise<Recommendation | null>;
 
   /**
    * A shareable audit by the token in its link, or null when there is none, or it has been

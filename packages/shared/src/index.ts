@@ -8,6 +8,8 @@ export * from "./recommendations";
 export * from "./schemas";
 export * from "./scoring";
 export * from "./site";
+export * from "./source-kinds";
 export * from "./sources";
 export * from "./spend";
+export * from "./tasks";
 export * from "./tuning";

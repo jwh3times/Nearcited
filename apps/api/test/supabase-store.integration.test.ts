@@ -456,6 +456,26 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
     if (!recommendation) throw new Error("recommendation missing");
     expect(await bobStore.listRecommendations(location.id)).toEqual([]);
     expect(await bobStore.setRecommendationStatus(recommendation.id, "done")).toBeNull();
+    // Marking the work done: the database sets the time, whatever the request sent, and the
+    // scan that was made before the mark is on its far side.
+    expect(await bobStore.setRecommendationActed(recommendation.id, true)).toBeNull();
+    const acted = await aliceStore.setRecommendationActed(recommendation.id, true);
+    expect(acted?.acted_at).not.toBeNull();
+    const around = await aliceStore.listResultsAround(
+      location.id,
+      acted?.acted_at ?? "",
+      7,
+      60,
+      false,
+    );
+    expect(around.before.flat().length + around.since.flat().length).toBeGreaterThan(0);
+    expect(around.since).toEqual([]);
+    expect(
+      await bobStore.listResultsAround(location.id, acted?.acted_at ?? "", 7, 60, false),
+    ).toEqual({ before: [], since: [] });
+    expect(await aliceStore.setRecommendationActed(recommendation.id, false)).toMatchObject({
+      acted_at: null,
+    });
     expect(await aliceStore.setRecommendationStatus(recommendation.id, "dismissed")).toMatchObject({
       id: recommendation.id,
       status: "dismissed",

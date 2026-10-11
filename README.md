@@ -83,7 +83,8 @@ The location page and the audit turn all of that into an action plan, "What to d
 what keeps the website from being read, get listed on the sites the assistants read without
 naming the business, keep the listings that did lead to its name accurate, and see who is
 recommended instead. Every step is composed by rule from the counts and checks above and says
-which; none is written by a model.
+which; none is written by a model. On the Overview tab the sites to get listed on also appear as
+tasks the owner can mark done, with the answers that cited the site before beside those since.
 How often a location is scanned, and on which assistants, are settings on its organization.
 
 The location page charts the score over time, and each cell of the results grid carries a strip
@@ -313,13 +314,13 @@ organization reads as missing and returns 404. Payloads are defined in
 | `POST /api/organizations/:organizationId/subscription/preview` | What changing to `plan_key` (and optionally `locations`) would do: `kind` (`upgrade` or `downgrade`, decided on the server from the plans' prices), the new `monthly_cents`, `due_now_cents` and `effective_at`. Changes nothing. Owner only: 404 to anyone else, the operator included. 503 `billing_unavailable` when Stripe is not set up. |
 | `PUT /api/organizations/:organizationId/subscription` | Makes that change, same body and answer. An upgrade (a higher monthly price, or the same) is made at Stripe now and the prorated difference charged; a downgrade is scheduled at Stripe for the end of the paid period and charges nothing. Changes no plan here: the plan moves when the webhook reports it. Owner only, 404 otherwise. 402 `payment_declined` when the card is refused (nothing changed), 409 `no_subscription`, 409 `payment_due` when the subscription is not `active`, 422 `no_change`, 422 `plan_unavailable`, 503 `billing_unavailable`. |
 | `DELETE /api/organizations/:organizationId/subscription/pending` | Drops a waiting downgrade; 204. Owner only, 404 otherwise. |
-| `GET /api/locations/:id` | One location with its queries, latest scan, rates over recent scans, the sites those answers cited, the surfaces being checked, recommendations, the latest website check and the action plan. |
+| `GET /api/locations/:id` | One location with its queries, latest scan, rates over recent scans, the sites those answers cited, the surfaces being checked, recommendations, the latest website check, the action plan and the owner's tasks. |
 | `PATCH /api/locations/:id` | Replace a location's details with a whole location body, as when adding one; a field left out goes back to blank or its default. The same checks as adding. |
 | `POST /api/locations/:id/activate` | Brings a location the plan paused back into use. Takes `instead_of`, the location in use that is paused in its place, when the plan has no room; 409 with the reason without one. 404 to a non-member. |
 | `DELETE /api/locations/:id` | Delete a location and its history. |
 | `POST /api/locations/:id/queries` | Add a prompt or keyword to track; the text needs letters (three for a prompt). Adding one that was retired restores it. |
 | `PATCH /api/queries/:id` | Retire a tracked query, or restore it. Its results are kept. |
-| `PATCH /api/recommendations/:id` | Mark a recommendation open, done or dismissed. |
+| `PATCH /api/recommendations/:id` | Mark a recommendation open, done or dismissed (`status`), and/or say its work was done or undone (`acted`, a boolean). |
 | `GET /api/locations/:id/scans` | The last 30 scans for a location. |
 | `POST /api/locations/:id/scans` | Queue a manual scan. 409 if one is already under way, which the database enforces. |
 | `GET /api/scans/:id` | One scan with its results. |
@@ -337,7 +338,7 @@ The migrations in `supabase/migrations/` define everything.
 | `tracked_queries` | The prompts and keywords checked for a location. A retired one is kept, with its results, but not scanned. |
 | `scans` | One run for a location: its trigger, status, whether it ran on sample data, the score over the window it closed, and the check of the location's website it made. |
 | `scan_results` | One row per query and surface: named or not, position, and who else was named. |
-| `recommendations` | What a scan suggested, and whether the user has dealt with it. |
+| `recommendations` | What a scan suggested, whether the user has dealt with it, and when a member said they did the work (`acted_at`, which no scan changes). |
 | `audits` | A shareable audit: the business, its prompts, the results as each prompt finishes, and its token, expiry and revocation. Belongs to no organization; only the operator can read it through the API. |
 | `operator_actions` | What the operator changed or made, one row per action, with who and what: an organization's limits before and after, a plan's settings or prices before and after, or the audit made. Written only by the function that does it; only the operator can read it through the API. |
 | `plans` | What is on sale: a monthly price for the locations a plan includes, a price for each extra location, and its limits. Read by everyone; written by no API role. An organization's `plan_key` names its plan, or is null when its limits were set by hand. |
@@ -355,7 +356,8 @@ limit and its value.
 
 Row-level security policies on every table are the authorization layer. Signed-in users can
 insert one kind of scan row, a queued manual scan for a location they can see; results, scores
-and recommendations are written only by the worker, through `complete_scan()`.
+and recommendations are written only by the worker, through `complete_scan()`. A member may change
+two things on a recommendation and nothing else: its status, and whether its work was done.
 
 `audits` is the exception to "every row belongs to an organization". Its table is closed to
 signed-in and anonymous users alike, except that the operator can read it; the Worker and the owner's script use the secret key, and a

@@ -162,4 +162,6 @@ export const api = {
     json(ScanSchema.array(), "GET", `/locations/${locationId}/scans`),
   setRecommendationStatus: (id: string, status: RecommendationStatus) =>
     json(RecommendationSchema, "PATCH", `/recommendations/${id}`, { status }),
+  setRecommendationActed: (id: string, acted: boolean) =>
+    json(RecommendationSchema, "PATCH", `/recommendations/${id}`, { acted }),
 };

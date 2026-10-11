@@ -21,6 +21,7 @@ import { Quote } from "../components/Quote";
 import { ScoreCard } from "../components/ScoreCard";
 import { SiteChecklist } from "../components/SiteChecklist";
 import { SourceTable } from "../components/SourceTable";
+import { Tasks } from "../components/Tasks";
 import { api } from "../lib/api";
 import { useFormErrors } from "../lib/form";
 import { cadence, formatDate, listOf } from "../lib/format";
@@ -109,6 +110,7 @@ export function LocationDetail() {
     recommendations,
     site,
     actions,
+    tasks,
   } = detail.data;
   const organization = readOnly
     ? theirs.data
@@ -262,6 +264,9 @@ export function LocationDetail() {
                       reason for one.
                     </p>
                   </>
+                )}
+                {tasks.length > 0 && (
+                  <Tasks tasks={tasks} onChanged={refresh} readOnly={readOnly} />
                 )}
                 {open.length > 0 && (
                   <Recommendations items={open} onChanged={refresh} readOnly={readOnly} />

@@ -871,6 +871,24 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         .map((scan) => db.results.filter((result) => result.scan_id === scan.id));
     },
 
+    async listResultsAround(locationId, at, scansBefore, scansSince, sampleData) {
+      if (!readsLocation(locationId)) return { before: [], since: [] };
+      const scans = db.scans
+        .filter(
+          (scan) =>
+            scan.location_id === locationId &&
+            scan.status === "succeeded" &&
+            scan.sample_data === sampleData,
+        )
+        .reverse();
+      const resultsOf = (list: Scan[]) =>
+        list.map((scan) => db.results.filter((result) => result.scan_id === scan.id));
+      return {
+        before: resultsOf(scans.filter((scan) => scan.created_at < at).slice(0, scansBefore)),
+        since: resultsOf(scans.filter((scan) => scan.created_at >= at).slice(0, scansSince)),
+      };
+    },
+
     async listRecommendations(locationId) {
       return readsLocation(locationId)
         ? db.recommendations.filter((recommendation) => recommendation.location_id === locationId)
@@ -881,6 +899,13 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
       const recommendation = db.recommendations.find((candidate) => candidate.id === id);
       if (!recommendation || !seesLocation(recommendation.location_id)) return null;
       recommendation.status = status;
+      return recommendation;
+    },
+
+    async setRecommendationActed(id, acted) {
+      const recommendation = db.recommendations.find((candidate) => candidate.id === id);
+      if (!recommendation || !seesLocation(recommendation.location_id)) return null;
+      recommendation.acted_at = acted ? timestamp() : null;
       return recommendation;
     },
 
@@ -1010,18 +1035,40 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         );
       const location = db.locations.find((candidate) => candidate.id === scan.location_id);
       if (location) location.last_scanned_at = timestamp();
-      db.recommendations = db.recommendations
-        .filter((recommendation) => recommendation.location_id !== scan.location_id)
-        .concat(
-          outcome.recommendations.map((recommendation) => ({
-            ...recommendation,
+      // As complete_scan() does: a rule that fires again reopens unless it was dismissed, one
+      // that stopped is done, and nothing here touches when a member said the work was done.
+      const fired = new Set(outcome.recommendations.map((recommendation) => recommendation.rule));
+      for (const derived of outcome.recommendations) {
+        const existing = db.recommendations.find(
+          (candidate) =>
+            candidate.location_id === scan.location_id && candidate.rule === derived.rule,
+        );
+        if (existing) {
+          Object.assign(existing, derived, {
+            scan_id: id,
+            status: existing.status === "done" ? "open" : existing.status,
+          });
+        } else {
+          db.recommendations.push({
+            ...derived,
             id: crypto.randomUUID(),
             location_id: scan.location_id,
             scan_id: id,
-            status: "open" as const,
+            status: "open",
+            acted_at: null,
             created_at: timestamp(),
-          })),
-        );
+          });
+        }
+      }
+      for (const recommendation of db.recommendations) {
+        if (
+          recommendation.location_id === scan.location_id &&
+          recommendation.status === "open" &&
+          !fired.has(recommendation.rule)
+        ) {
+          recommendation.status = "done";
+        }
+      }
     },
 
     async failScan(id, error) {
