@@ -12,7 +12,7 @@ import { locationFormValues } from "../lib/location";
 import { ErrorNote } from "./ErrorNote";
 import { Field } from "./Field";
 
-type TextField = Exclude<keyof LocationFormValues, "scan_frequency">;
+type TextField = keyof LocationFormValues;
 
 interface LocationEditorProps {
   location: Location;
@@ -23,7 +23,7 @@ interface LocationEditorProps {
 
 /**
  * The form that changes a location's details. How often it is scanned is the plan's to say, so
- * there is nothing here to set it: `scan_frequency` is carried through unchanged.
+ * there is nothing here to set it.
  */
 export function LocationEditor({ location, onSaved, readOnly }: LocationEditorProps) {
   const [form, setForm] = useState<Required<LocationFormValues>>(() =>

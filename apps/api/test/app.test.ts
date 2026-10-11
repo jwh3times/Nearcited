@@ -907,7 +907,6 @@ describe("organizations and locations", () => {
       country_code: "ca",
       google_place_id: "ChIJN1t_tDeuEmsRUsoyG83frY4",
       primary_category: "Pizza restaurant",
-      scan_frequency: "weekly",
     };
     const response = await call(alice, "PATCH", `/locations/${location.id}`, edit);
     expect(response.status).toBe(200);

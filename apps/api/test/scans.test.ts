@@ -59,7 +59,6 @@ beforeEach(async () => {
     country_code: "US",
     google_place_id: "place-joes",
     primary_category: null,
-    scan_frequency: "weekly",
   });
   locationId = location.id;
   await user.createQuery(locationId, { kind: "ai_prompt", text: "best pizza in Raleigh" });
@@ -348,7 +347,6 @@ describe("a test organization's scans", () => {
       country_code: "US",
       google_place_id: null,
       primary_category: null,
-      scan_frequency: "daily",
     });
     testLocationId = location.id;
     await account.createQuery(testLocationId, { kind: "ai_prompt", text: "best pizza in Raleigh" });

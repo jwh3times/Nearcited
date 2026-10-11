@@ -15,12 +15,8 @@ export function sourceLabel(url: string): string | null {
   }
 }
 
-/**
- * How often a location is scanned, in words. The organization's plan sets the pace; a location
- * set to weekly asks for less than that, never more.
- */
-export function cadence(planDays: number, frequency: "off" | "weekly" | "daily"): string {
-  const days = Math.max(planDays, frequency === "weekly" ? 7 : 1);
+/** How often a location is scanned, in words. The organization's plan sets the pace. */
+export function cadence(days: number): string {
   if (days === 1) return "daily";
   if (days === 7) return "weekly";
   return `every ${days} days`;

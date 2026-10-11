@@ -1044,7 +1044,6 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
       return db.locations
         .filter(
           (location) =>
-            location.scan_frequency !== "off" &&
             location.last_scanned_at === null &&
             db.queries.some((query) => query.location_id === location.id && query.is_active),
         )

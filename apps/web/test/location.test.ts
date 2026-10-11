@@ -15,7 +15,6 @@ const location: Location = {
   country_code: "US",
   google_place_id: null,
   primary_category: "Pizza restaurant",
-  scan_frequency: "weekly",
   paused_by_plan: false,
   last_scanned_at: "2026-10-07T09:00:00.000Z",
   created_at: "2026-10-04T00:00:00.000Z",
@@ -34,7 +33,6 @@ describe("locationFormValues", () => {
       country_code: "US",
       google_place_id: "",
       primary_category: "Pizza restaurant",
-      scan_frequency: "weekly",
     });
   });
 
