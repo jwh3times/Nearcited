@@ -78,6 +78,7 @@ billingRoutes.get("/organizations/:organizationId/account", async (c) => {
 
   return c.json({
     manual_scans_used: used,
+    allowance_use: await store.getAllowanceUse(organizationId),
     limit_change: reduction && { lowered: reduction.lowered, at: reduction.effective_at },
     billing: billing && {
       available: payments !== null,

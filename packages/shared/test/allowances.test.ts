@@ -151,12 +151,19 @@ describe("unknownAllowances and knownAllowances", () => {
 describe("allowanceFacts", () => {
   it("lists what an organization has, counted across the locations its plan covers", () => {
     expect(
-      allowanceFacts({ google_profile: true, drafts: 12, not_built_yet: 5 }, 3, KINDS),
+      allowanceFacts({ google_profile: true, drafts: 12, not_built_yet: 5 }, 3, null, KINDS),
     ).toEqual([
-      { key: "drafts", name: "Drafts written for you", value: "36 a month" },
+      { key: "drafts", name: "Drafts written for you", value: "36 this month" },
       { key: "google_profile", name: "Your Google profile kept right", value: "Included" },
     ]);
-    expect(allowanceFacts({}, 3, KINDS)).toEqual([]);
+    expect(allowanceFacts({}, 3, null, KINDS)).toEqual([]);
+  });
+
+  it("says how much of the month is used, once that is known", () => {
+    const facts = (used: Record<string, number>) =>
+      allowanceFacts({ drafts: 12 }, 3, used, KINDS).map((fact) => fact.value);
+    expect(facts({ drafts: 7 })).toEqual(["7 of 36 this month"]);
+    expect(facts({})).toEqual(["0 of 36 this month"]);
   });
 });
 

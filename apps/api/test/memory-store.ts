@@ -17,7 +17,7 @@ import type {
   TrackedQuery,
   UsageByMonth,
 } from "@nearcited/shared";
-import { ALLOWANCE_KINDS, allowanceErrors, reductions } from "@nearcited/shared";
+import { ALLOWANCE_KINDS, allowanceErrors, allowedEachMonth, reductions } from "@nearcited/shared";
 import {
   type PriceVersion,
   type Store,
@@ -66,6 +66,8 @@ export interface MemoryDb {
   /** What the announcement functions take as the present moment, when a test sets one. */
   now?: string;
   limitChanges: LimitChange[];
+  /** Use of a counted allowance in a month, keyed `organization:kind:month`. */
+  allowanceUse: Map<string, number>;
   limitChangeNotices: LimitChangeNotice[];
   priceChanges: PriceChange[];
   priceChangeNotices: PriceChangeNotice[];
@@ -115,6 +117,7 @@ export function createMemoryDb(): MemoryDb {
     pastPrices: [],
     priceChanges: [],
     limitChanges: [],
+    allowanceUse: new Map(),
     limitChangeNotices: [],
     priceChangeNotices: [],
     subscriptions: new Map(),
@@ -294,6 +297,34 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         throw new StoreError("limit", `This organization's plan checks ${plan.assistants}.`);
       }
       return Object.assign(organization, { surfaces: picked });
+    },
+
+    async getAllowanceUse(organizationId) {
+      if (!readsOrg(organizationId)) return {};
+      const prefix = `${organizationId}:`;
+      const month = `:${(db.now ?? new Date().toISOString()).slice(0, 7)}`;
+      return Object.fromEntries(
+        [...db.allowanceUse]
+          .filter(([key]) => key.startsWith(prefix) && key.endsWith(month))
+          .map(([key, used]) => [key.slice(prefix.length, -month.length), used]),
+      );
+    },
+
+    // Mirrors claim_allowance(): the month's number is the plan's for each location it covers.
+    async claimAllowance(organizationId, kind, amount = 1) {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      if (amount < 1) throw new StoreError("unexpected", "claimed one or more at a time");
+      const organization = db.organizations.find((o) => o.id === organizationId);
+      if (!organization) return null;
+      const allowance = organization.allowances[kind];
+      if (allowance === undefined) return { claimed: false, allowed: 0, used: 0 };
+      if (allowance === true) return { claimed: true, allowed: null, used: 0 };
+      const most = allowedEachMonth(allowance, organization.max_locations);
+      const key = `${organizationId}:${kind}:${(db.now ?? new Date().toISOString()).slice(0, 7)}`;
+      const soFar = db.allowanceUse.get(key) ?? 0;
+      if (soFar + amount > most) return { claimed: false, allowed: most, used: soFar };
+      db.allowanceUse.set(key, soFar + amount);
+      return { claimed: true, allowed: most, used: soFar + amount };
     },
 
     async applyPlan(organizationId, planKey, locations) {

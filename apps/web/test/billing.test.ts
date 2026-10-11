@@ -50,6 +50,7 @@ const organization = (extra: Partial<Organization> = {}): Organization => ({
 
 const owner = (billing: Partial<NonNullable<OrganizationAccount["billing"]>> = {}) => ({
   manual_scans_used: 0,
+  allowance_use: {},
   limit_change: null,
   billing: {
     available: true,
@@ -64,7 +65,12 @@ const owner = (billing: Partial<NonNullable<OrganizationAccount["billing"]>> = {
     ...billing,
   },
 });
-const member: OrganizationAccount = { manual_scans_used: 0, limit_change: null, billing: null };
+const member: OrganizationAccount = {
+  manual_scans_used: 0,
+  allowance_use: {},
+  limit_change: null,
+  billing: null,
+};
 
 describe("monthlyCents", () => {
   it("is the plan's price up to the locations it includes", () => {

@@ -355,6 +355,7 @@ describe("an organization's account", () => {
     const organization = await organizationFor(alice);
     expect(await account(alice, organization.id)).toEqual({
       manual_scans_used: 0,
+      allowance_use: {},
       limit_change: null,
       billing: {
         available: true,
@@ -402,6 +403,7 @@ describe("an organization's account", () => {
     for (const user of [member, operator]) {
       expect(await account(user, organization.id), user).toEqual({
         manual_scans_used: 0,
+        allowance_use: {},
         limit_change: null,
         billing: null,
       });
@@ -1461,6 +1463,46 @@ describe("lowering what a plan allows", () => {
         plan_key: null,
         allowances: { sample_count: 5 },
       });
+    });
+
+    it("are counted for the month across the locations the plan covers, by the worker alone", async () => {
+      // Standard covers three locations, so two for each is six a month between them.
+      const organization = await subscribed();
+      await save(bob, "standard", {
+        ...asIs,
+        allowances: { sample_count: 2, sample_access: true },
+      });
+      const worker = memoryStore(db, null);
+      const claim = (kind: string, amount?: number) =>
+        worker.claimAllowance(organization.id, kind, amount);
+      expect(await claim("sample_count")).toEqual({ claimed: true, allowed: 6, used: 1 });
+      expect(await claim("sample_count", 5)).toEqual({ claimed: true, allowed: 6, used: 6 });
+      expect(await claim("sample_count")).toEqual({ claimed: false, allowed: 6, used: 6 });
+      // Included without a number, there is nothing to count. Not included, nothing to take.
+      expect(await claim("sample_access")).toEqual({ claimed: true, allowed: null, used: 0 });
+      expect(await claim("nonesuch")).toEqual({ claimed: false, allowed: 0, used: 0 });
+      expect(await worker.claimAllowance(crypto.randomUUID(), "sample_count")).toBeNull();
+      await expect(
+        memoryStore(db, alice).claimAllowance(organization.id, "sample_count"),
+      ).rejects.toMatchObject({ kind: "forbidden" });
+
+      const account = async () =>
+        OrganizationAccountSchema.parse(
+          await (await call(alice, "GET", `/organizations/${organization.id}/account`)).json(),
+        );
+      expect((await account()).allowance_use).toEqual({ sample_count: 6 });
+      // The operator reads it too. A stranger is told nothing.
+      const stranger = "c0000000-0000-4000-8000-000000000003";
+      expect(await memoryStore(db, bob).getAllowanceUse(organization.id)).toEqual({
+        sample_count: 6,
+      });
+      expect(await memoryStore(db, stranger).getAllowanceUse(organization.id)).toEqual({});
+
+      // Another month starts from nothing.
+      const now = new Date();
+      db.now = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 2)).toISOString();
+      expect((await account()).allowance_use).toEqual({});
+      expect(await claim("sample_count")).toEqual({ claimed: true, allowed: 6, used: 1 });
     });
 
     it("are all given to a test organization, with room to exercise them", async () => {

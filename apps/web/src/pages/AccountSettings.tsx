@@ -100,7 +100,11 @@ export function AccountSettings({ organization, email }: AccountSettingsProps) {
                   {organization.emails_report ? "After each scheduled scan" : "Not included"}
                 </span>
               </li>
-              {allowanceFacts(organization.allowances, organization.max_locations).map((fact) => (
+              {allowanceFacts(
+                organization.allowances,
+                organization.max_locations,
+                account.data?.allowance_use ?? null,
+              ).map((fact) => (
                 <li key={fact.key}>
                   <span>{fact.name}</span>
                   <span>{fact.value}</span>

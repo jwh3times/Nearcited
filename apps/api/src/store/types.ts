@@ -1,5 +1,7 @@
 import type {
   AccountFacts,
+  AllowanceClaim,
+  AllowanceUse,
   AuditInput,
   AuditJob,
   AuditPart,
@@ -134,6 +136,12 @@ export interface Store {
    * Null for an organization the caller cannot read.
    */
   getManualScansUsed(organizationId: string): Promise<number | null>;
+  /**
+   * How much of each counted allowance an organization has used this calendar month (UTC), by
+   * kind. A kind with none used is absent, and so is everything where the caller cannot read the
+   * organization.
+   */
+  getAllowanceUse(organizationId: string): Promise<AllowanceUse>;
   /** The plans the caller may read, with the payment provider's names for their prices. */
   listPlanPrices(): Promise<PlanPrices[]>;
   /**
@@ -320,6 +328,16 @@ export interface Store {
    * Keeps what a scan, or one prompt of an audit, used at the providers. Worker only. Called
    * whether or not the scan went on to succeed: what was asked was charged for either way.
    */
+  /**
+   * Takes `amount` of one kind of allowance from an organization's month, if there is room, and
+   * says what happened. Null when there is no such organization. Worker only: a member cannot
+   * use up an allowance without the work it is for being done.
+   */
+  claimAllowance(
+    organizationId: string,
+    kind: string,
+    amount?: number,
+  ): Promise<AllowanceClaim | null>;
   /**
    * Puts an organization on a plan and copies the plan's limits onto it. `locations` is how many
    * it has paid for, when that is more than the plan includes. Null when there is no such

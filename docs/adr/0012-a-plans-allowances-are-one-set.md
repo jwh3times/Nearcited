@@ -26,6 +26,10 @@ location can use what a quiet one does not, and scans by hand are already counte
 **At the number the work stops**, and the page says so and offers the larger plan. Nothing is
 charged beyond the plan.
 
+**Only the work counts.** `claim_allowance()` takes from the month and answers the worker alone.
+Work a member starts is counted by the function that does the work, so nobody can use up an
+allowance without the work being done, and no API role writes the count.
+
 **Taking a kind away, or lowering its number, is a reduction**
 ([0009](0009-a-reduction-is-announced-like-a-price-rise.md)): refused on the spot where somebody
 pays, announced kind by kind, and held where it is until the day.
@@ -60,7 +64,9 @@ drop it.
   and whether a kind is counted is fixed when the kind is made.
 - The list of kinds is kept twice: in the database, for what is accepted, and in the shared
   package, for the words. A test holds the two equal.
-- No kind exists yet. The first arrives with the work that needs it, and counting use against a
-  number is a step of its own.
+- No kind exists yet. The first arrives with the work that needs it, which is also the first thing
+  to call `claim_allowance()`.
+- A claim is made before the work and is not given back if the work then fails. Whether a kind of
+  work gives it back is decided with that kind.
 - Which plan includes what, and the numbers, are decided with the prices and kept privately until
   the migration that turns each on.
