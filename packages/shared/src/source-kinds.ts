@@ -11,29 +11,30 @@ import type { SourceKind } from "./schemas";
  * A subdomain takes its parent's kind unless it is listed itself.
  */
 const KINDS: Record<Exclude<SourceKind, "unknown">, readonly string[]> = {
+  // Each of these says on its own pages that a business may ask its customers for reviews. Read
+  // on 2026-10-11. A site whose own pages could not be read saying so is listed as a directory.
   reviews: [
     "angi.com",
-    "avvo.com",
     "bbb.org",
     "capterra.com",
-    "clutch.co",
-    "facebook.com",
     "g2.com",
-    "goodfirms.co",
     "google.com",
-    "homeadvisor.com",
     "houzz.com",
     "thumbtack.com",
     "tripadvisor.com",
     "trustpilot.com",
-    "upcity.com",
     "zillow.com",
   ],
   reviews_unasked: ["yelp.com"],
   directory: [
+    "avvo.com",
     "bing.com",
     "chamberofcommerce.com",
+    "clutch.co",
+    "facebook.com",
     "foursquare.com",
+    "goodfirms.co",
+    "homeadvisor.com",
     "homes.com",
     "linkedin.com",
     "manta.com",
@@ -41,6 +42,7 @@ const KINDS: Record<Exclude<SourceKind, "unknown">, readonly string[]> = {
     "nextdoor.com",
     "realtor.com",
     "superpages.com",
+    "upcity.com",
     "yellowpages.com",
   ],
   editorial: ["usnews.com"],

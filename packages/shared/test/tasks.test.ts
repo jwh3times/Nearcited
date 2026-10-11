@@ -37,7 +37,9 @@ describe("the kind of a source", () => {
     expect(sourceKind("m.yelp.com")).toBe("reviews_unasked");
     expect(sourceKind("realestate.usnews.com")).toBe("editorial");
     expect(sourceKind("yellowpages.com")).toBe("directory");
-    expect(sourceKind("clutch.co")).toBe("reviews");
+    expect(sourceKind("tripadvisor.com")).toBe("reviews");
+    // Its own pages were not read saying a business may ask, so nobody is told to.
+    expect(sourceKind("facebook.com")).toBe("directory");
   });
 
   it("calls everything else unknown, including a site that only ends the same way", () => {

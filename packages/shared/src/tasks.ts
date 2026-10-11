@@ -54,7 +54,7 @@ const WORK: Record<SourceKind, { title: (host: string) => string; detail: string
   reviews: {
     title: (host) => `Ask your customers for reviews on ${host}`,
     detail:
-      "This site ranks businesses by what their customers say, and lets a business ask for reviews. Check that the business is on it under the same name and city, then ask recent customers to leave one. Ask all of them, not only the happy ones, and offer nothing in return.",
+      "This site ranks businesses by what their customers say, and lets a business ask for reviews. Check that the business is on it under the same name and city, then ask recent customers to leave one, with the site's own way of asking where it has one. Ask all of them, not only the happy ones, and offer nothing in return.",
   },
   reviews_unasked: {
     title: (host) => `Claim and complete your listing on ${host}`,
