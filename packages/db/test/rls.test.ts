@@ -2712,9 +2712,10 @@ describe("the operator", () => {
               max_queries_per_location: before?.max_queries_per_location,
               max_manual_scans_per_month: before?.max_manual_scans_per_month,
               scan_every_days: before?.scan_every_days,
-              allowances: {},
+              allowances: before?.allowances,
             },
-            to: { ...changed, allowances: {} },
+            // Sent without allowances, which leaves them as they were.
+            to: { ...changed, allowances: before?.allowances },
           },
         },
       ]);
@@ -2786,11 +2787,19 @@ describe("the operator", () => {
       )[0]?.allowances;
     let before: string[];
     let made: string | undefined;
+    // What the plans and organizations include before these tests, put back after them. The
+    // tests start everything from nothing, so they hold whatever kinds have been added since.
+    let plansHad: { key: string; allowances: unknown }[];
+    let organizationsHad: { id: string; allowances: unknown }[];
 
     beforeAll(async () => {
       before = (await rows<{ id: string }>("select id from public.operator_actions")).map(
         (row) => row.id,
       );
+      plansHad = await rows("select key, allowances from public.plans");
+      organizationsHad = await rows("select id, allowances from public.organizations");
+      await db.query("update public.plans set allowances = '{}'");
+      await db.query("update public.organizations set allowances = '{}'");
       // A customer on Standard, who does not pay yet.
       await db.query("select public.apply_plan($1, 'standard')", [theirs]);
       // A test account, named with the secret key.
@@ -2807,10 +2816,20 @@ describe("the operator", () => {
         "update public.subscriptions set stripe_subscription_id = null where organization_id = $1",
         [theirs],
       );
-      await db.query("update public.plans set allowances = '{}'");
-      await db.query("update public.organizations set allowances = '{}'");
       await db.query("update public.organizations set plan_key = null where id = $1", [theirs]);
       if (made) await db.query("delete from public.organizations where id = $1", [made]);
+      for (const plan of plansHad) {
+        await db.query("update public.plans set allowances = $1::jsonb where key = $2", [
+          JSON.stringify(plan.allowances),
+          plan.key,
+        ]);
+      }
+      for (const organization of organizationsHad) {
+        await db.query("update public.organizations set allowances = $1::jsonb where id = $2", [
+          JSON.stringify(organization.allowances),
+          organization.id,
+        ]);
+      }
       await db.query("delete from public.platform_roles where user_id = $1", [tester]);
       await db.query("delete from public.allowance_kinds where key like 'sample_%'");
       await db.query("delete from public.operator_actions where not (id = any($1::uuid[]))", [
@@ -2856,7 +2875,7 @@ describe("the operator", () => {
     });
 
     it("are part of the price list: read by anyone, written through the API by no one", async () => {
-      const kinds = "select key from public.allowance_kinds";
+      const kinds = "select key from public.allowance_kinds where key like 'sample_%'";
       expect(await as("anon", null, () => rows(kinds))).toHaveLength(2);
       expect(await as("authenticated", alice, () => rows(kinds))).toHaveLength(2);
       for (const sql of [
@@ -2921,9 +2940,10 @@ describe("the operator", () => {
       const every = { sample_count: 1000, sample_access: true };
       // The test organizations that were there when the kinds were added have them too.
       expect(
-        await rows("select 1 from public.organizations where is_test and allowances <> $1::jsonb", [
-          JSON.stringify(every),
-        ]),
+        await rows(
+          "select 1 from public.organizations where is_test and not (allowances @> $1::jsonb)",
+          [JSON.stringify(every)],
+        ),
       ).toEqual([]);
       const [fresh] = await as("authenticated", tester, () =>
         rows<{ id: string; allowances: unknown }>(
@@ -2931,7 +2951,7 @@ describe("the operator", () => {
         ),
       );
       made = fresh?.id;
-      expect(fresh?.allowances).toEqual(every);
+      expect(fresh?.allowances).toMatchObject(every);
     });
 
     it("are neither lowered nor taken away on the spot where somebody pays, though raising still can", async () => {

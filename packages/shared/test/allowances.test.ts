@@ -10,6 +10,7 @@ import {
   allowancesFromText,
   allowedEachMonth,
   describeLoweredAllowances,
+  keepUnknownAllowances,
   knownAllowances,
   unknownAllowances,
 } from "../src/allowances";
@@ -71,8 +72,8 @@ describe("allowanceLines", () => {
     expect(allowanceLines({}, KINDS)).toEqual([]);
   });
 
-  it("lists nothing while no kind exists", () => {
-    expect(allowanceLines({ drafts: 12 })).toEqual([]);
+  it("uses the kinds this build lists when it is given no others", () => {
+    expect(allowanceLines({ not_built_yet: 5 })).toEqual([]);
   });
 });
 
@@ -145,6 +146,19 @@ describe("unknownAllowances and knownAllowances", () => {
     const kept = { drafts: 12, not_built_yet: 5 };
     expect(unknownAllowances(kept, KINDS)).toEqual({ not_built_yet: 5 });
     expect(knownAllowances(kept, KINDS)).toEqual({ drafts: 12 });
+  });
+});
+
+describe("keepUnknownAllowances", () => {
+  it("saves what a form sent, with the kinds this build does not know put back", () => {
+    const stored = { drafts: 12, google_profile: true as const, not_built_yet: 5 };
+    // The form shows drafts and the profile. It raised one and unticked the other.
+    expect(keepUnknownAllowances(stored, { drafts: 24 }, KINDS)).toEqual({
+      drafts: 24,
+      not_built_yet: 5,
+    });
+    expect(keepUnknownAllowances(stored, {}, KINDS)).toEqual({ not_built_yet: 5 });
+    expect(keepUnknownAllowances({}, { drafts: 24 }, KINDS)).toEqual({ drafts: 24 });
   });
 });
 

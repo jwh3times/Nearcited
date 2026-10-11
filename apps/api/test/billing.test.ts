@@ -1467,7 +1467,65 @@ describe("lowering what a plan allows", () => {
       db.testAccounts.add(alice);
       const response = await call(alice, "POST", "/organizations", { name: "Exercises" });
       const organization = (await response.json()) as Organization;
-      expect(organization.allowances).toEqual({ sample_count: 1000, sample_access: true });
+      expect(organization.allowances).toMatchObject({ sample_count: 1000, sample_access: true });
+    });
+
+    describe("of a kind the database has and this build does not", () => {
+      // A migration added the kind, and the Worker that knows it is not deployed yet.
+      const withUnknownKind = (row: { allowances: Record<string, number | true> } | undefined) => {
+        db.allowanceKinds.set("not_built_yet", true);
+        if (row) row.allowances = { not_built_yet: 7, sample_count: 30 };
+      };
+
+      it("stay on a plan when it is saved, and are not taken for a reduction", async () => {
+        // Somebody pays for the plan, so dropping the kind would have needed thirty days' notice.
+        const organization = await subscribed();
+        withUnknownKind(standard());
+        const response = await save(bob, "standard", {
+          ...asIs,
+          allowances: { sample_count: 40 },
+        });
+        expect(response.status).toBe(200);
+        expect(standard()?.allowances).toEqual({ not_built_yet: 7, sample_count: 40 });
+        expect(current(organization.id)?.allowances).toEqual({
+          not_built_yet: 7,
+          sample_count: 40,
+        });
+        expect(db.limitChanges).toEqual([]);
+      });
+
+      it("stay on an organization when its limits are set by hand", async () => {
+        const organization = await subscribed();
+        withUnknownKind(current(organization.id));
+        const response = await call(
+          bob,
+          "PUT",
+          `/operator/organizations/${organization.id}/limits`,
+          {
+            max_locations: 3,
+            max_queries_per_location: 4,
+            max_manual_scans_per_month: 2,
+            scan_every_days: 14,
+            allowances: { sample_access: true },
+          },
+        );
+        expect(response.status).toBe(200);
+        expect(current(organization.id)?.allowances).toEqual({
+          not_built_yet: 7,
+          sample_access: true,
+        });
+      });
+
+      it("cannot be set by name: a form sends only the kinds its build lists", async () => {
+        db.operators.add(bob);
+        withUnknownKind(standard());
+        const response = await save(bob, "standard", {
+          ...asIs,
+          allowances: { not_built_yet: 9 },
+        });
+        expect(response.status).toBe(422);
+        expect(standard()?.allowances).toEqual({ not_built_yet: 7, sample_count: 30 });
+      });
     });
   });
 });

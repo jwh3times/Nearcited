@@ -97,15 +97,15 @@ describe("describeLowered", () => {
     expect(
       describeLowered({
         allowances: {
-          review_emails: { from: 90, to: 40 },
-          drafts: { from: 12, to: false },
-          google_profile: { from: true, to: false },
+          sample_emails: { from: 90, to: 40 },
+          sample_drafts: { from: 12, to: false },
+          sample_profile: { from: true, to: false },
         },
       }),
     ).toEqual([
-      "Review emails, a month for each location: 90 now, 40 after",
-      "Drafts: 12 a month for each location now, none after",
-      "Google profile: included now, not after",
+      "Sample emails, a month for each location: 90 now, 40 after",
+      "Sample drafts: 12 a month for each location now, none after",
+      "Sample profile: included now, not after",
     ]);
   });
 });
