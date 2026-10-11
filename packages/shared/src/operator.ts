@@ -152,17 +152,9 @@ export function buildOperatorOverview(facts: OperatorFacts): Omit<OperatorOvervi
     }
 
     const organization = organizations.get(location.organization_id);
-    if (
-      organization &&
-      prompts > 0 &&
-      location.scan_frequency !== "off" &&
-      !location.paused_by_plan
-    ) {
-      // The plan sets the pace; a location set to weekly asks for less.
-      const days = Math.max(
-        organization.scan_every_days,
-        location.scan_frequency === "weekly" ? 7 : 1,
-      );
+    if (organization && prompts > 0 && !location.paused_by_plan) {
+      // The plan sets the pace.
+      const days = organization.scan_every_days;
       const since = location.last_scanned_at ?? location.created_at;
       if (!within(since, days * 24 * HOUR + MISSED_GRACE_MS)) {
         add(

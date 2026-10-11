@@ -174,7 +174,7 @@ const ORGANIZATION_COLUMNS =
   "id, name, max_locations, max_queries_per_location, max_manual_scans_per_month, scan_every_days, surfaces, is_test, emails_report, plan_key, created_at";
 
 const LOCATION_COLUMNS =
-  "id, organization_id, name, website, phone, address_line, city, region, postal_code, country_code, google_place_id, primary_category, scan_frequency, paused_by_plan, last_scanned_at, created_at";
+  "id, organization_id, name, website, phone, address_line, city, region, postal_code, country_code, google_place_id, primary_category, paused_by_plan, last_scanned_at, created_at";
 const SCAN_COLUMNS =
   "id, location_id, status, trigger, visibility_score, error, sample_data, created_at, started_at, finished_at";
 

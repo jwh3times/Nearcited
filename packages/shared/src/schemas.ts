@@ -56,9 +56,6 @@ export type ScanStatus = z.infer<typeof ScanStatusSchema>;
 export const ScanTriggerSchema = z.enum(["manual", "scheduled"]);
 export type ScanTrigger = z.infer<typeof ScanTriggerSchema>;
 
-export const ScanFrequencySchema = z.enum(["off", "weekly", "daily"]);
-export type ScanFrequency = z.infer<typeof ScanFrequencySchema>;
-
 export const RecommendationStatusSchema = z.enum(["open", "done", "dismissed"]);
 export type RecommendationStatus = z.infer<typeof RecommendationStatusSchema>;
 
@@ -140,7 +137,6 @@ export const LocationSchema = z.object({
   country_code: z.string(),
   google_place_id: z.string().nullable(),
   primary_category: z.string().nullable(),
-  scan_frequency: ScanFrequencySchema,
   /**
    * True while the organization has more locations than its plan covers and this is one of those
    * not being scanned. Everything measured so far stays readable.
@@ -658,7 +654,6 @@ export const LocationInputSchema = z
       "Paste the place ID as Google gives it: letters, digits, - and _",
     ),
     primary_category: optionalText(120),
-    scan_frequency: ScanFrequencySchema.default("daily"),
   })
   // The phone number and the postal code are read in the location's own country. These run even
   // when another field is wrong, so a form can show every problem at once.

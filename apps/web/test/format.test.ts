@@ -24,13 +24,11 @@ describe("sourceLabel", () => {
 });
 
 describe("cadence", () => {
-  it("follows the plan, and lets a location ask for less", () => {
-    expect(cadence(1, "daily")).toBe("daily");
-    expect(cadence(2, "daily")).toBe("every 2 days");
-    expect(cadence(7, "daily")).toBe("weekly");
-    expect(cadence(1, "weekly")).toBe("weekly");
-    // A location cannot ask for more than its plan allows.
-    expect(cadence(14, "weekly")).toBe("every 14 days");
+  it("says the plan's pace in words", () => {
+    expect(cadence(1)).toBe("daily");
+    expect(cadence(2)).toBe("every 2 days");
+    expect(cadence(7)).toBe("weekly");
+    expect(cadence(14)).toBe("every 14 days");
   });
 });
 

@@ -37,7 +37,6 @@ const location = (
   country_code: "US",
   google_place_id: null,
   primary_category: null,
-  scan_frequency: "daily",
   paused_by_plan: false,
   last_scanned_at: ago(2),
   created_at: ago(24 * 20),
@@ -130,11 +129,6 @@ describe("needs attention", () => {
     expect(kinds(facts)).toEqual([]);
     facts.locations = [location("l1", "a", { last_scanned_at: ago(50) })];
 
-    // Weekly is not late after two days, and a paused location is never late.
-    facts.locations = [location("l1", "a", { last_scanned_at: ago(50), scan_frequency: "weekly" })];
-    expect(kinds(facts)).toEqual([]);
-    facts.locations = [location("l1", "a", { last_scanned_at: ago(500), scan_frequency: "off" })];
-    expect(kinds(facts)).toEqual([]);
     // The plan's pace counts: every three days is not late after two.
     facts.organizations = [org("a", { scan_every_days: 3 })];
     facts.locations = [location("l1", "a", { last_scanned_at: ago(50) })];

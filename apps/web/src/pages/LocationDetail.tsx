@@ -165,15 +165,11 @@ export function LocationDetail() {
                 </a>
               )}
               <ScanLine detail={detail.data} />
-              {organization &&
-                location.scan_frequency !== "off" &&
-                !location.paused_by_plan &&
-                surfaces.length > 0 && (
-                  <span>
-                    Scanned {cadence(organization.scan_every_days, location.scan_frequency)} on{" "}
-                    {assistants}
-                  </span>
-                )}
+              {organization && !location.paused_by_plan && surfaces.length > 0 && (
+                <span>
+                  Scanned {cadence(organization.scan_every_days)} on {assistants}
+                </span>
+              )}
             </p>
           </div>
           {!readOnly && !location.paused_by_plan && (

@@ -288,7 +288,6 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
       country_code: "US",
       google_place_id: null,
       primary_category: null,
-      scan_frequency: "daily",
     });
     expect(location).toMatchObject({ organization_id: organization.id, last_scanned_at: null });
     expect(await aliceStore.listLocations(organization.id)).toEqual([location]);

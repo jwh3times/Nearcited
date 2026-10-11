@@ -95,7 +95,6 @@ const location: Location = {
   country_code: "US",
   google_place_id: null,
   primary_category: null,
-  scan_frequency: "weekly",
   paused_by_plan: false,
   last_scanned_at: null,
   created_at: "2026-10-01T00:00:00Z",
