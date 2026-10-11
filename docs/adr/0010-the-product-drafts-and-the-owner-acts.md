@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0011
 ---
 
 # The product drafts the work and the owner does it

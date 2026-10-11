@@ -310,9 +310,9 @@ covers (`source:*`, `site:*`, `own_site_uncited`) out of its list.
 
 A task is a `source:<host>` recommendation put as work for the owner to do and mark done
 (`buildTasks`, `packages/shared/src/tasks.ts`; the vocabulary is in
-`docs/adr/0010-the-product-drafts-and-the-owner-acts.md`). The location route returns them as
-`tasks`, and the Overview tab shows them under "Your tasks". Everything is composed by rule from
-counts the product holds; nothing a model wrote is in one.
+`docs/adr/0011-the-product-does-the-work-and-the-owner-approves.md`). The location route returns
+them as `tasks`, and the Overview tab shows them under "Your tasks". Everything is composed by rule
+from counts the product holds; nothing a model wrote is in one.
 
 - **Wording follows the source kind.** `sourceKind` (`packages/shared/src/source-kinds.ts`) looks
   the host up in a public list of well-known sites by kind; a subdomain takes its parent's kind,
@@ -334,8 +334,8 @@ counts the product holds; nothing a model wrote is in one.
   early to compare. The two counts are set side by side; nothing says the work caused the change.
 - A dismissed recommendation has no task. Ticks on action-plan steps are still kept in the browser
   only. The operator's read-only view hides the buttons.
-- Not built: anything a model drafts, a direct review link, a printable code or request text, and
-  page copy as a task.
+- Not built: anything a model drafts, a direct review link, a printable code or request text, page
+  copy as a task, and anything the product does outside itself (connections, approvals, actions).
 
 ## Shareable audits
 
