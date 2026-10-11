@@ -419,8 +419,9 @@ Two rules follow, and breaking either one is a data leak:
 `GET /api/plans` serves it without a sign-in. An organization's `plan_key` names its plan, or is
 null when its limits were set by hand, as for every organization made before plans and any the
 operator's limits editor has touched. `apply_plan()` puts an organization on a plan and copies the
-plan's values onto it: its limits, its cadence, whether a report is emailed, and its assistants
-(a plan with one keeps the one the organization already had, and otherwise starts on ChatGPT).
+plan's values onto it: its limits, its cadence, whether a report is emailed, its allowances, and
+its assistants (a plan with one keeps the one the organization already had, and otherwise starts
+on ChatGPT).
 Only the worker may call it. `create_organization()` uses it to start every new organization on
 the free plan; a test account's organization is still set by hand. Where a plan covers fewer
 assistants than are offered, the organization's owner picks which through `choose_assistants()`
@@ -505,6 +506,25 @@ Each trigger raises its own error code with a message written for the user, whic
 passes through as a `limit` error and the API returns as 409 `limit_reached`. The scheduled scans
 are not counted against the manual-scan limit.
 
+**Allowances are the kinds of work a plan includes, kept as one set**
+(`docs/adr/0012-a-plans-allowances-are-one-set.md`). `plans.allowances` and
+`organizations.allowances` are `jsonb` objects by kind: `true` for a kind that is included, a whole
+number for how many a month the plan allows for each location it covers, and no entry for a kind
+that is not included. They are not columns each, so a new kind does not remake the functions that
+copy, edit and lower a plan.
+
+- **`allowance_kinds` lists the kinds that exist**, and whether each is counted (a number) or not
+  (included or not). Anyone may read it, `anon` included, as with `plans`; no API role writes it, so
+  a kind is added by a migration.
+- **A trigger on each column refuses a set that names a kind not in that table, or gives a kind a
+  value it does not take** (`NC011`, a `limit` error like the others), whoever writes the row.
+  `operator_set_plan()` and `operator_announce_limit_change()` check the set they are sent as well,
+  because an announced reduction is made on its day without being looked at again.
+- **An organization's set is copied from its plan** by `apply_plan()`, and a member cannot write it,
+  as with the limits. `create_organization()` gives a test organization every kind, and a kind
+  added later reaches the test organizations that exist.
+- **Nothing enforces an allowance yet** (see "Known gaps").
+
 Users can insert exactly one kind of scan row: a queued, manual scan in their own name for a
 location they can see. Results, scores and recommendations are written only by the worker.
 Organizations are created only through `create_organization()`, which makes the caller the owner.
@@ -529,23 +549,27 @@ reuses the Locations and location pages with every control that changes somethin
 **The operator changes limits through one function.** `PUT /api/operator/organizations/:organizationId/limits`
 calls `operator_set_limits()`, a security-definer function that returns a row only while
 `is_operator()` is true and the organization exists (the route answers 404 otherwise). It locks the organization,
-changes `max_locations`, `max_queries_per_location`, `max_manual_scans_per_month` and
-`scan_every_days` and nothing else, and records the old and new values in `operator_actions`. The
-route refuses a value outside `OrganizationLimitsSchema` with 422, and the columns' own checks
-bound each value whatever calls the function. `operator_actions` has no write grant for any
-API role; the operator has a `select` policy on it. The page is `/operator/o/:organizationId/plan`.
+changes `max_locations`, `max_queries_per_location`, `max_manual_scans_per_month`,
+`scan_every_days` and `allowances` and nothing else, and records the old and new values in
+`operator_actions`. The route refuses a value outside `OrganizationLimitsSchema` with 422 (an
+allowance of a kind this build does not list included), and the columns' own checks, and the
+allowances' trigger, bound each value whatever calls the function. The route puts back any kind of
+allowance this build does not know, so saving cannot drop one (see "Wire types"). A call that
+leaves out the last argument leaves the allowances as they are. `operator_actions` has no write
+grant for any API role; the operator has a `select` policy on it. The page is `/operator/o/:organizationId/plan`.
 See `docs/adr/0005-the-operator-changes-limits-through-one-function.md`.
 
 **The operator changes a plan the same way.** `GET /api/operator/plans` lists every plan with who is
 on it (`buildOperatorPlans`, test organizations left out), `POST /api/operator/plans/:key/impact`
 says how many organizations a lower prompt limit would reach without changing anything (`planImpact`),
 and `PUT /api/operator/plans/:key` calls `operator_set_plan()`. That function answers only the
-operator, changes a plan's name, on-sale flag, limits and emailed report (not its prices or included
-locations), records it in `operator_actions` with no organization, and in the same transaction
-re-applies the plan through `apply_plan()` to every organization on it, each keeping its own
-`max_locations`. That reaches every organization at once for a raise, and for any change on a plan
-nobody pays for. On a plan with subscribers it refuses to lower anything and holds the fields an
-open announcement lowers where they are (see "Reductions in limits"); a cut to the free plan also
+operator, changes a plan's name, on-sale flag, limits, allowances and emailed report (not its prices
+or included locations), records it in `operator_actions` with no organization, and in the same
+transaction re-applies the plan through `apply_plan()` to every organization on it, each keeping
+its own `max_locations`. That reaches every organization at once for a raise, and for any change on
+a plan nobody pays for. On a plan with subscribers it refuses to lower anything, an allowance taken
+away or made smaller included, and holds the fields an open announcement lowers where they are, an
+allowance kind by kind (see "Reductions in limits"); a cut to the free plan also
 writes an already completed `limit_changes` row. An organization with no `plan_key` is untouched. It refuses to take the free plan
 off sale, because `create_organization()` puts every new organization on it: the API answers 409
 `limit_reached` with the reason.
@@ -575,7 +599,11 @@ anyone signed in) and `limit_change_notices` (readable by the operator) have no 
 them; the Worker writes notices. A queue message per organization per step (announce, remind, call
 off) is handled by `runLimitChangeStep`, which emails the owners. On the day `advanceLimitChanges`
 calls `apply_limit_change()`, which answers only the worker and lowers the plan and every
-organization on it together, told or not. An organization whose email failed is shown to the operator
+organization on it together, told or not. Allowances are part of it. `plan_reductions()` finds them with
+`allowance_reductions()`, and `limit_changes.lowered` holds them under `allowances`, by kind, each
+with its `from` and `to` (`false` for a kind taken away). On the day a kind taken away leaves the
+plan's set and a smaller number replaces the larger. A kind added or raised is not a reduction.
+An organization whose email failed is shown to the operator
 by name. Without `RESEND_API_KEY` a reduction on a paid plan cannot be announced. See
 `docs/adr/0009-a-reduction-is-announced-like-a-price-rise.md`.
 
@@ -614,6 +642,17 @@ must be a public web address; the postal code is exact for US and CA and loosely
 The web app runs the same checks beside each field. Stored rows are not rewritten, so one that no
 longer validates is corrected the next time its Settings are saved.
 
+A plan's and an organization's allowances are a record by kind (`AllowancesSchema`). The kinds
+this build knows are listed, with the words the pages use, in `ALLOWANCE_KINDS`
+(`packages/shared/src/allowances.ts`); the database lists the same keys in `allowance_kinds`, and
+a test in `packages/db` holds the two equal. A kind is added to both in one change, and the
+migration is applied before the Worker that knows the kind is deployed, so for a while the Worker
+knows fewer kinds than the database. Such a Worker keeps the kind it does not know. The schema
+keeps it as it came, the operator's forms neither show nor send it, and
+`PUT /api/operator/plans/:key` and `PUT /api/operator/organizations/:organizationId/limits` put it
+back from the stored set (`unknownAllowances`) before saving. Without that, the next save would
+drop it.
+
 ## Limits to design around
 
 - **Each provider call is a subrequest**, and a scan makes (queries x surfaces) of them in one
@@ -635,6 +674,10 @@ longer validates is corrected the next time its Settings are saved.
   A signed-in user cannot update a scan, so the request that hit the failure cannot clear it.
 - On a Supabase project that still signs tokens with a legacy shared secret, `getClaims` asks the
   Auth server on every request. Use asymmetric signing keys.
+- Allowances limit nothing yet. No kind of allowance exists (`ALLOWANCE_KINDS` and
+  `allowance_kinds` are empty), and nothing counts use against a number, so a number would be
+  stored, shown and lowered by announcement but not enforced
+  ([#133](https://github.com/jwh3times/Nearcited/issues/133)).
 
 ## Open product questions
 
