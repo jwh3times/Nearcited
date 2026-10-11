@@ -5,6 +5,7 @@ import {
   buildOperatorOverview,
   buildOperatorPlans,
   buildSpend,
+  keepUnknownAllowances,
   monthOf,
   monthStart,
   type OperatorAccounts,
@@ -20,7 +21,6 @@ import {
   PriceChangeInputSchema,
   planImpact,
   reductions,
-  unknownAllowances,
   withoutReductions,
 } from "@nearcited/shared";
 import { Hono } from "hono";
@@ -195,7 +195,7 @@ operatorRoutes.put("/operator/organizations/:organizationId/limits", async (c) =
   // As for a plan: a kind of allowance this build does not know stays as it is.
   const organization = await store.setOrganizationLimits(id, {
     ...limits,
-    allowances: { ...unknownAllowances(was.allowances), ...limits.allowances },
+    allowances: keepUnknownAllowances(was.allowances, limits.allowances),
   });
   if (!organization) throw notFound("Organization");
   return c.json(organization);
@@ -282,7 +282,7 @@ operatorRoutes.put("/operator/plans/:key", async (c) => {
   // The form sends the kinds of allowance this build knows. One it does not know stays as it is.
   const settings = {
     ...sent,
-    allowances: { ...unknownAllowances(plan.allowances), ...sent.allowances },
+    allowances: keepUnknownAllowances(plan.allowances, sent.allowances),
   };
 
   const lowered = reductions(plan, settings);

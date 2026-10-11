@@ -68,6 +68,12 @@ export interface MemoryDb {
   limitChanges: LimitChange[];
   /** Use of a counted allowance in a month, keyed `organization:kind:month`. */
   allowanceUse: Map<string, number>;
+  /**
+   * The `allowance_kinds` table: each kind, and whether it is counted. It starts as the kinds
+   * this build lists. A test adds one to stand for a kind a migration made before the Worker
+   * that knows it was deployed.
+   */
+  allowanceKinds: Map<string, boolean>;
   limitChangeNotices: LimitChangeNotice[];
   priceChanges: PriceChange[];
   priceChangeNotices: PriceChangeNotice[];
@@ -118,6 +124,9 @@ export function createMemoryDb(): MemoryDb {
     priceChanges: [],
     limitChanges: [],
     allowanceUse: new Map(),
+    allowanceKinds: new Map(
+      Object.entries(ALLOWANCE_KINDS).map(([key, kind]) => [key, kind.counted]),
+    ),
     limitChangeNotices: [],
     priceChangeNotices: [],
     subscriptions: new Map(),
@@ -141,19 +150,20 @@ export const DEFAULT_LIMITS = {
 };
 
 /**
- * Mirrors `check_allowances()`: a set may name only kinds that exist, each with a value it
- * takes. The shared list stands in for the `allowance_kinds` table.
+ * Mirrors `check_allowances()`: a set may name only kinds the database has, each with a value it
+ * takes. Those are the kinds in `db.allowanceKinds`, which can be more than this build lists.
  */
-function requireAllowances(allowances: Record<string, unknown>) {
-  const [message] = Object.values(allowanceErrors(allowances));
+function requireAllowances(db: MemoryDb, allowances: Record<string, unknown>) {
+  const kinds = Object.fromEntries(
+    [...db.allowanceKinds].map(([key, counted]) => [key, { counted, name: key }]),
+  );
+  const [message] = Object.values(allowanceErrors(allowances, kinds));
   if (message) throw new StoreError("limit", message);
 }
 
-/** Mirrors `test_allowances()`: every kind, with room to exercise it. */
-const testAllowances = (): Allowances =>
-  Object.fromEntries(
-    Object.entries(ALLOWANCE_KINDS).map(([key, kind]) => [key, kind.counted ? 1000 : true]),
-  );
+/** Mirrors `test_allowances()`: every kind the database has, with room to exercise it. */
+const testAllowances = (db: MemoryDb): Allowances =>
+  Object.fromEntries([...db.allowanceKinds].map(([key, counted]) => [key, counted ? 1000 : true]));
 
 /** `userId: null` is the worker's view: no filtering. */
 export function memoryStore(db: MemoryDb, userId: string | null): Store {
@@ -355,7 +365,7 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
       if (!isOperator) return null;
       const organization = db.organizations.find((o) => o.id === id);
       if (!organization) return null;
-      requireAllowances(limits.allowances);
+      requireAllowances(db, limits.allowances);
       return Object.assign(organization, limits, {
         allowances: { ...limits.allowances },
         plan_key: null,
@@ -373,7 +383,7 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         id: crypto.randomUUID(),
         name,
         ...DEFAULT_LIMITS,
-        allowances: db.testAccounts.has(userId) ? testAllowances() : {},
+        allowances: db.testAccounts.has(userId) ? testAllowances(db) : {},
         is_test: db.testAccounts.has(userId),
         plan_key: null,
         created_at: timestamp(),
@@ -398,7 +408,7 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
       if (key === "free" && !settings.on_sale) {
         throw new StoreError("limit", "The free plan stays on sale.");
       }
-      requireAllowances(settings.allowances);
+      requireAllowances(db, settings.allowances);
       // As the database function has it: no reduction on the spot where somebody pays, and
       // nothing an open announcement is going to lower may move meanwhile.
       const lowered = reductions(plan, settings);
@@ -580,7 +590,7 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
     async announceLimitChange(planKey, to, effectiveAt) {
       const plan = db.plans.find((candidate) => candidate.key === planKey);
       if (!isOperator || !plan) return null;
-      requireAllowances(to.allowances);
+      requireAllowances(db, to.allowances);
       const lowered = reductions(plan, to);
       if (Object.keys(lowered).length === 0) {
         throw new StoreError("limit", "Nothing here is lower than what the plan allows now.");

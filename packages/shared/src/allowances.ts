@@ -155,6 +155,19 @@ export function unknownAllowances(kept: Allowances, kinds = ALLOWANCE_KINDS): Al
   return Object.fromEntries(Object.entries(kept).filter(([key]) => !(key in kinds)));
 }
 
+/**
+ * A set as it is saved after an edit: what the form sent, with the kinds this build does not
+ * know put back from the stored set. A form shows and sends only the kinds it knows, so without
+ * this the Worker running while a migration adds a kind would drop it at the next save.
+ */
+export function keepUnknownAllowances(
+  stored: Allowances,
+  sent: Allowances,
+  kinds = ALLOWANCE_KINDS,
+): Allowances {
+  return { ...unknownAllowances(stored, kinds), ...sent };
+}
+
 /** The kinds in `kept` that this build knows, which are the ones its forms show and send. */
 export function knownAllowances(kept: Allowances, kinds = ALLOWANCE_KINDS): Allowances {
   return Object.fromEntries(Object.entries(kept).filter(([key]) => key in kinds));
