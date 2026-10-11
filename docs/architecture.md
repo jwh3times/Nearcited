@@ -237,7 +237,9 @@ on it.
 Two recommendation rules read it (`packages/shared/src/recommendations.ts`):
 
 - `source:<host>`: a site other than the business's own, cited in at least two answers, where no
-  answer that cited it named the business. At most three, most cited first.
+  answer that cited it named the business, and that does not look like a competitor's own site (see
+  "The action plan"). At most three, most cited first. The action plan's `get_listed` step chooses
+  its sites with the same code (`unnamedSources`), so the two never disagree.
 - `own_site_uncited`: the location has a website and none of at least four answers cited it.
 
 The rule for adding a rule, settled in issue #14: none ships without a stated way to tell from a
@@ -287,7 +289,7 @@ over an audit's samples, so both pages show the same plan from the same code.
 | Step | Shown when | Evidence it carries |
 | --- | --- | --- |
 | `fix_website` | The on-page check failed something, at any answer count; or every check passed (or none was made, or the page could not be loaded) and no answer cited the site, of at least four. | The failed checks, as the reasons, each with its fix. |
-| `get_listed` | A site was cited in at least two answers and none of them named the business. | Up to five such sites, with the page that was read. |
+| `get_listed` | A site was cited in at least two answers and none of them named the business. | Up to three such sites, the ones the `source:<host>` rule chooses, with the page that was read. |
 | `keep_listings` | A site was cited in answers that did name the business. | Up to five, most often first. |
 | `competitors` | The answers named other businesses. | The three named most, linked to their own site when it was one of the pages read. Among businesses named equally often, one with such a link comes first. |
 
@@ -296,12 +298,44 @@ Steps are composed by rule, never by a model, and each states the observation it
 blocks reading (`BLOCKS_READING`: `reachable`, `crawlers_allowed`, `text_content`).
 A site whose address contains a named competitor's name run together is treated as that
 competitor's own, so nobody is told to get listed on a rival's website; that match is a guess and
-is used for nothing else.
+is used for nothing else. The same match keeps such a site out of the `source:<host>` rule. A name
+is also matched with "&" or "and" dropped.
 
 A location's on-page check is kept in `scans.site_check`, written by the worker just before it
 completes the scan, so the page can show the whole checklist and the plan can give reasons. The
 recommendations a scan stores are unchanged; the location page leaves the ones the plan already
 covers (`source:*`, `site:*`, `own_site_uncited`) out of its list.
+
+## Tasks
+
+A task is a `source:<host>` recommendation put as work for the owner to do and mark done
+(`buildTasks`, `packages/shared/src/tasks.ts`; the vocabulary is in
+`docs/adr/0010-the-product-drafts-and-the-owner-acts.md`). The location route returns them as
+`tasks`, and the Overview tab shows them under "Your tasks". Everything is composed by rule from
+counts the product holds; nothing a model wrote is in one.
+
+- **Wording follows the source kind.** `sourceKind` (`packages/shared/src/source-kinds.ts`) looks
+  the host up in a public list of well-known sites by kind; a subdomain takes its parent's kind,
+  and a site not listed is `unknown`. Only a site on the `reviews` list is told to ask customers
+  for reviews. A site whose rules forbid asking (`reviews_unasked`) is told to claim and complete
+  the listing, and an `unknown` site is told to see whether it can be listed at all. A site goes
+  on the `reviews` list only when its rules are known to allow asking.
+- **Marking one done** sets `recommendations.acted_at` through `PATCH /api/recommendations/:id`
+  with `{ "acted": true }`, or clears it with `false`. A member may update that one column
+  (a column grant); a trigger replaces whatever time is sent with `now()`. `complete_scan()` never
+  writes it, so no scan moves or clears the mark. A recommendation whose rule has stopped firing
+  is resolved by `complete_scan()` as before; the task stays in view if it was marked (the three
+  most recently marked), worded as no longer among the sites read most.
+- **Showing whether it worked.** For a marked task the route counts, for the site, how many answers
+  cited it and how many of those named the business, over the seven scans before the mark
+  (`SCAN_WINDOW`) and over every scan since, at most `MAX_SCANS_SINCE` (60). These are read by
+  `Store.listResultsAround`, separately from the rate window, because that window moves on and the
+  mark does not. With fewer than `MIN_ANSWERS_SINCE` (2) answers since, the page says it is too
+  early to compare. The two counts are set side by side; nothing says the work caused the change.
+- A dismissed recommendation has no task. Ticks on action-plan steps are still kept in the browser
+  only. The operator's read-only view hides the buttons.
+- Not built: anything a model drafts, a direct review link, a printable code or request text, and
+  page copy as a task.
 
 ## Shareable audits
 
