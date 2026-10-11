@@ -523,7 +523,15 @@ copy, edit and lower a plan.
 - **An organization's set is copied from its plan** by `apply_plan()`, and a member cannot write it,
   as with the limits. `create_organization()` gives a test organization every kind, and a kind
   added later reaches the test organizations that exist.
-- **Nothing enforces an allowance yet** (see "Known gaps").
+- **Use of a counted kind is kept in `allowance_use`**, one row for an organization, a kind and a
+  calendar month in UTC. Its members read their own organization's rows and the operator reads
+  all of them; no API role writes it, since a count a member could write is a count a member could
+  clear. `claim_allowance()`, which only the worker may call, adds to the month while the
+  organization's number for the kind, times its locations limit (extra locations included), has
+  room, locking the organization row so two claims at once cannot both take the last one. It says
+  whether it claimed, what the month allows and how much of it is used, and a claim is not given
+  back. A kind that is included without a number is not counted. Nothing calls it yet (see "Known
+  gaps").
 
 Users can insert exactly one kind of scan row: a queued, manual scan in their own name for a
 location they can see. Results, scores and recommendations are written only by the worker.
@@ -675,8 +683,8 @@ drop it.
 - On a Supabase project that still signs tokens with a legacy shared secret, `getClaims` asks the
   Auth server on every request. Use asymmetric signing keys.
 - Allowances limit nothing yet. No kind of allowance exists (`ALLOWANCE_KINDS` and
-  `allowance_kinds` are empty), and nothing counts use against a number, so a number would be
-  stored, shown and lowered by announcement but not enforced
+  `allowance_kinds` are empty) and nothing calls `claim_allowance()`, so a number would be stored,
+  shown, lowered by announcement and counted, but no work would stop at it
   ([#133](https://github.com/jwh3times/Nearcited/issues/133)).
 
 ## Open product questions

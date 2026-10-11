@@ -33,6 +33,8 @@ Nearcited is multi-tenant, and tenant isolation is enforced by Postgres row-leve
 - Changing what an organization's plan allows from a member's request: calling `apply_plan()` or
   `fit_to_plan()`, or writing a limit, `allowances`, `plan_key`, `paused_by_plan` or
   `set_aside_by_plan` directly.
+- Using up or clearing an organization's allowance: writing `allowance_use` as a signed-in user, or
+  calling `claim_allowance()` as anyone but the worker.
 - Getting `choose_assistants()` or `activate_location()` to act on an organization the caller
   does not belong to.
 - Getting a second organization on one account, or deleting or moving an organization.
