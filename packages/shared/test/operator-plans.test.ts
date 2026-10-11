@@ -16,6 +16,7 @@ const plan = (key: string, position: number, change: Partial<Plan> = {}): Plan =
   max_manual_scans_per_month: 10,
   emails_report: true,
   stronger_models: false,
+  allowances: {},
   ...change,
 });
 
@@ -29,6 +30,7 @@ const org = (id: string, change: Partial<Organization> = {}): Organization => ({
   surfaces: null,
   is_test: false,
   emails_report: true,
+  allowances: {},
   plan_key: "standard",
   created_at: "2026-10-01T00:00:00.000Z",
   ...change,

@@ -65,6 +65,7 @@ const ERROR_KINDS: Record<string, StoreErrorKind> = {
   NC008: "limit", // a price for the free plan
   NC009: "limit", // a price change that cannot be announced, or prices changed while one is open
   NC010: "limit", // a reduction that needs announcing, cannot be, or is held while one is open
+  NC011: "limit", // an allowance of a kind that does not exist, or a value its kind does not take
 };
 
 function fail(action: string, error: DbError): never {
@@ -95,7 +96,7 @@ const AccountRowSchema = z.object({
 });
 
 const PLAN_COLUMNS =
-  "key, name, position, on_sale, price_cents, included_locations, extra_location_price_cents, max_queries_per_location, assistants, scan_every_days, max_manual_scans_per_month, emails_report, stronger_models";
+  "key, name, position, on_sale, price_cents, included_locations, extra_location_price_cents, max_queries_per_location, assistants, scan_every_days, max_manual_scans_per_month, emails_report, stronger_models, allowances";
 
 const PLAN_PRICE_COLUMNS =
   "key, on_sale, included_locations, price_cents, extra_location_price_cents, stripe_price_id, stripe_extra_location_price_id";
@@ -171,7 +172,7 @@ const LISTED_AUDIT_COLUMNS =
   "id, token, business_name, city, region, status, error, created_at, expires_at, revoked_at";
 
 const ORGANIZATION_COLUMNS =
-  "id, name, max_locations, max_queries_per_location, max_manual_scans_per_month, scan_every_days, surfaces, is_test, emails_report, plan_key, created_at";
+  "id, name, max_locations, max_queries_per_location, max_manual_scans_per_month, scan_every_days, surfaces, is_test, emails_report, allowances, plan_key, created_at";
 
 const LOCATION_COLUMNS =
   "id, organization_id, name, website, phone, address_line, city, region, postal_code, country_code, google_place_id, primary_category, paused_by_plan, last_scanned_at, created_at";
@@ -330,6 +331,7 @@ export function createSupabaseStore(db: SupabaseClient): Store {
           queries_per_location: limits.max_queries_per_location,
           manual_scans_per_month: limits.max_manual_scans_per_month,
           every_days: limits.scan_every_days,
+          org_allowances: limits.allowances,
         })
         .select(ORGANIZATION_COLUMNS)
         .maybeSingle();
@@ -364,6 +366,7 @@ export function createSupabaseStore(db: SupabaseClient): Store {
           every_days: settings.scan_every_days,
           manual_scans_per_month: settings.max_manual_scans_per_month,
           report: settings.emails_report,
+          plan_allowances: settings.allowances,
         })
         .select(PLAN_COLUMNS)
         .maybeSingle();
@@ -507,6 +510,7 @@ export function createSupabaseStore(db: SupabaseClient): Store {
           manual_scans_per_month: to.max_manual_scans_per_month,
           report: to.emails_report,
           effective: effectiveAt,
+          plan_allowances: to.allowances,
         })
         .select(LIMIT_CHANGE_COLUMNS)
         .maybeSingle();

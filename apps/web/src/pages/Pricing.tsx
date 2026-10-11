@@ -1,4 +1,5 @@
 import {
+  allowanceLines,
   PLAN_ASSISTANTS,
   type Plan,
   SURFACE_LABELS,
@@ -211,6 +212,9 @@ function PlanCard({
             : `${plan.max_manual_scans_per_month} extra scans on demand a month`}
         </li>
         <li>{plan.emails_report ? "A report by email after each scan" : "No emailed report"}</li>
+        {allowanceLines(plan.allowances).map((line) => (
+          <li key={line}>{line}</li>
+        ))}
       </ul>
 
       <div className="plan-action">

@@ -1,5 +1,10 @@
 import {
+  allowanceErrors,
+  allowanceReductions,
+  allowancesAsText,
+  allowancesFromText,
   describeLowered,
+  knownAllowances,
   type LoweredLimits,
   type OperatorPlan,
   type PlanImpact,
@@ -12,6 +17,7 @@ import { type FormEvent, useState } from "react";
 import { api } from "../lib/api";
 import { centsToDollars, dollarsToCents, formatDay, formatPrice } from "../lib/billing";
 import { useFormErrors } from "../lib/form";
+import { AllowanceFields } from "./AllowanceFields";
 import { ErrorNote } from "./ErrorNote";
 import { Field } from "./Field";
 import { Labelled } from "./Labelled";
@@ -40,14 +46,19 @@ type NumberField =
   | "scan_every_days"
   | "max_manual_scans_per_month";
 
-/** Fewer prompts, fewer assistants, slower scans, fewer scans by hand, or no report. */
+/**
+ * Fewer prompts, fewer assistants, slower scans, fewer scans by hand, no report, or an allowance
+ * taken away or made smaller. Only the kinds of allowance the form shows are compared: one it
+ * does not show is not sent, and the API leaves it as it is.
+ */
 function lowers(plan: OperatorPlan, to: PlanSettings): boolean {
   return (
     to.max_queries_per_location < plan.max_queries_per_location ||
     to.assistants < plan.assistants ||
     to.scan_every_days > plan.scan_every_days ||
     to.max_manual_scans_per_month < plan.max_manual_scans_per_month ||
-    (plan.emails_report && !to.emails_report)
+    (plan.emails_report && !to.emails_report) ||
+    Object.keys(allowanceReductions(knownAllowances(plan.allowances), to.allowances)).length > 0
   );
 }
 
@@ -157,6 +168,8 @@ function PlanEditor({ plan, onDone }: { plan: OperatorPlan; onDone: () => void }
         string
       >,
   );
+  const [allowanceText, setAllowanceText] = useState(() => allowancesAsText(plan.allowances));
+  const allowances = allowancesFromText(allowanceText);
   // An empty field is not zero: it is nothing, and the schema says so.
   const number = (field: NumberField) =>
     text[field].trim() === "" ? Number.NaN : Number(text[field]);
@@ -168,13 +181,15 @@ function PlanEditor({ plan, onDone }: { plan: OperatorPlan; onDone: () => void }
     assistants: number("assistants"),
     scan_every_days: number("scan_every_days"),
     max_manual_scans_per_month: number("max_manual_scans_per_month"),
+    allowances,
   };
   const form$ = useFormErrors(PlanSettingsSchema, settings);
   const unchanged =
     name.trim() === plan.name &&
     onSale === plan.on_sale &&
     report === plan.emails_report &&
-    NUMBERS.every((field) => settings[field.name] === plan[field.name]);
+    NUMBERS.every((field) => settings[field.name] === plan[field.name]) &&
+    Object.keys(allowanceText).every((kind) => allowances[kind] === plan.allowances[kind]);
 
   // Lowering a limit takes something from the organizations on the plan, so it is asked first
   // who that is, and saved only once the operator has read the answer.
@@ -184,6 +199,7 @@ function PlanEditor({ plan, onDone }: { plan: OperatorPlan; onDone: () => void }
   const [reduceOn, setReduceOn] = useState(dayFrom(31));
   // What an open announcement is going to lower stays as it is until the day.
   const held = (field: keyof LoweredLimits) => plan.limit_change?.lowered[field] !== undefined;
+  const heldKind = (kind: string) => plan.limit_change?.lowered.allowances?.[kind] !== undefined;
   const save = useMutation({
     mutationFn: async (confirmed: boolean) => {
       if (!confirmed && lowers(plan, settings) && plan.organizations > 0) {
@@ -268,6 +284,16 @@ function PlanEditor({ plan, onDone }: { plan: OperatorPlan; onDone: () => void }
         />
         A report is emailed after each scheduled scan
       </label>
+      <AllowanceFields
+        text={allowanceText}
+        errors={form$.error("allowances") ? allowanceErrors(allowances) : undefined}
+        held={heldKind}
+        onBlur={() => form$.touch("allowances")}
+        onChange={(typed) => {
+          setAllowanceText(typed);
+          changed();
+        }}
+      />
       <label className="check">
         <input
           type="checkbox"

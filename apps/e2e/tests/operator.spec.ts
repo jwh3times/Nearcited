@@ -241,6 +241,7 @@ test("shows the operator who is on each plan, and changes what one allows for ev
       scan_every_days: 1,
       max_manual_scans_per_month: before?.max_manual_scans_per_month ?? 60,
       emails_report: true,
+      allowances: {},
     });
   }
 });

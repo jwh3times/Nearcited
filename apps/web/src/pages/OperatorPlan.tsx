@@ -1,4 +1,7 @@
 import {
+  allowanceErrors,
+  allowancesAsText,
+  allowancesFromText,
   type Organization,
   type OrganizationLimits,
   OrganizationLimitsSchema,
@@ -6,13 +9,17 @@ import {
 } from "@nearcited/shared";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
+import { AllowanceFields } from "../components/AllowanceFields";
 import { ErrorNote } from "../components/ErrorNote";
 import { Field } from "../components/Field";
 import { api } from "../lib/api";
 import { useFormErrors } from "../lib/form";
 import { listOf } from "../lib/format";
 
-const FIELDS: { name: keyof OrganizationLimits; label: string; hint: string }[] = [
+/** The limits that are a number each. The allowances are a set, and have fields of their own. */
+type NumberLimit = Exclude<keyof OrganizationLimits, "allowances">;
+
+const FIELDS: { name: NumberLimit; label: string; hint: string }[] = [
   { name: "max_locations", label: "Locations", hint: "How many it may have." },
   {
     name: "max_queries_per_location",
@@ -29,15 +36,15 @@ const FIELDS: { name: keyof OrganizationLimits; label: string; hint: string }[] 
 
 const asText = (organization: Organization) =>
   Object.fromEntries(FIELDS.map(({ name }) => [name, String(organization[name])])) as Record<
-    keyof OrganizationLimits,
+    NumberLimit,
     string
   >;
 
 /** An empty field is not zero: it is nothing, and the schema says so. */
-const asNumbers = (text: Record<keyof OrganizationLimits, string>) =>
+const asNumbers = (text: Record<NumberLimit, string>) =>
   Object.fromEntries(
     FIELDS.map(({ name }) => [name, text[name].trim() === "" ? Number.NaN : Number(text[name])]),
-  ) as OrganizationLimits;
+  ) as Record<NumberLimit, number>;
 
 /**
  * What a customer's plan allows, and the one form on their account the operator may send. The
@@ -46,18 +53,25 @@ const asNumbers = (text: Record<keyof OrganizationLimits, string>) =>
 export function OperatorPlan({ organization }: { organization: Organization }) {
   const queryClient = useQueryClient();
   const [text, setText] = useState(() => asText(organization));
-  const limits = asNumbers(text);
+  const [allowanceText, setAllowanceText] = useState(() =>
+    allowancesAsText(organization.allowances),
+  );
+  const allowances = allowancesFromText(allowanceText);
+  const limits: OrganizationLimits = { ...asNumbers(text), allowances };
   const form$ = useFormErrors(OrganizationLimitsSchema, limits);
   const save = useMutation({
     mutationFn: () => api.setOrganizationLimits(organization.id, limits),
     onSuccess: async (saved) => {
       setText(asText(saved));
+      setAllowanceText(allowancesAsText(saved.allowances));
       queryClient.setQueryData(["operator-organization", organization.id], saved);
       // The operator's own list of organizations shows these limits too.
       await queryClient.invalidateQueries({ queryKey: ["operator-overview"] });
     },
   });
-  const unchanged = FIELDS.every(({ name }) => limits[name] === organization[name]);
+  const unchanged =
+    FIELDS.every(({ name }) => limits[name] === organization[name]) &&
+    Object.keys(allowanceText).every((kind) => allowances[kind] === organization.allowances[kind]);
 
   function submit(event: FormEvent) {
     event.preventDefault();
@@ -98,6 +112,15 @@ export function OperatorPlan({ organization }: { organization: Organization }) {
               }}
             />
           ))}
+          <AllowanceFields
+            text={allowanceText}
+            errors={form$.error("allowances") ? allowanceErrors(allowances) : undefined}
+            onBlur={() => form$.touch("allowances")}
+            onChange={(typed) => {
+              setAllowanceText(typed);
+              save.reset();
+            }}
+          />
           <button type="submit" disabled={save.isPending || unchanged}>
             {save.isPending ? "Saving" : "Save limits"}
           </button>

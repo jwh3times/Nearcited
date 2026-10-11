@@ -59,6 +59,9 @@ The decisions billing is built on, so they are in one place:
   once; it is announced first. See
   [0009](0009-a-reduction-is-announced-like-a-price-rise.md).
 
+- Note (October 2026): the kinds of work a plan includes are not a column each. They are one set
+  on the row, copied the same way. See [0012](0012-a-plans-allowances-are-one-set.md).
+
 - The plan's values and the organization's can disagree if a copy is missed. Whatever changes a
   plan or an organization's plan must do the copy in the same transaction.
 - The provider's price IDs sit in the table beside the prices. They identify a price and grant
