@@ -46,3 +46,8 @@ account still has exactly one organization.
   must change before a second account is given a platform role: add an access log then.
 - An operator's account is as sensitive as the secret key for reading. It can read every audit's
   token, and what every organization's scans used.
+- Note (October 2026): "can change none of it" held until
+  [0005](0005-the-operator-changes-limits-through-one-function.md). The operator still has
+  `select` policies only. What the operator now changes (an organization's limits, a plan's
+  settings and prices, and the announcements in 0008 and 0009) goes through functions that answer
+  only the operator and record the change, never through a policy that writes.
