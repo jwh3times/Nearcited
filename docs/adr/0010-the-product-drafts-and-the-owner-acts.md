@@ -18,6 +18,7 @@ read:
 | A review platform that forbids asking | Claim the listing, complete it, answer the reviews it has | The claim link and a checklist |
 | A directory or listing | Check that what it says is right | The claim link and the business's details to compare |
 | An editorial page, such as a list or a local blog | Ask to be included. Optional and marked as a long shot | A note to its author |
+| A competitor's own site | None: nobody gets listed on a rival's website | Nothing. It shows what the assistant found worth reading, which is a matter for the business's own site |
 
 **The product drafts; it sends nothing.** The owner sends the request, from their own address or
 phone, to their own customers. The product holds nothing about a business's customers: no names,
@@ -59,6 +60,8 @@ business. A few real businesses, with drafts written by hand, are how that is le
 - Which kind a source is has to be known. A list of sites by kind is kept and maintained, and a
   site not on it is treated with caution: no request for reviews is drafted for a platform whose
   rules are unknown.
+- Most sources are cited once or twice and will be on no list, so what the product does with a
+  site of unknown kind is the common case and not the exception.
 - A draft can be wrong about the business. It is only as good as what the owner has told the
   product, so it must not state a fact about the business that nobody gave it.
 - The wording a model is given is tuning, and its real value is private
