@@ -47,7 +47,6 @@ function standIns(audit: AuditJob, prompt: string, at: Date) {
     country_code: audit.country_code,
     google_place_id: null,
     primary_category: null,
-    scan_frequency: "off",
     paused_by_plan: false,
     last_scanned_at: null,
     created_at: at.toISOString(),

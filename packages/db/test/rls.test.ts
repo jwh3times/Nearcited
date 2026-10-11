@@ -146,16 +146,6 @@ describe("locations and tracked queries", () => {
     expect(queryId).not.toBe("");
   });
 
-  it("scans a new location daily unless told otherwise", async () => {
-    const [location] = await as("authenticated", alice, () =>
-      rows<{ scan_frequency: string }>(
-        "select scan_frequency from public.locations where id = $1",
-        [locationId],
-      ),
-    );
-    expect(location?.scan_frequency).toBe("daily");
-  });
-
   it("can be retired by a member but not deleted", async () => {
     const [retired] = await as("authenticated", alice, () =>
       rows<{ is_active: boolean }>(
@@ -1208,31 +1198,6 @@ describe("plan settings", () => {
     await scannedHoursAgo(21);
     expect(await due()).toBe(true);
     await scannedHoursAgo(10);
-    expect(await due()).toBe(false);
-  });
-
-  it("let a location ask for less than its plan allows, or be paused, but never more", async () => {
-    const setFrequency = (frequency: string) =>
-      as("authenticated", bob, () =>
-        db.query("update public.locations set scan_frequency = $1 where id = $2", [
-          frequency,
-          cadenceLocation,
-        ]),
-      );
-    await scannedHoursAgo(72);
-    await setFrequency("weekly");
-    expect(await due()).toBe(false);
-    await scannedHoursAgo(24 * 7);
-    expect(await due()).toBe(true);
-    await setFrequency("off");
-    expect(await due()).toBe(false);
-
-    // On a plan slower than daily, asking for daily changes nothing.
-    await db.query("update public.organizations set scan_every_days = 5 where id = $1", [
-      cadenceOrg,
-    ]);
-    await setFrequency("daily");
-    await scannedHoursAgo(72);
     expect(await due()).toBe(false);
   });
 

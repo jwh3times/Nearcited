@@ -111,7 +111,6 @@ describe("LocationInputSchema", () => {
       website: null,
       phone: null,
       country_code: "US",
-      scan_frequency: "daily",
     });
   });
 

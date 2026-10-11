@@ -460,10 +460,8 @@ except by restoring a prompt.
 **Plan settings live beside the caps**, protected the same way:
 
 - `scan_every_days` is how many days apart the organization's locations are scanned.
-  `locations_due_for_scan` uses it. A location's own `scan_frequency` could once pause it or
-  ask for weekly. The app no longer offers that, every location is `daily`, and the column and
-  the function's use of it are to be dropped. Cadences shorter than a day are not possible while the
-  schedule fires once a day.
+  `locations_due_for_scan` uses it, and a location has no pace of its own. Cadences shorter than
+  a day are not possible while the schedule fires once a day.
 - `surfaces` is which surfaces its scans check; null means every one that is set up. The runner
   never calls a provider outside the list, so a plan is not charged for an assistant it does
   not include, and the results grid shows the same list.
