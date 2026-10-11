@@ -27,12 +27,12 @@ Nearcited is multi-tenant, and tenant isolation is enforced by Postgres row-leve
   - announcing or calling off a price change (`operator_announce_price_change()`,
     `operator_call_off_price_change()`) or a reduction in a plan's limits
     (`operator_announce_limit_change()`, `operator_call_off_limit_change()`);
-  - writing `plan_prices`, `price_changes`, `price_change_notices`, `limit_changes` or
-    `limit_change_notices`;
+  - writing `plan_prices`, `allowance_kinds`, `price_changes`, `price_change_notices`,
+    `limit_changes` or `limit_change_notices`;
   - making an audit through `operator_create_audit()`.
 - Changing what an organization's plan allows from a member's request: calling `apply_plan()` or
-  `fit_to_plan()`, or writing a limit, `plan_key`, `paused_by_plan` or `set_aside_by_plan`
-  directly.
+  `fit_to_plan()`, or writing a limit, `allowances`, `plan_key`, `paused_by_plan` or
+  `set_aside_by_plan` directly.
 - Getting `choose_assistants()` or `activate_location()` to act on an organization the caller
   does not belong to.
 - Getting a second organization on one account, or deleting or moving an organization.
@@ -45,10 +45,10 @@ Nearcited is multi-tenant, and tenant isolation is enforced by Postgres row-leve
   sign, or on a replayed or reordered one. It needs no sign-in and uses the Worker's secret key,
   so the signature is its only guard. The same applies to `claim_subscription_start()`, which only the worker may call.
 - Getting a plan without paying for it, or keeping one after the subscription ended: changing an
-  organization's plan or limits, or writing `subscriptions`, as a signed-in user. Checkout and
+  organization's plan, limits or allowances, or writing `subscriptions`, as a signed-in user. Checkout and
   the billing portal are for an organization's owner only.
-- Lowering a paid plan's limits without the announcement: through `operator_set_plan()`, or by
-  calling `apply_limit_change()` as anyone but the worker.
+- Lowering a paid plan's limits or allowances without the announcement: through
+  `operator_set_plan()`, or by calling `apply_limit_change()` as anyone but the worker.
 - Moving a subscription to a higher price without its owners having been told at least thirty
   days before.
 - Reading a shareable audit without its link, or after it was revoked or expired; listing audits;

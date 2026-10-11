@@ -15,6 +15,7 @@ const org = (id: string, change: Partial<Organization> = {}): Organization => ({
   surfaces: null,
   is_test: false,
   emails_report: true,
+  allowances: {},
   plan_key: null,
   created_at: ago(24 * 30),
   ...change,

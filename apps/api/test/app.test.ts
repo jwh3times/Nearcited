@@ -145,6 +145,7 @@ const plan = (key: string, position: number, change: Partial<Plan> = {}): Plan =
   max_manual_scans_per_month: 2,
   emails_report: true,
   stronger_models: false,
+  allowances: {},
   ...change,
 });
 
@@ -695,6 +696,7 @@ describe("organizations and locations", () => {
       max_queries_per_location: 20,
       max_manual_scans_per_month: 10,
       scan_every_days: 1,
+      allowances: {},
     };
 
     // Not its owner, and not by reaching the route signed out.
@@ -1153,6 +1155,7 @@ describe("the operator's plans", () => {
     scan_every_days: 2,
     max_manual_scans_per_month: 10,
     emails_report: true,
+    allowances: {},
   };
 
   /** Alice's organization on Standard with a location and a prompt, and Bob as the operator. */
@@ -1214,6 +1217,7 @@ describe("the operator's plans", () => {
       max_queries_per_location: 40,
       max_manual_scans_per_month: 40,
       scan_every_days: 1,
+      allowances: {},
     });
     await call(bob, "PUT", "/operator/plans/standard", {
       ...settings,

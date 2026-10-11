@@ -62,10 +62,11 @@ The operator has one more screen, `/operator`: what needs attention (a failed sc
 overdue, a website that cannot be read, a failed audit, a location with no active prompts),
 every organization with its plan and how many of its locations are at their prompt limit, every account with how far it got (signed up, made an organization, added a location, had a scan succeed, scanned in the last week), every shareable audit, and what the deployment runs. From there the operator
 can read through a customer's pages, with everything that changes something hidden, and change the
-organization's limits (locations, prompts per location, manual scans a month, days between scans) on
-its plan page. A Plans section lists each plan with its price, how many organizations and subscribers
-are on it and their monthly total, and edits its name, limits, emailed report and whether it is on
-sale; lowering a limit first shows how many organizations it reaches and asks to save again. A raise
+organization's limits (locations, prompts per location, manual scans a month, days between scans) and
+its allowances, one field for each kind of work a plan can include, on its plan page. A Plans
+section lists each plan with its price, how many organizations and subscribers
+are on it and their monthly total, and edits its name, limits, allowances, emailed report and whether it is on
+sale; lowering a limit or an allowance first shows how many organizations it reaches and asks to save again. A raise
 reaches every organization on the plan at once. A lower limit on a plan nobody pays for is made at
 once too (on the free plan each organization is emailed that day). On a plan with subscribers it
 asks for a day at least thirty days out and is announced instead: the owners are emailed, reminded a
@@ -286,7 +287,7 @@ organization reads as missing and returns 404. Payloads are defined in
 | --- | --- |
 | `GET /api/health` | Liveness check. No sign-in needed. |
 | `GET /api/audits/:token` | A shareable audit, for anyone holding its token. 404 if the token is unknown, revoked or past its 30 days. Never cached and not indexed. |
-| `GET /api/plans` | The price list: every plan on sale, cheapest first, with its prices in US cents and its limits. Needs no sign-in. A signed-in member also gets the plan their organization is on if it has been taken off sale. |
+| `GET /api/plans` | The price list: every plan on sale, cheapest first, with its prices in US cents, its limits and its allowances. Needs no sign-in. A signed-in member also gets the plan their organization is on if it has been taken off sale. |
 | `POST /api/stripe/webhook` | Stripe reporting on a subscription. No sign-in: the signature on the request is checked against `STRIPE_WEBHOOK_SECRET` (400 `invalid_signature` if it fails), the subscription is read back from Stripe, and the organization's plan is made to agree with it. The one route that uses the Worker's secret key on a request. 503 `billing_unavailable` when Stripe is not set up. |
 | `GET /api/me` | The signed-in user, their platform role (`operator`, `test` or none) and their organizations. |
 | `GET /api/operator/overview` | The operator's view: totals, what needs attention, every organization (test ones apart) and what the deployment runs. 404 to anyone who is not the operator. |
@@ -294,7 +295,7 @@ organization reads as missing and returns 404. Payloads are defined in
 | `GET /api/operator/accounts` | A funnel of how far accounts got, and every account with its stage; test accounts are listed and not counted. 404 to anyone who is not the operator. |
 | `GET /api/operator/plans` | Every plan, on sale or not, with its `organizations`, `subscribers`, `monthly_cents`, `price_change` (the open announcement with how many were `told` and `moved`, or null) and `limit_change` (the open reduction with how many organizations were `told` and the names of those `not_told`, or null); test organizations are left out. 404 to anyone who is not the operator. |
 | `POST /api/operator/plans/:key/impact` | How many organizations a set of plan settings (`PlanSettingsSchema`) would reach and how many prompts it would set aside. Changes nothing. 404 to anyone who is not the operator. |
-| `PUT /api/operator/plans/:key` | Sets a plan's name, on-sale flag, limits and emailed report, re-applies it to every organization on it, and records the change. Not its prices. Takes an optional `reduce_on` date. Raises, the name and the on-sale flag are saved at once; on a plan with subscribers what is lowered is announced for `reduce_on` instead, and on a plan nobody pays for it is made at once. 404 to anyone who is not the operator, 409 `needs_notice` for a reduction on a plan with subscribers without `reduce_on`, 409 `limit_reached` for a day less than 30 days out, 422 for a value out of range, 503 `billing_unavailable` for an announcement without `RESEND_API_KEY`. |
+| `PUT /api/operator/plans/:key` | Sets a plan's name, on-sale flag, limits, allowances and emailed report, re-applies it to every organization on it, and records the change. Not its prices. Takes an optional `reduce_on` date. Raises, the name and the on-sale flag are saved at once; on a plan with subscribers what is lowered (an allowance taken away or made smaller included) is announced for `reduce_on` instead, and on a plan nobody pays for it is made at once. A kind of allowance this build does not know is put back as it was. 404 to anyone who is not the operator, 409 `needs_notice` for a reduction on a plan with subscribers without `reduce_on`, 409 `limit_reached` for a day less than 30 days out, 422 for a value out of range or a kind of allowance that does not exist, 503 `billing_unavailable` for an announcement without `RESEND_API_KEY`. |
 | `DELETE /api/operator/plans/:key/limit-change` | Calls the plan's announced reduction off before its day and tells everyone who was told. 404 to anyone who is not the operator or when there is none. |
 | `PUT /api/operator/plans/:key/prices` | Sets what a plan is sold at from now: `price_cents` and `extra_location_price_cents` (nullable), each at least a dollar. Makes two new prices at Stripe (a price cannot be edited), then calls `operator_set_plan_prices()`, which keeps the pair in `plan_prices`, puts it on the plan and records the change. Touches no subscription: current subscribers keep the price they pay. Answers the plan. 404 to anyone who is not the operator or for an unknown plan, 409 `free_plan`, 409 while a price change is announced, 422 `no_change` or a value out of range, 503 `billing_unavailable` when Stripe is not set up. |
 | `GET /api/operator/audits` | Every shareable audit, with its link only while it is neither revoked nor expired. 404 to anyone who is not the operator. |
@@ -302,7 +303,7 @@ organization reads as missing and returns 404. Payloads are defined in
 | `DELETE /api/operator/plans/:key/price-change` | Calls the plan's open announcement off before its day and tells everyone who was told. 404 to anyone who is not the operator or when there is none. |
 | `POST /api/operator/audits` | Makes a shareable audit and queues one message per prompt. Takes `business_name`, `city`, `prompts` (1 to 5) and optionally `website`, `region`, `country_code`, `samples` (1 to 5). 404 to anyone who is not the operator, 409 where scans return sample data, 422 for a bad value. |
 | `GET /api/operator/organizations/:organizationId` | One organization, for the operator to read through its pages. 404 to anyone who is not the operator. |
-| `PUT /api/operator/organizations/:organizationId/limits` | Sets an organization's four limits (locations, prompts per location, manual scans a month, days between scans) and records the change. 404 to anyone who is not the operator, 422 for a value out of range. |
+| `PUT /api/operator/organizations/:organizationId/limits` | Sets an organization's four limits (locations, prompts per location, manual scans a month, days between scans) and its allowances, and records the change. A kind of allowance this build does not know is put back as it was. 404 to anyone who is not the operator, 422 for a value out of range or a kind of allowance that does not exist. |
 | `POST /api/organizations` | Create an organization; the caller becomes its owner. The name needs a letter. 409 when the account already has one. |
 | `PATCH /api/organizations/:organizationId` | Rename an organization. Owners and admins only; anyone else reads it as missing and gets 404. The name needs a letter. |
 | `PUT /api/organizations/:organizationId/assistants` | Sets which assistants the organization is checked on, from ChatGPT and Claude, as many as its plan covers. Owner only: 404 to anyone else. 409 with the reason when the choice is not one the plan allows. |
@@ -331,7 +332,7 @@ The migrations in `supabase/migrations/` define everything.
 
 | Table | Holds |
 | --- | --- |
-| `organizations` | The tenant. Every other row belongs to one. Holds its usage limits (locations, active prompts per location, manual scans a calendar month) and its plan settings (which plan it is on, whether a report is emailed, how many days apart it is scanned, and on which surfaces). |
+| `organizations` | The tenant. Every other row belongs to one. Holds its usage limits (locations, active prompts per location, manual scans a calendar month) and its plan settings (which plan it is on, whether a report is emailed, how many days apart it is scanned, on which surfaces, and its allowances). |
 | `platform_roles` | What an account is to the product as a whole (`operator` or `test`). A user reads only their own row, the operator reads all; rows are written with the secret key. An organization made by a `test` account is flagged `is_test` and scans on generated data. |
 | `memberships` | Which users belong to an organization, as `owner`, `admin` or `member`. |
 | `locations` | A business at an address. How often it is scanned is its organization's plan's to say. |
@@ -341,11 +342,12 @@ The migrations in `supabase/migrations/` define everything.
 | `recommendations` | What a scan suggested, whether the user has dealt with it, and when a member said they did the work (`acted_at`, which no scan changes). |
 | `audits` | A shareable audit: the business, its prompts, the results as each prompt finishes, and its token, expiry and revocation. Belongs to no organization; only the operator can read it through the API. |
 | `operator_actions` | What the operator changed or made, one row per action, with who and what: an organization's limits before and after, a plan's settings or prices before and after, or the audit made. Written only by the function that does it; only the operator can read it through the API. |
-| `plans` | What is on sale: a monthly price for the locations a plan includes, a price for each extra location, and its limits. Read by everyone; written by no API role. An organization's `plan_key` names its plan, or is null when its limits were set by hand. |
+| `plans` | What is on sale: a monthly price for the locations a plan includes, a price for each extra location, its limits and its allowances. Read by everyone; written by no API role. An organization's `plan_key` names its plan, or is null when its limits were set by hand. |
+| `allowance_kinds` | The kinds of work a plan can include, each counted (a number a month for each location) or not (included or not). A plan's or an organization's allowances may name only these, and the database refuses any other. Read by everyone; written by no API role. |
 | `plan_prices` | Every pair of prices a plan has been sold at (the plan's price and its extra-location price, in cents, with the Stripe price IDs). The newest is also on the plan's row. A subscription is matched to its plan by any of them. Read by anyone signed in, not by a visitor; written by no API role. |
 | `price_changes` | One announcement per plan: the price version subscribers move to, the day it takes effect, and when it was reminded, called off or completed. Read by anyone signed in; written by no API role, only by the operator's functions. |
 | `price_change_notices` | One row per organization in an announcement: when it was told, reminded, told it was called off, moved, or skipped. Read by the operator; written only by the Worker. |
-| `limit_changes` | One announced reduction per plan: what goes down (each limit's `from` and `to`), the day it is made, and when it was reminded, called off or completed. Read by anyone signed in; written by no API role, only by the operator's functions and the Worker's. |
+| `limit_changes` | One announced reduction per plan: what goes down (each limit's, and each allowance's, `from` and `to`), the day it is made, and when it was reminded, called off or completed. Read by anyone signed in; written by no API role, only by the operator's functions and the Worker's. |
 | `limit_change_notices` | One row per organization in an announcement: when it was told, reminded, told it was called off. Read by the operator; written only by the Worker. |
 | `subscriptions` | An organization's Stripe customer and subscription IDs and the status Stripe last reported. Also the subscription its owners were last thanked for by email. Written only by the Worker, from the webhook; no API role can write it. The operator reads it directly, an owner through `billing_state()`. |
 | `provider_usage` | What the providers used for a scan or audit prompt, per surface and model: calls, input, cached input and output tokens, searches. Outlives the scan, audit or organization it describes. Written only by the Worker; only the operator can read it through the API. `GET /api/operator/spend` prices it and the operator's view shows it. |
@@ -537,6 +539,9 @@ pnpm sync:agents
 - **Inviting teammates.** The schema and policies support members and roles; there is no API or
   screen for it.
 - **Switching organizations.** A user in several organizations always sees the first.
+- **Any kind of allowance.** A plan and an organization carry allowances, and the operator can set
+  them, but no kind exists yet and nothing counts use against a number
+  ([#133](https://github.com/jwh3times/Nearcited/issues/133)).
 
 More detail, and the open product questions, in [docs/architecture.md](docs/architecture.md).
 What is planned, in order, is in [Build order](https://github.com/jwh3times/Nearcited/issues/15).

@@ -21,6 +21,7 @@ import {
 } from "../src/billing/types";
 import type { Env } from "../src/env";
 import { createMemoryDb, type MemoryDb, memoryStore } from "./memory-store";
+import { useSampleAllowances } from "./sample-allowances";
 
 const alice = "a0000000-0000-4000-8000-000000000001";
 const bob = "b0000000-0000-4000-8000-000000000002";
@@ -148,6 +149,7 @@ const plan = (key: string, position: number, extra: Partial<Plan> = {}): Plan =>
   max_manual_scans_per_month: position,
   emails_report: position > 0,
   stronger_models: false,
+  allowances: {},
   ...extra,
 });
 
@@ -768,6 +770,7 @@ describe("the provider's webhook", () => {
       max_queries_per_location: 40,
       max_manual_scans_per_month: 40,
       scan_every_days: 1,
+      allowances: {},
     });
     for (const status of ["incomplete", "incomplete_expired"]) {
       atProvider.set("sub_1", subscription(organization.id, { status }));
@@ -785,6 +788,7 @@ describe("the provider's webhook", () => {
       max_queries_per_location: 40,
       max_manual_scans_per_month: 40,
       scan_every_days: 1,
+      allowances: {},
     });
     atProvider.set("sub_1", subscription(organization.id));
     await webhook("sub_1");
@@ -807,6 +811,7 @@ describe("the provider's webhook", () => {
       max_queries_per_location: 40,
       max_manual_scans_per_month: 40,
       scan_every_days: 1,
+      allowances: {},
     });
     await webhook("sub_1");
     expect(current(organization.id)).toMatchObject({ plan_key: null, max_locations: 40 });
@@ -1149,6 +1154,7 @@ describe("lowering what a plan allows", () => {
     scan_every_days: 14,
     max_manual_scans_per_month: 2,
     emails_report: true,
+    allowances: {},
   };
   const save = (user: string | null, key: string, body: unknown) =>
     call(user, "PUT", `/operator/plans/${key}`, body);
@@ -1313,6 +1319,7 @@ describe("lowering what a plan allows", () => {
       scan_every_days: free?.scan_every_days,
       max_manual_scans_per_month: free?.max_manual_scans_per_month,
       emails_report: free?.emails_report,
+      allowances: {},
     });
     expect(response.status).toBe(200);
     expect(current(organization.id)?.max_queries_per_location).toBe(1);
@@ -1339,6 +1346,187 @@ describe("lowering what a plan allows", () => {
     });
     expect(response.status).toBe(503);
     expect(db.limitChanges).toEqual([]);
+  });
+
+  describe("its allowances", () => {
+    useSampleAllowances();
+    const both = { sample_count: 30, sample_access: true };
+
+    it("are raised at once, for everyone on the plan", async () => {
+      const organization = await subscribed();
+      const response = await save(bob, "standard", { ...asIs, allowances: both });
+      expect(response.status).toBe(200);
+      expect(standard()?.allowances).toEqual(both);
+      expect(current(organization.id)?.allowances).toEqual(both);
+      expect(db.limitChanges).toEqual([]);
+    });
+
+    it("are neither lowered nor taken away on the spot where somebody pays", async () => {
+      const organization = await subscribed();
+      await save(bob, "standard", { ...asIs, allowances: both });
+      for (const allowances of [{ sample_count: 10, sample_access: true }, { sample_count: 30 }]) {
+        const response = await save(bob, "standard", { ...asIs, allowances });
+        expect(response.status).toBe(409);
+        expect(await errorCode(response)).toBe("needs_notice");
+      }
+      expect(standard()?.allowances).toEqual(both);
+      expect(current(organization.id)?.allowances).toEqual(both);
+    });
+
+    it("go down kind by kind on the announced day, while what was raised is saved at once", async () => {
+      const organization = await subscribed();
+      await save(bob, "standard", { ...asIs, allowances: both });
+      const response = await save(bob, "standard", {
+        ...asIs,
+        max_manual_scans_per_month: 9,
+        allowances: { sample_count: 10 },
+        reduce_on: dayFrom(40),
+      });
+      expect(response.status).toBe(200);
+      expect(standard()).toMatchObject({ max_manual_scans_per_month: 9, allowances: both });
+      expect(db.limitChanges[0]?.lowered).toEqual({
+        allowances: {
+          sample_count: { from: 30, to: 10 },
+          sample_access: { from: true, to: false },
+        },
+      });
+
+      db.now = new Date(Date.now() + 41 * DAY).toISOString();
+      expect(await memoryStore(db, null).applyLimitChange(db.limitChanges[0]?.id ?? "")).toBe(true);
+      expect(standard()?.allowances).toEqual({ sample_count: 10 });
+      expect(current(organization.id)?.allowances).toEqual({ sample_count: 10 });
+    });
+
+    it("hold a kind that is going down where it is, and leave the rest of the plan editable", async () => {
+      await subscribed();
+      await save(bob, "standard", { ...asIs, allowances: both });
+      await save(bob, "standard", {
+        ...asIs,
+        allowances: { sample_count: 10, sample_access: true },
+        reduce_on: dayFrom(40),
+      });
+      const raised = await save(bob, "standard", {
+        ...asIs,
+        allowances: { sample_count: 50, sample_access: true },
+      });
+      expect(raised.status).toBe(409);
+      expect(standard()?.allowances).toEqual(both);
+      const other = await save(bob, "standard", {
+        ...asIs,
+        max_manual_scans_per_month: 5,
+        allowances: both,
+      });
+      expect(other.status).toBe(200);
+      expect(standard()).toMatchObject({ max_manual_scans_per_month: 5, allowances: both });
+    });
+
+    it("are taken away at once on a plan nobody pays for", async () => {
+      db.operators.add(bob);
+      await save(bob, "standard", { ...asIs, allowances: both });
+      const response = await save(bob, "standard", { ...asIs, allowances: {} });
+      expect(response.status).toBe(200);
+      expect(standard()?.allowances).toEqual({});
+      expect(db.limitChanges).toEqual([]);
+    });
+
+    it("may name only a kind that exists, with a value it takes", async () => {
+      db.operators.add(bob);
+      for (const allowances of [
+        { typo: 5 },
+        { sample_count: 2.5 },
+        { sample_count: 0 },
+        { sample_access: 3 },
+        { sample_access: false },
+      ]) {
+        const response = await save(bob, "standard", { ...asIs, allowances });
+        expect(response.status, JSON.stringify(allowances)).toBe(422);
+      }
+      expect((await save(bob, "standard", asIs)).status).toBe(200);
+      const { allowances: _, ...without } = asIs;
+      expect((await save(bob, "standard", without)).status).toBe(422);
+      expect(standard()?.allowances).toEqual({});
+    });
+
+    it("are set for one organization by the operator, which takes it off its plan", async () => {
+      const organization = await subscribed();
+      const response = await call(bob, "PUT", `/operator/organizations/${organization.id}/limits`, {
+        max_locations: 3,
+        max_queries_per_location: 4,
+        max_manual_scans_per_month: 2,
+        scan_every_days: 14,
+        allowances: { sample_count: 5 },
+      });
+      expect(response.status).toBe(200);
+      expect(current(organization.id)).toMatchObject({
+        plan_key: null,
+        allowances: { sample_count: 5 },
+      });
+    });
+
+    it("are all given to a test organization, with room to exercise them", async () => {
+      db.testAccounts.add(alice);
+      const response = await call(alice, "POST", "/organizations", { name: "Exercises" });
+      const organization = (await response.json()) as Organization;
+      expect(organization.allowances).toMatchObject({ sample_count: 1000, sample_access: true });
+    });
+
+    describe("of a kind the database has and this build does not", () => {
+      // A migration added the kind, and the Worker that knows it is not deployed yet.
+      const withUnknownKind = (row: { allowances: Record<string, number | true> } | undefined) => {
+        db.allowanceKinds.set("not_built_yet", true);
+        if (row) row.allowances = { not_built_yet: 7, sample_count: 30 };
+      };
+
+      it("stay on a plan when it is saved, and are not taken for a reduction", async () => {
+        // Somebody pays for the plan, so dropping the kind would have needed thirty days' notice.
+        const organization = await subscribed();
+        withUnknownKind(standard());
+        const response = await save(bob, "standard", {
+          ...asIs,
+          allowances: { sample_count: 40 },
+        });
+        expect(response.status).toBe(200);
+        expect(standard()?.allowances).toEqual({ not_built_yet: 7, sample_count: 40 });
+        expect(current(organization.id)?.allowances).toEqual({
+          not_built_yet: 7,
+          sample_count: 40,
+        });
+        expect(db.limitChanges).toEqual([]);
+      });
+
+      it("stay on an organization when its limits are set by hand", async () => {
+        const organization = await subscribed();
+        withUnknownKind(current(organization.id));
+        const response = await call(
+          bob,
+          "PUT",
+          `/operator/organizations/${organization.id}/limits`,
+          {
+            max_locations: 3,
+            max_queries_per_location: 4,
+            max_manual_scans_per_month: 2,
+            scan_every_days: 14,
+            allowances: { sample_access: true },
+          },
+        );
+        expect(response.status).toBe(200);
+        expect(current(organization.id)?.allowances).toEqual({
+          not_built_yet: 7,
+          sample_access: true,
+        });
+      });
+
+      it("cannot be set by name: a form sends only the kinds its build lists", async () => {
+        db.operators.add(bob);
+        withUnknownKind(standard());
+        const response = await save(bob, "standard", {
+          ...asIs,
+          allowances: { not_built_yet: 9 },
+        });
+        expect(response.status).toBe(422);
+        expect(standard()?.allowances).toEqual({ not_built_yet: 7, sample_count: 30 });
+      });
+    });
   });
 });
 

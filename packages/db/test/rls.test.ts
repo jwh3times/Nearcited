@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
+import { ALLOWANCE_KINDS } from "@nearcited/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 /**
@@ -2711,8 +2712,10 @@ describe("the operator", () => {
               max_queries_per_location: before?.max_queries_per_location,
               max_manual_scans_per_month: before?.max_manual_scans_per_month,
               scan_every_days: before?.scan_every_days,
+              allowances: before?.allowances,
             },
-            to: changed,
+            // Sent without allowances, which leaves them as they were.
+            to: { ...changed, allowances: before?.allowances },
           },
         },
       ]);
@@ -2758,6 +2761,295 @@ describe("the operator", () => {
           ).rejects.toThrow(/permission denied/);
         }
       }
+    });
+  });
+
+  describe("a plan's allowances", () => {
+    const tester = "ab000000-0000-4000-8000-00000000ab07";
+    const both = { sample_count: 30, sample_access: true };
+    // Standard as it stands, with its allowances set to `$1`. Null leaves them as they are.
+    const setStandard =
+      "select s.allowances from public.plans p, lateral public.operator_set_plan(p.key, p.name, p.on_sale, p.max_queries_per_location, p.assistants, p.scan_every_days, p.max_manual_scans_per_month, p.emails_report, $1::jsonb) s where p.key = 'standard'";
+    const announce =
+      "select c.id, c.lowered from public.plans p, lateral public.operator_announce_limit_change(p.key, p.max_queries_per_location, p.assistants, p.scan_every_days, p.max_manual_scans_per_month, p.emails_report, now() + interval '45 days', $1::jsonb) c where p.key = 'standard'";
+    const standard = async () =>
+      (
+        await rows<{ allowances: unknown }>(
+          "select allowances from public.plans where key = 'standard'",
+        )
+      )[0]?.allowances;
+    const theirAllowances = async () =>
+      (
+        await rows<{ allowances: unknown }>(
+          "select allowances from public.organizations where id = $1",
+          [theirs],
+        )
+      )[0]?.allowances;
+    let before: string[];
+    let made: string | undefined;
+    // What the plans and organizations include before these tests, put back after them. The
+    // tests start everything from nothing, so they hold whatever kinds have been added since.
+    let plansHad: { key: string; allowances: unknown }[];
+    let organizationsHad: { id: string; allowances: unknown }[];
+
+    beforeAll(async () => {
+      before = (await rows<{ id: string }>("select id from public.operator_actions")).map(
+        (row) => row.id,
+      );
+      plansHad = await rows("select key, allowances from public.plans");
+      organizationsHad = await rows("select id, allowances from public.organizations");
+      await db.query("update public.plans set allowances = '{}'");
+      await db.query("update public.organizations set allowances = '{}'");
+      // A customer on Standard, who does not pay yet.
+      await db.query("select public.apply_plan($1, 'standard')", [theirs]);
+      // A test account, named with the secret key.
+      await db.query("insert into auth.users (id, email) values ($1, 'exerciser@example.com')", [
+        tester,
+      ]);
+      await db.query("insert into public.platform_roles (user_id, role) values ($1, 'test')", [
+        tester,
+      ]);
+    });
+    afterAll(async () => {
+      await db.query("delete from public.limit_changes");
+      await db.query(
+        "update public.subscriptions set stripe_subscription_id = null where organization_id = $1",
+        [theirs],
+      );
+      await db.query("update public.organizations set plan_key = null where id = $1", [theirs]);
+      if (made) await db.query("delete from public.organizations where id = $1", [made]);
+      for (const plan of plansHad) {
+        await db.query("update public.plans set allowances = $1::jsonb where key = $2", [
+          JSON.stringify(plan.allowances),
+          plan.key,
+        ]);
+      }
+      for (const organization of organizationsHad) {
+        await db.query("update public.organizations set allowances = $1::jsonb where id = $2", [
+          JSON.stringify(organization.allowances),
+          organization.id,
+        ]);
+      }
+      await db.query("delete from public.platform_roles where user_id = $1", [tester]);
+      await db.query("delete from public.allowance_kinds where key like 'sample_%'");
+      await db.query("delete from public.operator_actions where not (id = any($1::uuid[]))", [
+        before,
+      ]);
+    });
+
+    it("are of the kinds the shared list names, and of no other", async () => {
+      expect(await rows("select key, counted from public.allowance_kinds order by key")).toEqual(
+        Object.entries(ALLOWANCE_KINDS)
+          .map(([key, kind]) => ({ key, counted: kind.counted }))
+          .sort((a, b) => a.key.localeCompare(b.key)),
+      );
+      // None exists yet, so the rest of these tests make two.
+      await db.query(
+        "insert into public.allowance_kinds (key, counted) values ('sample_count', true), ('sample_access', false)",
+      );
+    });
+
+    it("may name only a kind that exists, with a value it takes", async () => {
+      for (const bad of [
+        '{"typo": 5}',
+        '{"sample_count": 0}',
+        '{"sample_count": 2.5}',
+        '{"sample_count": true}',
+        '{"sample_count": 1000001}',
+        '{"sample_count": "30"}',
+        '{"sample_access": 3}',
+        '{"sample_access": false}',
+        "[]",
+        "5",
+      ]) {
+        for (const table of ["plans", "organizations"]) {
+          await expect(
+            db.query(`update public.${table} set allowances = $1::jsonb`, [bad]),
+            `${table} ${bad}`,
+          ).rejects.toThrow(/no allowance called|a set of kinds/);
+        }
+      }
+      await db.query("update public.plans set allowances = $1::jsonb where key = 'retired'", [
+        JSON.stringify(both),
+      ]);
+    });
+
+    it("are part of the price list: read by anyone, written through the API by no one", async () => {
+      const kinds = "select key from public.allowance_kinds where key like 'sample_%'";
+      expect(await as("anon", null, () => rows(kinds))).toHaveLength(2);
+      expect(await as("authenticated", alice, () => rows(kinds))).toHaveLength(2);
+      for (const sql of [
+        "insert into public.allowance_kinds (key, counted) values ('planted', true)",
+        "update public.allowance_kinds set counted = not counted",
+        "delete from public.allowance_kinds",
+        "update public.plans set allowances = '{}'",
+        `update public.organizations set allowances = '{"sample_access": true}' where id = '${theirs}'`,
+      ]) {
+        for (const user of [alice, operator]) {
+          await expect(
+            as("authenticated", user, () => db.query(sql)),
+            sql,
+          ).rejects.toThrow(/permission denied/);
+        }
+      }
+      for (const fn of [
+        "public.check_allowances('{}')",
+        "public.test_allowances()",
+        "public.allowance_reductions('{}', '{}')",
+      ]) {
+        await expect(
+          as("authenticated", operator, () => db.query(`select ${fn}`)),
+          fn,
+        ).rejects.toThrow(/permission denied/);
+      }
+    });
+
+    it("are set on a plan by the operator alone, and reach everyone on it at once", async () => {
+      expect(
+        await as("authenticated", alice, () => rows(setStandard, [JSON.stringify(both)])),
+      ).toEqual([]);
+      await expect(
+        as("anon", null, () => db.query(setStandard, [JSON.stringify(both)])),
+      ).rejects.toThrow(/permission denied/);
+      expect(await standard()).toEqual({});
+
+      expect(
+        await as("authenticated", operator, () => rows(setStandard, [JSON.stringify(both)])),
+      ).toEqual([{ allowances: both }]);
+      expect(await theirAllowances()).toEqual(both);
+      const [recorded] = await rows<{ detail: { from: unknown; to: unknown } }>(
+        "select detail from public.operator_actions where action = 'set_plan' order by created_at desc limit 1",
+      );
+      expect(recorded?.detail).toMatchObject({
+        from: { allowances: {} },
+        to: { allowances: both },
+      });
+
+      await expect(
+        as("authenticated", operator, () => db.query(setStandard, ['{"typo": 5}'])),
+      ).rejects.toThrow(/no allowance called "typo"/);
+    });
+
+    it("are copied to an organization with its plan, and all given to a test organization", async () => {
+      await db.query("update public.organizations set allowances = '{}' where id = $1", [theirs]);
+      await as("service_role", null, () =>
+        db.query("select public.apply_plan($1, 'standard')", [theirs]),
+      );
+      expect(await theirAllowances()).toEqual(both);
+
+      const every = { sample_count: 1000, sample_access: true };
+      // The test organizations that were there when the kinds were added have them too.
+      expect(
+        await rows(
+          "select 1 from public.organizations where is_test and not (allowances @> $1::jsonb)",
+          [JSON.stringify(every)],
+        ),
+      ).toEqual([]);
+      const [fresh] = await as("authenticated", tester, () =>
+        rows<{ id: string; allowances: unknown }>(
+          "select id, allowances from public.create_organization('Exercises allowances')",
+        ),
+      );
+      made = fresh?.id;
+      expect(fresh?.allowances).toMatchObject(every);
+    });
+
+    it("are neither lowered nor taken away on the spot where somebody pays, though raising still can", async () => {
+      await db.query(
+        "update public.subscriptions set stripe_subscription_id = 'sub_paying' where organization_id = $1",
+        [theirs],
+      );
+      for (const less of ['{"sample_count": 10, "sample_access": true}', '{"sample_count": 30}']) {
+        await expect(
+          as("authenticated", operator, () => db.query(setStandard, [less])),
+          less,
+        ).rejects.toThrow(/only be lowered with 30 days/);
+      }
+      expect(await standard()).toEqual(both);
+
+      const more = { sample_count: 40, sample_access: true };
+      await as("authenticated", operator, () => db.query(setStandard, [JSON.stringify(more)]));
+      expect(await theirAllowances()).toEqual(more);
+      // The Worker from before this column sends no allowances, which leaves them as they are.
+      await as("authenticated", operator, () =>
+        db.query(
+          "select * from public.plans p, lateral public.operator_set_plan(p.key, p.name, p.on_sale, p.max_queries_per_location, p.assistants, p.scan_every_days, p.max_manual_scans_per_month, p.emails_report) s where p.key = 'standard'",
+        ),
+      );
+      expect(await standard()).toEqual(more);
+    });
+
+    it("go down by announcement, kind by kind, and are held where they are until the day", async () => {
+      await expect(
+        as("authenticated", operator, () => db.query(announce, ['{"sample_count": 2.5}'])),
+      ).rejects.toThrow(/no allowance called/);
+      await expect(
+        as("authenticated", operator, () =>
+          db.query(announce, ['{"sample_count": 40, "sample_access": true}']),
+        ),
+      ).rejects.toThrow(/Nothing here is lower/);
+
+      const [change] = await as("authenticated", operator, () =>
+        rows<{ id: string; lowered: unknown }>(announce, ['{"sample_count": 10}']),
+      );
+      expect(change?.lowered).toEqual({
+        allowances: {
+          sample_count: { from: 40, to: 10 },
+          sample_access: { from: true, to: false },
+        },
+      });
+      expect(await standard()).toEqual({ sample_count: 40, sample_access: true });
+
+      await expect(
+        as("authenticated", operator, () =>
+          db.query(setStandard, ['{"sample_count": 50, "sample_access": true}']),
+        ),
+      ).rejects.toThrow(/A reduction has been announced/);
+      // Sent back as they are, the rest of the plan can still be saved.
+      await as("authenticated", operator, () =>
+        db.query(setStandard, ['{"sample_count": 40, "sample_access": true}']),
+      );
+
+      await db.query(
+        "update public.limit_changes set effective_at = now() - interval '1 hour' where id = $1",
+        [change?.id],
+      );
+      const [applied] = await as("service_role", null, () =>
+        rows<{ made: boolean }>("select public.apply_limit_change($1) as made", [change?.id]),
+      );
+      expect(applied?.made).toBe(true);
+      expect(await standard()).toEqual({ sample_count: 10 });
+      expect(await theirAllowances()).toEqual({ sample_count: 10 });
+    });
+
+    it("are set for one organization by the operator, which takes it off its plan", async () => {
+      const setLimits =
+        "select plan_key, allowances from public.operator_set_limits($1, 3, 20, 10, 1, $2::jsonb)";
+      expect(
+        await as("authenticated", alice, () =>
+          rows(setLimits, [theirs, '{"sample_access": true}']),
+        ),
+      ).toEqual([]);
+      await expect(
+        as("authenticated", operator, () => db.query(setLimits, [theirs, '{"typo": 5}'])),
+      ).rejects.toThrow(/no allowance called "typo"/);
+      expect(
+        await as("authenticated", operator, () =>
+          rows(setLimits, [theirs, '{"sample_access": true}']),
+        ),
+      ).toEqual([{ plan_key: null, allowances: { sample_access: true } }]);
+      const [recorded] = await rows<{ detail: unknown }>(
+        "select detail from public.operator_actions where action = 'set_limits' order by created_at desc limit 1",
+      );
+      expect(recorded?.detail).toMatchObject({
+        from: { plan_key: "standard", allowances: { sample_count: 10 } },
+        to: { plan_key: null, allowances: { sample_access: true } },
+      });
+      // The Worker from before this column sends no allowances, which leaves them as they are.
+      await as("authenticated", operator, () =>
+        db.query("select * from public.operator_set_limits($1, 3, 20, 10, 1)", [theirs]),
+      );
+      expect(await theirAllowances()).toEqual({ sample_access: true });
     });
   });
 

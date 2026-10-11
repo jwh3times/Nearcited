@@ -1,4 +1,5 @@
 import {
+  allowanceFacts,
   describeLowered,
   type Organization,
   OrganizationInputSchema,
@@ -99,6 +100,12 @@ export function AccountSettings({ organization, email }: AccountSettingsProps) {
                   {organization.emails_report ? "After each scheduled scan" : "Not included"}
                 </span>
               </li>
+              {allowanceFacts(organization.allowances, organization.max_locations).map((fact) => (
+                <li key={fact.key}>
+                  <span>{fact.name}</span>
+                  <span>{fact.value}</span>
+                </li>
+              ))}
               <li>
                 <span>Checked on</span>
                 <span>

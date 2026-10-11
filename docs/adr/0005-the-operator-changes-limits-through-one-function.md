@@ -54,4 +54,7 @@ a platform role are still set only with the secret key.
 - Announcing a reduction in a plan's limits and calling it off follow the same shape (October
   2026): `operator_announce_limit_change` and `operator_call_off_limit_change` answer only the
   operator and record the change.
+- The limits editor sets an organization's allowances as well as the four columns (October
+  2026), in the same call and the same record. See
+  [0012](0012-a-plans-allowances-are-one-set.md).
 - The record covers changes, not reading. 0004's note about an access log still stands.

@@ -71,6 +71,7 @@ const standard: Plan = {
   max_manual_scans_per_month: 10,
   emails_report: true,
   stronger_models: false,
+  allowances: {},
 };
 
 const OLD = [

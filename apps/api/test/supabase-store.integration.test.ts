@@ -78,6 +78,7 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
       max_manual_scans_per_month: 0,
       scan_every_days: 14,
       emails_report: false,
+      allowances: {},
       surfaces: ["chatgpt"],
     });
     await expect(aliceStore.applyPlan(fresh.id, "enterprise")).rejects.toThrow();
@@ -98,6 +99,7 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
       max_queries_per_location: 10,
       max_manual_scans_per_month: 10,
       emails_report: true,
+      allowances: {},
       surfaces: ["chatgpt", "claude"],
     });
     // Billing: only the owner is told where the organization stands, and only the worker
@@ -123,6 +125,7 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
         scan_every_days: 1,
         max_manual_scans_per_month: 99,
         emails_report: true,
+        allowances: {},
       }),
     ).toBeNull();
     expect((await aliceStore.listPlans()).find((plan) => plan.key === "standard")?.name).toBe(
@@ -149,6 +152,7 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
       scan_every_days: 2,
       max_manual_scans_per_month: 10,
       emails_report: true,
+      allowances: {},
     };
     expect(await aliceStore.getOpenLimitChange("standard")).toBeNull();
     expect(
@@ -248,6 +252,10 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
       "pro",
       "enterprise",
     ]);
+    // Each carries its allowances, whatever kinds of work it includes.
+    for (const plan of await aliceStore.listPlans()) {
+      expect(plan.allowances, plan.key).toBeTypeOf("object");
+    }
 
     // Only the operator changes limits. An owner's own call changes nothing.
     expect(
@@ -256,6 +264,7 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
         max_queries_per_location: 50,
         max_manual_scans_per_month: 50,
         scan_every_days: 1,
+        allowances: {},
       }),
     ).toBeNull();
     expect(await aliceStore.getOrganization(organization.id)).toEqual(organization);

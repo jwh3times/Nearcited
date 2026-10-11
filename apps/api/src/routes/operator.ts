@@ -5,6 +5,7 @@ import {
   buildOperatorOverview,
   buildOperatorPlans,
   buildSpend,
+  keepUnknownAllowances,
   monthOf,
   monthStart,
   type OperatorAccounts,
@@ -188,7 +189,14 @@ operatorRoutes.get("/operator/organizations/:organizationId", async (c) => {
 operatorRoutes.put("/operator/organizations/:organizationId/limits", async (c) => {
   const id = uuidParam(c, "organizationId", "Organization");
   const limits = await parseJson(c, OrganizationLimitsSchema);
-  const organization = await c.get("store").setOrganizationLimits(id, limits);
+  const store = c.get("store");
+  const was = await store.getOrganization(id);
+  if (!was) throw notFound("Organization");
+  // As for a plan: a kind of allowance this build does not know stays as it is.
+  const organization = await store.setOrganizationLimits(id, {
+    ...limits,
+    allowances: keepUnknownAllowances(was.allowances, limits.allowances),
+  });
   if (!organization) throw notFound("Organization");
   return c.json(organization);
 });
@@ -267,10 +275,15 @@ operatorRoutes.post("/operator/plans/:key/impact", async (c) => {
  */
 operatorRoutes.put("/operator/plans/:key", async (c) => {
   const key = planKey(c.req.param("key"));
-  const { reduce_on, ...settings } = await parseJson(c, PlanChangeInputSchema);
+  const { reduce_on, ...sent } = await parseJson(c, PlanChangeInputSchema);
   const store = c.get("store");
   const plan = (await store.listPlans()).find((candidate) => candidate.key === key);
   if (!plan) throw notFound("Plan");
+  // The form sends the kinds of allowance this build knows. One it does not know stays as it is.
+  const settings = {
+    ...sent,
+    allowances: keepUnknownAllowances(plan.allowances, sent.allowances),
+  };
 
   const lowered = reductions(plan, settings);
   const lowers = Object.keys(lowered).length > 0;

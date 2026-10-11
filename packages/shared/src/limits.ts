@@ -1,3 +1,4 @@
+import { allowanceReductions, describeLoweredAllowances } from "./allowances";
 import type { LoweredLimits, Plan, PlanSettings } from "./schemas";
 
 type Limits = Pick<
@@ -7,12 +8,14 @@ type Limits = Pick<
   | "scan_every_days"
   | "max_manual_scans_per_month"
   | "emails_report"
+  | "allowances"
 >;
 
 /**
  * The limits that `to` would lower, each with what it is and what it would become. More days
- * between scans is a reduction, and so is a report that stops. Raising a limit is not here: it
- * takes nothing from anyone. The database works out the same thing in `plan_reductions()`.
+ * between scans is a reduction, and so are a report that stops and an allowance taken away or
+ * made smaller. Raising a limit is not here: it takes nothing from anyone. The database works
+ * out the same thing in `plan_reductions()`.
  */
 export function reductions(plan: Limits, to: Limits): LoweredLimits {
   const lowered: LoweredLimits = {};
@@ -37,17 +40,28 @@ export function reductions(plan: Limits, to: Limits): LoweredLimits {
   if (plan.emails_report && !to.emails_report) {
     lowered.emails_report = { from: true, to: false };
   }
+  const allowances = allowanceReductions(plan.allowances, to.allowances);
+  if (Object.keys(allowances).length > 0) lowered.allowances = allowances;
   return lowered;
 }
 
-/** `settings` with every limit it would lower put back to what the plan has now. */
+/**
+ * `settings` with every limit it would lower put back to what the plan has now. Allowances are
+ * put back kind by kind, so one that was raised in the same save is still raised.
+ */
 export function withoutReductions(plan: Limits, settings: PlanSettings): PlanSettings {
-  const lowered = reductions(plan, settings);
+  const { allowances, ...lowered } = reductions(plan, settings);
   return {
     ...settings,
     ...Object.fromEntries(
-      (Object.keys(lowered) as (keyof LoweredLimits)[]).map((field) => [field, plan[field]]),
+      (Object.keys(lowered) as (keyof typeof lowered)[]).map((field) => [field, plan[field]]),
     ),
+    allowances: {
+      ...settings.allowances,
+      ...Object.fromEntries(
+        Object.entries(allowances ?? {}).map(([kind, { from }]) => [kind, from]),
+      ),
+    },
   };
 }
 
@@ -86,6 +100,9 @@ export function describeLowered(lowered: LoweredLimits, made = false): string[] 
   }
   if (lowered.emails_report) {
     lines.push(`The report by email after each scan: included ${was}, not ${becomes}`);
+  }
+  if (lowered.allowances) {
+    lines.push(...describeLoweredAllowances(lowered.allowances, was, becomes));
   }
   return lines;
 }

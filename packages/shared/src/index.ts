@@ -1,4 +1,5 @@
 export * from "./actions";
+export * from "./allowances";
 export * from "./analysis";
 export * from "./audit";
 export * from "./inputs";

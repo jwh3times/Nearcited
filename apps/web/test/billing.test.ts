@@ -23,6 +23,7 @@ const plan = (key: string, extra: Partial<Plan> = {}): Plan => ({
   max_manual_scans_per_month: 10,
   emails_report: true,
   stronger_models: false,
+  allowances: {},
   ...extra,
 });
 const free = plan("free", {
@@ -41,6 +42,7 @@ const organization = (extra: Partial<Organization> = {}): Organization => ({
   surfaces: ["chatgpt"],
   is_test: false,
   emails_report: false,
+  allowances: {},
   plan_key: "free",
   created_at: "2026-10-01T00:00:00.000Z",
   ...extra,

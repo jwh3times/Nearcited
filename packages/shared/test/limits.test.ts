@@ -7,6 +7,7 @@ const plan = {
   scan_every_days: 2,
   max_manual_scans_per_month: 10,
   emails_report: true,
+  allowances: {},
 };
 const settings = { name: "Standard", on_sale: true, ...plan };
 
@@ -26,6 +27,7 @@ describe("reductions", () => {
         scan_every_days: 7,
         max_manual_scans_per_month: 0,
         emails_report: false,
+        allowances: {},
       }),
     ).toEqual({
       max_queries_per_location: { from: 10, to: 5 },
@@ -38,6 +40,14 @@ describe("reductions", () => {
 
   it("does not count a report starting on a plan that had none", () => {
     expect(reductions({ ...plan, emails_report: false }, plan)).toEqual({});
+  });
+
+  it("counts an allowance taken away or made smaller, and not one added or raised", () => {
+    const had = { ...plan, allowances: { drafts: 12, replies: 8, profile: true as const } };
+    expect(reductions(had, { ...plan, allowances: { drafts: 5, replies: 16, posts: 3 } })).toEqual({
+      allowances: { drafts: { from: 12, to: 5 }, profile: { from: true, to: false } },
+    });
+    expect(reductions(had, { ...had, allowances: { ...had.allowances, posts: 3 } })).toEqual({});
   });
 });
 
@@ -57,6 +67,14 @@ describe("withoutReductions", () => {
       max_manual_scans_per_month: 20,
     });
   });
+
+  it("puts an allowance back kind by kind, so one raised in the same save stays raised", () => {
+    const had = { ...plan, allowances: { drafts: 12, replies: 8, profile: true as const } };
+    expect(
+      withoutReductions(had, { ...settings, allowances: { drafts: 5, replies: 16, posts: 3 } })
+        .allowances,
+    ).toEqual({ drafts: 12, replies: 16, posts: 3, profile: true });
+  });
 });
 
 describe("describeLowered", () => {
@@ -72,6 +90,22 @@ describe("describeLowered", () => {
     expect(describeLowered(lowered, true)).toEqual([
       "Scheduled scans: every day before, every 7 days now",
       "The report by email after each scan: included before, not now",
+    ]);
+  });
+
+  it("writes a line for each allowance, in words even for a kind it has no name for", () => {
+    expect(
+      describeLowered({
+        allowances: {
+          sample_emails: { from: 90, to: 40 },
+          sample_drafts: { from: 12, to: false },
+          sample_profile: { from: true, to: false },
+        },
+      }),
+    ).toEqual([
+      "Sample emails, a month for each location: 90 now, 40 after",
+      "Sample drafts: 12 a month for each location now, none after",
+      "Sample profile: included now, not after",
     ]);
   });
 });

@@ -262,6 +262,7 @@ export interface Store {
       | "scan_every_days"
       | "max_manual_scans_per_month"
       | "emails_report"
+      | "allowances"
     >,
     effectiveAt: string,
   ): Promise<LimitChange | null>;

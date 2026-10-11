@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { allowanceErrors } from "./allowances";
 import { isCountry, normalizePhone, normalizePostalCode, normalizeWebsite } from "./inputs";
 
 /**
@@ -66,6 +67,20 @@ const Timestamp = z.string();
 // Rows
 // ---------------------------------------------------------------------------
 
+/**
+ * What a plan allows of one kind of work: true when it is included, or how many a month for
+ * each location the plan covers. See `docs/adr/0012-a-plans-allowances-are-one-set.md`.
+ */
+export const AllowanceSchema = z.union([z.literal(true), z.number().int().positive()]);
+export type Allowance = z.infer<typeof AllowanceSchema>;
+
+/**
+ * Allowances by kind (`ALLOWANCE_KINDS`). A kind that is absent is not included. A kind this
+ * build does not know is kept as it came, so that saving a plan cannot drop it.
+ */
+export const AllowancesSchema = z.record(z.string(), AllowanceSchema);
+export type Allowances = z.infer<typeof AllowancesSchema>;
+
 export const OrganizationSchema = z.object({
   id: Id,
   name: z.string(),
@@ -89,6 +104,8 @@ export const OrganizationSchema = z.object({
   is_test: z.boolean(),
   /** Whether its owners are emailed a report after each scheduled scan. */
   emails_report: z.boolean(),
+  /** The kinds of work it may have done, copied from its plan or set by the operator. */
+  allowances: AllowancesSchema,
   /** The plan it is on. Null when its limits were set by hand, which no plan then changes. */
   plan_key: z.string().nullable(),
   created_at: Timestamp,
@@ -121,6 +138,8 @@ export const PlanSchema = z.object({
   emails_report: z.boolean(),
   /** Whether its owner may pay for a stronger model. */
   stronger_models: z.boolean(),
+  /** The kinds of work it includes. */
+  allowances: AllowancesSchema,
 });
 export type Plan = z.infer<typeof PlanSchema>;
 
@@ -448,12 +467,24 @@ const limit = (least: number, most: number) =>
     .min(least, `Enter ${least} or more`)
     .max(most, `Enter ${most.toLocaleString("en-US")} or fewer`);
 
+/**
+ * Allowances as the operator sets them: only kinds that exist, each with a value its kind takes.
+ * The first thing wrong is the message, since the fields share one place to show it.
+ */
+const allowancesInput = z
+  .record(z.string(), z.union([z.literal(true), z.number()]))
+  .superRefine((allowances, ctx) => {
+    const [message] = Object.values(allowanceErrors(allowances));
+    if (message) ctx.addIssue({ code: "custom", message });
+  });
+
 export const OrganizationLimitsSchema = z.object({
   max_locations: limit(0, 1000),
   max_queries_per_location: limit(0, 200),
   max_manual_scans_per_month: limit(0, 100_000),
   /** 1 is daily. */
   scan_every_days: limit(1, 30),
+  allowances: allowancesInput,
 });
 export type OrganizationLimits = z.infer<typeof OrganizationLimitsSchema>;
 
@@ -471,6 +502,7 @@ export const PlanSettingsSchema = z.object({
   scan_every_days: limit(1, 30),
   max_manual_scans_per_month: limit(0, 100_000),
   emails_report: z.boolean(),
+  allowances: allowancesInput,
 });
 export type PlanSettings = z.infer<typeof PlanSettingsSchema>;
 
@@ -528,6 +560,19 @@ export const PriceChangeMessageSchema = z.object({
 });
 export type PriceChangeMessage = z.infer<typeof PriceChangeMessageSchema>;
 
+/**
+ * Allowances that go down, by kind, each with what it was and what it becomes. A kind taken away
+ * becomes false.
+ */
+export const LoweredAllowancesSchema = z.record(
+  z.string(),
+  z.object({
+    from: AllowanceSchema,
+    to: z.union([z.literal(false), z.number().int().positive()]),
+  }),
+);
+export type LoweredAllowances = z.infer<typeof LoweredAllowancesSchema>;
+
 /** The limits of a plan that can go down, each with what it was and what it becomes. */
 export const LoweredLimitsSchema = z
   .object({
@@ -536,6 +581,7 @@ export const LoweredLimitsSchema = z
     scan_every_days: z.object({ from: z.number().int(), to: z.number().int() }),
     max_manual_scans_per_month: z.object({ from: z.number().int(), to: z.number().int() }),
     emails_report: z.object({ from: z.boolean(), to: z.boolean() }),
+    allowances: LoweredAllowancesSchema,
   })
   .partial();
 export type LoweredLimits = z.infer<typeof LoweredLimitsSchema>;

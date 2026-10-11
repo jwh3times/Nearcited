@@ -64,12 +64,12 @@ pass `pnpm check` and run in mock mode without it.
   announcement at least thirty days before, checked per organization. Do not add another path
   that changes what a running subscription is billed, and never edit a price in place.
 - **What a paying subscriber gets goes down only after they were told.** On a plan with
-  subscribers a lower limit is announced for a day at least thirty days out and made on that day
-  by `apply_limit_change()`, which only the worker calls
-  (`docs/adr/0009-a-reduction-is-announced-like-a-price-rise.md`). `operator_set_plan()` refuses
-  to lower anything there on the spot. Raising a limit, and anything on a plan nobody pays for,
-  still happens at once. Do not add a path that lowers a paid plan's limits without the
-  announcement.
+  subscribers a lower limit, or an allowance taken away or made smaller, is announced for a day
+  at least thirty days out and made on that day by `apply_limit_change()`, which only the worker
+  calls (`docs/adr/0009-a-reduction-is-announced-like-a-price-rise.md`). `operator_set_plan()`
+  refuses to lower anything there on the spot. Raising a limit, and anything on a plan nobody
+  pays for, still happens at once. Do not add a path that lowers a paid plan's limits or
+  allowances without the announcement.
 - **The operator can read every row** (`docs/adr/0004-the-operator-reads-through-policies.md`), so
   a query must filter by what it means, never by what the caller happens to see. "This user's
   organizations" is `my_organizations()`, not `select` from `organizations`. The operator gets
@@ -88,8 +88,13 @@ pass `pnpm check` and run in mock mode without it.
   migrated second.
 - **An organization's limits come from its plan.** `apply_plan()`, which only the worker calls,
   copies them from the plan, and the operator's limits editor changes them through its function.
-  Nothing on a request path writes a limit, `plan_key`, `paused_by_plan` or `set_aside_by_plan`.
-  An account has one organization: `create_organization()` refuses a second.
+  Nothing on a request path writes a limit, `allowances`, `plan_key`, `paused_by_plan` or
+  `set_aside_by_plan`. An account has one organization: `create_organization()` refuses a second.
+- **A kind of work a plan includes is an allowance, not a new column.** It is one row in
+  `allowance_kinds` and one entry in `ALLOWANCE_KINDS` (`packages/shared/src/allowances.ts`), added
+  in the same change (`docs/adr/0012-a-plans-allowances-are-one-set.md`). A form shows and sends
+  only the kinds its build knows, and the API puts back the ones it does not: keep that, or the
+  Worker running while a migration adds a kind will drop it.
 - **`packages/shared/src/schemas.ts` defines every wire type.** Change the schema first, then the
   API and the client. Field names stay snake_case end to end.
 - **All database access goes through the `Store` interface** (`apps/api/src/store/types.ts`). A

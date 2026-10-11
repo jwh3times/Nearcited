@@ -1,4 +1,5 @@
 import type {
+  Allowances,
   AuditJob,
   AuditPart,
   LimitChange,
@@ -16,7 +17,7 @@ import type {
   TrackedQuery,
   UsageByMonth,
 } from "@nearcited/shared";
-import { reductions } from "@nearcited/shared";
+import { ALLOWANCE_KINDS, allowanceErrors, reductions } from "@nearcited/shared";
 import {
   type PriceVersion,
   type Store,
@@ -65,6 +66,12 @@ export interface MemoryDb {
   /** What the announcement functions take as the present moment, when a test sets one. */
   now?: string;
   limitChanges: LimitChange[];
+  /**
+   * The `allowance_kinds` table: each kind, and whether it is counted. It starts as the kinds
+   * this build lists. A test adds one to stand for a kind a migration made before the Worker
+   * that knows it was deployed.
+   */
+  allowanceKinds: Map<string, boolean>;
   limitChangeNotices: LimitChangeNotice[];
   priceChanges: PriceChange[];
   priceChangeNotices: PriceChangeNotice[];
@@ -114,6 +121,9 @@ export function createMemoryDb(): MemoryDb {
     pastPrices: [],
     priceChanges: [],
     limitChanges: [],
+    allowanceKinds: new Map(
+      Object.entries(ALLOWANCE_KINDS).map(([key, kind]) => [key, kind.counted]),
+    ),
     limitChangeNotices: [],
     priceChangeNotices: [],
     subscriptions: new Map(),
@@ -133,7 +143,24 @@ export const DEFAULT_LIMITS = {
   scan_every_days: 1,
   surfaces: null,
   emails_report: true,
+  allowances: {},
 };
+
+/**
+ * Mirrors `check_allowances()`: a set may name only kinds the database has, each with a value it
+ * takes. Those are the kinds in `db.allowanceKinds`, which can be more than this build lists.
+ */
+function requireAllowances(db: MemoryDb, allowances: Record<string, unknown>) {
+  const kinds = Object.fromEntries(
+    [...db.allowanceKinds].map(([key, counted]) => [key, { counted, name: key }]),
+  );
+  const [message] = Object.values(allowanceErrors(allowances, kinds));
+  if (message) throw new StoreError("limit", message);
+}
+
+/** Mirrors `test_allowances()`: every kind the database has, with room to exercise it. */
+const testAllowances = (db: MemoryDb): Allowances =>
+  Object.fromEntries([...db.allowanceKinds].map(([key, counted]) => [key, counted ? 1000 : true]));
 
 /** `userId: null` is the worker's view: no filtering. */
 export function memoryStore(db: MemoryDb, userId: string | null): Store {
@@ -293,6 +320,7 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         max_manual_scans_per_month: plan.max_manual_scans_per_month,
         scan_every_days: plan.scan_every_days,
         emails_report: plan.emails_report,
+        allowances: { ...plan.allowances },
         surfaces: plan.assistants >= 2 ? ["chatgpt", "claude"] : (one ?? ["chatgpt"]),
       });
     },
@@ -305,7 +333,12 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
     async setOrganizationLimits(id, limits) {
       if (!isOperator) return null;
       const organization = db.organizations.find((o) => o.id === id);
-      return organization ? Object.assign(organization, limits, { plan_key: null }) : null;
+      if (!organization) return null;
+      requireAllowances(db, limits.allowances);
+      return Object.assign(organization, limits, {
+        allowances: { ...limits.allowances },
+        plan_key: null,
+      });
     },
 
     async createOrganization(name) {
@@ -319,6 +352,7 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         id: crypto.randomUUID(),
         name,
         ...DEFAULT_LIMITS,
+        allowances: db.testAccounts.has(userId) ? testAllowances(db) : {},
         is_test: db.testAccounts.has(userId),
         plan_key: null,
         created_at: timestamp(),
@@ -343,6 +377,7 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
       if (key === "free" && !settings.on_sale) {
         throw new StoreError("limit", "The free plan stays on sale.");
       }
+      requireAllowances(db, settings.allowances);
       // As the database function has it: no reduction on the spot where somebody pays, and
       // nothing an open announcement is going to lower may move meanwhile.
       const lowered = reductions(plan, settings);
@@ -352,9 +387,14 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         throw new StoreError("limit", "What this plan allows can only be lowered with notice.");
       }
       const open = await this.getOpenLimitChange(key);
-      const held = (Object.keys(open?.lowered ?? {}) as (keyof typeof lowered)[]).some(
-        (field) => settings[field] !== plan[field],
-      );
+      const { allowances: heldKinds, ...heldLimits } = open?.lowered ?? {};
+      const held =
+        (Object.keys(heldLimits) as (keyof typeof heldLimits)[]).some(
+          (field) => settings[field] !== plan[field],
+        ) ||
+        Object.keys(heldKinds ?? {}).some(
+          (kind) => settings.allowances[kind] !== plan.allowances[kind],
+        );
       if (held) throw new StoreError("limit", "A reduction has been announced for this plan.");
       if (down && key === "free") {
         const at = db.now ?? new Date().toISOString();
@@ -369,7 +409,7 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
           completed_at: at,
         });
       }
-      Object.assign(plan, settings);
+      Object.assign(plan, settings, { allowances: { ...settings.allowances } });
       // As the database function does: every organization on the plan takes the new values.
       const worker = memoryStore(db, null);
       for (const organization of db.organizations.filter((o) => o.plan_key === key)) {
@@ -519,6 +559,7 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
     async announceLimitChange(planKey, to, effectiveAt) {
       const plan = db.plans.find((candidate) => candidate.key === planKey);
       if (!isOperator || !plan) return null;
+      requireAllowances(db, to.allowances);
       const lowered = reductions(plan, to);
       if (Object.keys(lowered).length === 0) {
         throw new StoreError("limit", "Nothing here is lower than what the plan allows now.");
@@ -613,9 +654,17 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
       );
       const plan = db.plans.find((candidate) => candidate.key === change?.plan_key);
       if (!change || !plan) return false;
-      for (const [field, { to }] of Object.entries(change.lowered)) {
+      const { allowances: kinds, ...limits } = change.lowered;
+      for (const [field, { to }] of Object.entries(limits)) {
         Object.assign(plan, { [field]: to });
       }
+      // A kind taken away leaves the set, and a smaller number replaces the larger.
+      plan.allowances = Object.fromEntries(
+        Object.entries(plan.allowances).flatMap(([kind, allowance]) => {
+          const to = kinds?.[kind]?.to;
+          return to === false ? [] : [[kind, to ?? allowance]];
+        }),
+      );
       for (const organization of db.organizations.filter((o) => o.plan_key === plan.key)) {
         await this.applyPlan(organization.id, plan.key, organization.max_locations);
       }
