@@ -1,4 +1,4 @@
-import type { Allowances, LoweredAllowances } from "./schemas";
+import type { Allowances, AllowanceUse, LoweredAllowances } from "./schemas";
 
 /** One kind of work a plan can include (`docs/adr/0012-a-plans-allowances-are-one-set.md`). */
 export interface AllowanceKind {
@@ -175,18 +175,22 @@ export function knownAllowances(kept: Allowances, kinds = ALLOWANCE_KINDS): Allo
 
 /**
  * An organization's allowances as the facts its account page lists: each kind it has, with
- * "Included" or how many a month it may have across the locations its plan covers.
+ * "Included" or how many it may have this month across the locations its plan covers. `used` is
+ * what it has used so far, once that is known.
  */
 export function allowanceFacts(
   allowances: Allowances,
   locations: number,
+  used: AllowanceUse | null = null,
   kinds = ALLOWANCE_KINDS,
 ): { key: string; name: string; value: string }[] {
   return Object.entries(kinds).flatMap(([key, kind]) => {
     const allowance = allowances[key];
     if (allowance === undefined) return [];
     const value =
-      allowance === true ? "Included" : `${allowedEachMonth(allowance, locations)} a month`;
+      allowance === true
+        ? "Included"
+        : `${used ? `${used[key] ?? 0} of ` : ""}${allowedEachMonth(allowance, locations)} this month`;
     return [{ key, name: kind.name, value }];
   });
 }

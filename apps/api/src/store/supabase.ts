@@ -1,4 +1,6 @@
 import {
+  AllowanceClaimSchema,
+  AllowanceUseSchema,
   AuditJobSchema,
   LimitChangeSchema,
   LocationSchema,
@@ -232,6 +234,19 @@ export function createSupabaseStore(db: SupabaseClient): Store {
       return counted.manual_scans_month === thisMonth ? counted.manual_scans_used : 0;
     },
 
+    async getAllowanceUse(organizationId) {
+      const thisMonth = `${new Date().toISOString().slice(0, 7)}-01`;
+      const { data, error } = await db
+        .from("allowance_use")
+        .select("kind, used")
+        .eq("organization_id", organizationId)
+        .eq("month", thisMonth);
+      if (error) fail("Get allowance use", error);
+      return AllowanceUseSchema.parse(
+        Object.fromEntries((data ?? []).map((row) => [row.kind, row.used])),
+      );
+    },
+
     async listPlanPrices() {
       const [plans, versions] = await Promise.all([
         db.from("plans").select(PLAN_PRICE_COLUMNS).order("position"),
@@ -300,6 +315,14 @@ export function createSupabaseStore(db: SupabaseClient): Store {
         .maybeSingle();
       if (error) fail("Choose assistants", error);
       return data ? OrganizationSchema.parse(data) : null;
+    },
+
+    async claimAllowance(organizationId, kind, amount = 1) {
+      const { data, error } = await db
+        .rpc("claim_allowance", { org: organizationId, of_kind: kind, amount })
+        .maybeSingle();
+      if (error) fail("Claim allowance", error);
+      return data ? AllowanceClaimSchema.parse(data) : null;
     },
 
     async applyPlan(organizationId, planKey, locations) {

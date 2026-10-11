@@ -2812,6 +2812,7 @@ describe("the operator", () => {
     });
     afterAll(async () => {
       await db.query("delete from public.limit_changes");
+      await db.query("delete from public.allowance_use");
       await db.query(
         "update public.subscriptions set stripe_subscription_id = null where organization_id = $1",
         [theirs],
@@ -3050,6 +3051,97 @@ describe("the operator", () => {
         db.query("select * from public.operator_set_limits($1, 3, 20, 10, 1)", [theirs]),
       );
       expect(await theirAllowances()).toEqual({ sample_access: true });
+    });
+
+    describe("their use", () => {
+      const claim = (kind: string, amount = 1) =>
+        as("service_role", null, () =>
+          rows<{ claimed: boolean; allowed: number | null; used: number }>(
+            "select * from public.claim_allowance($1, $2, $3)",
+            [theirs, kind, amount],
+          ),
+        );
+      const use = "select kind, used from public.allowance_use where organization_id = $1";
+
+      beforeAll(async () => {
+        // Two for each of three locations is six a month between them.
+        await db.query(
+          `update public.organizations set max_locations = 3, allowances = '{"sample_count": 2, "sample_access": true}' where id = $1`,
+          [theirs],
+        );
+      });
+
+      it("is counted for the month across the locations covered, and stops at the number", async () => {
+        expect(await claim("sample_count")).toEqual([{ claimed: true, allowed: 6, used: 1 }]);
+        expect(await claim("sample_count", 5)).toEqual([{ claimed: true, allowed: 6, used: 6 }]);
+        expect(await claim("sample_count")).toEqual([{ claimed: false, allowed: 6, used: 6 }]);
+        // More than is left is refused whole: nothing is counted.
+        await db.query("update public.allowance_use set used = 4");
+        expect(await claim("sample_count", 3)).toEqual([{ claimed: false, allowed: 6, used: 4 }]);
+        expect(await rows(use, [theirs])).toEqual([{ kind: "sample_count", used: 4 }]);
+      });
+
+      it("has nothing to count for a kind included without a number, or one not included", async () => {
+        expect(await claim("sample_access")).toEqual([{ claimed: true, allowed: null, used: 0 }]);
+        expect(await claim("nonesuch")).toEqual([{ claimed: false, allowed: 0, used: 0 }]);
+        expect(await rows(use, [theirs])).toHaveLength(1);
+        expect(
+          await as("service_role", null, () =>
+            rows("select * from public.claim_allowance($1, 'sample_count')", [
+              "00000000-0000-4000-8000-00000000dead",
+            ]),
+          ),
+        ).toEqual([]);
+        await expect(claim("sample_count", 0)).rejects.toThrow(/one or more at a time/);
+      });
+
+      it("starts again each calendar month", async () => {
+        await db.query(
+          "update public.allowance_use set month = (month - interval '1 month')::date, used = 6",
+        );
+        expect(await claim("sample_count")).toEqual([{ claimed: true, allowed: 6, used: 1 }]);
+        expect(await rows("select count(*)::int as months from public.allowance_use")).toEqual([
+          { months: 2 },
+        ]);
+      });
+
+      it("is taken by the worker alone", async () => {
+        for (const user of [alice, operator]) {
+          await expect(
+            as("authenticated", user, () =>
+              db.query("select * from public.claim_allowance($1, 'sample_count')", [theirs]),
+            ),
+            user,
+          ).rejects.toThrow(/permission denied/);
+        }
+        await expect(
+          as("anon", null, () =>
+            db.query("select * from public.claim_allowance($1, 'sample_count')", [theirs]),
+          ),
+        ).rejects.toThrow(/permission denied/);
+      });
+
+      it("is read by the organization's members and the operator, and written by no one", async () => {
+        // Alice owns the organization. Bob belongs to another.
+        expect(await as("authenticated", alice, () => rows(use, [theirs]))).toHaveLength(2);
+        expect(await as("authenticated", bob, () => rows(use, [theirs]))).toEqual([]);
+        expect(await as("authenticated", operator, () => rows(use, [theirs]))).toHaveLength(2);
+        await expect(as("anon", null, () => db.query(use, [theirs]))).rejects.toThrow(
+          /permission denied/,
+        );
+        for (const sql of [
+          `insert into public.allowance_use (organization_id, kind, month, used) values ('${theirs}', 'sample_count', '2020-01-01', 0)`,
+          "update public.allowance_use set used = 0",
+          "delete from public.allowance_use",
+        ]) {
+          for (const user of [alice, operator]) {
+            await expect(
+              as("authenticated", user, () => db.query(sql)),
+              sql,
+            ).rejects.toThrow(/permission denied/);
+          }
+        }
+      });
     });
   });
 

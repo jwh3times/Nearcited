@@ -81,6 +81,24 @@ export type Allowance = z.infer<typeof AllowanceSchema>;
 export const AllowancesSchema = z.record(z.string(), AllowanceSchema);
 export type Allowances = z.infer<typeof AllowancesSchema>;
 
+/** How much of each counted allowance is used in a calendar month (UTC), by kind. */
+export const AllowanceUseSchema = z.record(z.string(), z.number().int().nonnegative());
+export type AllowanceUse = z.infer<typeof AllowanceUseSchema>;
+
+/** What became of taking some of an allowance for a piece of work. */
+export const AllowanceClaimSchema = z.object({
+  /** False when the kind is not included, or the month's number would be passed. */
+  claimed: z.boolean(),
+  /**
+   * The month's number, across the locations the plan covers. Null for a kind that is included
+   * without a number, 0 for one that is not included.
+   */
+  allowed: z.number().int().nonnegative().nullable(),
+  /** How much of the month is used, after this. */
+  used: z.number().int().nonnegative(),
+});
+export type AllowanceClaim = z.infer<typeof AllowanceClaimSchema>;
+
 export const OrganizationSchema = z.object({
   id: Id,
   name: z.string(),
@@ -772,6 +790,8 @@ export type CheckoutInput = z.infer<typeof CheckoutInputSchema>;
 export const OrganizationAccountSchema = z.object({
   /** Scans started by hand this calendar month (UTC) that count against the plan. */
   manual_scans_used: z.number().int().nonnegative(),
+  /** What it has used of its counted allowances this calendar month. None used is absent. */
+  allowance_use: AllowanceUseSchema,
   /**
    * A reduction announced for the organization's plan and not made yet: what goes down, and the
    * day. Anyone in the organization is shown it.

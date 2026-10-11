@@ -177,6 +177,19 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
     });
     expect(await aliceStore.getManualScansUsed(fresh.id)).toBe(0);
     expect(await bobStore.getManualScansUsed(fresh.id)).toBeNull();
+    // Use of an allowance is read by a member and taken by the worker alone. No kind exists yet,
+    // so there is none to read and nothing to take.
+    expect(await aliceStore.getAllowanceUse(fresh.id)).toEqual({});
+    expect(await bobStore.getAllowanceUse(fresh.id)).toEqual({});
+    expect(await worker.claimAllowance(fresh.id, "nonesuch")).toEqual({
+      claimed: false,
+      allowed: 0,
+      used: 0,
+    });
+    expect(await worker.claimAllowance(crypto.randomUUID(), "nonesuch")).toBeNull();
+    await expect(aliceStore.claimAllowance(fresh.id, "nonesuch")).rejects.toMatchObject({
+      kind: "forbidden",
+    });
     expect(await worker.getSubscription(fresh.id)).toBeNull();
     const customer = `cus_${crypto.randomUUID()}`;
     await expect(
