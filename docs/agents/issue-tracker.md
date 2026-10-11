@@ -43,7 +43,7 @@ shows the same order to public readers, so move an issue in its task list when i
 | Field    | Options                                                                                                                                                              | Meaning                                                                    |
 | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
 | `Status` | Todo, In Progress, Done                                                                                                                                              | Closing an issue sets Done. Set In Progress by hand when work starts.      |
-| `Stage`  | 1 - Make it real, 2 - Find out whether anyone wants it, 3 - Safe for someone else to use, 4 - Sellable, 5 - Rounding out, Decisions and upkeep                       | The order to build in. Lower stages first.                                 |
+| `Stage`  | 1 - Make it real, 2 - Find out whether anyone wants it, 3 - Safe for someone else to use, 4 - Does the work for the owner, 5 - Sellable, 6 - Rounding out, Decisions and upkeep | The order to build in. Lower stages first.                                 |
 | `Gate`   | None, Owner decision, Owner action, External                                                                                                                         | What must happen outside the code before the item can finish.              |
 
 - **Owner decision**: the owner has to choose something first (a vendor, a price, where code lives).

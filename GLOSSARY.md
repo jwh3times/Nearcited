@@ -22,13 +22,30 @@ system works; this file only settles vocabulary.
 - **Source kind**: what sort of site a source is, which decides what an owner can usefully do
   about it: a review platform that lets a business ask for reviews, one that forbids it, a
   directory, or an editorial page.
-- **Task**: one piece of work handed to an owner because of one source, sized to finish in about
-  fifteen minutes and marked done by the owner. A step of the action plan states an observation;
-  a task is the work that follows from it. See
-  `docs/adr/0010-the-product-drafts-and-the-owner-acts.md`.
-- **Draft**: text a model wrote for an owner to send or publish themselves, labelled as such. The
-  only thing a model writes. Never a measurement, a step or a recommendation, and never sent by
-  the product.
+- **Task**: one piece of work that follows from one source, sized to finish in about fifteen
+  minutes when the owner does it themselves, and marked done by the owner or by the action that
+  did it. A step of the action plan states an observation; a task is the work that follows from
+  it. See `docs/adr/0011-the-product-does-the-work-and-the-owner-approves.md`.
+- **Draft**: text a model wrote, labelled as such. The owner sends or publishes it themselves, or
+  approves an action that does. Never a measurement, a step or a recommendation.
+- **Connection**: an owner's standing sign-in to an outside account where a business's work
+  happens: its Google profile, its website, its visitor statistics, a customer source. Made once
+  and synced from on a schedule.
+- **Customer source**: a connection that tells the product who a business's customers are and
+  when their job was finished.
+- **Action**: one thing the product does outside itself for a business: a fact corrected, a
+  review answered, a post or a page published, a review request sent. Not a step of the action
+  plan, which only states an observation.
+- **Approval**: a member's yes to one action, before it is carried out.
+- **Standing permission**: an owner's or admin's yes in advance to every action of one kind, so
+  the product acts first and tells the owners afterwards. It can be taken back.
+- **Action notice**: the message that tells an organization's owners what an action changed, sent
+  within 48 hours of it.
+- **Review request**: one message from the product to one of a business's customers, asking for a
+  review on a site that lets a business ask. Sent to every customer alike, once, offering
+  nothing.
+- **Customer contact**: a customer's name and their email address or phone number, held only to
+  send a review request and deleted afterwards.
 - **Organization role**: what a person may do inside one organization: owner, admin or member.
   Whoever creates an organization is its owner. It says nothing about the product as a whole.
 - **Platform role**: what an account is to Nearcited itself, apart from any organization. Most

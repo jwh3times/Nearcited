@@ -1,7 +1,7 @@
 import type { SourceKind } from "./schemas";
 
 /**
- * Well-known sites by kind (`docs/adr/0010-the-product-drafts-and-the-owner-acts.md`).
+ * Well-known sites by kind (`docs/adr/0011-the-product-does-the-work-and-the-owner-approves.md`).
  *
  * The kind decides what a task asks of an owner, so a site goes on this list only when its rules
  * are known. `reviews` is for a platform that lets a business ask its customers for reviews;
