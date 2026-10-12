@@ -197,7 +197,7 @@ export async function syncConnection(
     const outcome = await store.recordConnectionFailure(connectionId, refused);
     if (outcome?.newly_broken) {
       const broken = await store.getConnection(connectionId);
-      // A failure to tell must not undo what was recorded: the reminder run tells them later.
+      // A failure to tell must not undo what was recorded: the daily run tells them later.
       if (broken) {
         await tellBroken(broken, false, deps).catch((sendError) =>
           console.error(`Connection ${connectionId}: its owners could not be told`, sendError),
@@ -211,12 +211,26 @@ export async function syncConnection(
     : "not_working";
 }
 
-/** How long after a connection broke its owners and admins are reminded, once. */
+/**
+ * Tells the owners and admins of every broken connection nobody has been told of yet: the email
+ * could not be sent when it broke. One with nobody to tell, a test organization's among them,
+ * is looked at again each day and stays untold. Returns how many were told.
+ */
+export async function tellBrokenConnections(deps: ConnectionDeps): Promise<number> {
+  let told = 0;
+  for (const id of await deps.store.listBrokenConnectionsUntold()) {
+    const connection = await deps.store.getConnection(id);
+    if (connection?.status === "broken" && (await tellBroken(connection, false, deps))) told++;
+  }
+  return told;
+}
+
+/** How long after its owners and admins were told a connection broke they are reminded, once. */
 const REMIND_AFTER_MS = 7 * 86_400_000;
 
 /**
- * Reminds the owners and admins of every connection that broke a week ago and is still broken.
- * Each is reminded once. Returns how many were.
+ * Reminds the owners and admins of every connection they were told a week ago had broken and
+ * that is still broken. Each is reminded once. Returns how many were.
  */
 export async function remindBrokenConnections(deps: ConnectionDeps): Promise<number> {
   const now = deps.now ?? new Date();

@@ -520,10 +520,23 @@ export function createSupabaseStore(db: SupabaseClient): Store {
         .from("connections")
         .select("id")
         .eq("status", "broken")
-        .not("broken_told_at", "is", null)
         .is("broken_reminded_at", null)
-        .lt("broken_at", before);
+        // A null is never before anything, so one that was never told is left out.
+        .lt("broken_told_at", before);
       if (error) fail("List broken connections to remind", error);
+      return z
+        .array(z.object({ id: z.uuid() }))
+        .parse(data ?? [])
+        .map((row) => row.id);
+    },
+
+    async listBrokenConnectionsUntold() {
+      const { data, error } = await db
+        .from("connections")
+        .select("id")
+        .eq("status", "broken")
+        .is("broken_told_at", null);
+      if (error) fail("List broken connections nobody was told of", error);
       return z
         .array(z.object({ id: z.uuid() }))
         .parse(data ?? [])

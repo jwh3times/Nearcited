@@ -30,9 +30,9 @@ Nearcited is multi-tenant, and tenant isolation is enforced by Postgres row-leve
   - writing `plan_prices`, `allowance_kinds`, `price_changes`, `price_change_notices`,
     `limit_changes` or `limit_change_notices`;
   - making an audit through `operator_create_audit()`.
-- Changing what an organization's plan allows from a member's request: calling `apply_plan()` or
-  `fit_to_plan()`, or writing a limit, `allowances`, `plan_key`, `paused_by_plan` or
-  `set_aside_by_plan` directly.
+- Changing what an organization's plan allows from a member's request: calling `apply_plan()`,
+  `fit_to_plan()` or `fit_connections_to_plan()`, or writing a limit, `allowances`, `plan_key`,
+  `paused_by_plan` or `set_aside_by_plan` directly.
 - Using up or clearing an organization's allowance: writing `allowance_use` as a signed-in user, or
   calling `claim_allowance()` as anyone but the worker.
 - Reading a connection's sign-in, sealed or not, by any path: `connection_secrets` has no policy
@@ -42,9 +42,11 @@ Nearcited is multi-tenant, and tenant isolation is enforced by Postgres row-leve
   calling `create_connection()`, `match_connection_location()`,
   `unmatch_connection_location()` or `request_connection_removal()` for an organization the caller
   is not an owner or admin of, matching a location of another organization, or writing
-  `connections` or `connection_locations` directly. Also calling `finish_connection_removal()`,
-  which deletes a sign-in, or `record_connection_sync()` or `connections_due_for_sync()`, as anyone
-  but the worker.
+  `connections` or `connection_locations` directly, or reading or writing
+  `connection_kind_allowances`, which no API role reaches. Also calling
+  `finish_connection_removal()`, which deletes a sign-in, `expire_paused_connections()`, which
+  starts removing them, or `record_connection_sync()`, `record_connection_failure()` or
+  `connections_due_for_sync()`, as anyone but the worker.
 - Getting `choose_assistants()` or `activate_location()` to act on an organization the caller
   does not belong to.
 - Getting a second organization on one account, or deleting or moving an organization.

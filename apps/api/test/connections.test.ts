@@ -19,6 +19,7 @@ import {
   requeueStalledRemovals,
   SignInRefused,
   syncConnection,
+  tellBrokenConnections,
 } from "../src/connections";
 import { open, seal, sealingKey } from "../src/connections/seal";
 import type { Email } from "../src/email/report";
@@ -736,19 +737,46 @@ describe("a connection that stops working", () => {
     expect(sent).toHaveLength(2);
   });
 
+  it("has them told at the next daily run when the email could not be sent as it broke", async () => {
+    const { connection } = await withManagers();
+    const start = Date.now();
+    const mailDown = {
+      ...(await workerThat(refused)),
+      send: async () => {
+        throw new Error("The mail service is down.");
+      },
+    };
+    // It still breaks: what happened is kept whether or not anyone could be told.
+    expect(await syncConnection(connection.id, mailDown)).toBe("refused");
+    expect(db.connections[0]?.status).toBe("broken");
+    expect(sent).toEqual([]);
+    // Not told, so not yet reminded either.
+    const later = async (days: number) => ({
+      ...(await workerThat()),
+      now: new Date(start + days * DAY),
+    });
+    expect(await remindBrokenConnections(await later(8))).toBe(0);
+
+    expect(await tellBrokenConnections(await later(1))).toBe(1);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.email.subject).toBe("Nearcited can no longer read from Sample account");
+    expect(await tellBrokenConnections(await later(2))).toBe(0);
+    // The reminder is a week after they were told, not after it broke.
+    expect(await remindBrokenConnections(await later(7))).toBe(0);
+    expect(await remindBrokenConnections(await later(9))).toBe(1);
+    expect(sent).toHaveLength(2);
+  });
+
   it("tells nobody for a test organization, or where email is not set up, and still breaks", async () => {
     db.testAccounts.add(alice);
     const { connection } = await withManagers();
     await syncConnection(connection.id, await workerThat(refused));
     expect(db.connections[0]?.status).toBe("broken");
     expect(sent).toEqual([]);
-    // Never told, so never reminded.
-    expect(
-      await remindBrokenConnections({
-        ...(await workerThat()),
-        now: new Date(Date.now() + 9 * DAY),
-      }),
-    ).toBe(0);
+    // Never told, so never reminded, however often the daily run looks.
+    const later = { ...(await workerThat()), now: new Date(Date.now() + 9 * DAY) };
+    expect(await tellBrokenConnections(later)).toBe(0);
+    expect(await remindBrokenConnections(later)).toBe(0);
 
     db.testAccounts.delete(alice);
     const other = ConnectionSchema.parse(

@@ -414,6 +414,11 @@ export interface Store {
    */
   listBrokenConnectionsToRemind(before: string): Promise<string[]>;
   /**
+   * The broken connections whose owners have not been told: the email could not be sent when it
+   * broke, or there was nobody to send it to. Worker only.
+   */
+  listBrokenConnectionsUntold(): Promise<string[]>;
+  /**
    * Starts the removal of every connection paused for thirty days, and returns them for the
    * worker to finish. Worker only.
    */

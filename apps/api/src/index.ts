@@ -24,6 +24,7 @@ import {
   requeueFirstSyncs,
   requeueStalledRemovals,
   syncConnection,
+  tellBrokenConnections,
 } from "./connections";
 import { sealingKey } from "./connections/seal";
 import { buildScanReportEmail, type Email, sendEmail } from "./email/report";
@@ -79,13 +80,19 @@ export default {
     if (syncs > 0) console.log(`Queued ${syncs} syncs of connections`);
     const expired = await expirePausedConnections(store, env.SCAN_QUEUE);
     if (expired > 0) console.log(`Began removing ${expired} connections paused for thirty days`);
-    const reminded = await remindBrokenConnections({
+    const telling = {
       store,
       key: null,
-      send: env.RESEND_API_KEY ? (to, email) => sendEmail(env, to, email) : undefined,
+      send: env.RESEND_API_KEY
+        ? (to: string[], email: Email) => sendEmail(env, to, email)
+        : undefined,
       appUrl: env.APP_URL,
-    });
+    };
+    // Reminders first, so one told today for the first time is not also reminded today.
+    const reminded = await remindBrokenConnections(telling);
     if (reminded > 0) console.log(`Reminded the owners of ${reminded} broken connections`);
+    const told = await tellBrokenConnections(telling);
+    if (told > 0) console.log(`Told the owners of ${told} broken connections, late`);
     const steps = await advancePriceChanges(store, env.SCAN_QUEUE);
     if (steps > 0) console.log(`Queued ${steps} price change steps`);
     const reductions = await advanceLimitChanges(store, env.SCAN_QUEUE);

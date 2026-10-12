@@ -94,7 +94,9 @@ pass `pnpm check` and run in mock mode without it.
   `allowance_kinds` and one entry in `ALLOWANCE_KINDS` (`packages/shared/src/allowances.ts`), added
   in the same change (`docs/adr/0012-a-plans-allowances-are-one-set.md`). A form shows and sends
   only the kinds its build knows, and the API puts back the ones it does not: keep that, or the
-  Worker running while a migration adds a kind will drop it.
+  Worker running while a migration adds a kind will drop it. A kind of connection that needs an
+  allowance names it in `connection_kind_allowances` and `CONNECTION_KIND_ALLOWANCES`
+  (`packages/shared/src/schemas.ts`), added in the same change.
 - **A connection's sign-in is sealed by the Worker and read only by the worker.** It is sealed
   before it is stored (`apps/api/src/connections/seal.ts`) and kept in `connection_secrets`, which
   no API role reads (`docs/adr/0013-a-sign-in-is-sealed-by-the-worker.md`). A request may write

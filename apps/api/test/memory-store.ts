@@ -604,12 +604,22 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
           const health = db.connectionHealth.get(connection.id);
           return (
             connection.status === "broken" &&
-            connection.broken_at !== null &&
-            connection.broken_at < before &&
             health?.told_at != null &&
+            health.told_at < before &&
             health.reminded_at === null
           );
         })
+        .map((connection) => connection.id);
+    },
+
+    async listBrokenConnectionsUntold() {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      return db.connections
+        .filter(
+          (connection) =>
+            connection.status === "broken" &&
+            db.connectionHealth.get(connection.id)?.told_at == null,
+        )
         .map((connection) => connection.id);
     },
 

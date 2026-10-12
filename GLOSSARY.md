@@ -34,6 +34,11 @@ system works; this file only settles vocabulary.
 - **Sign-in**: what a connection keeps so the product can act for the owner at the outside
   service. Sealed by the Worker and read only by the worker, never shown to anyone. See
   `docs/adr/0013-a-sign-in-is-sealed-by-the-worker.md`.
+- **Broken connection**: one that cannot be read from: the outside service refused the sign-in,
+  which waits for its owner, or reading from it failed three days in a row, which is still tried
+  once a day and mends itself.
+- **Paused connection**: one of a kind the organization's plan no longer includes. Nothing is read
+  from it or done through it, and its sign-in is kept for thirty days.
 - **Choice**: one thing a connection's sign-in reaches at the outside service: a profile, a site,
   a property. A sync finds them.
 - **Match**: which choice is a location's. A location has one match for each kind of connection,

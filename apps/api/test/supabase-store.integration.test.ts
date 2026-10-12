@@ -239,6 +239,7 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
     await worker.markConnectionTold(connectionId, "told", new Date().toISOString());
     const aMinuteOn = new Date(Date.now() + 60_000).toISOString();
     expect(await worker.listBrokenConnectionsToRemind(aMinuteOn)).not.toContain(connectionId);
+    expect(await worker.listBrokenConnectionsUntold()).not.toContain(connectionId);
     expect(await worker.expirePausedConnections()).toEqual([]);
     await expect(aliceStore.expirePausedConnections()).rejects.toMatchObject({
       kind: "forbidden",
