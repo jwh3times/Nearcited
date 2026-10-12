@@ -344,6 +344,9 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         removed_by_email: null,
         removal_requested_at: null,
         removed_at: null,
+        last_synced_at: null,
+        choices: [],
+        matches: [],
       };
       db.connections.push(made);
       db.connectionSecrets.set(made.id, sealed);
@@ -379,9 +382,130 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         (candidate) => candidate.id === id && candidate.status === "removing",
       );
       if (!connection) return false;
-      Object.assign(connection, { status: "removed", removed_at: db.now ?? timestamp() });
+      // What was synced goes with the sign-in.
+      Object.assign(connection, {
+        status: "removed",
+        removed_at: db.now ?? timestamp(),
+        choices: [],
+        matches: [],
+      });
       db.connectionSecrets.delete(id);
       return true;
+    },
+
+    // Mirrors connections_due_for_sync(): never synced, or most of a day ago.
+    async listConnectionsDueForSync(limit) {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      const before = Date.parse(db.now ?? new Date().toISOString()) - 20 * 3_600_000;
+      return db.connections
+        .filter(
+          (connection) =>
+            connection.status === "working" &&
+            (connection.last_synced_at === null || Date.parse(connection.last_synced_at) < before),
+        )
+        .sort((a, b) => (a.last_synced_at ?? "").localeCompare(b.last_synced_at ?? ""))
+        .slice(0, limit)
+        .map((connection) => connection.id);
+    },
+
+    async listConnectionsAwaitingFirstSync(after, before) {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      return db.connections
+        .filter(
+          (connection) =>
+            connection.status === "working" &&
+            connection.last_synced_at === null &&
+            connection.connected_at > after &&
+            connection.connected_at < before,
+        )
+        .map((connection) => connection.id);
+    },
+
+    // Mirrors record_connection_sync(): a match keeps its choice and takes its present name.
+    async recordConnectionSync(id, choices) {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      const connection = db.connections.find(
+        (candidate) => candidate.id === id && candidate.status === "working",
+      );
+      if (!connection) return false;
+      connection.choices = choices.map((choice) => ({ ...choice }));
+      connection.last_synced_at = db.now ?? timestamp();
+      for (const match of connection.matches) {
+        const now = choices.find((choice) => choice.id === match.external_id);
+        if (now) match.external_label = now.label;
+      }
+      return true;
+    },
+
+    // Mirrors match_connection_location(), refusals and all.
+    async matchConnectionLocation(connectionId, locationId, externalId) {
+      const connection = db.connections.find((candidate) => candidate.id === connectionId);
+      const location = db.locations.find((candidate) => candidate.id === locationId);
+      if (
+        !connection ||
+        !managesOrg(connection.organization_id) ||
+        location?.organization_id !== connection.organization_id
+      ) {
+        return null;
+      }
+      if (connection.status !== "working") {
+        throw new StoreError("limit", "This account is not connected any more.");
+      }
+      const choice = connection.choices.find((candidate) => candidate.id === externalId);
+      if (!choice) throw new StoreError("limit", "That is not something this account reaches.");
+      if (
+        connection.matches.some(
+          (match) => match.external_id === externalId && match.location_id !== locationId,
+        )
+      ) {
+        throw new StoreError("limit", "That already belongs to another location.");
+      }
+      const elsewhere = db.connections.some(
+        (other) =>
+          other.id !== connectionId &&
+          other.kind === connection.kind &&
+          other.matches.some((match) => match.location_id === locationId),
+      );
+      if (elsewhere) {
+        throw new StoreError(
+          "limit",
+          "This location is matched to another account of the same kind.",
+        );
+      }
+      const match = {
+        location_id: locationId,
+        external_id: externalId,
+        external_label: choice.label,
+        matched_at: db.now ?? timestamp(),
+      };
+      connection.matches = [
+        ...connection.matches.filter((kept) => kept.location_id !== locationId),
+        match,
+      ];
+      return match;
+    },
+
+    async unmatchConnectionLocation(connectionId, locationId) {
+      const connection = db.connections.find((candidate) => candidate.id === connectionId);
+      if (!connection || !managesOrg(connection.organization_id)) return false;
+      const kept = connection.matches.filter((match) => match.location_id !== locationId);
+      const taken = kept.length < connection.matches.length;
+      connection.matches = kept;
+      return taken;
+    },
+
+    async listLocationConnections(locationId) {
+      if (!readsLocation(locationId)) return [];
+      return db.connections.flatMap((connection) =>
+        connection.matches
+          .filter((match) => match.location_id === locationId)
+          .map((match) => ({
+            connection_id: connection.id,
+            kind: connection.kind,
+            label: connection.label,
+            external_label: match.external_label,
+          })),
+      );
     },
 
     async listStalledRemovals(before) {

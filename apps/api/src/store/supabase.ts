@@ -2,8 +2,10 @@ import {
   AllowanceClaimSchema,
   AllowanceUseSchema,
   AuditJobSchema,
+  ConnectionMatchSchema,
   ConnectionSchema,
   LimitChangeSchema,
+  LocationConnectionSchema,
   LocationSchema,
   OperatorAuditSchema,
   OrganizationSchema,
@@ -69,6 +71,7 @@ const ERROR_KINDS: Record<string, StoreErrorKind> = {
   NC009: "limit", // a price change that cannot be announced, or prices changed while one is open
   NC010: "limit", // a reduction that needs announcing, cannot be, or is held while one is open
   NC011: "limit", // an allowance of a kind that does not exist, or a value its kind does not take
+  NC012: "limit", // a match a connection cannot take: not reached, already taken, or not working
 };
 
 function fail(action: string, error: DbError): never {
@@ -179,7 +182,8 @@ const ORGANIZATION_COLUMNS =
 
 // Never the sign-in: that is in another table, which only the worker reads.
 const CONNECTION_COLUMNS =
-  "id, organization_id, kind, label, status, connected_by_email, connected_at, removed_by_email, removal_requested_at, removed_at";
+  "id, organization_id, kind, label, status, connected_by_email, connected_at, removed_by_email, removal_requested_at, removed_at, last_synced_at, choices, matches:connection_locations(location_id, external_id, external_label, matched_at)";
+const CONNECTION_MATCH_COLUMNS = "location_id, external_id, external_label, matched_at";
 
 const LOCATION_COLUMNS =
   "id, organization_id, name, website, phone, address_line, city, region, postal_code, country_code, google_place_id, primary_category, paused_by_plan, last_scanned_at, created_at";
@@ -280,6 +284,47 @@ export function createSupabaseStore(db: SupabaseClient): Store {
         .maybeSingle();
       if (error) fail("Ask for a connection to be removed", error);
       return data ? ConnectionSchema.parse(data) : null;
+    },
+
+    async matchConnectionLocation(connectionId, locationId, externalId) {
+      const { data, error } = await db
+        .rpc("match_connection_location", {
+          connection: connectionId,
+          location: locationId,
+          external: externalId,
+        })
+        .select(CONNECTION_MATCH_COLUMNS)
+        .maybeSingle();
+      if (error) fail("Match a location to a connection", error);
+      return data ? ConnectionMatchSchema.parse(data) : null;
+    },
+
+    async unmatchConnectionLocation(connectionId, locationId) {
+      const { data, error } = await db.rpc("unmatch_connection_location", {
+        connection: connectionId,
+        location: locationId,
+      });
+      if (error) fail("Take a location's match away", error);
+      return data === true;
+    },
+
+    async listLocationConnections(locationId) {
+      const { data, error } = await db
+        .from("connection_locations")
+        .select("connection_id, kind, external_label, connection:connections(label)")
+        .eq("location_id", locationId);
+      if (error) fail("List a location's connections", error);
+      return z
+        .array(
+          z.object({
+            connection_id: z.uuid(),
+            kind: LocationConnectionSchema.shape.kind,
+            external_label: z.string(),
+            connection: z.object({ label: z.string() }),
+          }),
+        )
+        .parse(data ?? [])
+        .map(({ connection, ...match }) => ({ ...match, label: connection.label }));
     },
 
     async getAllowanceUse(organizationId) {
@@ -402,6 +447,36 @@ export function createSupabaseStore(db: SupabaseClient): Store {
         .array(z.object({ id: z.uuid() }))
         .parse(data ?? [])
         .map((row) => row.id);
+    },
+
+    async listConnectionsDueForSync(limit) {
+      const { data, error } = await db.rpc("connections_due_for_sync", { max_rows: limit });
+      if (error) fail("List connections due for sync", error);
+      return z.array(z.uuid()).parse(data ?? []);
+    },
+
+    async listConnectionsAwaitingFirstSync(after, before) {
+      const { data, error } = await db
+        .from("connections")
+        .select("id")
+        .eq("status", "working")
+        .is("last_synced_at", null)
+        .gt("connected_at", after)
+        .lt("connected_at", before);
+      if (error) fail("List connections awaiting their first sync", error);
+      return z
+        .array(z.object({ id: z.uuid() }))
+        .parse(data ?? [])
+        .map((row) => row.id);
+    },
+
+    async recordConnectionSync(id, choices) {
+      const { data, error } = await db.rpc("record_connection_sync", {
+        connection: id,
+        reached: choices,
+      });
+      if (error) fail("Record a connection's sync", error);
+      return data === true;
     },
 
     async claimAllowance(organizationId, kind, amount = 1) {

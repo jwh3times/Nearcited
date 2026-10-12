@@ -5,6 +5,7 @@ import {
   BillingRedirectSchema,
   type CheckoutInput,
   type ConnectionKind,
+  ConnectionMatchSchema,
   ConnectionSchema,
   LimitChangeSchema,
   type LocationDetail,
@@ -148,6 +149,13 @@ export const api = {
     json(ConnectionSchema, "POST", `/organizations/${organizationId}/connections`, { kind }),
   /** Asks for a connection to be removed. The worker finishes it shortly after. */
   removeConnection: (id: string) => json(ConnectionSchema, "DELETE", `/connections/${id}`),
+  /** Says which of the things a connection reaches is a location's. */
+  matchConnectionLocation: (connectionId: string, locationId: string, externalId: string) =>
+    json(ConnectionMatchSchema, "PUT", `/connections/${connectionId}/locations/${locationId}`, {
+      external_id: externalId,
+    }),
+  unmatchConnectionLocation: (connectionId: string, locationId: string) =>
+    send("DELETE", `/connections/${connectionId}/locations/${locationId}`).then(() => undefined),
   renameOrganization: (id: string, name: string) =>
     json(OrganizationSchema, "PATCH", `/organizations/${id}`, { name }),
   listLocations: (organizationId: string) =>

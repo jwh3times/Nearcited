@@ -3334,6 +3334,211 @@ describe("the operator", () => {
       ]);
     });
 
+    describe("syncing and matching", () => {
+      const third = "c1000000-0000-4000-8000-000000000003";
+      const reached = JSON.stringify([
+        { id: "listing-a", label: "Main Street" },
+        { id: "listing-b", label: "Riverside" },
+      ]);
+      const sync = "select public.record_connection_sync($1, $2::jsonb) as recorded";
+      const due = "select public.connections_due_for_sync() as id";
+      const match =
+        "select location_id, external_id, external_label from public.match_connection_location($1, $2, $3)";
+      const unmatch = "select public.unmatch_connection_location($1, $2) as taken";
+      const matches = () =>
+        rows<Record<string, string>>(
+          "select connection_id, location_id, external_id, external_label from public.connection_locations order by matched_at",
+        );
+      let main: string;
+      let uptown: string;
+      let elsewhere: string;
+
+      beforeAll(async () => {
+        const [existing] = await rows<{ id: string }>(
+          "select id from public.locations where organization_id = $1 limit 1",
+          [theirs],
+        );
+        main = existing?.id ?? "";
+        const [added] = await rows<{ id: string }>(
+          "insert into public.locations (organization_id, name, city) values ($1, 'Uptown', 'Raleigh') returning id",
+          [theirs],
+        );
+        uptown = added?.id ?? "";
+        // A location of the operator's own organization, which is not this customer's.
+        const [other] = await rows<{ id: string }>(
+          "select l.id from public.locations l where l.organization_id <> $1 limit 1",
+          [theirs],
+        );
+        elsewhere = other?.id ?? "";
+        // A second working account of the same kind, connected by the owner.
+        await as("authenticated", alice, () =>
+          db.query(create, [theirs, third, "Another sample account", "third-sealed-text"]),
+        );
+      });
+      afterAll(async () => {
+        await db.query("delete from public.locations where id = $1", [uptown]);
+      });
+
+      it("are synced by the worker alone, which keeps what the sign-in reaches", async () => {
+        for (const user of [alice, admin, operator]) {
+          await expect(
+            as("authenticated", user, () => db.query(sync, [second, reached])),
+            user,
+          ).rejects.toThrow(/permission denied/);
+          await expect(
+            as("authenticated", user, () => db.query(due)),
+            user,
+          ).rejects.toThrow(/permission denied/);
+        }
+        const dueNow = async () =>
+          (await as("service_role", null, () => rows<{ id: string }>(due))).map((row) => row.id);
+        // Never synced, the two working ones are due. The removed one never is.
+        expect((await dueNow()).sort()).toEqual([second, third].sort());
+
+        for (const bad of ['{"id": "a"}', '[{"id": "", "label": "A"}]', '[{"id": "a"}]', '["a"]']) {
+          await expect(
+            as("service_role", null, () => db.query(sync, [second, bad])),
+            bad,
+          ).rejects.toThrow(/each with an id and a label/);
+        }
+        const record = (id: string) =>
+          as("service_role", null, () => rows<{ recorded: boolean }>(sync, [id, reached]));
+        expect(await record(second)).toEqual([{ recorded: true }]);
+        expect(await record(third)).toEqual([{ recorded: true }]);
+        expect(await record(first)).toEqual([{ recorded: false }]);
+        expect(
+          await rows(
+            "select choices, last_synced_at is not null as synced from public.connections where id = $1",
+            [second],
+          ),
+        ).toEqual([{ choices: JSON.parse(reached), synced: true }]);
+        expect(await rows("select choices from public.connections where id = $1", [first])).toEqual(
+          [{ choices: [] }],
+        );
+
+        // Synced a moment ago, neither is due. Most of a day later one is again.
+        expect(await dueNow()).toEqual([]);
+        await db.query(
+          "update public.connections set last_synced_at = now() - interval '21 hours' where id = $1",
+          [second],
+        );
+        expect(await dueNow()).toEqual([second]);
+      });
+
+      it("match a location to something the account reaches, for an owner or admin alone", async () => {
+        for (const user of [bob, member, operator]) {
+          expect(
+            await as("authenticated", user, () => rows(match, [second, main, "listing-a"])),
+            user,
+          ).toEqual([]);
+        }
+        await expect(
+          as("anon", null, () => db.query(match, [second, main, "listing-a"])),
+        ).rejects.toThrow(/permission denied/);
+        // Not another organization's location, whoever asks.
+        expect(
+          await as("authenticated", alice, () => rows(match, [second, elsewhere, "listing-a"])),
+        ).toEqual([]);
+        expect(await matches()).toEqual([]);
+
+        expect(
+          await as("authenticated", alice, () => rows(match, [second, main, "listing-a"])),
+        ).toEqual([{ location_id: main, external_id: "listing-a", external_label: "Main Street" }]);
+        // Said again by an admin, it replaces what was said before.
+        expect(
+          await as("authenticated", admin, () => rows(match, [second, main, "listing-b"])),
+        ).toEqual([{ location_id: main, external_id: "listing-b", external_label: "Riverside" }]);
+        expect(await matches()).toHaveLength(1);
+      });
+
+      it("refuse what the account does not reach, what is taken, and one that is not working", async () => {
+        const refused = (connection: string, location: string, external: string) =>
+          as("authenticated", alice, () => db.query(match, [connection, location, external]));
+        await expect(refused(second, main, "nonesuch")).rejects.toThrow(
+          /not something this account reaches/,
+        );
+        await expect(refused(second, uptown, "listing-b")).rejects.toThrow(
+          /already belongs to another location/,
+        );
+        await expect(refused(third, main, "listing-a")).rejects.toThrow(
+          /another account of the same kind/,
+        );
+        await expect(refused(first, main, "listing-a")).rejects.toThrow(/not connected any more/);
+        // The other account can take the other location.
+        await refused(third, uptown, "listing-a");
+        expect(await matches()).toEqual([
+          {
+            connection_id: second,
+            location_id: main,
+            external_id: "listing-b",
+            external_label: "Riverside",
+          },
+          {
+            connection_id: third,
+            location_id: uptown,
+            external_id: "listing-a",
+            external_label: "Main Street",
+          },
+        ]);
+      });
+
+      it("are read by whoever reads the location and by the operator, and written by no one directly", async () => {
+        const read = "select location_id from public.connection_locations";
+        for (const user of [alice, member, admin, operator]) {
+          expect(await as("authenticated", user, () => rows(read)), user).toHaveLength(2);
+        }
+        expect(await as("authenticated", bob, () => rows(read))).toEqual([]);
+        await expect(as("anon", null, () => db.query(read))).rejects.toThrow(/permission denied/);
+        for (const sql of [
+          `insert into public.connection_locations (connection_id, kind, location_id, external_id, external_label) values ('${second}', 'sample', '${uptown}', 'planted', 'Planted')`,
+          "update public.connection_locations set external_id = 'swapped'",
+          "delete from public.connection_locations",
+          `update public.connections set choices = '[]' where id = '${second}'`,
+        ]) {
+          for (const user of [alice, operator]) {
+            await expect(
+              as("authenticated", user, () => db.query(sql)),
+              sql,
+            ).rejects.toThrow(/permission denied/);
+          }
+        }
+      });
+
+      it("keep their choice at the next sync, and take the name it has then", async () => {
+        const renamed = JSON.stringify([{ id: "listing-b", label: "Riverside Drive" }]);
+        await as("service_role", null, () => db.query(sync, [second, renamed]));
+        expect(
+          await rows(
+            "select external_id, external_label from public.connection_locations where connection_id = $1",
+            [second],
+          ),
+        ).toEqual([{ external_id: "listing-b", external_label: "Riverside Drive" }]);
+      });
+
+      it("are taken away by an owner or admin, and deleted with what was synced when the account is removed", async () => {
+        for (const user of [bob, member, operator]) {
+          expect(
+            await as("authenticated", user, () => rows(unmatch, [third, uptown])),
+            user,
+          ).toEqual([{ taken: false }]);
+        }
+        expect(await as("authenticated", admin, () => rows(unmatch, [third, uptown]))).toEqual([
+          { taken: true },
+        ]);
+        expect(await as("authenticated", admin, () => rows(unmatch, [third, uptown]))).toEqual([
+          { taken: false },
+        ]);
+
+        await as("authenticated", alice, () => db.query(askToRemove, [second]));
+        await as("service_role", null, () => db.query(finish, [second]));
+        expect(await matches()).toEqual([]);
+        expect(
+          await rows("select status, choices from public.connections where id = $1", [second]),
+        ).toEqual([{ status: "removed", choices: [] }]);
+        expect(await sealedFor(second)).toEqual([]);
+      });
+    });
+
     it("go with their organization, sign-ins included", async () => {
       const [gone] = await rows<{ id: string }>(
         "insert into public.organizations (name, created_by) values ('Closing', $1) returning id",

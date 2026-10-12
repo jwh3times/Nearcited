@@ -16,7 +16,13 @@ import { authenticateWithSupabase } from "./auth";
 import { advanceLimitChanges, runLimitChangeStep } from "./billing/limit-change";
 import { advancePriceChanges, runPriceChangeStep } from "./billing/price-change";
 import { createStripePayments } from "./billing/stripe";
-import { removeConnection, requeueStalledRemovals } from "./connections";
+import {
+  enqueueDueSyncs,
+  removeConnection,
+  requeueFirstSyncs,
+  requeueStalledRemovals,
+  syncConnection,
+} from "./connections";
 import { sealingKey } from "./connections/seal";
 import { buildScanReportEmail, sendEmail } from "./email/report";
 import type { Env } from "./env";
@@ -49,8 +55,9 @@ export default {
 
   /**
    * Cron. Every run clears abandoned scans and unfinished audits, and asks again for any
-   * connection's removal that has not been finished; the daily run also queues a scan for every
-   * location that is due. The two schedules are in wrangler.jsonc.
+   * connection's removal or first sync that has not been finished; the daily run also queues a
+   * scan for every location that is due and a sync for every connection that is. The two
+   * schedules are in wrangler.jsonc.
    */
   async scheduled(controller, env) {
     const store = createSupabaseStore(createAdminClient(env));
@@ -60,10 +67,14 @@ export default {
     if (unfinished > 0) console.log(`Failed ${unfinished} unfinished audits`);
     const stalled = await requeueStalledRemovals(store, env.SCAN_QUEUE);
     if (stalled > 0) console.log(`Queued ${stalled} stalled removals of connections again`);
+    const firstSyncs = await requeueFirstSyncs(store, env.SCAN_QUEUE);
+    if (firstSyncs > 0) console.log(`Queued ${firstSyncs} first syncs of connections again`);
     if (controller.cron === SWEEP_ONLY_CRON) return;
 
     const queued = await enqueueDueScans(store, env.SCAN_QUEUE);
     console.log(`Queued ${queued} scheduled scans`);
+    const syncs = await enqueueDueSyncs(store, env.SCAN_QUEUE);
+    if (syncs > 0) console.log(`Queued ${syncs} syncs of connections`);
     const steps = await advancePriceChanges(store, env.SCAN_QUEUE);
     if (steps > 0) console.log(`Queued ${steps} price change steps`);
     const reductions = await advanceLimitChanges(store, env.SCAN_QUEUE);
@@ -156,10 +167,11 @@ export default {
         const { connection_id, step } = connection.data;
         const what = `Connection ${connection_id} ${step}`;
         try {
-          const outcome = await removeConnection(connection_id, {
-            store,
-            key: await sealingKey(env.CONNECTIONS_KEY),
-          });
+          const deps = { store, key: await sealingKey(env.CONNECTIONS_KEY) };
+          const outcome =
+            step === "remove"
+              ? await removeConnection(connection_id, deps)
+              : await syncConnection(connection_id, deps);
           console.log(`${what}: ${outcome}`);
           message.ack();
         } catch (error) {

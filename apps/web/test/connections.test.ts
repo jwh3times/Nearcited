@@ -1,6 +1,12 @@
 import type { Connection, OrganizationConnections } from "@nearcited/shared";
 import { describe, expect, it } from "vitest";
-import { connectionsQuery, hasConnectionsPage, splitConnections } from "../src/lib/connections";
+import {
+  awaitingWorker,
+  choicesFor,
+  connectionsQuery,
+  hasConnectionsPage,
+  splitConnections,
+} from "../src/lib/connections";
 
 const connection = (status: Connection["status"], id = status): Connection => ({
   id: `c0000000-0000-4000-8000-0000000000${String(id.length).padStart(2, "0")}`,
@@ -13,6 +19,9 @@ const connection = (status: Connection["status"], id = status): Connection => ({
   removed_by_email: null,
   removal_requested_at: null,
   removed_at: null,
+  last_synced_at: "2026-10-12T09:00:05.000Z",
+  choices: [],
+  matches: [],
 });
 
 const found = (extra: Partial<OrganizationConnections> = {}): OrganizationConnections => ({
@@ -59,5 +68,47 @@ describe("connectionsQuery", () => {
     expect(
       connectionsQuery("0a000000-0000-4000-8000-000000000001").refetchInterval({ state: {} }),
     ).toBe(false);
+  });
+});
+
+describe("awaitingWorker", () => {
+  it("is true while a removal or the first sync is still to come, and the page keeps asking", () => {
+    const fresh = { ...connection("working"), last_synced_at: null };
+    expect(awaitingWorker(fresh)).toBe(true);
+    expect(awaitingWorker(connection("removing"))).toBe(true);
+    expect(awaitingWorker(connection("working"))).toBe(false);
+    // One that is gone is waiting for nothing, synced or not.
+    expect(awaitingWorker({ ...connection("removed"), last_synced_at: null })).toBe(false);
+    expect(
+      connectionsQuery("0a000000-0000-4000-8000-000000000001").refetchInterval({
+        state: { data: found({ connections: [fresh] }) },
+      }),
+    ).toBe(2000);
+  });
+});
+
+describe("choicesFor", () => {
+  const main = "10000000-0000-4000-8000-000000000001";
+  const uptown = "10000000-0000-4000-8000-000000000002";
+  const account = {
+    ...connection("working"),
+    choices: [
+      { id: "a", label: "Main Street" },
+      { id: "b", label: "Riverside" },
+      { id: "c", label: "Uptown" },
+    ],
+    matches: [
+      {
+        location_id: main,
+        external_id: "a",
+        external_label: "Main Street",
+        matched_at: "2026-10-12T09:01:00.000Z",
+      },
+    ],
+  };
+
+  it("offers a location everything that is not another location's, its own choice included", () => {
+    expect(choicesFor(account, main).map((choice) => choice.id)).toEqual(["a", "b", "c"]);
+    expect(choicesFor(account, uptown).map((choice) => choice.id)).toEqual(["b", "c"]);
   });
 });

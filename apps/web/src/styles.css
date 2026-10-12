@@ -1565,6 +1565,12 @@ mark {
   overflow-wrap: anywhere;
 }
 
+/* A choice sits at the right like a value, and is no wider than it needs. */
+.connection li select {
+  width: auto;
+  max-width: 60%;
+}
+
 .segmented {
   display: inline-flex;
   gap: 0.25rem;

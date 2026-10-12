@@ -6,11 +6,14 @@ import type {
   AuditJob,
   AuditPart,
   Connection,
+  ConnectionChoice,
   ConnectionKind,
+  ConnectionMatch,
   DerivedRecommendation,
   LimitChange,
   LimitChangeNotice,
   Location,
+  LocationConnection,
   LocationInput,
   OperatorAudit,
   OperatorFacts,
@@ -161,6 +164,21 @@ export interface Store {
    * the job. Null for anyone but an owner or admin of its organization.
    */
   requestConnectionRemoval(id: string): Promise<Connection | null>;
+  /**
+   * Says which of a connection's choices is a location's, replacing what was said before. Null
+   * for anyone but an owner or admin of the connection's organization, and for a location that
+   * is not that organization's. Throws a limit, with the reason, for a choice the account does
+   * not reach or that is already taken.
+   */
+  matchConnectionLocation(
+    connectionId: string,
+    locationId: string,
+    externalId: string,
+  ): Promise<ConnectionMatch | null>;
+  /** Takes a location's match away. False when there was none, or the caller may not. */
+  unmatchConnectionLocation(connectionId: string, locationId: string): Promise<boolean>;
+  /** The connected accounts a location is matched to, for whoever can read the location. */
+  listLocationConnections(locationId: string): Promise<LocationConnection[]>;
   /**
    * How much of each counted allowance an organization has used this calendar month (UTC), by
    * kind. A kind with none used is absent, and so is everything where the caller cannot read the
@@ -363,6 +381,21 @@ export interface Store {
   finishConnectionRemoval(id: string): Promise<boolean>;
   /** The connections asked to be removed before `before` and not finished. Worker only. */
   listStalledRemovals(before: string): Promise<string[]>;
+  /**
+   * The working connections to sync now: never synced, or last synced most of a day ago,
+   * longest-waiting first. Worker only.
+   */
+  listConnectionsDueForSync(limit: number): Promise<string[]>;
+  /**
+   * The working connections made between `after` and `before` that have never been synced: the
+   * ones whose first sync was lost. Worker only.
+   */
+  listConnectionsAwaitingFirstSync(after: string, before: string): Promise<string[]>;
+  /**
+   * Keeps what a sync found: what the sign-in reaches. Worker only. False for a connection that
+   * is not working, which is left as it is.
+   */
+  recordConnectionSync(id: string, choices: ConnectionChoice[]): Promise<boolean>;
   /**
    * Takes `amount` of one kind of allowance from an organization's month, if there is room, and
    * says what happened. Null when there is no such organization. Worker only: a member cannot

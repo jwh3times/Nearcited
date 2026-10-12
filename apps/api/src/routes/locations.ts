@@ -84,6 +84,7 @@ locationRoutes.get("/locations/:id", async (c) => {
   const detail: LocationDetail = {
     location,
     queries,
+    connections: await store.listLocationConnections(location.id),
     latest_scan: latest ? { ...latest, results: await store.listScanResults(latest.id) } : null,
     window: {
       size: SCAN_WINDOW,

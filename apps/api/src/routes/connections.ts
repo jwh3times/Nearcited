@@ -1,4 +1,8 @@
-import { ConnectionInputSchema, type OrganizationConnections } from "@nearcited/shared";
+import {
+  ConnectionInputSchema,
+  ConnectionMatchInputSchema,
+  type OrganizationConnections,
+} from "@nearcited/shared";
 import { Hono } from "hono";
 import type { AppEnv } from "../app";
 import { availableConnectionKinds, connect } from "../connections";
@@ -64,7 +68,39 @@ connectionRoutes.post("/organizations/:organizationId/connections", async (c) =>
     sealed: await seal(key, id, signIn),
   });
   if (!connection) throw notFound("Organization");
+  // What the account reaches is read by the worker, which alone can open the sign-in. If this
+  // message is lost the schedule sends it again.
+  try {
+    await c.env.SCAN_QUEUE.send({ connection_id: id, step: "sync" });
+  } catch (error) {
+    console.error(`Connection ${id}: could not queue its first sync, the schedule will`, error);
+  }
   return c.json(connection, 201);
+});
+
+/**
+ * Says which of the things a connection reaches is a location's, replacing what was said before.
+ * Owner or admin only, and only for a location of the same organization: to anyone and anything
+ * else the connection is not found. 409 with the reason for a choice the account does not reach
+ * or that is already taken.
+ */
+connectionRoutes.put("/connections/:connectionId/locations/:locationId", async (c) => {
+  const connectionId = uuidParam(c, "connectionId", "Connection");
+  const locationId = uuidParam(c, "locationId", "Location");
+  const { external_id } = await parseJson(c, ConnectionMatchInputSchema);
+  const match = await c.get("store").matchConnectionLocation(connectionId, locationId, external_id);
+  if (!match) throw notFound("Connection");
+  return c.json(match);
+});
+
+/** Takes a location's match away. Owner or admin only. */
+connectionRoutes.delete("/connections/:connectionId/locations/:locationId", async (c) => {
+  const connectionId = uuidParam(c, "connectionId", "Connection");
+  const locationId = uuidParam(c, "locationId", "Location");
+  if (!(await c.get("store").unmatchConnectionLocation(connectionId, locationId))) {
+    throw notFound("Match");
+  }
+  return c.body(null, 204);
 });
 
 /**
