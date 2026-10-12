@@ -75,7 +75,6 @@ export interface PriceVersion {
   stripe_extra_location_price_id: string | null;
 }
 
-/** A plan as the payment provider knows it: what it is sold at now, and what it has been. */
 /** A connection to make: its sign-in is already sealed, to the ID given here. */
 export interface NewConnection {
   id: string;
@@ -85,6 +84,7 @@ export interface NewConnection {
   sealed: string;
 }
 
+/** A plan as the payment provider knows it: what it is sold at now, and what it has been. */
 export interface PlanPrices {
   key: string;
   on_sale: boolean;
@@ -349,10 +349,6 @@ export interface Store {
    * Returns how many. The prompts that did report are kept.
    */
   failStaleAudits(olderThan: string, error: string): Promise<number>;
-  /**
-   * Keeps what a scan, or one prompt of an audit, used at the providers. Worker only. Called
-   * whether or not the scan went on to succeed: what was asked was charged for either way.
-   */
   /** One connection, for whoever may read its organization. The worker reads any. */
   getConnection(id: string): Promise<Connection | null>;
   /**
@@ -425,6 +421,10 @@ export interface Store {
    * nothing to make yet. Worker only.
    */
   applyLimitChange(id: string): Promise<boolean>;
+  /**
+   * Keeps what a scan, or one prompt of an audit, used at the providers. Worker only. Called
+   * whether or not the scan went on to succeed: what was asked was charged for either way.
+   */
   recordUsage(source: UsageSource, usage: readonly ProviderUsage[]): Promise<void>;
   /** Throws a conflict when a different scan for the same location is already in flight. */
   markScanRunning(id: string, sampleData: boolean): Promise<void>;

@@ -35,6 +35,13 @@ Nearcited is multi-tenant, and tenant isolation is enforced by Postgres row-leve
   `set_aside_by_plan` directly.
 - Using up or clearing an organization's allowance: writing `allowance_use` as a signed-in user, or
   calling `claim_allowance()` as anyone but the worker.
+- Reading a connection's sign-in, sealed or not, by any path: `connection_secrets` has no policy
+  and no grant for any API role, the operator included, and no route, response or log line carries
+  a sign-in. The same goes for the `CONNECTIONS_KEY` that seals it.
+- Connecting or removing an account as anyone but the organization's owner or an admin: calling
+  `create_connection()` or `request_connection_removal()` for an organization the caller is not an
+  owner or admin of, or writing `connections` directly. Also calling
+  `finish_connection_removal()`, which deletes a sign-in, as anyone but the worker.
 - Getting `choose_assistants()` or `activate_location()` to act on an organization the caller
   does not belong to.
 - Getting a second organization on one account, or deleting or moving an organization.

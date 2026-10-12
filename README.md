@@ -113,6 +113,15 @@ says what is charged today or when the change takes effect, and the free plan of
 subscription" (Stripe's pages). A member is told the owner decides. An upgrade is made at Stripe
 at once and the difference charged; a downgrade waits for the end of the paid period.
 
+A **connection** is an organization's standing sign-in to an outside account. The Connections page,
+linked from the sidebar once an account has been connected or one could be, lists them for anyone
+in the organization; its owner or an admin connects an account and removes one, after being asked
+twice. The sign-in is sealed by the Worker and nobody can read it back, the operator included.
+Removing is finished a moment later by the worker, which takes back the access, deletes the sign-in
+and keeps a record of who connected the account and who removed it. Only a sample account exists,
+offered where the data is generated, and nothing works from a connection yet (see
+[What is not built](#what-is-not-built)).
+
 Scans start from the "Run scan" button or from a daily schedule, and run on a queue. A scheduled
 scan emails its result to the organization's owners. When a subscription starts, the owners are thanked by email once. The same queue carries the steps of an
 announced price change or reduction in a plan's limits, and the daily run queues the reminders, the
@@ -132,8 +141,8 @@ Only the owner of the deployment can make one, from the command line (see
 audit. It costs real money, prompts x samples x assistants answers, and refuses to run on sample
 data or on the default tuning.
 
-[docs/architecture.md](docs/architecture.md) covers the scan flow, how an audit runs, the tenancy model, the limits a
-Worker imposes, and the known gaps.
+[docs/architecture.md](docs/architecture.md) covers the scan flow, how an audit runs, how a
+connection's sign-in is kept, the tenancy model, the limits a Worker imposes, and the known gaps.
 
 ## Stack
 
@@ -166,7 +175,8 @@ scripts/        integration-db.sh prepares a plain Postgres for the store integr
                 create-audit.mjs creates and revokes shareable audits.
                 bootstrap-private.mjs and sync-main.mjs manage the private companion checkout.
                 prepare-tuning.mjs writes the tuning file the Worker bundles.
-                local-env.mjs writes the two local env files from `supabase status`.
+                local-env.mjs writes the two local env files from `supabase status`, and makes
+                the key connections are sealed with.
 private/        The private companion, when checked out. Ignored here; its own repository.
 docs/           architecture.md: how a scan flows, the tenancy model, and known gaps.
                 adr/: decisions that are hard to reverse, and why they were made.
@@ -188,7 +198,8 @@ pnpm install
 # 1. Start Supabase. This applies supabase/migrations and prints the URL and keys.
 pnpm dlx supabase start
 
-# 2. Write both apps' env files from the example files and the keys `supabase status` reports.
+# 2. Write both apps' env files from the example files and the keys `supabase status` reports,
+#    and make this machine's key for sealing connections.
 pnpm local:env
 
 # 3. Build the web app once. The Worker's config points at apps/web/dist.
@@ -228,6 +239,7 @@ The Worker reads its settings from `vars` in `apps/api/wrangler.jsonc`. Locally,
 | `RESEND_API_KEY` | yes | Optional. Without it, scheduled scans finish without sending a report, and a price change cannot be announced. |
 | `STRIPE_SECRET_KEY` | yes | Optional. A Stripe secret key (a test-mode one outside production). Needed with the next one before anyone can subscribe. |
 | `STRIPE_WEBHOOK_SECRET` | yes | Optional. The signing secret of the webhook endpoint registered at Stripe, which points at `/api/stripe/webhook`. |
+| `CONNECTIONS_KEY` | yes | Optional. The key a connection's sign-in is sealed with: 32 random bytes in base64 (`openssl rand -base64 32`). Without it nothing can be connected. Changing it makes every sign-in already kept unreadable. `pnpm local:env` makes one for the local machine. |
 
 The web app reads two values at build time, from `apps/web/.env.local` or the environment. Both
 are safe to ship to the browser.
@@ -253,7 +265,7 @@ templates.
 | `pnpm e2e` | End-to-end tests in a browser (needs `supabase start` and the env files; `pnpm check` does not run them) |
 | `pnpm smoke` | Smoke test against a deployment (`E2E_APP_URL`, `E2E_SUPABASE_URL`, `E2E_SUPABASE_PUBLISHABLE_KEY`, `TEST_ACCOUNT_EMAIL`, `TEST_ACCOUNT_PASSWORD`) |
 | `pnpm test-account:create` | Make the deployment's test account and grant it the `test` platform role; safe to run again (needs `SUPABASE_SECRET_KEY`, `TEST_ACCOUNT_EMAIL`, `TEST_ACCOUNT_PASSWORD`) |
-| `pnpm local:env` | Write `apps/api/.dev.vars` and `apps/web/.env.local` from the examples and `supabase status` (`--force` replaces existing files) |
+| `pnpm local:env` | Write `apps/api/.dev.vars` and `apps/web/.env.local` from the examples and `supabase status`, with a newly made `CONNECTIONS_KEY` (`--force` replaces existing files, and so makes a new key) |
 | `pnpm billing:check` | Ask Stripe and the deployment whether billing is set up as the app expects (Tax active with a registration, the portal set to cancel only, the webhook registered with the events the app acts on and answering 400 to an unsigned request, each paid plan's prices matching, every recorded subscription existing under the key). Reads only; exits 1 when a check fails (needs `STRIPE_SECRET_KEY` and `SUPABASE_SECRET_KEY`) |
 | `pnpm cf:deploy` | Build, then `wrangler deploy` |
 | `pnpm db:types` | Generate TypeScript types from the local Supabase database |
@@ -315,6 +327,9 @@ organization reads as missing and returns 404. Payloads are defined in
 | `POST /api/organizations/:organizationId/subscription/preview` | What changing to `plan_key` (and optionally `locations`) would do: `kind` (`upgrade` or `downgrade`, decided on the server from the plans' prices), the new `monthly_cents`, `due_now_cents` and `effective_at`. Changes nothing. Owner only: 404 to anyone else, the operator included. 503 `billing_unavailable` when Stripe is not set up. |
 | `PUT /api/organizations/:organizationId/subscription` | Makes that change, same body and answer. An upgrade (a higher monthly price, or the same) is made at Stripe now and the prorated difference charged; a downgrade is scheduled at Stripe for the end of the paid period and charges nothing. Changes no plan here: the plan moves when the webhook reports it. Owner only, 404 otherwise. 402 `payment_declined` when the card is refused (nothing changed), 409 `no_subscription`, 409 `payment_due` when the subscription is not `active`, 422 `no_change`, 422 `plan_unavailable`, 503 `billing_unavailable`. |
 | `DELETE /api/organizations/:organizationId/subscription/pending` | Drops a waiting downgrade; 204. Owner only, 404 otherwise. |
+| `GET /api/organizations/:organizationId/connections` | What the Connections page shows: the organization's `connections`, removed ones included, newest first; `available`, the kinds that can be connected here now (empty without `CONNECTIONS_KEY`); and `can_manage`, whether the caller is its owner or an admin. Never a sign-in. For anyone who can read the organization, the operator included. 404 to a stranger. |
+| `POST /api/organizations/:organizationId/connections` | Connects an account. Takes `kind` (`sample`, the only one). The Worker seals the sign-in before it is stored; answers the connection, 201, without it. Owner or admin only: 404 to anyone else, the operator included. 422 `connection_unavailable` for a kind not offered here, 503 `connections_unavailable` without `CONNECTIONS_KEY`. |
+| `DELETE /api/connections/:connectionId` | Asks for a connection to be removed: it becomes `removing` and the worker is queued to take back the access and delete the sign-in, after which it is `removed`. Answers the connection. Asking again changes nothing recorded. Owner or admin only: 404 to anyone else, the operator included. |
 | `GET /api/locations/:id` | One location with its queries, latest scan, rates over recent scans, the sites those answers cited, the surfaces being checked, recommendations, the latest website check, the action plan and the owner's tasks. |
 | `PATCH /api/locations/:id` | Replace a location's details with a whole location body, as when adding one; a field left out goes back to blank or its default. The same checks as adding. |
 | `POST /api/locations/:id/activate` | Brings a location the plan paused back into use. Takes `instead_of`, the location in use that is paused in its place, when the plan has no room; 409 with the reason without one. 404 to a non-member. |
@@ -351,6 +366,8 @@ The migrations in `supabase/migrations/` define everything.
 | `limit_changes` | One announced reduction per plan: what goes down (each limit's, and each allowance's, `from` and `to`), the day it is made, and when it was reminded, called off or completed. Read by anyone signed in; written by no API role, only by the operator's functions and the Worker's. |
 | `limit_change_notices` | One row per organization in an announcement: when it was told, reminded, told it was called off. Read by the operator; written only by the Worker. |
 | `subscriptions` | An organization's Stripe customer and subscription IDs and the status Stripe last reported. Also the subscription its owners were last thanked for by email. Written only by the Worker, from the webhook; no API role can write it. The operator reads it directly, an owner through `billing_state()`. |
+| `connections` | An organization's standing sign-in to an outside account: its kind (only `sample` so far), a label, and its status (`working`, `broken`, `paused`, `removing` or `removed`; nothing yet sets `broken` or `paused`). Records who connected it and who asked for its removal, as the addresses they had then, and when. The row stays after removal, as the record. Read by the organization's members and the operator; written by no API role directly, only through `create_connection()` and `request_connection_removal()`, which answer an owner or admin alone, and the Worker's `finish_connection_removal()`. |
+| `connection_secrets` | A connection's sign-in, sealed by the Worker. Row-level security is on with no policy and no grant to any API role, the operator included: only the Worker reads it, and the row is deleted when a removal finishes. |
 | `provider_usage` | What the providers used for a scan or audit prompt, per surface and model: calls, input, cached input and output tokens, searches. Outlives the scan, audit or organization it describes. Written only by the Worker; only the operator can read it through the API. `GET /api/operator/spend` prices it and the operator's view shows it. |
 
 Usage limits are enforced by database triggers, so they hold for the API and for anyone calling
@@ -373,7 +390,7 @@ reader gets one audit only by its token, through the `get_audit()` function.
   on-page check and the action plan.
 - **`packages/db`**: applies the real migrations to in-process Postgres (PGlite) and checks, as
   different users, that one organization cannot read or write another's rows, that users cannot
-  forge scan results or grant themselves a platform role, that worker-only functions and the `audits` and `provider_usage` tables are closed to them, and that the operator reads every organization and changes only an organization's limits or a plan's settings or prices, each through one function that records it (announcing and calling off a price change or a reduction included). No Docker needed. It
+  forge scan results or grant themselves a platform role, that worker-only functions and the `audits`, `provider_usage` and `connection_secrets` tables are closed to them, that only an owner or admin can connect or remove an account, and that the operator reads every organization and changes only an organization's limits or a plan's settings or prices, each through one function that records it (announcing and calling off a price change or a reduction included). No Docker needed. It
   also checks `private/tuning.json` against the tuning schema where that file exists.
 - **`apps/api`**: every route against an in-memory store, the scan runner (success, retry,
   permanent failure, reporting, scoring with given weights, refusing live scans on default tuning),
@@ -382,10 +399,11 @@ reader gets one audit only by its token, through the `get_audit()` function.
   the mock providers.
 - **`apps/web`**: the logic that lays results out as a grid, the logic behind the chart of the
   score over time, the logic behind the audit page, the logic that fills the location edit form,
-  the locations table's summary figures, the onboarding suggestions, and the location page's tabs.
+  the locations table's summary figures, the onboarding suggestions, the location page's tabs, and
+  what the Connections page and its sidebar link show.
 - **`apps/e2e`**: `pnpm e2e` drives the real web app and Worker in Chromium against the local
   Supabase stack, in mock mode: sign-in by the emailed link, onboarding through the first scan, the
-  location page, account settings, the operator's view and reading through an account, the public pages and one phone-sized run. It starts the Worker
+  location page, account settings, connecting and removing a sample account, the operator's view and reading through an account, the public pages and one phone-sized run. It starts the Worker
   and web app itself, or reuses them if `pnpm dev` is up. `pnpm smoke` is a separate run against a
   real deployment: it signs in as the test account, refuses to go on unless that account's
   organization is a test one, then adds a location and a prompt, runs a scan (generated data), reads
@@ -436,8 +454,11 @@ The `integration` job in `.github/workflows/ci.yml` is a working example.
    pnpm exec wrangler secret put ANTHROPIC_API_KEY   # optional: live Claude checks
    pnpm exec wrangler secret put STRIPE_SECRET_KEY   # optional: subscriptions, with the next
    pnpm exec wrangler secret put STRIPE_WEBHOOK_SECRET
+   pnpm exec wrangler secret put CONNECTIONS_KEY   # optional: connecting accounts; `openssl rand -base64 32` makes one
    ```
    Until `SUPABASE_SECRET_KEY` is set, the app serves and sign-in works, but no scan can run.
+   Without `CONNECTIONS_KEY` nothing can be connected. Changing it later makes every sign-in
+   already kept unreadable, so keep a copy of the value.
 
 `.github/workflows/deploy.yml` does step 4 on demand. It reads its credentials from the 1Password
 `Nearcited` vault at run time, so GitHub holds one secret, `OP_SERVICE_ACCOUNT_TOKEN`, for a
@@ -543,6 +564,10 @@ pnpm sync:agents
 - **Any kind of allowance.** A plan and an organization carry allowances, and the operator can set
   them, and the database counts use of one against its number, but no kind exists yet
   ([#133](https://github.com/jwh3times/Nearcited/issues/133)).
+- **Anything that works from a connection.** An owner or admin can connect a sample account and
+  remove it. There is no real kind of connection (a Google profile, a website, a customer source),
+  and nothing syncs from one, matches a location to its profile or site, marks one broken or paused
+  by a plan, or acts through one.
 
 More detail, and the open product questions, in [docs/architecture.md](docs/architecture.md).
 What is planned, in order, is in [Build order](https://github.com/jwh3times/Nearcited/issues/15).
