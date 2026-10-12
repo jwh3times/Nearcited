@@ -20,6 +20,9 @@ const PROMPTS = [
   { id: PASTA, text: "fresh pasta downtown" },
 ];
 const WEBSITE = "https://joes.example";
+const ON_FILE = "+19195550100";
+/** What the rules are told of the location, whatever the test is about. */
+const ABOUT = { prompts: PROMPTS, website: WEBSITE, phone: ON_FILE, country_code: "US" };
 
 /**
  * A window from each cell's history, written oldest first: "TTTTFFF" was named four times and
@@ -44,6 +47,7 @@ function windowOf(cells: Record<string, string>, surface: Surface = "chatgpt"): 
                 mentioned: mark === "T",
                 competitors: [],
                 cited_urls: [],
+                phones: [],
               },
             ]
           : [];
@@ -55,7 +59,7 @@ function windowOf(cells: Record<string, string>, surface: Surface = "chatgpt"): 
 
 /** The rules over a window of drops alone: nothing in it could be a first sighting. */
 const derive = (scans: AlertScan[], current: CurrentAlert[] = []) =>
-  deriveAlerts({ scans, current, prompts: PROMPTS, website: WEBSITE, seen: null });
+  deriveAlerts({ ...ABOUT, scans, current, seen: null });
 
 const current = (query: string, raisedBy: string | null, surface: Surface = "chatgpt") =>
   ({
@@ -188,6 +192,7 @@ describe("deriveAlerts: clearing a drop", () => {
 interface Answer {
   names?: string[];
   urls?: string[];
+  phones?: string[];
   query?: string;
   surface?: Surface;
   mentioned?: boolean;
@@ -217,6 +222,7 @@ function answered(latest: Answer[][], length = 7): AlertScan[] {
         mentioned: answer.mentioned ?? false,
         competitors: answer.names ?? [],
         cited_urls: answer.urls ?? [],
+        phones: answer.phones ?? [],
       }),
     ),
   }));
@@ -233,10 +239,9 @@ const sightings = (
   options: { seen?: SeenBefore | null; current?: CurrentAlert[] } = {},
 ) =>
   deriveAlerts({
+    ...ABOUT,
     scans,
     current: options.current ?? [],
-    prompts: PROMPTS,
-    website: WEBSITE,
     seen: options.seen === undefined ? SEEN : options.seen,
   });
 
@@ -436,6 +441,116 @@ describe("deriveAlerts: clearing a first sighting", () => {
   });
 });
 
+describe("deriveAlerts: a phone number that is not the location's", () => {
+  const OTHER = "+19195550199";
+  const wrong: Answer = { phones: [OTHER] };
+  const given = (
+    scans: AlertScan[],
+    options: { phone?: string | null; current?: CurrentAlert[] } = {},
+  ) =>
+    deriveAlerts({
+      ...ABOUT,
+      scans,
+      current: options.current ?? [],
+      seen: null,
+      phone: options.phone === undefined ? ON_FILE : options.phone,
+    });
+  const raised = (dismissed: string | null = null) =>
+    ({
+      id: "alert-number",
+      kind: "phone",
+      facts: { number: OTHER },
+      scan_id: "scan-6",
+      dismissed_at: dismissed,
+    }) as CurrentAlert;
+
+  it("is raised when answers in two scans of the window give the same other number", () => {
+    const scans = answered([[wrong, TONYS], [TONYS], [TONYS], [{ ...wrong, surface: "claude" }]]);
+
+    expect(given(scans)).toEqual({
+      clear: [],
+      raise: [
+        {
+          kind: "phone",
+          subject: OTHER,
+          facts: {
+            number: OTHER,
+            on_file: ON_FILE,
+            country_code: "US",
+            answers: 2,
+            scans: 2,
+            of_scans: 7,
+            places: [{ prompt: "best pizza near me", surfaces: ["chatgpt", "claude"] }],
+            prompts: 1,
+          },
+          // The oldest scan in the window that gave it.
+          since: "2026-10-04T09:00:00Z",
+        },
+      ],
+    });
+  });
+
+  it.each([
+    ["one answer", [[wrong]]],
+    ["two answers in one scan", [[wrong, wrong]]],
+    ["the number on file", [[{ phones: [ON_FILE] }], [{ phones: [ON_FILE] }]]],
+    ["two different numbers, once each", [[wrong], [{ phones: ["+19195550177"] }]]],
+  ])("is not raised for %s", (_, latest) => {
+    expect(given(answered(latest)).raise).toEqual([]);
+  });
+
+  it("is not raised where no number is on file to differ from", () => {
+    expect(given(answered([[wrong], [wrong]]), { phone: null }).raise).toEqual([]);
+  });
+
+  it("counts an answer once, however often it gives the number", () => {
+    const twice: Answer = { phones: [OTHER, OTHER] };
+    expect(given(answered([[twice]])).raise).toEqual([]);
+    expect(given(answered([[twice], [twice]])).raise[0]?.facts).toMatchObject({
+      answers: 2,
+      scans: 2,
+    });
+  });
+
+  it("is not raised a second time while one for the number is current", () => {
+    expect(given(answered([[wrong], [wrong]]), { current: [raised()] })).toEqual({
+      clear: [],
+      raise: [],
+    });
+  });
+
+  it("is cleared when no answer in the window gives the number any more", () => {
+    expect(given(answered([]), { current: [raised()] }).clear).toEqual([
+      { id: "alert-number", reason: "no_longer_given" },
+    ]);
+    // One answer is enough to keep it: it took two to raise, and it has not gone away.
+    expect(given(answered([[TONYS], [wrong]]), { current: [raised()] }).clear).toEqual([]);
+  });
+
+  it("is cleared when the number becomes the one on file, or none is on file", () => {
+    const scans = answered([[wrong], [wrong]]);
+    expect(given(scans, { current: [raised()], phone: OTHER })).toEqual({
+      clear: [{ id: "alert-number", reason: "now_on_file" }],
+      raise: [],
+    });
+    expect(given(scans, { current: [raised()], phone: null })).toEqual({
+      clear: [{ id: "alert-number", reason: "not_tracked" }],
+      raise: [],
+    });
+  });
+
+  it("is never cleared once a member has said the number is theirs, so never raised again", () => {
+    const dismissed = [raised("2026-10-08T09:00:00Z")];
+    // The answers stop giving it.
+    expect(given(answered([]), { current: dismissed })).toEqual({ clear: [], raise: [] });
+    // And give it again, months on.
+    expect(given(answered([[wrong], [wrong]]), { current: dismissed })).toEqual({
+      clear: [],
+      raise: [],
+    });
+  });
+});
+
 describe("hasNewcomers", () => {
   it("says whether the record before the latest scans needs reading", () => {
     // Named often enough, and nowhere in the rest of the window. The record may still hold it.
@@ -508,6 +623,22 @@ const site = (facts: Partial<Extract<Alert, { kind: "site" }>["facts"]> = {}): A
   },
 });
 
+const number = (facts: Partial<Extract<Alert, { kind: "phone" }>["facts"]> = {}): Alert => ({
+  ...row,
+  kind: "phone",
+  facts: {
+    number: "+19195550199",
+    on_file: "+19195550100",
+    country_code: "US",
+    answers: 2,
+    scans: 2,
+    of_scans: 7,
+    places: [{ prompt: "best pizza near me", surfaces: ["chatgpt"] }],
+    prompts: 1,
+    ...facts,
+  },
+});
+
 const day = (iso: string) => iso.slice(0, 10);
 
 describe("what an alert says", () => {
@@ -537,6 +668,17 @@ describe("what an alert says", () => {
     );
     expect(alertDetail(site({ named: 3 }), day)).toMatch(
       / All 3 of those answers named the business\.$/,
+    );
+  });
+
+  it("gives the other phone number as it is written where the business is, beside the one on file", () => {
+    expect(alertTitle(number())).toBe("The answers give a different phone number: (919) 555-0199");
+    expect(alertDetail(number(), day)).toBe(
+      'Since 2026-10-05. Given for the business in 2 answers across 2 of the last 7 scans. The number on file is (919) 555-0100. It was given for "best pizza near me" on ChatGPT.',
+    );
+    // A number from another country keeps its country code.
+    expect(alertTitle(number({ number: "+442079460958" }))).toBe(
+      "The answers give a different phone number: +44 20 7946 0958",
     );
   });
 

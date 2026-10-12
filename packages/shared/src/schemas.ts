@@ -228,6 +228,8 @@ export const ScanResultSchema = z.object({
   competitors: z.array(z.string()),
   cited_urls: z.array(z.string()),
   answer_excerpt: z.string().nullable(),
+  /** The phone numbers a written answer gave for the business, in international form. */
+  phones: z.array(z.string()),
   sampled_at: Timestamp,
 });
 export type ScanResult = z.infer<typeof ScanResultSchema>;
@@ -1185,15 +1187,22 @@ export const ActionMessageSchema = z.object({
 });
 export type ActionMessage = z.infer<typeof ActionMessageSchema>;
 
-export const ALERT_KINDS = ["drop", "competitor", "site"] as const;
+export const ALERT_KINDS = ["drop", "competitor", "site", "phone"] as const;
 export const AlertKindSchema = z.enum(ALERT_KINDS);
 export type AlertKind = z.infer<typeof AlertKindSchema>;
 
 /**
- * Why the worker cleared an alert: the thing ended, what it was about is no longer checked, or
- * it was a first sighting and is no longer news.
+ * Why the worker cleared an alert: the thing ended, what it was about is no longer checked, it
+ * was a first sighting and is no longer news, or it was a phone number the answers no longer
+ * give or that is now the one on file.
  */
-export const ALERT_CLEAR_REASONS = ["named_again", "not_tracked", "old_news"] as const;
+export const ALERT_CLEAR_REASONS = [
+  "named_again",
+  "not_tracked",
+  "old_news",
+  "no_longer_given",
+  "now_on_file",
+] as const;
 export const AlertClearReasonSchema = z.enum(ALERT_CLEAR_REASONS);
 export type AlertClearReason = z.infer<typeof AlertClearReasonSchema>;
 
@@ -1209,11 +1218,11 @@ export const DropFactsSchema = z.object({
 });
 export type DropFacts = z.infer<typeof DropFactsSchema>;
 
-/** What a first sighting was counted over: how many answers, in how many of the latest scans. */
+/** What a sighting was counted over: how many answers, in how many of the scans looked at. */
 const SightingCounts = {
   answers: z.number().int().positive(),
   scans: z.number().int().positive(),
-  /** How many of the latest scans were looked at. */
+  /** How many scans were looked at: the latest few for a first sighting, the window for a number. */
   of_scans: z.number().int().positive(),
 };
 
@@ -1242,6 +1251,21 @@ export const SiteFactsSchema = z.object({
 });
 export type SiteFacts = z.infer<typeof SiteFactsSchema>;
 
+/** What "the answers give a phone number that is not the location's" rests on. */
+export const PhoneFactsSchema = z.object({
+  /** The number the answers gave, and the one on file it differs from, in international form. */
+  number: z.string(),
+  on_file: z.string(),
+  /** The location's country, which is how both are written out. */
+  country_code: z.string(),
+  ...SightingCounts,
+  /** Where it was given, the prompt with the most answers first. A few, not all. */
+  places: z.array(z.object({ prompt: z.string(), surfaces: z.array(SurfaceSchema) })),
+  /** How many prompts it was given for in all. */
+  prompts: z.number().int().positive(),
+});
+export type PhoneFacts = z.infer<typeof PhoneFactsSchema>;
+
 const AlertRow = z.object({
   id: Id,
   location_id: Id,
@@ -1267,6 +1291,8 @@ const AlertRow = z.object({
  * - `drop`: a prompt on one surface that named the business and stopped.
  * - `competitor`: a business the written answers name for the first time.
  * - `site`: a site the written answers cite for the first time.
+ * - `phone`: a phone number the written answers give for the business that is not the one on
+ *   file.
  */
 export const AlertSchema = z.discriminatedUnion("kind", [
   AlertRow.extend({
@@ -1278,6 +1304,7 @@ export const AlertSchema = z.discriminatedUnion("kind", [
   }),
   AlertRow.extend({ kind: z.literal("competitor"), facts: CompetitorFactsSchema }),
   AlertRow.extend({ kind: z.literal("site"), facts: SiteFactsSchema }),
+  AlertRow.extend({ kind: z.literal("phone"), facts: PhoneFactsSchema }),
 ]);
 export type Alert = z.infer<typeof AlertSchema>;
 export type DropAlert = Extract<Alert, { kind: "drop" }>;

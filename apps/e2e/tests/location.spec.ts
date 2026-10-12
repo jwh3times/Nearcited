@@ -7,6 +7,7 @@ import {
   signIn,
   withDrop,
   withNewBusiness,
+  withOtherNumber,
   withScannedLocation,
   withUnnamedSource,
 } from "../support/account";
@@ -175,6 +176,24 @@ test("shows a business named for the first time, and leads to the answers that n
   await alert.getByRole("button", { name: /Read the answers/ }).click();
   await expect(page).toHaveURL(/tab=answers/);
   await expect(panel.getByRole("heading", { name: "What the answers said" })).toBeVisible();
+});
+
+test("shows a phone number the answers give that is not on file, and lets a member say it is theirs", async ({
+  page,
+}) => {
+  await withOtherNumber(locationPath.replace("/locations/", ""));
+  await signIn(page, account, locationPath);
+  const panel = page.getByRole("tabpanel");
+  const alert = panel
+    .getByRole("listitem")
+    .filter({ hasText: "The answers give a different phone number: (919) 555-0199" });
+  await expect(alert).toContainText("The number on file is (919) 555-0100.");
+
+  await alert.getByRole("button", { name: /^This number is ours/ }).click();
+  await expect(alert).toHaveCount(0);
+  await page.reload();
+  await expect(panel.getByRole("heading", { name: "What to do next" })).toBeVisible();
+  await expect(panel.getByText("different phone number")).toHaveCount(0);
 });
 
 test("opens the menu on a phone, and stacks the tables @phone", async ({ page }) => {

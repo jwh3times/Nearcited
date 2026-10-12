@@ -1243,6 +1243,129 @@ describe("alerts", () => {
     });
   });
 
+  describe("a phone number that is not the location's", () => {
+    const ON_FILE = "+19195550100";
+    /** Both assistants answer with this text, naming the two businesses. */
+    const saying = (text: string): ProviderRegistry =>
+      Object.fromEntries(
+        (["chatgpt", "gemini"] as const).map((surface) => [
+          surface,
+          {
+            surface,
+            observe: async (): Promise<Observation> => ({
+              kind: "answer",
+              text,
+              businesses: ["Tony's Slice House", "Joe's Pizza"],
+              cited_urls: [],
+            }),
+          },
+        ]),
+      );
+    const other = saying("Try Tony's Slice House, or Joe's Pizza on (919) 555-0199.");
+    const none = saying("Try Tony's Slice House or Joe's Pizza.");
+    const theirs = saying("Try Tony's Slice House on (919) 555-0142, or Joe's Pizza.");
+
+    beforeEach(() => {
+      for (const location of db.locations) location.phone = ON_FILE;
+    });
+
+    it("is kept with each answer that gave one for the business, and for no other", async () => {
+      await scans(other, 1);
+      expect(db.results.map((result) => result.phones)).toEqual([
+        ["+19195550199"],
+        ["+19195550199"],
+      ]);
+      // A number written for somebody else is not the business's.
+      await scans(theirs, 1);
+      expect(db.results.slice(2).map((result) => result.phones)).toEqual([[], []]);
+    });
+
+    it("is raised at the second scan whose answers give it, with the number on file beside it", async () => {
+      await scans(other, 1);
+      // Two answers, but one scan: the same reading of the same kind of answer.
+      expect(db.alerts).toEqual([]);
+
+      await scans(other, 1);
+      expect(db.alerts).toHaveLength(1);
+      expect(db.alerts[0]).toMatchObject({
+        kind: "phone",
+        subject: "+19195550199",
+        facts: {
+          number: "+19195550199",
+          on_file: ON_FILE,
+          country_code: "US",
+          answers: 4,
+          scans: 2,
+          of_scans: 2,
+          places: [{ prompt: "best pizza in Raleigh", surfaces: ["chatgpt", "gemini"] }],
+          prompts: 1,
+        },
+        since: db.results[0]?.sampled_at,
+      });
+      await scans(other, 2);
+      expect(db.alerts).toHaveLength(1);
+    });
+
+    it("is not raised where the answers give the number on file, or none is on file", async () => {
+      await scans(saying("Try Tony's Slice House, or Joe's Pizza on 919-555-0100."), 3);
+      expect(db.alerts).toEqual([]);
+
+      for (const location of db.locations) location.phone = null;
+      await scans(other, 3);
+      expect(db.alerts).toEqual([]);
+    });
+
+    it("is cleared once the window holds no answer that gives it", async () => {
+      await scans(other, 2);
+      await scans(none, 6);
+      expect(db.alerts[0]?.cleared_at).toBeNull();
+
+      await scans(none, 1);
+      expect(db.alerts[0]).toMatchObject({ clear_reason: "no_longer_given" });
+    });
+
+    it("is cleared when the number is put on file", async () => {
+      await scans(other, 2);
+      for (const location of db.locations) location.phone = "+19195550199";
+      await scans(other, 1);
+      expect(db.alerts).toHaveLength(1);
+      expect(db.alerts[0]).toMatchObject({ clear_reason: "now_on_file" });
+    });
+
+    it("is never raised again once a member has said the number is theirs", async () => {
+      await scans(other, 2);
+      await memoryStore(db, owner).dismissAlert(db.alerts[0]?.id ?? "");
+
+      // The answers stop giving it for longer than the window, then give it again.
+      await scans(none, 9);
+      await scans(other, 3);
+      expect(db.alerts).toHaveLength(1);
+      expect(db.alerts[0]).toMatchObject({ cleared_at: null });
+      expect(db.alerts[0]?.dismissed_at).not.toBeNull();
+    });
+
+    it("leads the report by the number", async () => {
+      await scans(other, 1);
+      const queued = await queueScan("scheduled");
+      let report: ScanReport | undefined;
+      await runScan(queued.id, {
+        store: worker,
+        providers: other,
+        notify: async (given) => {
+          report = given;
+          return true;
+        },
+      });
+      if (!report) throw new Error("no report");
+      const email = buildScanReportEmail(report, "https://app.example");
+
+      expect(email.subject).toBe(
+        "Joe's Pizza: The answers give a different phone number: (919) 555-0199",
+      );
+      expect(email.text).toContain("The number on file is (919) 555-0100.");
+    });
+  });
+
   it("changes no alert when the scan fails", async () => {
     await scans(providers, 4);
     await scans(silent, 2);

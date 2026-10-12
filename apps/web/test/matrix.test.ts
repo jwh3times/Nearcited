@@ -26,6 +26,7 @@ const result = (
   competitors,
   cited_urls: [],
   answer_excerpt: null,
+  phones: [],
   sampled_at: "2026-10-01T00:00:00Z",
 });
 

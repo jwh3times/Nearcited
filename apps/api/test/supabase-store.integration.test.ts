@@ -651,6 +651,7 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
           competitors: ["Tony's Slice House"],
           cited_urls: ["https://joes.example"],
           answer_excerpt: "Try Tony's Slice House or Joe's Pizza.",
+          phones: ["+19195550123"],
         },
         {
           tracked_query_id: query.id,
@@ -660,6 +661,7 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
           competitors: [],
           cited_urls: [],
           answer_excerpt: null,
+          phones: [],
         },
       ],
       recommendations: [{ rule: "absent:gemini", title: "Not named on Gemini", detail: "Detail" }],
@@ -696,7 +698,10 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
     expect(results.find((r) => r.surface === "chatgpt")).toMatchObject({
       competitors: ["Tony's Slice House"],
       cited_urls: ["https://joes.example"],
+      // The number the answer gave for the business is kept with the result.
+      phones: ["+19195550123"],
     });
+    expect(results.find((r) => r.surface === "gemini")?.phones).toEqual([]);
 
     expect(await bobStore.getScan(scan.id)).toBeNull();
     expect(await bobStore.listScans(location.id, 5)).toEqual([]);
@@ -878,17 +883,37 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
             },
             since: "2026-10-05T09:00:00Z",
           },
+          {
+            kind: "phone",
+            subject: "+19195550123",
+            facts: {
+              number: "+19195550123",
+              on_file: "+19195550100",
+              country_code: "US",
+              answers: 2,
+              scans: 2,
+              of_scans: 7,
+              places: [{ prompt: query.text, surfaces: ["chatgpt"] }],
+              prompts: 1,
+            },
+            since: "2026-10-05T09:00:00Z",
+          },
         ],
       },
     });
     const sightings = await aliceStore.listAlerts(location.id, false);
     expect(sightings.map((sighting) => [sighting.kind, sighting.facts]).sort()).toEqual([
       ["competitor", expect.objectContaining({ name: "Oak & Ember", prompts: 1 })],
+      ["phone", expect.objectContaining({ number: "+19195550123", on_file: "+19195550100" })],
       ["site", expect.objectContaining({ host: "raleighfood.example", own: false })],
     ]);
     // The owners were told of one of the two drops, so they are told once that it ended.
     const ended = await worker.listAlertsToTell(location.id, false);
-    expect(ended.raised.map((sighting) => sighting.kind).sort()).toEqual(["competitor", "site"]);
+    expect(ended.raised.map((sighting) => sighting.kind).sort()).toEqual([
+      "competitor",
+      "phone",
+      "site",
+    ]);
     expect(ended.named_again).toMatchObject([{ id: alert.id, clear_reason: "named_again" }]);
     await worker.markAlertsTold(
       { raised: sightings.map((sighting) => sighting.id), named_again: [alert.id] },
@@ -898,14 +923,18 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
       raised: [],
       named_again: [],
     });
-    // A first sighting is news, and is cleared as old news by a later scan.
+    // A first sighting is news, and is cleared as old news by a later scan. A number is cleared
+    // when the answers no longer give it.
     await worker.completeScan(scan.id, {
       score: 80,
       results,
       recommendations: [],
       site: check,
       alerts: {
-        clear: sightings.map((sighting) => ({ id: sighting.id, reason: "old_news" as const })),
+        clear: sightings.map((sighting) => ({
+          id: sighting.id,
+          reason: sighting.kind === "phone" ? ("no_longer_given" as const) : ("old_news" as const),
+        })),
         raise: [],
       },
     });

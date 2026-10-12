@@ -205,7 +205,7 @@ const RECOMMENDATION_COLUMNS =
   "id, location_id, scan_id, rule, title, detail, status, acted_at, acted_by_action, created_at";
 
 const RESULT_COLUMNS =
-  "id, scan_id, tracked_query_id, surface, mentioned, position, competitors, cited_urls, answer_excerpt, sampled_at";
+  "id, scan_id, tracked_query_id, surface, mentioned, position, competitors, cited_urls, answer_excerpt, phones, sampled_at";
 
 export function createSupabaseStore(db: SupabaseClient): Store {
   /** The addresses of an organization's members with one of these roles. Worker only. */

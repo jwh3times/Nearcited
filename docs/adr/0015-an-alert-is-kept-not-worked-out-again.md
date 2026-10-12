@@ -4,9 +4,10 @@ status: accepted
 
 # An alert is kept, not worked out again from the window
 
-Issue #136 tells an owner when something measured gets worse. There are three kinds: a drop, a
+Issue #136 tells an owner when something measured gets worse. There are four kinds: a drop, a
 prompt on one surface that named the business and has stopped; a business the answers name for
-the first time; and a site they cite for the first time.
+the first time; a site they cite for the first time; and a phone number the answers give for the
+business that is not the one on file.
 
 **An alert is a row, raised and cleared by the worker when a scan finishes.** A recommendation is
 worked out again from the scan window at every scan, and one whose rule no longer fires is
@@ -47,6 +48,25 @@ against. A competitor's own website is not said as a site: naming the competitor
 **A first sighting is news, not a state.** Nothing ends it, so it is cleared as old news once
 seven more scans have passed, when the scan that raised it leaves the window. It is said once
 for a business or a site: from then on the record holds it.
+
+**A phone number is read where it stands in the answer, and told when it comes in two scans.**
+A scan keeps 280 characters of an answer and discards the rest, so the numbers an answer gives
+for the business are read while the scan has the whole answer in hand, and kept with the result.
+A number is taken to be the business's when the name written nearest before it is the
+business's. That reads position and not meaning, and it can be wrong once, so the alert takes
+the same number, other than the one on file, in two scans of the window. A location with no
+number on file is told nothing: there is nothing for an answer's number to differ from.
+
+**It was measured before it was built.** Twenty real answers, to five prompts asked twice on two
+assistants, named 89 businesses between them. Three of the answers gave a phone number, all to
+one prompt, and gave five in all. The rule tied each of the five to the business it was written
+for. That is a small sample, and it says two things: an answer gives a number seldom, and where
+it does the number can be read.
+
+**Dismissing a phone number says it is the business's own.** A business may have more numbers
+than the one the product holds. A dismissed alert about a number is never cleared, so that
+number is never raised again. One that is not dismissed clears when no answer in the window gives
+the number any more, or when it becomes the number on file.
 
 **A dismissed alert is still current.** A member may dismiss an alert, which takes it off the
 page. The rule goes on firing at the next scan, so the dismissed row stays in the way of a second
@@ -90,6 +110,11 @@ leaves it for the next. A test organization is sent nothing.
 - **Keeping a list of everything a location's answers have named, added to at each scan.**
   Rejected. It is a second copy of the record to keep right, and filling it for the scans already
   made would mean matching names in SQL by rules that live in the shared package.
+- **Comparing the address an answer gives.** Rejected. An answer gives part of an address,
+  abbreviated differently each time, and no comparison of that is reliable enough to tell an
+  owner their address is wrong.
+- **Keeping the whole answer, so a number could be read from it later.** Rejected. Reading it as
+  the scan finishes needs nothing more kept than the number.
 - **An email of its own for each alert.** Rejected. It would land beside the report every time,
   and a surface that stops naming the business would send one for every prompt.
 
@@ -99,6 +124,9 @@ leaves it for the next. A test organization is sent nothing.
   a new prompt, are quiet until their seventh scan. A first sighting waits for the same seven.
 - Names are matched as they are everywhere else, loosely: a longer name that contains a known
   one is the same business. A new branch of a known business is therefore not said.
+- A number that follows the business's name and belongs to something the answer did not name is
+  read as the business's. It takes the same misreading in two scans to raise an alert, and a
+  member who dismisses it is not asked again.
 - Reading the record costs more as a location's history grows. It is one query over that
   location's results, made on the few scans that need it.
 - A prompt that was named about half the time and then stops is often not raised at all: its
@@ -111,4 +139,4 @@ leaves it for the next. A test organization is sent nothing.
 - An organization whose plan sends no report is told of no alert by email. If it moves to a plan
   that does, the alerts still open go in its first report.
 - If the report goes and keeping that it went fails, the next report says the same alerts again.
-- What is built so far, and what of issue #136 is still to come, is in `docs/architecture.md`.
+- How each kind is raised, cleared, shown and told is set out in `docs/architecture.md`.

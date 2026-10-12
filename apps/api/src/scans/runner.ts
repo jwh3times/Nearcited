@@ -195,6 +195,8 @@ export async function runScan(scanId: string, deps: RunScanDeps): Promise<ScanOu
       current: await store.listAlerts(location.id, sampleData),
       prompts: queries,
       website: location.website,
+      phone: location.phone,
+      country_code: location.country_code,
       // "For the first time" is said of the whole record, which is read only when the latest
       // scans hold something it might be said of. This scan is not yet among the finished ones.
       seen: hasNewcomers(recent, location.website)
