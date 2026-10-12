@@ -3145,6 +3145,214 @@ describe("the operator", () => {
     });
   });
 
+  describe("connections", () => {
+    const member = "ab000000-0000-4000-8000-00000000ab08";
+    const admin = "ab000000-0000-4000-8000-00000000ab09";
+    const first = "c1000000-0000-4000-8000-000000000001";
+    const second = "c1000000-0000-4000-8000-000000000002";
+    const create =
+      "select id, kind, label, status, connected_by, connected_by_email from public.create_connection($1, $2, 'sample', $3, $4)";
+    const askToRemove =
+      "select status, removed_by_email, removal_requested_at from public.request_connection_removal($1)";
+    const finish = "select public.finish_connection_removal($1) as finished";
+    const sealedFor = (id: string) =>
+      rows<{ sealed: string }>(
+        "select sealed from public.connection_secrets where connection_id = $1",
+        [id],
+      );
+
+    beforeAll(async () => {
+      await db.query(
+        "insert into auth.users (id, email) values ($1, 'member@example.com'), ($2, 'admin@example.com')",
+        [member, admin],
+      );
+      await db.query(
+        "insert into public.memberships (organization_id, user_id, role) values ($1, $2, 'member'), ($1, $3, 'admin')",
+        [theirs, member, admin],
+      );
+    });
+    afterAll(async () => {
+      await db.query("delete from public.connections");
+      await db.query("delete from public.memberships where user_id = any($1::uuid[])", [
+        [member, admin],
+      ]);
+    });
+
+    it("are made only by an owner or admin of the organization", async () => {
+      for (const user of [bob, member, operator]) {
+        expect(
+          await as("authenticated", user, () =>
+            rows(create, [theirs, first, "Planted", "sealed-text"]),
+          ),
+          user,
+        ).toEqual([]);
+      }
+      await expect(
+        as("anon", null, () => db.query(create, [theirs, first, "Planted", "sealed-text"])),
+      ).rejects.toThrow(/permission denied/);
+      expect(await rows("select 1 from public.connections")).toEqual([]);
+
+      expect(
+        await as("authenticated", alice, () =>
+          rows(create, [theirs, first, " Sample account ", "sealed-text"]),
+        ),
+      ).toEqual([
+        {
+          id: first,
+          kind: "sample",
+          label: "Sample account",
+          status: "working",
+          connected_by: alice,
+          connected_by_email: "alice@example.com",
+        },
+      ]);
+      expect(
+        await as("authenticated", admin, () =>
+          rows(create, [theirs, second, "Sample account", "other-sealed-text"]),
+        ),
+      ).toMatchObject([{ id: second, connected_by_email: "admin@example.com" }]);
+      await expect(
+        as("authenticated", alice, () =>
+          db.query(create, [theirs, crypto.randomUUID(), "No sign-in", ""]),
+        ),
+      ).rejects.toThrow(/made with its sign-in/);
+      expect(await rows("select 1 from public.connections")).toHaveLength(2);
+    });
+
+    it("are read by the organization's members and the operator, and written by no one directly", async () => {
+      const read = "select id from public.connections where organization_id = $1";
+      for (const user of [alice, member, admin, operator]) {
+        expect(await as("authenticated", user, () => rows(read, [theirs])), user).toHaveLength(2);
+      }
+      expect(await as("authenticated", bob, () => rows(read, [theirs]))).toEqual([]);
+      await expect(as("anon", null, () => db.query(read, [theirs]))).rejects.toThrow(
+        /permission denied/,
+      );
+      for (const sql of [
+        `insert into public.connections (id, organization_id, kind, label) values ('${crypto.randomUUID()}', '${theirs}', 'sample', 'Planted')`,
+        "update public.connections set status = 'removed'",
+        "update public.connections set label = 'Renamed'",
+        "delete from public.connections",
+      ]) {
+        for (const user of [alice, operator]) {
+          await expect(
+            as("authenticated", user, () => db.query(sql)),
+            sql,
+          ).rejects.toThrow(/permission denied/);
+        }
+      }
+    });
+
+    it("keep the sign-in where no API role can read or write it", async () => {
+      expect(await sealedFor(first)).toEqual([{ sealed: "sealed-text" }]);
+      for (const sql of [
+        "select sealed from public.connection_secrets",
+        "update public.connection_secrets set sealed = 'swapped'",
+        "delete from public.connection_secrets",
+        `insert into public.connection_secrets (connection_id, sealed) values ('${first}', 'planted')`,
+      ]) {
+        for (const [role, user] of [
+          ["authenticated", alice],
+          ["authenticated", admin],
+          ["authenticated", operator],
+          ["anon", null],
+        ] as const) {
+          await expect(
+            as(role, user, () => db.query(sql)),
+            `${role} ${sql}`,
+          ).rejects.toThrow(/permission denied/);
+        }
+      }
+      expect(await sealedFor(first)).toEqual([{ sealed: "sealed-text" }]);
+    });
+
+    it("are asked to be removed by an owner or admin, and stop there until the worker finishes", async () => {
+      for (const user of [bob, member, operator]) {
+        expect(await as("authenticated", user, () => rows(askToRemove, [first])), user).toEqual([]);
+      }
+      await expect(as("anon", null, () => db.query(askToRemove, [first]))).rejects.toThrow(
+        /permission denied/,
+      );
+      expect(
+        await as("authenticated", alice, () =>
+          rows(askToRemove, ["00000000-0000-4000-8000-00000000dead"]),
+        ),
+      ).toEqual([]);
+
+      const [asked] = await as("authenticated", admin, () =>
+        rows<{ status: string; removed_by_email: string; removal_requested_at: string }>(
+          askToRemove,
+          [first],
+        ),
+      );
+      expect(asked).toMatchObject({ status: "removing", removed_by_email: "admin@example.com" });
+      // Asked again, by someone else, it is still the first asking that is kept.
+      const [again] = await as("authenticated", alice, () =>
+        rows<{ status: string; removed_by_email: string; removal_requested_at: string }>(
+          askToRemove,
+          [first],
+        ),
+      );
+      expect(again).toEqual(asked);
+      // A request cannot read the sign-in, so it is still there for the worker to withdraw.
+      expect(await sealedFor(first)).toHaveLength(1);
+    });
+
+    it("are finished by the worker alone: the sign-in goes and the record stays", async () => {
+      for (const user of [alice, admin, operator]) {
+        await expect(
+          as("authenticated", user, () => db.query(finish, [first])),
+          user,
+        ).rejects.toThrow(/permission denied/);
+      }
+      const done = () =>
+        as("service_role", null, () => rows<{ finished: boolean }>(finish, [first]));
+      expect(await done()).toEqual([{ finished: true }]);
+      expect(await sealedFor(first)).toEqual([]);
+      expect(
+        await rows(
+          "select status, connected_by_email, removed_by_email, removed_at is not null as removed from public.connections where id = $1",
+          [first],
+        ),
+      ).toEqual([
+        {
+          status: "removed",
+          connected_by_email: "alice@example.com",
+          removed_by_email: "admin@example.com",
+          removed: true,
+        },
+      ]);
+      expect(await done()).toEqual([{ finished: false }]);
+
+      // One nobody asked to remove is left alone, sign-in and all.
+      expect(
+        await as("service_role", null, () => rows<{ finished: boolean }>(finish, [second])),
+      ).toEqual([{ finished: false }]);
+      expect(await sealedFor(second)).toEqual([{ sealed: "other-sealed-text" }]);
+      expect(await rows("select status from public.connections where id = $1", [second])).toEqual([
+        { status: "working" },
+      ]);
+    });
+
+    it("go with their organization, sign-ins included", async () => {
+      const [gone] = await rows<{ id: string }>(
+        "insert into public.organizations (name, created_by) values ('Closing', $1) returning id",
+        [alice],
+      );
+      const id = crypto.randomUUID();
+      await db.query(
+        "insert into public.connections (id, organization_id, kind, label) values ($1, $2, 'sample', 'Sample account')",
+        [id, gone?.id],
+      );
+      await db.query(
+        "insert into public.connection_secrets (connection_id, sealed) values ($1, 'sealed')",
+        [id],
+      );
+      await db.query("delete from public.organizations where id = $1", [gone?.id]);
+      expect(await sealedFor(id)).toEqual([]);
+    });
+  });
+
   describe("making an audit", () => {
     const create =
       "select id, token, business_name, website, region, country_code, prompts, samples, status from public.operator_create_audit('Joe''s Pizza', 'https://joes.example/', 'Raleigh', null, 'US', array['best pizza', 'late night food'], 2)";

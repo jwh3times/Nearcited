@@ -5,6 +5,8 @@ import type {
   AuditInput,
   AuditJob,
   AuditPart,
+  Connection,
+  ConnectionKind,
   DerivedRecommendation,
   LimitChange,
   LimitChangeNotice,
@@ -74,6 +76,15 @@ export interface PriceVersion {
 }
 
 /** A plan as the payment provider knows it: what it is sold at now, and what it has been. */
+/** A connection to make: its sign-in is already sealed, to the ID given here. */
+export interface NewConnection {
+  id: string;
+  organization_id: string;
+  kind: ConnectionKind;
+  label: string;
+  sealed: string;
+}
+
 export interface PlanPrices {
   key: string;
   on_sale: boolean;
@@ -136,6 +147,20 @@ export interface Store {
    * Null for an organization the caller cannot read.
    */
   getManualScansUsed(organizationId: string): Promise<number | null>;
+  /** An organization's connections, removed ones included, newest first. */
+  listConnections(organizationId: string): Promise<Connection[]>;
+  /** Whether the caller may connect and remove for the organization: its owner or an admin. */
+  managesConnections(organizationId: string): Promise<boolean>;
+  /**
+   * Makes a connection with its sealed sign-in. The caller chooses the ID, because the sign-in
+   * is sealed to it. Null for anyone but the organization's owner or an admin.
+   */
+  createConnection(connection: NewConnection): Promise<Connection | null>;
+  /**
+   * Asks for a connection to be removed: it stops being used at once, and the worker finishes
+   * the job. Null for anyone but an owner or admin of its organization.
+   */
+  requestConnectionRemoval(id: string): Promise<Connection | null>;
   /**
    * How much of each counted allowance an organization has used this calendar month (UTC), by
    * kind. A kind with none used is absent, and so is everything where the caller cannot read the
@@ -328,6 +353,20 @@ export interface Store {
    * Keeps what a scan, or one prompt of an audit, used at the providers. Worker only. Called
    * whether or not the scan went on to succeed: what was asked was charged for either way.
    */
+  /** One connection, for whoever may read its organization. The worker reads any. */
+  getConnection(id: string): Promise<Connection | null>;
+  /**
+   * A connection's sign-in, as the Worker sealed it. Worker only: no member and no operator can
+   * read one. Null when there is none.
+   */
+  getConnectionSecret(id: string): Promise<string | null>;
+  /**
+   * Finishes a removal that was asked for: deletes the sign-in and marks the connection removed.
+   * Worker only. False when none was waiting.
+   */
+  finishConnectionRemoval(id: string): Promise<boolean>;
+  /** The connections asked to be removed before `before` and not finished. Worker only. */
+  listStalledRemovals(before: string): Promise<string[]>;
   /**
    * Takes `amount` of one kind of allowance from an organization's month, if there is room, and
    * says what happened. Null when there is no such organization. Worker only: a member cannot

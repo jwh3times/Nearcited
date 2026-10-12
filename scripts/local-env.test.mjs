@@ -35,6 +35,14 @@ describe("fillExample", () => {
     );
   });
 
+  it("fills in the key connections are sealed with when one was made, and not otherwise", () => {
+    assert.equal(
+      fillExample("CONNECTIONS_KEY=\nPROVIDER_MODE=mock", status, { CONNECTIONS_KEY: "made=" }),
+      "CONNECTIONS_KEY=made=\nPROVIDER_MODE=mock",
+    );
+    assert.equal(fillExample("CONNECTIONS_KEY=", status), "CONNECTIONS_KEY=");
+  });
+
   it("fills the web app's names from the same keys", () => {
     assert.equal(
       fillExample("VITE_SUPABASE_URL=x\nVITE_SUPABASE_PUBLISHABLE_KEY=y", status),

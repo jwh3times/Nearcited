@@ -190,6 +190,43 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
     await expect(aliceStore.claimAllowance(fresh.id, "nonesuch")).rejects.toMatchObject({
       kind: "forbidden",
     });
+    // Connections: made and asked to be removed by the owner, read by members, and finished by
+    // the worker, which alone reads the sign-in.
+    const connectionId = crypto.randomUUID();
+    const sample = {
+      id: connectionId,
+      organization_id: fresh.id,
+      kind: "sample" as const,
+      label: "Sample account",
+      sealed: "sealed-text",
+    };
+    expect(await bobStore.createConnection(sample)).toBeNull();
+    const connection = await aliceStore.createConnection(sample);
+    expect(connection).toMatchObject({ id: connectionId, kind: "sample", status: "working" });
+    expect(await aliceStore.listConnections(fresh.id)).toEqual([connection]);
+    expect(await bobStore.listConnections(fresh.id)).toEqual([]);
+    expect(await aliceStore.getConnection(connectionId)).toEqual(connection);
+    expect(await bobStore.getConnection(connectionId)).toBeNull();
+    expect(await aliceStore.managesConnections(fresh.id)).toBe(true);
+    expect(await bobStore.managesConnections(fresh.id)).toBe(false);
+    await expect(aliceStore.getConnectionSecret(connectionId)).rejects.toMatchObject({
+      kind: "forbidden",
+    });
+    expect(await worker.getConnectionSecret(connectionId)).toBe("sealed-text");
+    expect(await bobStore.requestConnectionRemoval(connectionId)).toBeNull();
+    // Nobody has asked yet, so the worker has nothing to finish.
+    expect(await worker.finishConnectionRemoval(connectionId)).toBe(false);
+    expect(await aliceStore.requestConnectionRemoval(connectionId)).toMatchObject({
+      status: "removing",
+    });
+    const afterAsking = new Date(Date.now() + 60_000).toISOString();
+    expect(await worker.listStalledRemovals(afterAsking)).toContain(connectionId);
+    await expect(aliceStore.finishConnectionRemoval(connectionId)).rejects.toMatchObject({
+      kind: "forbidden",
+    });
+    expect(await worker.finishConnectionRemoval(connectionId)).toBe(true);
+    expect(await worker.getConnectionSecret(connectionId)).toBeNull();
+    expect(await aliceStore.getConnection(connectionId)).toMatchObject({ status: "removed" });
     expect(await worker.getSubscription(fresh.id)).toBeNull();
     const customer = `cus_${crypto.randomUUID()}`;
     await expect(

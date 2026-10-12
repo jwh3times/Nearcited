@@ -1,5 +1,6 @@
 import type {
   AuditMessage,
+  ConnectionMessage,
   LimitChangeMessage,
   PriceChangeMessage,
   ScanMessage,
@@ -9,10 +10,12 @@ import type {
 export interface Env {
   ASSETS: Fetcher;
   /**
-   * Carries scans, the prompts of shareable audits, and the steps of a price change or of a
-   * reduction in what a plan allows.
+   * Carries scans, the prompts of shareable audits, the steps of a price change or of a
+   * reduction in what a plan allows, and what the worker is asked to do for a connection.
    */
-  SCAN_QUEUE: Queue<ScanMessage | AuditMessage | PriceChangeMessage | LimitChangeMessage>;
+  SCAN_QUEUE: Queue<
+    ScanMessage | AuditMessage | PriceChangeMessage | LimitChangeMessage | ConnectionMessage
+  >;
 
   SUPABASE_URL: string;
   /** Safe to expose. Used with the caller's own token, so row-level security applies. */
@@ -41,4 +44,9 @@ export interface Env {
   STRIPE_SECRET_KEY?: string;
   /** Optional secret. The signing secret of the webhook endpoint registered at Stripe. */
   STRIPE_WEBHOOK_SECRET?: string;
+  /**
+   * Optional secret. The key a connection's sign-in is sealed with: 32 random bytes in base64.
+   * Without it nothing can be connected. Changing it makes every sign-in already kept unreadable.
+   */
+  CONNECTIONS_KEY?: string;
 }

@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { type ReactNode, useEffect, useState } from "react";
 import { Link, useLocation, useMatch } from "react-router";
 import { api } from "../lib/api";
+import { connectionsQuery, hasConnectionsPage } from "../lib/connections";
 import { placeOf, useTrends } from "../lib/locations";
 import { supabase } from "../lib/supabase";
 import { useTheme } from "../lib/theme";
@@ -30,6 +31,10 @@ export function Shell({ me, organization, children }: ShellProps) {
   const onSettings = useMatch("/settings") !== null;
   const onOperator = useMatch("/operator") !== null;
   const onPlan = useMatch(`${base}/plan`) !== null;
+  const onConnections = useMatch(`${base}/connections`) !== null;
+  // The link is there once the page has something to show: an account connected, or one that
+  // could be. The operator reading through follows it too, and changes nothing there.
+  const connections = useQuery(connectionsQuery(organization.id));
   const home = base || "/";
   const locations = useQuery({
     queryKey: ["locations", organization.id],
@@ -108,6 +113,15 @@ export function Shell({ me, organization, children }: ShellProps) {
                 aria-current={onOperator || readOnly ? "page" : undefined}
               >
                 <span>Operator</span>
+              </Link>
+            )}
+            {hasConnectionsPage(connections.data) && (
+              <Link
+                to={`${base}/connections`}
+                className="nav-row"
+                aria-current={onConnections ? "page" : undefined}
+              >
+                <span>Connections</span>
               </Link>
             )}
             {!readOnly && (

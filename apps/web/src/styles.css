@@ -1540,6 +1540,31 @@ mark {
   align-self: flex-start;
 }
 
+/* A connected account on the Connections page: what it is, who connected it, and the way out. */
+.connection {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  padding-top: 1.125rem;
+  border-top: 1px solid var(--line);
+}
+
+.connection li {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.25rem 0;
+}
+
+/* The name keeps its line, and a long address wraps where it has to. */
+.connection li span:first-child {
+  flex-shrink: 0;
+}
+
+.connection li span:last-child {
+  overflow-wrap: anywhere;
+}
+
 .segmented {
   display: inline-flex;
   gap: 0.25rem;

@@ -9,6 +9,7 @@ import { type Email, sendEmail } from "./email/report";
 import type { Env } from "./env";
 import { ApiError } from "./errors";
 import { billingRoutes } from "./routes/billing";
+import { connectionRoutes } from "./routes/connections";
 import { locationRoutes } from "./routes/locations";
 import { operatorRoutes } from "./routes/operator";
 import { organizationRoutes } from "./routes/organizations";
@@ -162,6 +163,7 @@ export function createApp(deps: AppDeps = { authenticate: authenticateWithSupaba
   app.route("/", locationRoutes);
   app.route("/", scanRoutes);
   app.route("/", billingRoutes);
+  app.route("/", connectionRoutes);
 
   app.notFound((c) => c.json({ error: { code: "not_found", message: "No such route" } }, 404));
 
