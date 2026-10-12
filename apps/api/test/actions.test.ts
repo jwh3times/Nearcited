@@ -596,6 +596,36 @@ describe("telling the owners", () => {
     expect(await memoryStore(db, null).listActionsToTell()).toEqual([]);
   });
 
+  it("marks them told on sample data with no email to send with, where nothing left the product", async () => {
+    await matched();
+    await carriedOut(alice);
+    expect(
+      await sendActionNotices({
+        store: memoryStore(db, null),
+        appUrl: "https://app.example/",
+        sampleData: true,
+      }),
+    ).toBe(0);
+    // Not left to hold the organization 36 hours on: the record on the page is the notice.
+    expect(await memoryStore(db, null).listActionsToTell()).toEqual([]);
+  });
+
+  it("sends the notice on sample data where it has email to send with", async () => {
+    await matched();
+    await carriedOut(alice);
+    expect(
+      await sendActionNotices({
+        store: memoryStore(db, null),
+        send: async (to, email) => {
+          sent.push({ to, email });
+        },
+        appUrl: "https://app.example/",
+        sampleData: true,
+      }),
+    ).toBe(1);
+    expect(sent).toHaveLength(1);
+  });
+
   it("leaves them untold where it cannot send, has nobody to send to, or the send fails", async () => {
     await matched();
     await carriedOut(alice);

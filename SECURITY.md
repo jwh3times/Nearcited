@@ -54,6 +54,10 @@ Nearcited is multi-tenant, and tenant isolation is enforced by Postgres row-leve
   `claim_action()`, `finish_action()` or `lapse_actions()`, or getting a request to propose one,
   carry one out or write through a connection. Also reading or writing `sample_listings`, which no
   API role reaches.
+- Getting an action carried out for an organization that is held, or marked told when its owners
+  were not: calling `organization_held()` as anyone but the worker, writing `told_at` or
+  `waiting_told_at`, approving a real action where no email could tell its owners, or learning from
+  `location_held()` anything about a location the caller cannot read.
 - Getting `choose_assistants()` or `activate_location()` to act on an organization the caller
   does not belong to.
 - Getting a second organization on one account, or deleting or moving an organization.

@@ -7,6 +7,8 @@ export interface NoticeDeps {
   /** Sends an email. Absent where outgoing email is not set up, and then nobody is told. */
   send?: (to: string[], email: Email) => Promise<void>;
   appUrl: string;
+  /** True where this deployment's data is generated, so nothing an action did left the product. */
+  sampleData?: boolean;
   now?: Date;
 }
 
@@ -16,13 +18,20 @@ export interface NoticeDeps {
  * about a day, well inside the 48 hours.
  *
  * A test organization is never written to: its actions are marked told, since the record on its
- * page is the notice. Where there is no email to send with, or nobody to send to, nothing is
- * marked: untold is not the same as told, and after 36 hours the organization is held and the
- * operator is shown it.
+ * page is the notice. The same goes for a deployment on sample data that has no email to send
+ * with, where an action changes nothing outside the product. Anywhere else, where there is no
+ * email to send with, or nobody to send to, nothing is marked: untold is not the same as told,
+ * and after 36 hours the organization is held and the operator is shown it.
  *
  * Returns how many organizations were told.
  */
-export async function sendActionNotices({ store, send, appUrl, now }: NoticeDeps): Promise<number> {
+export async function sendActionNotices({
+  store,
+  send,
+  appUrl,
+  sampleData,
+  now,
+}: NoticeDeps): Promise<number> {
   const at = (now ?? new Date()).toISOString();
   const byOrganization = new Map<string, ActionToTell[]>();
   for (const row of await store.listActionsToTell()) {
@@ -53,7 +62,7 @@ export async function sendActionNotices({ store, send, appUrl, now }: NoticeDeps
       );
     };
 
-    if (organization.is_test) {
+    if (organization.is_test || (sampleData && !send)) {
       await mark();
       continue;
     }

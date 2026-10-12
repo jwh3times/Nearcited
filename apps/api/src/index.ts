@@ -64,8 +64,8 @@ export default {
    * Cron. Every run clears abandoned scans and unfinished audits, and asks again for any
    * connection's removal or first sync that has not been finished and any approved action nobody
    * is carrying out; the daily run also queues a scan for every location that is due and a sync
-   * for every connection that is, and lapses the proposals nobody answered. The two schedules are
-   * in wrangler.jsonc.
+   * for every connection that is, lapses the proposals nobody answered, and tells each
+   * organization's owners what was done for it. The two schedules are in wrangler.jsonc.
    */
   async scheduled(controller, env) {
     const store = createSupabaseStore(createAdminClient(env));
@@ -94,6 +94,7 @@ export default {
         ? (to: string[], email: Email) => sendEmail(env, to, email)
         : undefined,
       appUrl: env.APP_URL,
+      sampleData: usesSampleData(env),
     });
     if (noticed > 0) console.log(`Told the owners of ${noticed} organizations what was done`);
     const expired = await expirePausedConnections(store, env.SCAN_QUEUE);
