@@ -70,6 +70,18 @@ export interface MemoryDb {
   /** Use of a counted allowance in a month, keyed `organization:kind:month`. */
   allowanceUse: Map<string, number>;
   connections: Connection[];
+  /** What the worker keeps about a connection and no member is sent. */
+  connectionHealth: Map<
+    string,
+    {
+      failed_days: number;
+      last_failed_on: string | null;
+      told_at: string | null;
+      reminded_at: string | null;
+    }
+  >;
+  /** The `connection_kind_allowances` table: the allowance a kind of connection needs. */
+  connectionKindAllowances: Map<string, string>;
   /** Each connection's sign-in as it was sealed, by connection. Only the worker reads it. */
   connectionSecrets: Map<string, string>;
   /**
@@ -129,6 +141,8 @@ export function createMemoryDb(): MemoryDb {
     limitChanges: [],
     allowanceUse: new Map(),
     connections: [],
+    connectionHealth: new Map(),
+    connectionKindAllowances: new Map(),
     connectionSecrets: new Map(),
     allowanceKinds: new Map(
       Object.entries(ALLOWANCE_KINDS).map(([key, kind]) => [key, kind.counted]),
@@ -180,6 +194,32 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
   /** Mirrors the operator's select policies: reads everything, and that is all. */
   const isOperator = userId !== null && db.operators.has(userId);
   const readsOrg = (organizationId: string) => isOperator || seesOrg(organizationId);
+  /** Mirrors the due and sync rules: working, or broken only by failing, which is still tried. */
+  const syncs = (connection: Connection) =>
+    connection.status === "working" ||
+    (connection.status === "broken" && connection.broken_reason === "failing");
+  /** Mirrors allows_connection(): the kind needs no allowance, or the organization has it. */
+  const allowsConnection = (organizationId: string, kind: string) => {
+    const needed = db.connectionKindAllowances.get(kind);
+    const organization = db.organizations.find((o) => o.id === organizationId);
+    return needed === undefined || organization?.allowances[needed] !== undefined;
+  };
+  /** Mirrors fit_connections_to_plan(): pause what is no longer included, bring back what is. */
+  const fitConnections = (organizationId: string) => {
+    const now = db.now ?? new Date().toISOString();
+    for (const connection of db.connections) {
+      if (connection.organization_id !== organizationId) continue;
+      const allowed = allowsConnection(organizationId, connection.kind);
+      if (!allowed && (connection.status === "working" || connection.status === "broken")) {
+        Object.assign(connection, { status: "paused", paused_at: now });
+      } else if (allowed && connection.status === "paused") {
+        Object.assign(connection, {
+          status: connection.broken_reason === null ? "working" : "broken",
+          paused_at: null,
+        });
+      }
+    }
+  };
   /** An owner or admin of the organization, by their own membership. */
   const managesOrg = (organizationId: string) =>
     db.memberships.some(
@@ -344,10 +384,17 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         removed_by_email: null,
         removal_requested_at: null,
         removed_at: null,
+        broken_reason: null,
+        broken_at: null,
+        paused_at: null,
+        removal_reason: null,
         last_synced_at: null,
         choices: [],
         matches: [],
       };
+      if (!allowsConnection(connection.organization_id, connection.kind)) {
+        throw new StoreError("limit", "This organization's plan does not include this.");
+      }
       db.connections.push(made);
       db.connectionSecrets.set(made.id, sealed);
       return made;
@@ -359,6 +406,7 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
       if (connection.status === "removing" || connection.status === "removed") return connection;
       return Object.assign(connection, {
         status: "removing",
+        removal_reason: "asked",
         removed_by_email: db.emails.get(userId ?? "") ?? null,
         removal_requested_at: db.now ?? timestamp(),
       });
@@ -393,14 +441,15 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
       return true;
     },
 
-    // Mirrors connections_due_for_sync(): never synced, or most of a day ago.
+    // Mirrors connections_due_for_sync(): never synced, or most of a day ago. One that only
+    // kept failing is still tried.
     async listConnectionsDueForSync(limit) {
       if (userId !== null) throw new StoreError("forbidden", "worker only");
       const before = Date.parse(db.now ?? new Date().toISOString()) - 20 * 3_600_000;
       return db.connections
         .filter(
           (connection) =>
-            connection.status === "working" &&
+            syncs(connection) &&
             (connection.last_synced_at === null || Date.parse(connection.last_synced_at) < before),
         )
         .sort((a, b) => (a.last_synced_at ?? "").localeCompare(b.last_synced_at ?? ""))
@@ -425,11 +474,14 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
     async recordConnectionSync(id, choices) {
       if (userId !== null) throw new StoreError("forbidden", "worker only");
       const connection = db.connections.find(
-        (candidate) => candidate.id === id && candidate.status === "working",
+        (candidate) => candidate.id === id && syncs(candidate),
       );
       if (!connection) return false;
       connection.choices = choices.map((choice) => ({ ...choice }));
       connection.last_synced_at = db.now ?? timestamp();
+      // A sync that succeeds mends one that had only kept failing.
+      Object.assign(connection, { status: "working", broken_reason: null, broken_at: null });
+      db.connectionHealth.delete(id);
       for (const match of connection.matches) {
         const now = choices.find((choice) => choice.id === match.external_id);
         if (now) match.external_label = now.label;
@@ -449,7 +501,7 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         return null;
       }
       if (connection.status !== "working") {
-        throw new StoreError("limit", "This account is not connected any more.");
+        throw new StoreError("limit", "This account is not working or not connected any more.");
       }
       const choice = connection.choices.find((candidate) => candidate.id === externalId);
       if (!choice) throw new StoreError("limit", "That is not something this account reaches.");
@@ -492,6 +544,101 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
       const taken = kept.length < connection.matches.length;
       connection.matches = kept;
       return taken;
+    },
+
+    // Mirrors record_connection_failure(): refused breaks at once, the third failed day breaks.
+    async recordConnectionFailure(id, refused) {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      const connection = db.connections.find((candidate) => candidate.id === id);
+      if (!connection || (connection.status !== "working" && connection.status !== "broken")) {
+        return null;
+      }
+      const now = db.now ?? new Date().toISOString();
+      const health = db.connectionHealth.get(id) ?? {
+        failed_days: 0,
+        last_failed_on: null,
+        told_at: null,
+        reminded_at: null,
+      };
+      if (refused) {
+        const breaks = connection.status === "working" || connection.broken_reason === "failing";
+        Object.assign(connection, {
+          status: "broken",
+          broken_reason: "refused",
+          broken_at: breaks ? now : connection.broken_at,
+        });
+        db.connectionHealth.set(
+          id,
+          breaks ? { ...health, told_at: null, reminded_at: null } : health,
+        );
+        return { status: "broken", newly_broken: breaks };
+      }
+      const today = now.slice(0, 10);
+      const days = health.last_failed_on === today ? health.failed_days : health.failed_days + 1;
+      const breaks = connection.status === "working" && days >= 3;
+      if (breaks) {
+        Object.assign(connection, { status: "broken", broken_reason: "failing", broken_at: now });
+      }
+      db.connectionHealth.set(id, { ...health, failed_days: days, last_failed_on: today });
+      return { status: connection.status, newly_broken: breaks };
+    },
+
+    async markConnectionTold(id, which, at) {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      const health = db.connectionHealth.get(id) ?? {
+        failed_days: 0,
+        last_failed_on: null,
+        told_at: null,
+        reminded_at: null,
+      };
+      db.connectionHealth.set(
+        id,
+        which === "told" ? { ...health, told_at: at } : { ...health, reminded_at: at },
+      );
+    },
+
+    async listBrokenConnectionsToRemind(before) {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      return db.connections
+        .filter((connection) => {
+          const health = db.connectionHealth.get(connection.id);
+          return (
+            connection.status === "broken" &&
+            connection.broken_at !== null &&
+            connection.broken_at < before &&
+            health?.told_at != null &&
+            health.reminded_at === null
+          );
+        })
+        .map((connection) => connection.id);
+    },
+
+    // Mirrors expire_paused_connections(): thirty days paused starts the removal.
+    async expirePausedConnections() {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      const now = db.now ?? new Date().toISOString();
+      const before = new Date(Date.parse(now) - 30 * 86_400_000).toISOString();
+      const expired = db.connections.filter(
+        (connection) =>
+          connection.status === "paused" &&
+          connection.paused_at !== null &&
+          connection.paused_at < before,
+      );
+      for (const connection of expired) {
+        Object.assign(connection, {
+          status: "removing",
+          removal_reason: "plan",
+          removal_requested_at: now,
+        });
+      }
+      return expired.map((connection) => connection.id);
+    },
+
+    async listManagerEmails(organizationId) {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      return db.memberships
+        .filter((m) => m.organization_id === organizationId && m.role !== "member")
+        .flatMap((m) => db.emails.get(m.user_id) ?? []);
     },
 
     async listLocationConnections(locationId) {
@@ -555,7 +702,7 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
       const organization = db.organizations.find((o) => o.id === organizationId);
       if (!organization) return null;
       const one = organization.surfaces?.length === 1 ? organization.surfaces : null;
-      return Object.assign(organization, {
+      Object.assign(organization, {
         plan_key: plan.key,
         max_locations: Math.max(plan.included_locations, locations ?? 0),
         max_queries_per_location: plan.max_queries_per_location,
@@ -565,6 +712,8 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         allowances: { ...plan.allowances },
         surfaces: plan.assistants >= 2 ? ["chatgpt", "claude"] : (one ?? ["chatgpt"]),
       });
+      fitConnections(organizationId);
+      return organization;
     },
 
     async renameOrganization(id, name) {
@@ -577,10 +726,12 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
       const organization = db.organizations.find((o) => o.id === id);
       if (!organization) return null;
       requireAllowances(db, limits.allowances);
-      return Object.assign(organization, limits, {
+      Object.assign(organization, limits, {
         allowances: { ...limits.allowances },
         plan_key: null,
       });
+      fitConnections(id);
+      return organization;
     },
 
     async createOrganization(name) {

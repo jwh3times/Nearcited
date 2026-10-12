@@ -943,8 +943,25 @@ export const CONNECTION_KIND_LABELS: Record<ConnectionKind, string> = {
 };
 
 /**
- * Where a connection stands. `removing` is asked to be removed and waiting for the worker to
- * withdraw access and delete the sign-in; `removed` is done, and kept as a record.
+ * The allowance an organization needs to have a kind of connection, or null for a kind that
+ * needs none. The database holds the same in `connection_kind_allowances`.
+ */
+export const CONNECTION_KIND_ALLOWANCES: Record<ConnectionKind, string | null> = {
+  sample: null,
+};
+
+/**
+ * Why a connection is broken: the outside service refused the sign-in, which waits for its
+ * owner, or reading from it failed three days in a row, which is still tried once a day.
+ */
+export const BROKEN_REASONS = ["refused", "failing"] as const;
+export type BrokenReason = (typeof BROKEN_REASONS)[number];
+
+/**
+ * Where a connection stands. `broken` cannot be read from. `paused` is one the organization's
+ * plan no longer includes: nothing is read or done, and its sign-in is kept for thirty days.
+ * `removing` is asked to be removed and waiting for the worker to withdraw access and delete the
+ * sign-in; `removed` is done, and kept as a record.
  */
 export const CONNECTION_STATUSES = ["working", "broken", "paused", "removing", "removed"] as const;
 export const ConnectionStatusSchema = z.enum(CONNECTION_STATUSES);
@@ -987,6 +1004,13 @@ export const ConnectionSchema = z.object({
   removal_requested_at: Timestamp.nullable(),
   /** When the worker had withdrawn access and deleted the sign-in. */
   removed_at: Timestamp.nullable(),
+  /** Why it is broken, while it is. */
+  broken_reason: z.enum(BROKEN_REASONS).nullable(),
+  broken_at: Timestamp.nullable(),
+  /** When its plan stopped including it. Thirty days on, its sign-in is removed. */
+  paused_at: Timestamp.nullable(),
+  /** Why it was removed: someone asked, or its plan had not included it for thirty days. */
+  removal_reason: z.enum(["asked", "plan"]).nullable(),
   /** When the worker last read from it. Null until the first sync, moments after connecting. */
   last_synced_at: Timestamp.nullable(),
   /** What the sign-in reaches, as the last sync found it. */

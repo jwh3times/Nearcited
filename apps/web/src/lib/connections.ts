@@ -42,6 +42,42 @@ export function choicesFor(connection: Connection, locationId: string): Connecti
   return [...offered, { id: own.external_id, label: `${own.external_label} (no longer found)` }];
 }
 
+/** How long a paused connection's sign-in is kept before it is removed. */
+const KEPT_WHILE_PAUSED_MS = 30 * 86_400_000;
+
+/**
+ * What to say about a connection that is not working or not in use, or null for one that is
+ * fine. `day` writes a date the way the page does.
+ */
+export function connectionNote(
+  connection: Connection,
+  day: (iso: string) => string,
+): string | null {
+  if (connection.status === "broken") {
+    return connection.broken_reason === "refused"
+      ? "Not working: the account refused the sign-in. Remove it and connect it again."
+      : "Not working: reading from it has failed three days in a row. Nearcited tries again once a day, and it will start working again by itself if the cause passes.";
+  }
+  if (connection.status === "paused") {
+    const until = connection.paused_at
+      ? ` Its sign-in is kept until ${day(new Date(Date.parse(connection.paused_at) + KEPT_WHILE_PAUSED_MS).toISOString())}, and then removed.`
+      : "";
+    return `Paused: your plan does not include this account, so nothing is read from it.${until}`;
+  }
+  return null;
+}
+
+/** How many of an organization's connections are broken, for the sidebar to say so. */
+export function brokenConnections(found: OrganizationConnections | undefined): number {
+  return found?.connections.filter((connection) => connection.status === "broken").length ?? 0;
+}
+
+/** Who removed a connection, in words: a person, or the thirty days it spent paused. */
+export function removedBy(connection: Connection): string {
+  if (connection.removal_reason === "plan") return "after thirty days on a plan without it";
+  return `by ${connection.removed_by_email ?? "someone who has left"}`;
+}
+
 /** The connections still there, and the ones that are gone and kept as a record. */
 export function splitConnections(connections: Connection[]): {
   current: Connection[];

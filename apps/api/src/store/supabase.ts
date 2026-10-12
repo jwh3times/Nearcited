@@ -182,7 +182,7 @@ const ORGANIZATION_COLUMNS =
 
 // Never the sign-in: that is in another table, which only the worker reads.
 const CONNECTION_COLUMNS =
-  "id, organization_id, kind, label, status, connected_by_email, connected_at, removed_by_email, removal_requested_at, removed_at, last_synced_at, choices, matches:connection_locations(location_id, external_id, external_label, matched_at)";
+  "id, organization_id, kind, label, status, connected_by_email, connected_at, removed_by_email, removal_requested_at, removed_at, broken_reason, broken_at, paused_at, removal_reason, last_synced_at, choices, matches:connection_locations(location_id, external_id, external_label, matched_at)";
 const CONNECTION_MATCH_COLUMNS = "location_id, external_id, external_label, matched_at";
 
 const LOCATION_COLUMNS =
@@ -197,6 +197,24 @@ const RESULT_COLUMNS =
   "id, scan_id, tracked_query_id, surface, mentioned, position, competitors, cited_urls, answer_excerpt, sampled_at";
 
 export function createSupabaseStore(db: SupabaseClient): Store {
+  /** The addresses of an organization's members with one of these roles. Worker only. */
+  async function emailsOf(organizationId: string, roles: string[]): Promise<string[]> {
+    const { data, error } = await db
+      .from("memberships")
+      .select("user_id")
+      .eq("organization_id", organizationId)
+      .in("role", roles);
+    if (error) fail("List members", error);
+
+    const emails: string[] = [];
+    for (const { user_id } of z.array(z.object({ user_id: z.uuid() })).parse(data ?? [])) {
+      const { data: found, error: userError } = await db.auth.admin.getUserById(user_id);
+      if (userError) fail("Look up member", userError);
+      if (found.user?.email) emails.push(found.user.email);
+    }
+    return emails;
+  }
+
   return {
     async listOrganizations() {
       // By membership, not by what the caller can read: the operator can read every organization
@@ -477,6 +495,45 @@ export function createSupabaseStore(db: SupabaseClient): Store {
       });
       if (error) fail("Record a connection's sync", error);
       return data === true;
+    },
+
+    async recordConnectionFailure(id, refused) {
+      const { data, error } = await db
+        .rpc("record_connection_failure", { connection: id, refused })
+        .maybeSingle();
+      if (error) fail("Record a connection's failed sync", error);
+      return data
+        ? z.object({ status: ConnectionSchema.shape.status, newly_broken: z.boolean() }).parse(data)
+        : null;
+    },
+
+    async markConnectionTold(id, which, at) {
+      const { error } = await db
+        .from("connections")
+        .update(which === "told" ? { broken_told_at: at } : { broken_reminded_at: at })
+        .eq("id", id);
+      if (error) fail("Keep that a connection's owners were told", error);
+    },
+
+    async listBrokenConnectionsToRemind(before) {
+      const { data, error } = await db
+        .from("connections")
+        .select("id")
+        .eq("status", "broken")
+        .not("broken_told_at", "is", null)
+        .is("broken_reminded_at", null)
+        .lt("broken_at", before);
+      if (error) fail("List broken connections to remind", error);
+      return z
+        .array(z.object({ id: z.uuid() }))
+        .parse(data ?? [])
+        .map((row) => row.id);
+    },
+
+    async expirePausedConnections() {
+      const { data, error } = await db.rpc("expire_paused_connections");
+      if (error) fail("Expire paused connections", error);
+      return z.array(z.uuid()).parse(data ?? []);
     },
 
     async claimAllowance(organizationId, kind, amount = 1) {
@@ -1245,20 +1302,11 @@ export function createSupabaseStore(db: SupabaseClient): Store {
     },
 
     async listOwnerEmails(organizationId) {
-      const { data, error } = await db
-        .from("memberships")
-        .select("user_id")
-        .eq("organization_id", organizationId)
-        .eq("role", "owner");
-      if (error) fail("List owners", error);
+      return emailsOf(organizationId, ["owner"]);
+    },
 
-      const emails: string[] = [];
-      for (const { user_id } of z.array(z.object({ user_id: z.uuid() })).parse(data ?? [])) {
-        const { data: found, error: userError } = await db.auth.admin.getUserById(user_id);
-        if (userError) fail("Look up owner", userError);
-        if (found.user?.email) emails.push(found.user.email);
-      }
-      return emails;
+    async listManagerEmails(organizationId) {
+      return emailsOf(organizationId, ["owner", "admin"]);
     },
   };
 }

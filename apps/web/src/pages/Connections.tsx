@@ -10,7 +10,13 @@ import { useState } from "react";
 import { ErrorNote } from "../components/ErrorNote";
 import { api } from "../lib/api";
 import { formatDay } from "../lib/billing";
-import { choicesFor, connectionsQuery, splitConnections } from "../lib/connections";
+import {
+  choicesFor,
+  connectionNote,
+  connectionsQuery,
+  removedBy,
+  splitConnections,
+} from "../lib/connections";
 
 /**
  * The accounts an organization has connected: what is connected, who connected it, and for its
@@ -100,8 +106,7 @@ export function Connections({ organization }: { organization: Organization }) {
                   <li key={connection.id}>
                     {connection.label}: connected by{" "}
                     {connection.connected_by_email ?? "someone who has left"} on{" "}
-                    {formatDay(connection.connected_at)}, removed by{" "}
-                    {connection.removed_by_email ?? "someone who has left"}
+                    {formatDay(connection.connected_at)}, removed {removedBy(connection)}
                     {connection.removed_at ? ` on ${formatDay(connection.removed_at)}` : ""}.
                   </li>
                 ))}
@@ -135,6 +140,7 @@ function ConnectedAccount({
     onSuccess: onChanged,
   });
   const removing = connection.status === "removing";
+  const note = connectionNote(connection, formatDay);
 
   return (
     <article className="connection" aria-label={connection.label}>
@@ -156,7 +162,7 @@ function ConnectedAccount({
             {formatDay(connection.connected_at)}
           </span>
         </li>
-        {!removing && (
+        {connection.status === "working" && (
           <li>
             <span>Last read</span>
             <span>
@@ -167,7 +173,12 @@ function ConnectedAccount({
           </li>
         )}
       </ul>
-      {!removing && connection.last_synced_at && (
+      {note && (
+        <p className="error" role="alert">
+          {note}
+        </p>
+      )}
+      {connection.status === "working" && connection.last_synced_at && (
         <Matches
           connection={connection}
           locations={locations}

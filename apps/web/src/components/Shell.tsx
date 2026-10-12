@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { type ReactNode, useEffect, useState } from "react";
 import { Link, useLocation, useMatch } from "react-router";
 import { api } from "../lib/api";
-import { connectionsQuery, hasConnectionsPage } from "../lib/connections";
+import { brokenConnections, connectionsQuery, hasConnectionsPage } from "../lib/connections";
 import { placeOf, useTrends } from "../lib/locations";
 import { supabase } from "../lib/supabase";
 import { useTheme } from "../lib/theme";
@@ -122,6 +122,11 @@ export function Shell({ me, organization, children }: ShellProps) {
                 aria-current={onConnections ? "page" : undefined}
               >
                 <span>Connections</span>
+                {brokenConnections(connections.data) > 0 && (
+                  <span className="small muted">
+                    {brokenConnections(connections.data)} not working
+                  </span>
+                )}
               </Link>
             )}
             {!readOnly && (

@@ -18,13 +18,15 @@ import { advancePriceChanges, runPriceChangeStep } from "./billing/price-change"
 import { createStripePayments } from "./billing/stripe";
 import {
   enqueueDueSyncs,
+  expirePausedConnections,
+  remindBrokenConnections,
   removeConnection,
   requeueFirstSyncs,
   requeueStalledRemovals,
   syncConnection,
 } from "./connections";
 import { sealingKey } from "./connections/seal";
-import { buildScanReportEmail, sendEmail } from "./email/report";
+import { buildScanReportEmail, type Email, sendEmail } from "./email/report";
 import type { Env } from "./env";
 import { createProviders, liveScansUnavailable, usesSampleData } from "./providers";
 import { createMockProviders } from "./providers/mock";
@@ -75,6 +77,15 @@ export default {
     console.log(`Queued ${queued} scheduled scans`);
     const syncs = await enqueueDueSyncs(store, env.SCAN_QUEUE);
     if (syncs > 0) console.log(`Queued ${syncs} syncs of connections`);
+    const expired = await expirePausedConnections(store, env.SCAN_QUEUE);
+    if (expired > 0) console.log(`Began removing ${expired} connections paused for thirty days`);
+    const reminded = await remindBrokenConnections({
+      store,
+      key: null,
+      send: env.RESEND_API_KEY ? (to, email) => sendEmail(env, to, email) : undefined,
+      appUrl: env.APP_URL,
+    });
+    if (reminded > 0) console.log(`Reminded the owners of ${reminded} broken connections`);
     const steps = await advancePriceChanges(store, env.SCAN_QUEUE);
     if (steps > 0) console.log(`Queued ${steps} price change steps`);
     const reductions = await advanceLimitChanges(store, env.SCAN_QUEUE);
@@ -167,7 +178,15 @@ export default {
         const { connection_id, step } = connection.data;
         const what = `Connection ${connection_id} ${step}`;
         try {
-          const deps = { store, key: await sealingKey(env.CONNECTIONS_KEY) };
+          const deps = {
+            store,
+            key: await sealingKey(env.CONNECTIONS_KEY),
+            // Without a Resend key there is nobody to tell when one breaks.
+            send: env.RESEND_API_KEY
+              ? (to: string[], email: Email) => sendEmail(env, to, email)
+              : undefined,
+            appUrl: env.APP_URL,
+          };
           const outcome =
             step === "remove"
               ? await removeConnection(connection_id, deps)

@@ -392,10 +392,37 @@ export interface Store {
    */
   listConnectionsAwaitingFirstSync(after: string, before: string): Promise<string[]>;
   /**
-   * Keeps what a sync found: what the sign-in reaches. Worker only. False for a connection that
-   * is not working, which is left as it is.
+   * Keeps what a sync found: what the sign-in reaches. It also mends a connection that had only
+   * kept failing. Worker only. False for any other connection that is not working, which is
+   * left as it is.
    */
   recordConnectionSync(id: string, choices: ConnectionChoice[]): Promise<boolean>;
+  /**
+   * Keeps that a sync failed. A refused sign-in breaks the connection at once; any other failure
+   * counts one for the day, and the third day in a row breaks it. Says where it stands and
+   * whether this broke it. Null for a connection that is neither working nor broken. Worker only.
+   */
+  recordConnectionFailure(
+    id: string,
+    refused: boolean,
+  ): Promise<{ status: Connection["status"]; newly_broken: boolean } | null>;
+  /** Keeps that a broken connection's owners and admins were told, or reminded. Worker only. */
+  markConnectionTold(id: string, which: "told" | "reminded", at: string): Promise<void>;
+  /**
+   * The broken connections whose owners were told before `before` and have not been reminded.
+   * Worker only.
+   */
+  listBrokenConnectionsToRemind(before: string): Promise<string[]>;
+  /**
+   * Starts the removal of every connection paused for thirty days, and returns them for the
+   * worker to finish. Worker only.
+   */
+  expirePausedConnections(): Promise<string[]>;
+  /**
+   * The addresses of an organization's owners and admins: who is told when a connection breaks.
+   * Worker only.
+   */
+  listManagerEmails(organizationId: string): Promise<string[]>;
   /**
    * Takes `amount` of one kind of allowance from an organization's month, if there is room, and
    * says what happened. Null when there is no such organization. Worker only: a member cannot
