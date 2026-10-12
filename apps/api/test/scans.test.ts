@@ -1027,7 +1027,7 @@ describe("alerts", () => {
       const email = buildScanReportEmail(report, "https://app.example");
 
       expect(email.subject).toBe(
-        'Joe\'s Pizza: no longer named for "best pizza in Raleigh" on ChatGPT',
+        'Joe\'s Pizza: No longer named for "best pizza in Raleigh" on ChatGPT',
       );
       const lines = email.text.split("\n");
       expect(lines.slice(0, 4)).toEqual([
@@ -1066,7 +1066,7 @@ describe("alerts", () => {
       if (!report) throw new Error("no report");
       const email = buildScanReportEmail(report, "https://app.example");
 
-      expect(email.subject).toBe("Joe's Pizza: no longer named for 2 prompts on ChatGPT");
+      expect(email.subject).toBe("Joe's Pizza: No longer named for 2 prompts on ChatGPT");
       expect(email.text).toContain("Joe's Pizza has 2 new alerts.");
       expect(email.text).toMatch(/\n {2}"pizza delivery Raleigh": Since October \d+, 2026\./);
     });

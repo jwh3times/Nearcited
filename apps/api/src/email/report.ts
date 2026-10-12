@@ -54,7 +54,7 @@ function subjectOf(report: ScanReport): string {
   const groups = groupAlerts(report.alerts.raised);
   const [only] = groups;
   if (groups.length === 1 && only) {
-    return `${location.name}: ${only.title.charAt(0).toLowerCase()}${only.title.slice(1)}`;
+    return `${location.name}: ${only.title}`;
   }
   if (groups.length > 1) return `${location.name}: ${report.alerts.raised.length} new alerts`;
   return `${location.name}: visibility ${score === null ? "not scored" : `${score} of 100`}`;

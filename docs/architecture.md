@@ -440,8 +440,8 @@ counts the product holds, says what was seen and never what to do, and no model 
   `named_again`, the drops the owners were told of that ended as `named_again`, were not
   dismissed, and whose ending is not yet told (`cleared_told_at` is null). They go on the report
   as `alerts`. `buildScanReportEmail` puts new alerts first, in the subject and at the head of the
-  message. One group of them gives the subject `<location>: no longer named for "<prompt>" on
-  <surface>`, or `no longer named for N prompts on <surface>` when the group is several (keywords
+  message. One group of them gives the subject `<location>: No longer named for "<prompt>" on
+  <surface>`, or `No longer named for N prompts on <surface>` when the group is several (keywords
   on a Google surface); several groups give `<location>: N new alerts`, N counting alerts. Then
   comes one line for each drop that ended (`alertEnded`), then the report as it was. With nothing
   new, the subject and the message are what they were.
