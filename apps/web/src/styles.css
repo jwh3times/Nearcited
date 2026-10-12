@@ -1092,7 +1092,7 @@ button.go {
   gap: 0.5rem;
 }
 
-/* Something got worse: edged as the bar for a failed scan is. */
+/* Something got worse, or a competitor arrived: edged as the bar for a failed scan is. */
 .also.alert {
   border-color: var(--danger);
 }

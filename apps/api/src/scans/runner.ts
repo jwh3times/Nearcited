@@ -1,9 +1,12 @@
 import {
+  type AlertScan,
   type AlertsToTell,
   analyzeObservation,
   analyzeSite,
   deriveAlerts,
   deriveRecommendations,
+  FIRST_SEEN_SCANS,
+  hasNewcomers,
   type Location,
   poolWindow,
   SCAN_WINDOW,
@@ -179,18 +182,25 @@ export async function runScan(scanId: string, deps: RunScanDeps): Promise<ScanOu
 
     // An alert is kept from one scan to the next, so its rules are given the ones still
     // current beside the window. Each earlier scan is known by the results it left.
-    const alerts = deriveAlerts(
-      [
-        { id: scanId, at: at.toISOString(), checks: results },
-        ...earlier.map((checks) => ({
-          id: checks[0]?.scan_id ?? null,
-          at: checks[0]?.sampled_at ?? at.toISOString(),
-          checks,
-        })),
-      ],
-      await store.listAlerts(location.id, sampleData),
-      queries,
-    );
+    const recent: AlertScan[] = [
+      { id: scanId, at: at.toISOString(), checks: results },
+      ...earlier.map((checks) => ({
+        id: checks[0]?.scan_id ?? null,
+        at: checks[0]?.sampled_at ?? at.toISOString(),
+        checks,
+      })),
+    ];
+    const alerts = deriveAlerts({
+      scans: recent,
+      current: await store.listAlerts(location.id, sampleData),
+      prompts: queries,
+      website: location.website,
+      // "For the first time" is said of the whole record, which is read only when the latest
+      // scans hold something it might be said of. This scan is not yet among the finished ones.
+      seen: hasNewcomers(recent, location.website)
+        ? await store.listSeenBefore(location.id, sampleData, FIRST_SEEN_SCANS - 1)
+        : null,
+    });
 
     await store.completeScan(scanId, {
       score,

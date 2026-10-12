@@ -1048,13 +1048,10 @@ describe("recommendations", () => {
 });
 
 describe("alerts", () => {
+  type KeptDrop = Extract<MemoryDb["alerts"][number], { kind: "drop" }>;
   /** A drop, as a scan's rule would have kept it. The app in these tests serves sample data. */
-  function raise(
-    locationId: string,
-    queryId: string,
-    overrides: Partial<MemoryDb["alerts"][0]> = {},
-  ) {
-    const alert: MemoryDb["alerts"][number] = {
+  function raise(locationId: string, queryId: string, overrides: Partial<KeptDrop> = {}) {
+    const alert: KeptDrop = {
       id: crypto.randomUUID(),
       location_id: locationId,
       kind: "drop",
@@ -1112,11 +1109,54 @@ describe("alerts", () => {
     expect(await alertsOf(alice, location.id)).toEqual([]);
   });
 
-  it("leaves out an alert about a prompt retired since the last scan", async () => {
+  it("leaves out a drop on a prompt retired since the last scan", async () => {
     const { location, query } = await seed();
     raise(location.id, query.id);
     await call(alice, "PATCH", `/queries/${query.id}`, { is_active: false });
     expect(await alertsOf(alice, location.id)).toEqual([]);
+  });
+
+  it("shows a first sighting with what it was counted over, whatever became of its prompts", async () => {
+    const { location, query } = await seed();
+    const {
+      tracked_query_id: _query,
+      surface: _surface,
+      facts: _facts,
+      ...row
+    } = raise(location.id, query.id);
+    db.alerts.length = 0;
+    const counted = { answers: 3, scans: 2, of_scans: 3 };
+    db.alerts.push(
+      {
+        ...row,
+        id: crypto.randomUUID(),
+        kind: "competitor",
+        subject: "oak and ember",
+        facts: {
+          name: "Oak & Ember",
+          ...counted,
+          places: [{ prompt: "best pizza in Raleigh", surfaces: ["chatgpt"] }],
+          prompts: 1,
+        },
+      },
+      {
+        ...row,
+        id: crypto.randomUUID(),
+        kind: "site",
+        subject: "raleighfood.example",
+        facts: { host: "raleighfood.example", ...counted, named: 0, own: false, url: null },
+      },
+    );
+    await call(alice, "PATCH", `/queries/${query.id}`, { is_active: false });
+
+    const alerts = await alertsOf(alice, location.id);
+    expect(alerts.map((alert) => [alert.kind, alert.facts])).toEqual([
+      ["competitor", expect.objectContaining({ name: "Oak & Ember", prompts: 1 })],
+      ["site", expect.objectContaining({ host: "raleighfood.example", named: 0 })],
+    ]);
+    // Neither is about one prompt on one surface, and neither says it is.
+    expect(alerts[0]).not.toHaveProperty("tracked_query_id");
+    expect(alerts[1]).not.toHaveProperty("surface");
   });
 
   it("lets a member dismiss one, and keeps who did and when", async () => {
