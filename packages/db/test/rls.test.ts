@@ -3539,6 +3539,213 @@ describe("the operator", () => {
       });
     });
 
+    describe("breaking and pausing", () => {
+      // After the tests above, `third` is the one connection still working.
+      const third = "c1000000-0000-4000-8000-000000000003";
+      const fourth = "c1000000-0000-4000-8000-000000000004";
+      const failed = "select status, newly_broken from public.record_connection_failure($1, $2)";
+      const fail = (id: string, refused: boolean) =>
+        as("service_role", null, () =>
+          rows<{ status: string; newly_broken: boolean }>(failed, [id, refused]),
+        );
+      const stands = (id: string) =>
+        rows<Record<string, unknown>>(
+          "select status, broken_reason, failed_days, broken_at is not null as broken, paused_at is not null as paused from public.connections where id = $1",
+          [id],
+        );
+      const due = async () =>
+        (
+          await as("service_role", null, () =>
+            rows<{ id: string }>("select public.connections_due_for_sync() as id"),
+          )
+        ).map((row) => row.id);
+      const synced = (id: string) =>
+        as("service_role", null, () =>
+          rows<{ recorded: boolean }>(
+            "select public.record_connection_sync($1, '[]'::jsonb) as recorded",
+            [id],
+          ),
+        );
+      const aDayPasses = () =>
+        db.query(
+          "update public.connections set last_failed_on = last_failed_on - 1, last_synced_at = now() - interval '21 hours'",
+        );
+
+      beforeAll(async () => {
+        await as("authenticated", alice, () =>
+          db.query(create, [theirs, fourth, "Sample account four", "fourth-sealed-text"]),
+        );
+      });
+      afterAll(async () => {
+        await db.query("delete from public.connection_kind_allowances");
+        await db.query(
+          "update public.organizations set allowances = '{}', plan_key = null where id = $1",
+          [theirs],
+        );
+        await db.query("update public.plans set allowances = '{}'");
+        await db.query("delete from public.allowance_kinds where key = 'sample_access'");
+        await db.query(
+          "delete from public.operator_actions where action = 'set_limits' and organization_id = $1 and created_at > now() - interval '1 minute' and detail -> 'to' -> 'allowances' ? 'sample_access'",
+          [theirs],
+        );
+      });
+
+      it("break at once when the sign-in is refused, which only the worker may say", async () => {
+        for (const user of [alice, admin, operator]) {
+          await expect(
+            as("authenticated", user, () => db.query(failed, [third, true])),
+            user,
+          ).rejects.toThrow(/permission denied/);
+        }
+        expect(await fail(third, true)).toEqual([{ status: "broken", newly_broken: true }]);
+        // Said again, it is not news.
+        expect(await fail(third, true)).toEqual([{ status: "broken", newly_broken: false }]);
+        expect(await stands(third)).toMatchObject([
+          { status: "broken", broken_reason: "refused", broken: true },
+        ]);
+        // It waits for its owner: it is not synced, and a sync would not mend it.
+        await aDayPasses();
+        expect(await due()).not.toContain(third);
+        expect(await synced(third)).toEqual([{ recorded: false }]);
+        // Nothing to record for one that is gone.
+        expect(await fail(first, true)).toEqual([]);
+      });
+
+      it("break on the third failed day in a row, counting a day once however often it failed", async () => {
+        expect(await fail(fourth, false)).toEqual([{ status: "working", newly_broken: false }]);
+        expect(await fail(fourth, false)).toEqual([{ status: "working", newly_broken: false }]);
+        expect(await stands(fourth)).toMatchObject([{ status: "working", failed_days: 1 }]);
+        await aDayPasses();
+        expect(await fail(fourth, false)).toEqual([{ status: "working", newly_broken: false }]);
+        await aDayPasses();
+        expect(await fail(fourth, false)).toEqual([{ status: "broken", newly_broken: true }]);
+        expect(await stands(fourth)).toMatchObject([
+          { status: "broken", broken_reason: "failing", failed_days: 3, broken: true },
+        ]);
+        await aDayPasses();
+        expect(await fail(fourth, false)).toEqual([{ status: "broken", newly_broken: false }]);
+      });
+
+      it("are still tried when they only kept failing, and mend at the next sync that works", async () => {
+        expect(await due()).toEqual([fourth]);
+        expect(await synced(fourth)).toEqual([{ recorded: true }]);
+        expect(await stands(fourth)).toEqual([
+          { status: "working", broken_reason: null, failed_days: 0, broken: false, paused: false },
+        ]);
+        // The count starts over.
+        expect(await fail(fourth, false)).toEqual([{ status: "working", newly_broken: false }]);
+        await synced(fourth);
+      });
+
+      it("need no allowance unless their kind is listed as needing one, as the shared list says", async () => {
+        const { CONNECTION_KIND_ALLOWANCES } = await import("@nearcited/shared");
+        expect(
+          await rows("select kind, allowance from public.connection_kind_allowances order by kind"),
+        ).toEqual(
+          Object.entries(CONNECTION_KIND_ALLOWANCES)
+            .filter(([, allowance]) => allowance !== null)
+            .map(([kind, allowance]) => ({ kind, allowance })),
+        );
+        for (const sql of [
+          "select kind from public.connection_kind_allowances",
+          "delete from public.connection_kind_allowances",
+          "select public.fit_connections_to_plan('00000000-0000-4000-8000-00000000dead')",
+          "select public.expire_paused_connections()",
+          "select public.allows_connection('00000000-0000-4000-8000-00000000dead', 'sample')",
+        ]) {
+          for (const [role, user] of [
+            ["authenticated", alice],
+            ["authenticated", operator],
+            ["anon", null],
+          ] as const) {
+            await expect(
+              as(role, user, () => db.query(sql)),
+              `${role} ${sql}`,
+            ).rejects.toThrow(/permission denied/);
+          }
+        }
+      });
+
+      it("are paused when the organization's allowances stop including them, and are not made then", async () => {
+        // No real kind needs an allowance yet, so for these tests the sample kind does.
+        await db.query(
+          "insert into public.allowance_kinds (key, counted) values ('sample_access', false)",
+        );
+        await db.query(
+          "insert into public.connection_kind_allowances (kind, allowance) values ('sample', 'sample_access')",
+        );
+        // The customer's organization has no allowances, so fitting it pauses both.
+        await as("service_role", null, () =>
+          db.query("select public.fit_connections_to_plan($1)", [theirs]),
+        );
+        expect(await stands(fourth)).toMatchObject([{ status: "paused", paused: true }]);
+        expect(await stands(third)).toMatchObject([
+          { status: "paused", broken_reason: "refused", paused: true },
+        ]);
+        expect(await due()).toEqual([]);
+        await expect(
+          as("authenticated", alice, () =>
+            db.query(create, [theirs, crypto.randomUUID(), "Not included", "sealed"]),
+          ),
+        ).rejects.toThrow(/does not include connecting this kind/);
+        await expect(
+          as("authenticated", alice, () =>
+            db.query(
+              "select * from public.match_connection_location($1, (select id from public.locations where organization_id = $2 limit 1), 'listing-a')",
+              [fourth, theirs],
+            ),
+          ),
+        ).rejects.toThrow(/does not include this account any more/);
+      });
+
+      it("come back when the allowances include them again, broken if they were broken", async () => {
+        // By the operator's limits editor.
+        await as("authenticated", operator, () =>
+          db.query(
+            `select * from public.operator_set_limits($1, 3, 20, 10, 1, '{"sample_access": true}')`,
+            [theirs],
+          ),
+        );
+        expect(await stands(fourth)).toMatchObject([{ status: "working", paused: false }]);
+        expect(await stands(third)).toMatchObject([
+          { status: "broken", broken_reason: "refused", paused: false },
+        ]);
+        // And paused again by a plan that does not include it, which is every plan there is.
+        await as("service_role", null, () =>
+          db.query("select public.apply_plan($1, 'standard')", [theirs]),
+        );
+        expect(await stands(fourth)).toMatchObject([{ status: "paused", paused: true }]);
+      });
+
+      it("are removed once they have been paused for thirty days, by the worker alone", async () => {
+        const expire = "select public.expire_paused_connections() as id";
+        expect(await as("service_role", null, () => rows(expire))).toEqual([]);
+        await db.query(
+          "update public.connections set paused_at = now() - interval '31 days' where id = $1",
+          [fourth],
+        );
+        expect(await as("service_role", null, () => rows(expire))).toEqual([{ id: fourth }]);
+        expect(
+          await rows(
+            "select status, removal_reason, removed_by_email from public.connections where id = $1",
+            [fourth],
+          ),
+        ).toEqual([{ status: "removing", removal_reason: "plan", removed_by_email: null }]);
+        await as("service_role", null, () => db.query(finish, [fourth]));
+        expect(await sealedFor(fourth)).toEqual([]);
+        expect(await stands(fourth)).toMatchObject([{ status: "removed" }]);
+        // The one paused a moment ago is kept.
+        expect(await stands(third)).toMatchObject([{ status: "paused" }]);
+        expect(await sealedFor(third)).toHaveLength(1);
+      });
+
+      it("say that somebody asked, when a removal was asked for", async () => {
+        expect(
+          await rows("select removal_reason from public.connections where id = $1", [second]),
+        ).toEqual([{ removal_reason: "asked" }]);
+      });
+    });
+
     it("go with their organization, sign-ins included", async () => {
       const [gone] = await rows<{ id: string }>(
         "insert into public.organizations (name, created_by) values ('Closing', $1) returning id",

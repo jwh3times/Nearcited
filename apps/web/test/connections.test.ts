@@ -2,9 +2,12 @@ import type { Connection, OrganizationConnections } from "@nearcited/shared";
 import { describe, expect, it } from "vitest";
 import {
   awaitingWorker,
+  brokenConnections,
   choicesFor,
+  connectionNote,
   connectionsQuery,
   hasConnectionsPage,
+  removedBy,
   splitConnections,
 } from "../src/lib/connections";
 
@@ -19,6 +22,10 @@ const connection = (status: Connection["status"], id = status): Connection => ({
   removed_by_email: null,
   removal_requested_at: null,
   removed_at: null,
+  broken_reason: null,
+  broken_at: null,
+  paused_at: null,
+  removal_reason: null,
   last_synced_at: "2026-10-12T09:00:05.000Z",
   choices: [],
   matches: [],
@@ -121,5 +128,56 @@ describe("choicesFor", () => {
     ]);
     // It is still that location's, so no other is offered it.
     expect(choicesFor(gone, uptown).map((choice) => choice.id)).toEqual(["b", "c"]);
+  });
+});
+
+describe("connectionNote", () => {
+  const day = (iso: string) => iso.slice(0, 10);
+
+  it("says nothing about one that is working or on its way out", () => {
+    expect(connectionNote(connection("working"), day)).toBeNull();
+    expect(connectionNote(connection("removing"), day)).toBeNull();
+    expect(connectionNote(connection("removed"), day)).toBeNull();
+  });
+
+  it("says why one is broken, and what will or will not mend it", () => {
+    expect(connectionNote({ ...connection("broken"), broken_reason: "refused" }, day)).toMatch(
+      /refused the sign-in\. Remove it and connect it again/,
+    );
+    expect(connectionNote({ ...connection("broken"), broken_reason: "failing" }, day)).toMatch(
+      /three days in a row.*tries again once a day/,
+    );
+  });
+
+  it("says a paused one is kept for thirty days, and until when", () => {
+    expect(
+      connectionNote({ ...connection("paused"), paused_at: "2026-10-12T09:00:00.000Z" }, day),
+    ).toBe(
+      "Paused: your plan does not include this account, so nothing is read from it. Its sign-in is kept until 2026-11-11, and then removed.",
+    );
+  });
+});
+
+describe("brokenConnections", () => {
+  it("counts the broken ones, and nothing while the list is not known", () => {
+    expect(brokenConnections(undefined)).toBe(0);
+    expect(
+      brokenConnections(
+        found({ connections: [connection("broken"), connection("working"), connection("paused")] }),
+      ),
+    ).toBe(1);
+  });
+});
+
+describe("removedBy", () => {
+  it("names who asked, or says the plan had not included it for thirty days", () => {
+    const asked = { ...connection("removed"), removal_reason: "asked" as const };
+    expect(removedBy({ ...asked, removed_by_email: "owner@example.com" })).toBe(
+      "by owner@example.com",
+    );
+    expect(removedBy(asked)).toBe("by someone who has left");
+    expect(removedBy({ ...connection("removed"), removal_reason: "plan" })).toBe(
+      "after thirty days on a plan without it",
+    );
   });
 });

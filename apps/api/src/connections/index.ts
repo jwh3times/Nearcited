@@ -1,9 +1,13 @@
-import type {
-  ConnectionChoice,
-  ConnectionKind,
-  ConnectionMessage,
-  Organization,
+import {
+  CONNECTION_KIND_ALLOWANCES,
+  type Connection,
+  type ConnectionChoice,
+  type ConnectionKind,
+  type ConnectionMessage,
+  type Organization,
 } from "@nearcited/shared";
+import { buildConnectionBrokenEmail } from "../email/connection-broken";
+import type { Email } from "../email/report";
 import type { Env } from "../env";
 import { usesSampleData } from "../providers";
 import type { Store } from "../store/types";
@@ -11,15 +15,19 @@ import { open } from "./seal";
 
 /**
  * The kinds of account an organization can connect in this deployment. None without a key to
- * seal the sign-in with. `sample` only where the data is generated: a deployment on sample data,
- * or a test organization in any deployment.
+ * seal the sign-in with, and none its allowances do not include. `sample` only where the data is
+ * generated: a deployment on sample data, or a test organization in any deployment.
  */
 export function availableConnectionKinds(
   env: Pick<Env, "CONNECTIONS_KEY" | "PROVIDER_MODE">,
-  organization: Pick<Organization, "is_test">,
+  organization: Pick<Organization, "is_test" | "allowances">,
 ): ConnectionKind[] {
   if (!env.CONNECTIONS_KEY) return [];
-  return usesSampleData(env) || organization.is_test ? ["sample"] : [];
+  const offered: ConnectionKind[] = usesSampleData(env) || organization.is_test ? ["sample"] : [];
+  return offered.filter((kind) => {
+    const needed = CONNECTION_KIND_ALLOWANCES[kind];
+    return needed === null || organization.allowances[needed] !== undefined;
+  });
 }
 
 /** What connecting an account comes to: what to call it, and the sign-in to keep. */
@@ -48,6 +56,17 @@ const SAMPLE_CHOICES: ConnectionChoice[] = [
   { id: "sample-listing-3", label: "Sample listing: Uptown" },
 ];
 
+/**
+ * Thrown by a read when the outside service refuses the sign-in: the password changed, or the
+ * access was taken away there. Trying again will not help, so the connection breaks at once.
+ */
+export class SignInRefused extends Error {
+  constructor(message = "The outside service refused the sign-in.") {
+    super(message);
+    this.name = "SignInRefused";
+  }
+}
+
 /** Reads from an account of one kind with its sign-in. The sample kind asks nobody anything. */
 async function read(kind: ConnectionKind, _signIn: string): Promise<Reached> {
   switch (kind) {
@@ -69,6 +88,44 @@ export interface ConnectionDeps {
   store: Store;
   /** The key this deployment seals with. Null where none is set. */
   key: CryptoKey | null;
+  /** Sends an email. Absent where outgoing email is not set up, and then nobody is told. */
+  send?: (to: string[], email: Email) => Promise<void>;
+  appUrl?: string;
+  /** Reads from the outside service. The tests put a failing one here. */
+  read?: (kind: ConnectionKind, signIn: string) => Promise<Reached>;
+  now?: Date;
+}
+
+/**
+ * Tells a broken connection's owners and admins, or reminds them, and keeps that it did. A test
+ * organization's are never written to, and where email is not set up nobody is.
+ */
+async function tellBroken(
+  connection: Connection,
+  reminder: boolean,
+  { store, send, appUrl, now }: ConnectionDeps,
+): Promise<boolean> {
+  if (!send || !appUrl || connection.broken_reason === null) return false;
+  const organization = await store.getOrganization(connection.organization_id);
+  if (!organization || organization.is_test) return false;
+  const managers = await store.listManagerEmails(connection.organization_id);
+  if (managers.length === 0) return false;
+  await send(
+    managers,
+    buildConnectionBrokenEmail({
+      organization: organization.name,
+      label: connection.label,
+      reason: connection.broken_reason,
+      reminder,
+      appUrl,
+    }),
+  );
+  await store.markConnectionTold(
+    connection.id,
+    reminder ? "reminded" : "told",
+    (now ?? new Date()).toISOString(),
+  );
+  return true;
 }
 
 /**
@@ -108,10 +165,15 @@ export async function removeConnection(
  */
 export async function syncConnection(
   connectionId: string,
-  { store, key }: ConnectionDeps,
-): Promise<"synced" | "not_working" | "unreadable"> {
+  deps: ConnectionDeps,
+): Promise<"synced" | "not_working" | "unreadable" | "refused" | "failed"> {
+  const { store, key } = deps;
   const connection = await store.getConnection(connectionId);
-  if (connection?.status !== "working") return "not_working";
+  // One that only kept failing is still tried, and a sync that succeeds mends it.
+  const tried =
+    connection?.status === "working" ||
+    (connection?.status === "broken" && connection.broken_reason === "failing");
+  if (!connection || !tried) return "not_working";
 
   const sealed = await store.getConnectionSecret(connectionId);
   if (!sealed || !key) return "unreadable";
@@ -123,8 +185,80 @@ export async function syncConnection(
     return "unreadable";
   }
 
-  const { choices } = await read(connection.kind, signIn);
-  return (await store.recordConnectionSync(connectionId, choices)) ? "synced" : "not_working";
+  let reached: Reached;
+  try {
+    reached = await (deps.read ?? read)(connection.kind, signIn);
+  } catch (error) {
+    const refused = error instanceof SignInRefused;
+    console.error(
+      `Connection ${connectionId}: its sync ${refused ? "was refused" : "failed"}`,
+      error,
+    );
+    const outcome = await store.recordConnectionFailure(connectionId, refused);
+    if (outcome?.newly_broken) {
+      const broken = await store.getConnection(connectionId);
+      // A failure to tell must not undo what was recorded: the daily run tells them later.
+      if (broken) {
+        await tellBroken(broken, false, deps).catch((sendError) =>
+          console.error(`Connection ${connectionId}: its owners could not be told`, sendError),
+        );
+      }
+    }
+    return refused ? "refused" : "failed";
+  }
+  return (await store.recordConnectionSync(connectionId, reached.choices))
+    ? "synced"
+    : "not_working";
+}
+
+/**
+ * Tells the owners and admins of every broken connection nobody has been told of yet: the email
+ * could not be sent when it broke. One with nobody to tell, a test organization's among them,
+ * is looked at again each day and stays untold. Returns how many were told.
+ */
+export async function tellBrokenConnections(deps: ConnectionDeps): Promise<number> {
+  let told = 0;
+  for (const id of await deps.store.listBrokenConnectionsUntold()) {
+    const connection = await deps.store.getConnection(id);
+    if (connection?.status === "broken" && (await tellBroken(connection, false, deps))) told++;
+  }
+  return told;
+}
+
+/** How long after its owners and admins were told a connection broke they are reminded, once. */
+const REMIND_AFTER_MS = 7 * 86_400_000;
+
+/**
+ * Reminds the owners and admins of every connection they were told a week ago had broken and
+ * that is still broken. Each is reminded once. Returns how many were.
+ */
+export async function remindBrokenConnections(deps: ConnectionDeps): Promise<number> {
+  const now = deps.now ?? new Date();
+  const due = await deps.store.listBrokenConnectionsToRemind(
+    new Date(now.getTime() - REMIND_AFTER_MS).toISOString(),
+  );
+  let reminded = 0;
+  for (const id of due) {
+    const connection = await deps.store.getConnection(id);
+    if (connection?.status === "broken" && (await tellBroken(connection, true, deps))) reminded++;
+  }
+  return reminded;
+}
+
+/**
+ * Starts the removal of every connection its plan has not included for thirty days, and queues
+ * the worker to finish each: take back the access and delete the sign-in. Returns how many.
+ */
+export async function expirePausedConnections(
+  store: Store,
+  queue: Pick<Queue<ConnectionMessage>, "sendBatch">,
+): Promise<number> {
+  const expired = await store.expirePausedConnections();
+  if (expired.length === 0) return 0;
+  await queue.sendBatch(
+    expired.map((id) => ({ body: { connection_id: id, step: "remove" as const } })),
+  );
+  return expired.length;
 }
 
 /** The most connections one run of the schedule queues, which is one `sendBatch`. */

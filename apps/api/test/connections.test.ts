@@ -12,12 +12,17 @@ import { createApp } from "../src/app";
 import {
   availableConnectionKinds,
   enqueueDueSyncs,
+  expirePausedConnections,
+  remindBrokenConnections,
   removeConnection,
   requeueFirstSyncs,
   requeueStalledRemovals,
+  SignInRefused,
   syncConnection,
+  tellBrokenConnections,
 } from "../src/connections";
 import { open, seal, sealingKey } from "../src/connections/seal";
+import type { Email } from "../src/email/report";
 import type { Env } from "../src/env";
 import { createMemoryDb, type MemoryDb, memoryStore } from "./memory-store";
 
@@ -149,8 +154,8 @@ describe("sealing a sign-in", () => {
 
 describe("what can be connected", () => {
   it("is nothing without a key, and the sample account only where the data is generated", () => {
-    const real = { is_test: false };
-    const test = { is_test: true };
+    const real = { is_test: false, allowances: {} };
+    const test = { is_test: true, allowances: {} };
     expect(availableConnectionKinds({ PROVIDER_MODE: "mock" }, real)).toEqual([]);
     expect(
       availableConnectionKinds({ PROVIDER_MODE: "mock", CONNECTIONS_KEY: SECRET }, real),
@@ -580,5 +585,330 @@ describe("matching a location to what an account reaches", () => {
     expect(db.connections[0]?.matches).toMatchObject([
       { external_id: "sample-listing-1", external_label: "Renamed at the outside service" },
     ]);
+  });
+});
+
+describe("a connection that stops working", () => {
+  const DAY = 86_400_000;
+  let sent: { to: string[]; email: Email }[];
+  /** The worker, able to send email, reading with whatever the test puts in its place. */
+  const workerThat = async (read?: () => Promise<never>) => ({
+    ...(await worker()),
+    send: async (to: string[], email: Email) => {
+      sent.push({ to, email });
+    },
+    appUrl: "https://app.example/",
+    read,
+  });
+  const refused = async () => {
+    throw new SignInRefused();
+  };
+  const down = async () => {
+    throw new Error("The outside service is down.");
+  };
+  /** Alice owns it, Carol is an admin, Bob a member. Each has an address. */
+  async function withManagers() {
+    const { organization, connection } = await connected();
+    db.memberships.push({ organization_id: organization.id, user_id: carol, role: "admin" });
+    db.emails.set(carol, "carol@example.com");
+    db.emails.set(bob, "bob@example.com");
+    await syncConnection(connection.id, await worker());
+    return { organization, connection };
+  }
+  const at = (time: number) => {
+    db.now = new Date(time).toISOString();
+  };
+
+  beforeEach(() => {
+    sent = [];
+  });
+
+  it("breaks at once when the sign-in is refused, tells its owners and admins once, and waits", async () => {
+    const { organization, connection } = await withManagers();
+    expect(await syncConnection(connection.id, await workerThat(refused))).toBe("refused");
+    const [broken] = (await list(bob, organization.id)).connections;
+    expect(broken).toMatchObject({ status: "broken", broken_reason: "refused" });
+    expect(broken?.broken_at).not.toBeNull();
+    // The owner and the admin, and not the member.
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.to.sort()).toEqual(["alice@example.com", "carol@example.com"]);
+    expect(sent[0]?.email.subject).toBe("Nearcited can no longer read from Sample account");
+    expect(sent[0]?.email.text).toContain("refused the sign-in");
+    expect(sent[0]?.email.text).toContain("https://app.example/connections");
+
+    // It is not tried again: only its owner signing in again can help.
+    expect(await enqueueDueSyncs(memoryStore(db, null), env.SCAN_QUEUE)).toBe(0);
+    expect(await syncConnection(connection.id, await workerThat())).toBe("not_working");
+    expect(sent).toHaveLength(1);
+    // And it takes no change meanwhile.
+    const location = LocationSchema.parse(
+      await (
+        await call(alice, "POST", `/organizations/${organization.id}/locations`, {
+          name: "Joe's Pizza",
+          city: "Raleigh",
+        })
+      ).json(),
+    );
+    const match = await call(
+      alice,
+      "PUT",
+      `/connections/${connection.id}/locations/${location.id}`,
+      {
+        external_id: "sample-listing-1",
+      },
+    );
+    expect(match.status).toBe(409);
+  });
+
+  it("breaks on the third failed day in a row, however often it is tried in a day", async () => {
+    const { connection } = await withManagers();
+    const start = Date.now();
+    at(start);
+    expect(await syncConnection(connection.id, await workerThat(down))).toBe("failed");
+    expect(await syncConnection(connection.id, await workerThat(down))).toBe("failed");
+    at(start + DAY);
+    expect(await syncConnection(connection.id, await workerThat(down))).toBe("failed");
+    expect(db.connections[0]).toMatchObject({ status: "working", broken_reason: null });
+    expect(sent).toEqual([]);
+
+    at(start + 2 * DAY);
+    expect(await syncConnection(connection.id, await workerThat(down))).toBe("failed");
+    expect(db.connections[0]).toMatchObject({ status: "broken", broken_reason: "failing" });
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.email.text).toContain("three days in a row");
+    // Failing again tells nobody again.
+    at(start + 3 * DAY);
+    expect(await syncConnection(connection.id, await workerThat(down))).toBe("failed");
+    expect(sent).toHaveLength(1);
+  });
+
+  it("is still tried once a day when it only kept failing, and mends itself", async () => {
+    const { connection } = await withManagers();
+    const start = Date.now();
+    for (const day of [0, 1, 2]) {
+      at(start + day * DAY);
+      await syncConnection(connection.id, await workerThat(down));
+    }
+    expect(db.connections[0]?.status).toBe("broken");
+    at(start + 3 * DAY);
+    expect(await enqueueDueSyncs(memoryStore(db, null), env.SCAN_QUEUE)).toBe(1);
+    expect(await syncConnection(connection.id, await workerThat())).toBe("synced");
+    expect(db.connections[0]).toMatchObject({
+      status: "working",
+      broken_reason: null,
+      broken_at: null,
+    });
+    // The count starts over: two more failed days do not break it.
+    for (const day of [4, 5]) {
+      at(start + day * DAY);
+      await syncConnection(connection.id, await workerThat(down));
+    }
+    expect(db.connections[0]?.status).toBe("working");
+  });
+
+  it("does not count days that were not in a row", async () => {
+    const { connection } = await withManagers();
+    const start = Date.now();
+    at(start);
+    await syncConnection(connection.id, await workerThat(down));
+    at(start + DAY);
+    await syncConnection(connection.id, await workerThat());
+    for (const day of [2, 3]) {
+      at(start + day * DAY);
+      await syncConnection(connection.id, await workerThat(down));
+    }
+    expect(db.connections[0]?.status).toBe("working");
+    expect(sent).toEqual([]);
+  });
+
+  it("has its owners and admins reminded once, a week later, while it is still broken", async () => {
+    const { connection } = await withManagers();
+    const start = Date.now();
+    at(start);
+    await syncConnection(connection.id, await workerThat(refused));
+    const remindAt = async (time: number) =>
+      remindBrokenConnections({ ...(await workerThat()), now: new Date(time) });
+    expect(await remindAt(start + 6 * DAY)).toBe(0);
+    expect(await remindAt(start + 8 * DAY)).toBe(1);
+    expect(sent).toHaveLength(2);
+    expect(sent[1]?.email.subject).toBe("Still not working: Sample account on Nearcited");
+    expect(sent[1]?.to.sort()).toEqual(["alice@example.com", "carol@example.com"]);
+    expect(await remindAt(start + 30 * DAY)).toBe(0);
+    expect(sent).toHaveLength(2);
+  });
+
+  it("has them told at the next daily run when the email could not be sent as it broke", async () => {
+    const { connection } = await withManagers();
+    const start = Date.now();
+    const mailDown = {
+      ...(await workerThat(refused)),
+      send: async () => {
+        throw new Error("The mail service is down.");
+      },
+    };
+    // It still breaks: what happened is kept whether or not anyone could be told.
+    expect(await syncConnection(connection.id, mailDown)).toBe("refused");
+    expect(db.connections[0]?.status).toBe("broken");
+    expect(sent).toEqual([]);
+    // Not told, so not yet reminded either.
+    const later = async (days: number) => ({
+      ...(await workerThat()),
+      now: new Date(start + days * DAY),
+    });
+    expect(await remindBrokenConnections(await later(8))).toBe(0);
+
+    expect(await tellBrokenConnections(await later(1))).toBe(1);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.email.subject).toBe("Nearcited can no longer read from Sample account");
+    expect(await tellBrokenConnections(await later(2))).toBe(0);
+    // The reminder is a week after they were told, not after it broke.
+    expect(await remindBrokenConnections(await later(7))).toBe(0);
+    expect(await remindBrokenConnections(await later(9))).toBe(1);
+    expect(sent).toHaveLength(2);
+  });
+
+  it("tells nobody for a test organization, or where email is not set up, and still breaks", async () => {
+    db.testAccounts.add(alice);
+    const { connection } = await withManagers();
+    await syncConnection(connection.id, await workerThat(refused));
+    expect(db.connections[0]?.status).toBe("broken");
+    expect(sent).toEqual([]);
+    // Never told, so never reminded, however often the daily run looks.
+    const later = { ...(await workerThat()), now: new Date(Date.now() + 9 * DAY) };
+    expect(await tellBrokenConnections(later)).toBe(0);
+    expect(await remindBrokenConnections(later)).toBe(0);
+
+    db.testAccounts.delete(alice);
+    const other = ConnectionSchema.parse(
+      await (await connectSample(alice, connection.organization_id)).json(),
+    );
+    expect(await syncConnection(other.id, { ...(await worker()), read: refused })).toBe("refused");
+    expect(db.connections.find((kept) => kept.id === other.id)?.status).toBe("broken");
+    expect(sent).toEqual([]);
+  });
+});
+
+describe("a connection the plan stops including", () => {
+  const DAY = 86_400_000;
+  /**
+   * A plan that includes the sample account, an organization on it with one connected, and a
+   * plan that does not. No real kind needs an allowance yet, so the tests say the sample does.
+   */
+  async function included() {
+    db.allowanceKinds.set("sample_access", false);
+    db.connectionKindAllowances.set("sample", "sample_access");
+    const plan = (key: string, position: number, allowances: Record<string, true>) => ({
+      key,
+      name: key,
+      position,
+      on_sale: true,
+      price_cents: position * 1000,
+      included_locations: 1,
+      extra_location_price_cents: null,
+      max_queries_per_location: 5,
+      assistants: 1,
+      scan_every_days: 2,
+      max_manual_scans_per_month: 2,
+      emails_report: true,
+      stronger_models: false,
+      allowances,
+    });
+    db.plans.push(plan("with", 2, { sample_access: true }), plan("without", 1, {}));
+    const organization = await organizationWithMember();
+    const store = memoryStore(db, null);
+    await store.applyPlan(organization.id, "with");
+    const connection = ConnectionSchema.parse(
+      await (await connectSample(alice, organization.id)).json(),
+    );
+    await syncConnection(connection.id, await worker());
+    queued = [];
+    return { organization, connection, store };
+  }
+
+  it("cannot be made on a plan that does not include it", async () => {
+    const { organization, store } = await included();
+    await store.applyPlan(organization.id, "without");
+    const response = await connectSample(alice, organization.id);
+    expect(response.status).toBe(409);
+    expect(await errorCode(response)).toBe("limit_reached");
+    expect(db.connections).toHaveLength(1);
+  });
+
+  it("is paused when the plan stops including it, and comes back when the plan does again", async () => {
+    const { organization, connection, store } = await included();
+    await store.applyPlan(organization.id, "without");
+    const [paused] = (await list(bob, organization.id)).connections;
+    expect(paused).toMatchObject({ status: "paused", choices: paused?.choices });
+    expect(paused?.paused_at).not.toBeNull();
+    // Nothing is read through it, and the sign-in is kept.
+    expect(await enqueueDueSyncs(store, env.SCAN_QUEUE)).toBe(0);
+    expect(await syncConnection(connection.id, await worker())).toBe("not_working");
+    expect(db.connectionSecrets.has(connection.id)).toBe(true);
+
+    await store.applyPlan(organization.id, "with");
+    expect((await list(bob, organization.id)).connections[0]).toMatchObject({
+      status: "working",
+      paused_at: null,
+    });
+    expect(db.connectionSecrets.has(connection.id)).toBe(true);
+  });
+
+  it("comes back broken if it was broken when it was paused", async () => {
+    const { organization, connection, store } = await included();
+    await syncConnection(connection.id, {
+      ...(await worker()),
+      read: async () => {
+        throw new SignInRefused();
+      },
+    });
+    await store.applyPlan(organization.id, "without");
+    expect(db.connections[0]?.status).toBe("paused");
+    await store.applyPlan(organization.id, "with");
+    expect(db.connections[0]).toMatchObject({ status: "broken", broken_reason: "refused" });
+  });
+
+  it("is removed, sign-in and all, once it has been paused for thirty days", async () => {
+    const { organization, connection, store } = await included();
+    const start = Date.now();
+    db.now = new Date(start).toISOString();
+    await store.applyPlan(organization.id, "without");
+
+    db.now = new Date(start + 29 * DAY).toISOString();
+    expect(await expirePausedConnections(store, env.SCAN_QUEUE)).toBe(0);
+    db.now = new Date(start + 31 * DAY).toISOString();
+    expect(await expirePausedConnections(store, env.SCAN_QUEUE)).toBe(1);
+    expect(queued).toEqual([{ connection_id: connection.id, step: "remove" }]);
+    expect(await removeConnection(connection.id, await worker())).toBe("removed");
+    expect(db.connectionSecrets.has(connection.id)).toBe(false);
+    expect((await list(bob, organization.id)).connections[0]).toMatchObject({
+      status: "removed",
+      removal_reason: "plan",
+      removed_by_email: null,
+    });
+    // Going back to the plan now means signing in again.
+    await store.applyPlan(organization.id, "with");
+    expect(db.connections[0]?.status).toBe("removed");
+    expect(await expirePausedConnections(store, env.SCAN_QUEUE)).toBe(0);
+  });
+
+  it("is paused and brought back by the operator's limits editor as well", async () => {
+    const { organization, connection } = await included();
+    db.operators.add(carol);
+    const limits = {
+      max_locations: 3,
+      max_queries_per_location: 4,
+      max_manual_scans_per_month: 2,
+      scan_every_days: 14,
+    };
+    await memoryStore(db, carol).setOrganizationLimits(organization.id, {
+      ...limits,
+      allowances: {},
+    });
+    expect(db.connections.find((kept) => kept.id === connection.id)?.status).toBe("paused");
+    await memoryStore(db, carol).setOrganizationLimits(organization.id, {
+      ...limits,
+      allowances: { sample_access: true },
+    });
+    expect(db.connections.find((kept) => kept.id === connection.id)?.status).toBe("working");
   });
 });

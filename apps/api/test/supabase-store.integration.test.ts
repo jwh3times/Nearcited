@@ -7,7 +7,8 @@ import { StoreError } from "../src/store/types";
  * Runs the real Supabase store against PostgREST and Postgres, which is what a Supabase project
  * is underneath. Skipped unless POSTGREST_URL is set; see "Integration tests" in the README.
  *
- * Not covered: `listOwnerEmails`, which calls the Auth admin API and needs a real project.
+ * Not covered: `listOwnerEmails` and `listManagerEmails`, which call the Auth admin API and need
+ * a real project.
  */
 
 declare const process: { env: Record<string, string | undefined> };
@@ -226,6 +227,29 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
     const reached = [{ id: "listing-a", label: "Main Street" }];
     expect(await worker.recordConnectionSync(connectionId, reached)).toBe(true);
     expect(await worker.listConnectionsDueForSync(100)).not.toContain(connectionId);
+    // A failed sync, who is told, and what a plan no longer includes are all the worker's.
+    await expect(aliceStore.recordConnectionFailure(connectionId, true)).rejects.toMatchObject({
+      kind: "forbidden",
+    });
+    expect(await worker.recordConnectionFailure(connectionId, false)).toEqual({
+      status: "working",
+      newly_broken: false,
+    });
+    expect(await worker.recordConnectionFailure(crypto.randomUUID(), false)).toBeNull();
+    await worker.markConnectionTold(connectionId, "told", new Date().toISOString());
+    const aMinuteOn = new Date(Date.now() + 60_000).toISOString();
+    expect(await worker.listBrokenConnectionsToRemind(aMinuteOn)).not.toContain(connectionId);
+    expect(await worker.listBrokenConnectionsUntold()).not.toContain(connectionId);
+    expect(await worker.expirePausedConnections()).toEqual([]);
+    await expect(aliceStore.expirePausedConnections()).rejects.toMatchObject({
+      kind: "forbidden",
+    });
+    expect(await aliceStore.getConnection(connectionId)).toMatchObject({
+      status: "working",
+      broken_reason: null,
+      paused_at: null,
+      removal_reason: null,
+    });
     expect(await bobStore.requestConnectionRemoval(connectionId)).toBeNull();
     // Nobody has asked yet, so the worker has nothing to finish.
     expect(await worker.finishConnectionRemoval(connectionId)).toBe(false);
@@ -242,6 +266,7 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
     // What was synced went with the sign-in.
     expect(await aliceStore.getConnection(connectionId)).toMatchObject({
       status: "removed",
+      removal_reason: "asked",
       choices: [],
       matches: [],
     });

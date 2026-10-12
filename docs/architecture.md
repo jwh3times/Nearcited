@@ -14,11 +14,14 @@
   sync of any connection made in the last day that still has none (see "Connections").
   Once a day it also asks Postgres which locations are due (`locations_due_for_scan`), creates a
   `scheduled` scan row for each, and puts the scan IDs on the queue. It also queues a sync for each
-  connection that is due (`enqueueDueSyncs`). It also calls
-  `advancePriceChanges`, which queues the reminders a week before an announced price change and,
-  from its day on, a move for each subscription not yet moved. It also calls `advanceLimitChanges`,
-  which queues the reminders a week before an announced reduction in a plan's limits and, on its
-  day, makes the reduction through `apply_limit_change()`.
+  connection that is due (`enqueueDueSyncs`). It also starts the removal of each connection that
+  has been paused for thirty days (`expirePausedConnections`) and reminds, once, the owners and
+  admins of each they were told a week ago had broken and that still is
+  (`remindBrokenConnections`), and tells those of any broken one nobody could be told of at the
+  time (`tellBrokenConnections`; see "Connections"). It also calls `advancePriceChanges`, which queues the reminders a week before an
+  announced price change and, from its day on, a move for each subscription not yet moved. It also
+  calls `advanceLimitChanges`, which queues the reminders a week before an announced reduction in a
+  plan's limits and, on its day, makes the reduction through `apply_limit_change()`.
 - **`queue`**: the consumer. For each scan ID it runs the scan and, for scheduled scans, emails
   the organization's owners. A message shaped `{ audit_id, prompt_index }` is one prompt of a
   shareable audit instead (see "Shareable audits"). A message shaped
@@ -405,9 +408,10 @@ audit is queued.
 A connection is an organization's standing sign-in to an outside account (`connections`; the term
 is in `GLOSSARY.md`, the decision in `docs/adr/0013-a-sign-in-is-sealed-by-the-worker.md`). What
 exists is making one, listing them, reading what one reaches, saying which of those is each
-location's, and removing one. The only kind is `sample`. Nothing yet reads anything else from an
-account or acts through one, and nothing sets a connection `broken` or `paused`, though the
-statuses exist.
+location's, breaking one that stops working, pausing one the plan stops including, and removing
+one. The only kind is `sample`. Nothing yet reads anything else from an account or acts through
+one. The `sample` kind never fails and needs no allowance, so until a real kind exists nothing
+breaks or pauses in practice, though the rules for both are built and tested.
 
 - **Only an owner or admin connects or removes.** `create_connection()` and
   `request_connection_removal()` are security-definer functions that return no row to anyone else,
@@ -448,16 +452,54 @@ statuses exist.
   a site, a property: each an `id` and a `label`) and hands it to `record_connection_sync()`, which
   only the worker may call. That keeps the list in `connections.choices` and sets `last_synced_at`;
   only the worker writes either. Nothing else is read from the account. The `sample` kind reaches
-  three sample listings and asks nobody anything. A connection that is not `working` is left as it
-  is, and so is one whose sign-in the Worker cannot open (another key, or none): that is reported
-  `unreadable` and acknowledged, since trying again would not help. Running a sync twice is safe.
-  There is no "sync now".
-- **The schedule keeps it fresh.** The daily run queues a sync for every working connection never
-  synced or last synced more than 20 hours ago (`enqueueDueSyncs`, through
-  `connections_due_for_sync()`, longest-waiting first, at most 100 a run in one `sendBatch`). Every
-  run also queues again the first sync of a connection made in the last day, and more than 15
-  minutes ago, that still has none (`requeueFirstSyncs`), so a lost message does not leave the
-  owner waiting for the daily run.
+  three sample listings and asks nobody anything. A `working` connection is read, and so is a broken
+  one that only kept failing (below); any other is left as it is. So is one whose sign-in the
+  Worker cannot open (another key, or none): that is reported `unreadable` and acknowledged, since
+  trying again would not help, and it does not count as a failed read. Running a sync twice is
+  safe. There is no "sync now".
+- **The schedule keeps it fresh.** The daily run queues a sync for every working connection, and
+  every broken one that only kept failing, never synced or last synced more than 20 hours ago
+  (`enqueueDueSyncs`, through `connections_due_for_sync()`, longest-waiting first, at most 100 a
+  run in one `sendBatch`). Every run also queues again the first sync of a connection made in the
+  last day, and more than 15 minutes ago, that still has none (`requeueFirstSyncs`), so a lost
+  message does not leave the owner waiting for the daily run.
+- **A connection breaks when it cannot be read.** `syncConnection` keeps a failed read through
+  `record_connection_failure()`, which only the worker may call. A read that throws `SignInRefused`
+  (the outside service refused the sign-in: the password changed, or the access was taken away
+  there) breaks the connection at once, with `broken_reason` `refused`. Any other failure counts one
+  for that day (UTC; `failed_days`, `last_failed_on`) however often it was tried, and the third day
+  in a row breaks it, with `broken_reason` `failing`. The function answers nothing for a connection
+  that is neither working nor broken, and says whether this failure is what broke it. The queue
+  message is acknowledged either way; the daily run tries again.
+- **One that only kept failing mends itself; one that was refused waits.** A `failing` connection is
+  still synced once a day, and a read that works (`record_connection_sync()`) makes it `working`
+  again and starts its count over. A `refused` one is not read at all. Its owner removes it and
+  connects the account again: signing in again without removing it is not built.
+- **Its owners and admins are told.** When a failure is what broke the connection, `syncConnection`
+  emails the organization's owners and admins (`listManagerEmails`; the wording is
+  `apps/api/src/email/connection-broken.ts`) and keeps when (`broken_told_at`). The daily run
+  reminds them once, a week after they were told, if it is still broken
+  (`remindBrokenConnections`; `broken_reminded_at`). If the email could not be sent when it broke,
+  the daily run sends it (`tellBrokenConnections`), and the reminder is a week after that. No
+  email goes for a test organization, nor where `RESEND_API_KEY` is not set. A send that fails is
+  logged and does not undo what was recorded. Mending clears all of it, so a connection that
+  breaks again is told again.
+- **A plan that stops including a kind of connection pauses it.** `connection_kind_allowances` says
+  which allowance a kind needs, and a kind not listed needs none: it is empty, since `sample` needs
+  none. `CONNECTION_KIND_ALLOWANCES` (`packages/shared/src/schemas.ts`) is the same list, and a test
+  in `packages/db` holds the two equal. The table has row-level security on, no policy and no grant
+  to any API role. `create_connection()` refuses a kind the organization's allowances do not include
+  (`NC012`), and `availableConnectionKinds` leaves it out. `fit_connections_to_plan()`, which
+  `apply_plan()` and `operator_set_limits()` call, pauses the organization's working or broken
+  connections of a kind its allowances no longer include (`paused_at`), and brings back the paused
+  ones they include again, broken if it was broken. A paused connection is not read, and matching
+  refuses it, with the reason. Its sign-in is kept, so going back to the plan restores it without
+  signing in again.
+- **After thirty days paused it is removed.** The daily run calls `expire_paused_connections()`
+  (`expirePausedConnections`), which only the worker may call. It marks each connection paused for
+  thirty days `removing`, with `removal_reason` `plan`, and queues the `remove` step for each, which
+  the worker finishes like any removal and keeps the row as the record. A removal someone asked for
+  records `removal_reason` `asked`.
 - **Matching says which of those is a location's, and only an owner or admin can.**
   `PUT /api/connections/:connectionId/locations/:locationId` calls `match_connection_location()`
   and `DELETE` on the same path calls `unmatch_connection_location()`. Both are security-definer
@@ -465,7 +507,8 @@ statuses exist.
   and nothing for a location of another organization, so the routes answer 404. Matching refuses,
   with the reason (error code `NC012`, a `limit`, so 409 `limit_reached`), a choice the account
   does not reach, one that is already another location's, a location that already has an account
-  of the same kind (two would leave no saying which acts), and a connection that is not `working`.
+  of the same kind (two would leave no saying which acts), and a connection that is not `working`
+  (a broken one, a paused one and one being removed each say why).
   Matching again replaces the earlier match. A match keeps its choice through later syncs and takes
   the name the choice has then.
 - **Matches are read with the location.** `connection_locations` has a `select` policy for whoever
@@ -474,8 +517,9 @@ statuses exist.
   `matches`, and `GET /api/locations/:id` the `connections` it is matched to.
 - **The sample kind is offered only where the data is generated.** `availableConnectionKinds`
   returns `sample` for a deployment in mock mode, or for a test organization in any deployment,
-  and nothing otherwise. It makes up a sign-in and calls the account "Sample account", so the path
-  runs with no outside account.
+  and nothing otherwise, and leaves out a kind the organization's allowances do not include. It
+  makes up a sign-in and calls the account "Sample account", so the path runs with no outside
+  account.
 - **Without the key nothing can be connected.** With no `CONNECTIONS_KEY`, `available` is empty and
   `POST` answers 503 `connections_unavailable`. A kind that is not offered answers 422
   `connection_unavailable`. A value that is not base64, or not 32 bytes, throws instead of
@@ -483,11 +527,13 @@ statuses exist.
 
 The Connections page is at `/connections`, and at `/operator/o/:organizationId/connections` for
 the operator reading through an account, where `can_manage` is false and nothing on it can be
-changed. The sidebar links to it once an account has been connected or one could be. For each
-account the page says when it was last read and, once it has been, lists the locations: an owner
-or admin chooses which of the things the account reaches is each one's (what is another
-location's already is not offered), and anyone else reads the match. A location's Settings tab
-has a "Connected accounts" card while it is matched to something. While a removal is waiting, or
+changed. The sidebar links to it once an account has been connected or one could be, and says how
+many are not working. For each account the page says when it was last read and, once it has been,
+lists the locations: an owner or admin chooses which of the things the account reaches is each
+one's (what is another location's already is not offered), and anyone else reads the match. A
+location's Settings tab has a "Connected accounts" card while it is matched to something. A broken
+account says why, a paused one says until when its sign-in is kept, and a removed one says whether
+somebody removed it or its plan had not included it for thirty days. While a removal is waiting, or
 a new account has not been read yet, the page asks again every couple of seconds.
 
 ## Tenancy
@@ -495,8 +541,9 @@ a new account has not been read yet, the page asks again every couple of seconds
 Every row belongs to an organization, and a user reaches a row only through a membership. The
 exceptions are `audits`, described above, and `provider_usage`, which keeps its rows after the
 organization, scan or audit they describe is deleted. No API role can write either table, and
-the only account that can read them is the operator's; the Worker's secret key writes them. A
-third, `connection_secrets`, no API role can read or write at all (see "Connections").
+the only account that can read them is the operator's; the Worker's secret key writes them. Two
+more, `connection_secrets` and `connection_kind_allowances`, no API role can read or write at all
+(see "Connections").
 
 The API does not check ownership in application code. For each request it builds a Supabase
 client that carries the caller's own access token (`createUserClient`), so Postgres evaluates the
@@ -587,7 +634,8 @@ location is skipped by the schedule and refuses a scan by hand, and stays readab
 swaps which location is in use with `activate_location()` (`POST /api/locations/:id/activate`),
 naming the one to pause when there is no room, and swaps prompts by retiring one and restoring
 another. Members may update both tables, so a trigger keeps an API role from changing either flag
-except by restoring a prompt.
+except by restoring a prompt. `fit_connections_to_plan()` does the same for connections, which are
+paused when the allowances stop including their kind (see "Connections").
 
 **Plan settings live beside the caps**, protected the same way:
 
@@ -628,6 +676,8 @@ copy, edit and lower a plan.
   whether it claimed, what the month allows and how much of it is used, and a claim is not given
   back. A kind that is included without a number is not counted. Nothing calls it yet (see "Known
   gaps").
+- **A kind of connection can name the allowance it needs**, in `connection_kind_allowances`; see
+  "Connections".
 
 Users can insert exactly one kind of scan row: a queued, manual scan in their own name for a
 location they can see. Results, scores and recommendations are written only by the worker.
@@ -635,7 +685,7 @@ Organizations are created only through `create_organization()`, which makes the 
 
 **The operator reads every row, through policies.** `is_operator()` is true for an account with the
 `operator` platform role, and each table, including `audits` and `provider_usage`, has a `select`
-policy that answers it, except `connection_secrets`, which no policy opens to anyone. Only `select` policies exist, so the operator cannot change another
+policy that answers it, except `connection_secrets` and `connection_kind_allowances`, which no policy opens to anyone. Only `select` policies exist, so the operator cannot change another
 organization's rows by writing to them: the routes answer 404 for an update or delete and 403 for an insert. The one change the operator can make goes through
 `operator_set_limits()`, below. Because
 "every organization I can read" now means all of them for the operator, `listOrganizations` asks
@@ -778,9 +828,10 @@ drop it.
   A signed-in user cannot update a scan, so the request that hit the failure cannot clear it.
 - On a Supabase project that still signs tokens with a legacy shared secret, `getClaims` asks the
   Auth server on every request. Use asymmetric signing keys.
-- Allowances limit nothing yet. No kind of allowance exists (`ALLOWANCE_KINDS` and
+- Allowances limit almost nothing yet. No kind of allowance exists (`ALLOWANCE_KINDS` and
   `allowance_kinds` are empty) and nothing calls `claim_allowance()`, so a number would be stored,
-  shown, lowered by announcement and counted, but no work would stop at it
+  shown, lowered by announcement and counted, but no work would stop at it. The one thing an
+  allowance can stop is a kind of connection that needs it (see "Connections"), and none does
   ([#133](https://github.com/jwh3times/Nearcited/issues/133)).
 - Nothing seals the sign-ins again under a new `CONNECTIONS_KEY`. Changing or losing the key makes
   every sign-in kept unreadable and its owner has to connect again; a sync of one changes nothing,
