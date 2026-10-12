@@ -187,7 +187,7 @@ function Report({ audit }: { audit: PublicAudit }) {
             </div>
           </section>
 
-          {audit.actions.length > 0 && (
+          {audit.action_plan.length > 0 && (
             <section>
               <h2 className="h-lg">What to do next</h2>
               <p className="intro">
@@ -196,15 +196,15 @@ function Report({ audit }: { audit: PublicAudit }) {
                 later report can show whether it moved.
               </p>
               <ol className="audit-steps">
-                {audit.actions.map((action, index) => (
-                  <li key={action.id} className="audit-step">
+                {audit.action_plan.map((step, index) => (
+                  <li key={step.id} className="audit-step">
                     <span className="numeral" aria-hidden="true">
                       {index + 1}
                     </span>
                     <div className="step-body">
-                      <h3 className="step-name">{action.title}</h3>
-                      <p>{action.summary}</p>
-                      <StepItems items={action.items} />
+                      <h3 className="step-name">{step.title}</h3>
+                      <p>{step.summary}</p>
+                      <StepItems items={step.items} />
                     </div>
                   </li>
                 ))}

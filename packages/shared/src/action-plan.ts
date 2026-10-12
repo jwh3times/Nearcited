@@ -1,5 +1,5 @@
 import { hostOf, normalizeName } from "./analysis";
-import type { Action, SiteCheck, SiteCheckId, SourceSummary } from "./schemas";
+import type { ActionPlanStep, SiteCheck, SiteCheckId, SourceSummary } from "./schemas";
 import { SITE_CHECKS } from "./site";
 import { belongsTo, unnamedSources } from "./sources";
 
@@ -64,7 +64,7 @@ export function tallyNames(counts: readonly NameCount[], limit?: number): NameCo
 
 const plural = (count: number, one: string, many: string) => (count === 1 ? one : many);
 
-function websiteAction(input: ActionPlanInput): Action | null {
+function websiteStep(input: ActionPlanInput): ActionPlanStep | null {
   const host = hostOf(input.website);
   if (!host) return null;
 
@@ -131,20 +131,20 @@ function websiteAction(input: ActionPlanInput): Action | null {
 }
 
 /** The plan, most direct action first. Empty when there is nothing to go on. */
-export function buildActionPlan(input: ActionPlanInput): Action[] {
-  const actions: Action[] = [];
+export function buildActionPlan(input: ActionPlanInput): ActionPlanStep[] {
+  const steps: ActionPlanStep[] = [];
   const competitors = tallyNames(input.competitors);
   const names = input.competitors.map(({ name }) => name);
   const others = input.sources.filter(
     (source) => !source.own && !names.some((name) => belongsTo(source.host, name)),
   );
 
-  const website = websiteAction(input);
-  if (website) actions.push(website);
+  const website = websiteStep(input);
+  if (website) steps.push(website);
 
   const missing = unnamedSources(input.sources, names);
   if (missing.length > 0) {
-    actions.push({
+    steps.push({
       id: "get_listed",
       title: "Get listed where the assistants look",
       summary: `These sites were read for answers that never named ${input.name}. Where one is a directory or a review site, check that the business is on it under the same name and city.`,
@@ -161,7 +161,7 @@ export function buildActionPlan(input: ActionPlanInput): Action[] {
     .sort((a, b) => b.named - a.named || a.host.localeCompare(b.host))
     .slice(0, MAX_ITEMS);
   if (working.length > 0) {
-    actions.push({
+    steps.push({
       id: "keep_listings",
       title: "Keep these listings accurate",
       summary: `Answers that read these sites named ${input.name}. They are where the assistants are getting the business from, so keep the name, address and hours on them current.`,
@@ -182,7 +182,7 @@ export function buildActionPlan(input: ActionPlanInput): Action[] {
     .sort((a, b) => b.count - a.count || Number(b.url !== null) - Number(a.url !== null))
     .slice(0, MAX_COMPETITORS);
   if (named.length > 0 && input.answers > 0) {
-    actions.push({
+    steps.push({
       id: "competitors",
       title: "See who is recommended instead",
       summary:
@@ -195,5 +195,5 @@ export function buildActionPlan(input: ActionPlanInput): Action[] {
     });
   }
 
-  return actions;
+  return steps;
 }

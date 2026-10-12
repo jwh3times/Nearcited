@@ -1,17 +1,17 @@
-import type { Action } from "@nearcited/shared";
+import type { ActionPlanStep } from "@nearcited/shared";
 import { stepKey, useDone } from "../lib/done";
-import { ACTION_PLACE, type Tab } from "../lib/tabs";
+import { STEP_PLACE, type Tab } from "../lib/tabs";
 
 interface ActionPlanProps {
   locationId: string;
-  actions: Action[];
+  steps: ActionPlanStep[];
   onOpenTab: (tab: Tab) => void;
   /** True while the operator is reading a customer's account: the ticks are the customer's. */
   readOnly?: boolean;
 }
 
 /** A step's evidence. The links are pages the assistants cited, which their terms require shown. */
-export function StepItems({ items }: { items: Action["items"] }) {
+export function StepItems({ items }: { items: ActionPlanStep["items"] }) {
   if (items.length === 0) return null;
   return (
     <ul className="step-items">
@@ -35,9 +35,9 @@ export function StepItems({ items }: { items: Action["items"] }) {
  * The action plan as a checklist. Each step states the observation it rests on and points to the
  * tab where that evidence is set out. Ticking a step is a note in this browser, nothing more.
  */
-export function ActionPlan({ locationId, actions, onOpenTab, readOnly }: ActionPlanProps) {
+export function ActionPlan({ locationId, steps, onOpenTab, readOnly }: ActionPlanProps) {
   const [done, toggle] = useDone(locationId);
-  const finished = actions.filter((action) => done.has(stepKey(action))).length;
+  const finished = steps.filter((step) => done.has(stepKey(step))).length;
 
   return (
     <>
@@ -45,35 +45,35 @@ export function ActionPlan({ locationId, actions, onOpenTab, readOnly }: ActionP
         <h2>What to do next</h2>
         {!readOnly && (
           <span className="mono">
-            {finished} of {actions.length} done
+            {finished} of {steps.length} done
           </span>
         )}
       </div>
       <ol className="steps">
-        {actions.map((action) => {
-          const place = ACTION_PLACE[action.id];
+        {steps.map((step) => {
+          const place = STEP_PLACE[step.id];
           // The ticks live in the reader's browser, so the operator has none of the customer's.
-          const ticked = !readOnly && done.has(stepKey(action));
+          const ticked = !readOnly && done.has(stepKey(step));
           return (
-            <li key={action.id} className={`card step${ticked ? " done" : ""}`}>
+            <li key={step.id} className={`card step${ticked ? " done" : ""}`}>
               {!readOnly && (
                 <button
                   type="button"
                   className="check"
                   aria-pressed={ticked}
-                  aria-label={`Mark "${action.title}" as done`}
-                  onClick={() => toggle(stepKey(action))}
+                  aria-label={`Mark "${step.title}" as done`}
+                  onClick={() => toggle(stepKey(step))}
                 >
                   {ticked ? "✓" : ""}
                 </button>
               )}
               <div className="step-body">
                 <div className="step-title">
-                  <h3>{action.title}</h3>
+                  <h3>{step.title}</h3>
                   <span className="kind">{place.kind}</span>
                 </div>
-                <p>{action.summary}</p>
-                <StepItems items={action.items} />
+                <p>{step.summary}</p>
+                <StepItems items={step.items} />
                 <button type="button" className="go" onClick={() => onOpenTab(place.tab)}>
                   {place.link} →
                 </button>

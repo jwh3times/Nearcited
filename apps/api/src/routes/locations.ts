@@ -94,7 +94,7 @@ locationRoutes.get("/locations/:id", async (c) => {
       sources: summarizeSources(answers, location.website),
     },
     site,
-    actions: buildActionPlan({
+    action_plan: buildActionPlan({
       name: location.name,
       website: location.website,
       answers: answers.length,

@@ -1150,18 +1150,23 @@ export const ScanWindowSchema = z.object({
 });
 export type ScanWindow = z.infer<typeof ScanWindowSchema>;
 
-export const ACTION_IDS = ["fix_website", "get_listed", "keep_listings", "competitors"] as const;
+export const ACTION_PLAN_STEP_IDS = [
+  "fix_website",
+  "get_listed",
+  "keep_listings",
+  "competitors",
+] as const;
 
 /** One step of the action plan: what to do, why, and the evidence for it. */
-export const ActionSchema = z.object({
-  id: z.enum(ACTION_IDS),
+export const ActionPlanStepSchema = z.object({
+  id: z.enum(ACTION_PLAN_STEP_IDS),
   title: z.string(),
   /** The observation the action rests on, with its counts. */
   summary: z.string(),
   /** The sites, checks or businesses the action is about. `url` is a page an answer cited. */
   items: z.array(z.object({ label: z.string(), detail: z.string(), url: z.string().nullable() })),
 });
-export type Action = z.infer<typeof ActionSchema>;
+export type ActionPlanStep = z.infer<typeof ActionPlanStepSchema>;
 
 /**
  * What sort of site a source is, which decides what an owner can usefully do about it. `reviews`
@@ -1218,7 +1223,7 @@ export const LocationDetailSchema = z.object({
   /** The on-page check from the latest successful scan. Null when that scan made none. */
   site: SiteCheckSchema.nullable(),
   /** What the evidence in the window says to do next, most direct first. */
-  actions: z.array(ActionSchema),
+  action_plan: z.array(ActionPlanStepSchema),
   /** The work that follows from the sources, with whether it has been done and what moved. */
   tasks: z.array(TaskSchema),
   /** The connected accounts this location is matched to. */

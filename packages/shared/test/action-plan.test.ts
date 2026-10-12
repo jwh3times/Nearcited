@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type ActionPlanInput, buildActionPlan, tallyNames } from "../src/actions";
+import { type ActionPlanInput, buildActionPlan, tallyNames } from "../src/action-plan";
 import type { SiteCheck, SourceSummary } from "../src/schemas";
 
 const source = (host: string, answers: number, named: number, own = false): SourceSummary => ({
@@ -154,12 +154,12 @@ describe("the listings steps", () => {
   });
 
   it("never sends the business to a competitor's own website", () => {
-    const actions = plan({
+    const steps = plan({
       sources: [source("yelp.example", 10, 0), source("tonysslicehouse.example", 9, 0)],
       competitors: [{ name: "Tony's Slice House", count: 12 }],
     });
-    expect(actions.find((action) => action.id === "get_listed")?.items).toHaveLength(1);
-    expect(actions.find((action) => action.id === "competitors")?.items).toEqual([
+    expect(steps.find((step) => step.id === "get_listed")?.items).toHaveLength(1);
+    expect(steps.find((step) => step.id === "competitors")?.items).toEqual([
       {
         label: "Tony's Slice House",
         detail: "Named in 12 of 20 answers",
@@ -169,7 +169,7 @@ describe("the listings steps", () => {
   });
 
   it("on a tie, lists first the competitors whose own site was read, so there is a link to follow", () => {
-    const actions = plan({
+    const steps = plan({
       sources: [source("mythosinteractive.example", 1, 0)],
       competitors: ["Big Pixel", "Centerline", "Doug Brown", "Mythos Interactive"].map((name) => ({
         name,
@@ -177,7 +177,7 @@ describe("the listings steps", () => {
       })),
     });
     expect(
-      actions.find((action) => action.id === "competitors")?.items.map((item) => item.label),
+      steps.find((step) => step.id === "competitors")?.items.map((item) => item.label),
     ).toEqual(["Mythos Interactive", "Big Pixel", "Centerline"]);
   });
 
@@ -185,12 +185,12 @@ describe("the listings steps", () => {
     const many = Array.from({ length: 8 }, (_, index) =>
       source(`dir${index}.example`, 9 - index, 0),
     );
-    const actions = plan({
+    const steps = plan({
       sources: many,
       competitors: ["A", "B", "C", "D"].map((name, index) => ({ name, count: 9 - index })),
     });
-    expect(actions.find((action) => action.id === "get_listed")?.items).toHaveLength(3);
-    expect(actions.find((action) => action.id === "competitors")?.items).toHaveLength(3);
+    expect(steps.find((step) => step.id === "get_listed")?.items).toHaveLength(3);
+    expect(steps.find((step) => step.id === "competitors")?.items).toHaveLength(3);
   });
 });
 

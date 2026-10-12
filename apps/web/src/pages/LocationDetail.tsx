@@ -109,7 +109,7 @@ export function LocationDetail() {
     surfaces,
     recommendations,
     site,
-    actions,
+    action_plan: steps,
     tasks,
     connections,
   } = detail.data;
@@ -243,11 +243,11 @@ export function LocationDetail() {
           ) : (
             <div className="overview">
               <div>
-                {actions.length > 0 ? (
+                {steps.length > 0 ? (
                   <>
                     <ActionPlan
                       locationId={location.id}
-                      actions={actions}
+                      steps={steps}
                       onOpenTab={openTab}
                       readOnly={readOnly}
                     />

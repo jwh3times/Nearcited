@@ -1,8 +1,8 @@
 import { z } from "zod";
-import { buildActionPlan } from "./actions";
+import { buildActionPlan } from "./action-plan";
 import type { Finding } from "./analysis";
 import {
-  ActionSchema,
+  ActionPlanStepSchema,
   SiteCheckSchema,
   SourceSummarySchema,
   type Surface,
@@ -97,7 +97,7 @@ export const PublicAuditSchema = z.object({
   /** The on-page check of the business's website. Null when it has none, or was not checked. */
   site: SiteCheckSchema.nullable(),
   /** What the report's evidence says to do next, most direct first. */
-  actions: z.array(ActionSchema),
+  action_plan: z.array(ActionPlanStepSchema),
   created_at: Timestamp,
   expires_at: Timestamp,
 });
@@ -181,7 +181,7 @@ export function toPublicAudit(stored: StoredAudit): PublicAudit {
     prompts,
     sources,
     site,
-    actions: buildActionPlan({
+    action_plan: buildActionPlan({
       name: stored.business_name,
       website: stored.website,
       answers: cells.reduce((sum, cell) => sum + cell.checks, 0),

@@ -1,10 +1,10 @@
-import type { Action } from "@nearcited/shared";
+import type { ActionPlanStep } from "@nearcited/shared";
 import { useState } from "react";
 
 const key = (locationId: string) => `nearcited:done:${locationId}`;
 
 /** A step is remembered by what it says, so a step that changes comes back unticked. */
-export const stepKey = (action: Action) => `${action.id}:${action.title}`;
+export const stepKey = (step: ActionPlanStep) => `${step.id}:${step.title}`;
 
 function read(locationId: string): string[] {
   try {

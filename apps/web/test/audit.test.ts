@@ -44,7 +44,7 @@ const audit = (change: Partial<PublicAudit> = {}): PublicAudit => ({
   ],
   sources: [],
   site: null,
-  actions: [],
+  action_plan: [],
   created_at: "2026-10-07T12:00:00.000Z",
   expires_at: "2026-11-06T12:00:00.000Z",
   ...change,
