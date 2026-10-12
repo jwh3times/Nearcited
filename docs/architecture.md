@@ -10,10 +10,11 @@
 - **`scheduled`**: two Cron Triggers. Every 15 minutes it fails scans that have been queued or
   running for more than 30 minutes, so an abandoned scan cannot block its location for long. It
   also fails audits still `queued` after 30 minutes (see "Shareable audits"), and queues again
-  the removal of any connection asked for more than 15 minutes ago and not finished (see
-  "Connections").
+  the removal of any connection asked for more than 15 minutes ago and not finished, and the first
+  sync of any connection made in the last day that still has none (see "Connections").
   Once a day it also asks Postgres which locations are due (`locations_due_for_scan`), creates a
-  `scheduled` scan row for each, and puts the scan IDs on the queue. It also calls
+  `scheduled` scan row for each, and puts the scan IDs on the queue. It also queues a sync for each
+  connection that is due (`enqueueDueSyncs`). It also calls
   `advancePriceChanges`, which queues the reminders a week before an announced price change and,
   from its day on, a move for each subscription not yet moved. It also calls `advanceLimitChanges`,
   which queues the reminders a week before an announced reduction in a plan's limits and, on its
@@ -24,7 +25,7 @@
   `{ price_change_id, organization_id, step }` is one step of a price change for one organization
   (see "Price changes"). A message shaped `{ limit_change_id, organization_id, step }` is one step of
   a reduction for one organization (see "Reductions in limits"). A message shaped
-  `{ connection_id, step }` is one step of a connection's removal (see "Connections").
+  `{ connection_id, step }` is one step for a connection, `remove` or `sync` (see "Connections").
 
 ## How a scan runs
 
@@ -403,9 +404,10 @@ audit is queued.
 
 A connection is an organization's standing sign-in to an outside account (`connections`; the term
 is in `GLOSSARY.md`, the decision in `docs/adr/0013-a-sign-in-is-sealed-by-the-worker.md`). What
-exists is making one, listing them and removing one. The only kind is `sample`. Nothing yet syncs
-from a connection, matches a location to its profile or site, or acts through one, and nothing
-sets a connection `broken` or `paused`, though the statuses exist.
+exists is making one, listing them, reading what one reaches, saying which of those is each
+location's, and removing one. The only kind is `sample`. Nothing yet reads anything else from an
+account or acts through one, and nothing sets a connection `broken` or `paused`, though the
+statuses exist.
 
 - **Only an owner or admin connects or removes.** `create_connection()` and
   `request_connection_removal()` are security-definer functions that return no row to anyone else,
@@ -430,15 +432,46 @@ sets a connection `broken` or `paused`, though the statuses exist.
   the address they had then) and when. The route then queues `{ connection_id, step: "remove" }`,
   and the queue consumer runs `removeConnection`: it opens the sign-in, takes back the access at the outside
   service, then calls `finish_connection_removal()`, which only the worker may call. That marks
-  the connection `removed`, deletes the sign-in and keeps the row as a record of who connected it
-  and who removed it. Asking twice changes nothing recorded, and running the step twice is safe:
-  `finish_connection_removal()` answers false when none is waiting. A sign-in the Worker cannot
+  the connection `removed`, clears what it reached, deletes the sign-in and the matches, and keeps
+  the row as a record of who connected it and who removed it. Asking twice changes nothing
+  recorded, and running the step twice is safe: `finish_connection_removal()` answers false when
+  none is waiting. A sign-in the Worker cannot
   open (another key, or none) is deleted all the same, without taking the access back. The
   `sample` kind has none to take back.
 - **A lost message is asked for again.** If the send fails, the request still succeeds and logs it.
   If a step throws, the queue redelivers it, and after `max_retries` it goes to the dead-letter
   queue. Either way the connection stays `removing`, and every run of the schedule queues again
   (`requeueStalledRemovals`) each removal asked for more than 15 minutes ago.
+- **A sync reads what the sign-in reaches.** Connecting queues `{ connection_id, step: "sync" }`;
+  if the send fails the request still succeeds and logs it. The queue consumer runs
+  `syncConnection`: it opens the sign-in, reads the list of things the account reaches (a profile,
+  a site, a property: each an `id` and a `label`) and hands it to `record_connection_sync()`, which
+  only the worker may call. That keeps the list in `connections.choices` and sets `last_synced_at`;
+  only the worker writes either. Nothing else is read from the account. The `sample` kind reaches
+  three sample listings and asks nobody anything. A connection that is not `working` is left as it
+  is, and so is one whose sign-in the Worker cannot open (another key, or none): that is reported
+  `unreadable` and acknowledged, since trying again would not help. Running a sync twice is safe.
+  There is no "sync now".
+- **The schedule keeps it fresh.** The daily run queues a sync for every working connection never
+  synced or last synced more than 20 hours ago (`enqueueDueSyncs`, through
+  `connections_due_for_sync()`, longest-waiting first, at most 100 a run in one `sendBatch`). Every
+  run also queues again the first sync of a connection made in the last day, and more than 15
+  minutes ago, that still has none (`requeueFirstSyncs`), so a lost message does not leave the
+  owner waiting for the daily run.
+- **Matching says which of those is a location's, and only an owner or admin can.**
+  `PUT /api/connections/:connectionId/locations/:locationId` calls `match_connection_location()`
+  and `DELETE` on the same path calls `unmatch_connection_location()`. Both are security-definer
+  functions that return nothing to anyone but an owner or admin of the connection's organization,
+  and nothing for a location of another organization, so the routes answer 404. Matching refuses,
+  with the reason (error code `NC012`, a `limit`, so 409 `limit_reached`), a choice the account
+  does not reach, one that is already another location's, a location that already has an account
+  of the same kind (two would leave no saying which acts), and a connection that is not `working`.
+  Matching again replaces the earlier match. A match keeps its choice through later syncs and takes
+  the name the choice has then.
+- **Matches are read with the location.** `connection_locations` has a `select` policy for whoever
+  can read the location (`can_access_location`) and one for the operator, and no API role writes
+  it. `GET /api/organizations/:organizationId/connections` carries each connection's `choices` and
+  `matches`, and `GET /api/locations/:id` the `connections` it is matched to.
 - **The sample kind is offered only where the data is generated.** `availableConnectionKinds`
   returns `sample` for a deployment in mock mode, or for a test organization in any deployment,
   and nothing otherwise. It makes up a sign-in and calls the account "Sample account", so the path
@@ -450,8 +483,12 @@ sets a connection `broken` or `paused`, though the statuses exist.
 
 The Connections page is at `/connections`, and at `/operator/o/:organizationId/connections` for
 the operator reading through an account, where `can_manage` is false and nothing on it can be
-changed. The sidebar links to it once an account has been connected or one could be. While a
-removal is waiting, the page asks again every couple of seconds.
+changed. The sidebar links to it once an account has been connected or one could be. For each
+account the page says when it was last read and, once it has been, lists the locations: an owner
+or admin chooses which of the things the account reaches is each one's (what is another
+location's already is not offered), and anyone else reads the match. A location's Settings tab
+has a "Connected accounts" card while it is matched to something. While a removal is waiting, or
+a new account has not been read yet, the page asks again every couple of seconds.
 
 ## Tenancy
 
@@ -746,8 +783,13 @@ drop it.
   shown, lowered by announcement and counted, but no work would stop at it
   ([#133](https://github.com/jwh3times/Nearcited/issues/133)).
 - Nothing seals the sign-ins again under a new `CONNECTIONS_KEY`. Changing or losing the key makes
-  every sign-in kept unreadable and its owner has to connect again; a removal still finishes, but
-  cannot take the access back at the outside service (see "Connections").
+  every sign-in kept unreadable and its owner has to connect again; a sync of one changes nothing,
+  and a removal still finishes but cannot take the access back at the outside service (see
+  "Connections").
+- A match whose choice a later sync no longer finds is kept as it was: the account may have lost
+  the thing, or its access to it. The Connections page names it "no longer found" so its owner can
+  choose again. Nothing acts through a match yet; what does will have to check that the choice is
+  still there.
 
 ## Open product questions
 

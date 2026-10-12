@@ -2,6 +2,7 @@ import {
   CONNECTION_KIND_LABELS,
   type Connection,
   type ConnectionKind,
+  type Location,
   type Organization,
 } from "@nearcited/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -9,7 +10,7 @@ import { useState } from "react";
 import { ErrorNote } from "../components/ErrorNote";
 import { api } from "../lib/api";
 import { formatDay } from "../lib/billing";
-import { connectionsQuery, splitConnections } from "../lib/connections";
+import { choicesFor, connectionsQuery, splitConnections } from "../lib/connections";
 
 /**
  * The accounts an organization has connected: what is connected, who connected it, and for its
@@ -24,6 +25,12 @@ export function Connections({ organization }: { organization: Organization }) {
   const connect = useMutation({
     mutationFn: (kind: ConnectionKind) => api.connect(organization.id, kind),
     onSuccess: refresh,
+  });
+
+  // The sidebar reads the same list, so this costs nothing more.
+  const locations = useQuery({
+    queryKey: ["locations", organization.id],
+    queryFn: () => api.listLocations(organization.id),
   });
 
   const { current, removed } = splitConnections(found.data?.connections ?? []);
@@ -54,6 +61,7 @@ export function Connections({ organization }: { organization: Organization }) {
             <ConnectedAccount
               key={connection.id}
               connection={connection}
+              locations={locations.data ?? []}
               canManage={canManage}
               onChanged={refresh}
             />
@@ -112,10 +120,12 @@ export function Connections({ organization }: { organization: Organization }) {
 /** One connected account, with the way to remove it for whoever may. Removing asks twice. */
 function ConnectedAccount({
   connection,
+  locations,
   canManage,
   onChanged,
 }: {
   connection: Connection;
+  locations: Location[];
   canManage: boolean;
   onChanged: () => void;
 }) {
@@ -146,7 +156,25 @@ function ConnectedAccount({
             {formatDay(connection.connected_at)}
           </span>
         </li>
+        {!removing && (
+          <li>
+            <span>Last read</span>
+            <span>
+              {connection.last_synced_at
+                ? formatDay(connection.last_synced_at)
+                : "Reading what this account reaches"}
+            </span>
+          </li>
+        )}
       </ul>
+      {!removing && connection.last_synced_at && (
+        <Matches
+          connection={connection}
+          locations={locations}
+          canManage={canManage}
+          onChanged={onChanged}
+        />
+      )}
       {canManage && !removing && !asking && (
         <div className="button-row">
           <button type="button" className="secondary" onClick={() => setAsking(true)}>
@@ -173,5 +201,74 @@ function ConnectedAccount({
       )}
       <ErrorNote error={remove.error} />
     </article>
+  );
+}
+
+/**
+ * Which of the things an account reaches is each location's. An owner or admin chooses; everyone
+ * else reads. What is another location's already is not offered twice.
+ */
+function Matches({
+  connection,
+  locations,
+  canManage,
+  onChanged,
+}: {
+  connection: Connection;
+  locations: Location[];
+  canManage: boolean;
+  onChanged: () => void;
+}) {
+  const choose = useMutation({
+    mutationFn: ({ locationId, externalId }: { locationId: string; externalId: string }) =>
+      externalId === ""
+        ? api.unmatchConnectionLocation(connection.id, locationId)
+        : api.matchConnectionLocation(connection.id, locationId, externalId),
+    onSuccess: onChanged,
+  });
+  if (locations.length === 0) {
+    return <p className="small muted">Add a location to say which of these is its own.</p>;
+  }
+
+  return (
+    <div className="stack-tight">
+      <h3 className="side-title">Which is each location's</h3>
+      <ul className="facts">
+        {locations.map((location) => {
+          const match = connection.matches.find((kept) => kept.location_id === location.id);
+          return (
+            <li key={location.id}>
+              <span>{location.name}</span>
+              {canManage ? (
+                <select
+                  aria-label={`${connection.label} for ${location.name}`}
+                  value={match?.external_id ?? ""}
+                  disabled={choose.isPending}
+                  onChange={(event) =>
+                    choose.mutate({ locationId: location.id, externalId: event.target.value })
+                  }
+                >
+                  <option value="">Not matched</option>
+                  {choicesFor(connection, location.id).map((choice) => (
+                    <option key={choice.id} value={choice.id}>
+                      {choice.label}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <span>
+                  {match
+                    ? (choicesFor(connection, location.id).find(
+                        (choice) => choice.id === match.external_id,
+                      )?.label ?? match.external_label)
+                    : "Not matched"}
+                </span>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+      <ErrorNote error={choose.error} />
+    </div>
   );
 }

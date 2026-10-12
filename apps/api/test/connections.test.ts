@@ -1,6 +1,9 @@
 import {
+  ConnectionMatchSchema,
   type ConnectionMessage,
   ConnectionSchema,
+  LocationDetailSchema,
+  LocationSchema,
   OrganizationConnectionsSchema,
   OrganizationSchema,
 } from "@nearcited/shared";
@@ -8,8 +11,11 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { createApp } from "../src/app";
 import {
   availableConnectionKinds,
+  enqueueDueSyncs,
   removeConnection,
+  requeueFirstSyncs,
   requeueStalledRemovals,
+  syncConnection,
 } from "../src/connections";
 import { open, seal, sealingKey } from "../src/connections/seal";
 import type { Env } from "../src/env";
@@ -76,6 +82,19 @@ const list = async (user: string, organizationId: string) =>
   OrganizationConnectionsSchema.parse(
     await (await call(user, "GET", `/organizations/${organizationId}/connections`)).json(),
   );
+
+/** What the worker has: every row, and the key. */
+const worker = async () => ({ store: memoryStore(db, null), key: await sealingKey(SECRET) });
+
+/** Alice's organization with a sample account connected, and nothing queued left to look at. */
+async function connected() {
+  const organization = await organizationWithMember();
+  const connection = ConnectionSchema.parse(
+    await (await connectSample(alice, organization.id)).json(),
+  );
+  queued = [];
+  return { organization, connection };
+}
 
 beforeEach(() => {
   db = createMemoryDb();
@@ -254,15 +273,7 @@ describe("an organization's connections", () => {
 });
 
 describe("removing a connection", () => {
-  async function connected() {
-    const organization = await organizationWithMember();
-    const connection = ConnectionSchema.parse(
-      await (await connectSample(alice, organization.id)).json(),
-    );
-    return { organization, connection };
-  }
   const remove = (user: string | null, id: string) => call(user, "DELETE", `/connections/${id}`);
-  const worker = async () => ({ store: memoryStore(db, null), key: await sealingKey(SECRET) });
 
   it("is asked for by an owner, stops it at once, and is finished by the worker", async () => {
     const { organization, connection } = await connected();
@@ -329,6 +340,7 @@ describe("removing a connection", () => {
     const second = ConnectionSchema.parse(
       await (await connectSample(alice, first.organization.id)).json(),
     );
+    queued = [];
     await remove(alice, second.id);
     expect(await removeConnection(second.id, { store: memoryStore(db, null), key: null })).toBe(
       "removed",
@@ -351,5 +363,222 @@ describe("removing a connection", () => {
     expect(queued).toEqual([{ connection_id: connection.id, step: "remove" }]);
     await removeConnection(connection.id, await worker());
     expect(await requeueStalledRemovals(store, env.SCAN_QUEUE, asked + 60 * 60_000)).toBe(0);
+  });
+});
+
+describe("syncing a connection", () => {
+  it("is asked of the worker as soon as an account is connected, and reads what it reaches", async () => {
+    const organization = await organizationWithMember();
+    const connection = ConnectionSchema.parse(
+      await (await connectSample(alice, organization.id)).json(),
+    );
+    expect(queued).toEqual([{ connection_id: connection.id, step: "sync" }]);
+    // The request could not read the sign-in, so it knows nothing of what the account reaches.
+    expect(connection).toMatchObject({ last_synced_at: null, choices: [], matches: [] });
+
+    expect(await syncConnection(connection.id, await worker())).toBe("synced");
+    const [synced] = (await list(bob, organization.id)).connections;
+    expect(synced?.last_synced_at).not.toBeNull();
+    expect(synced?.choices).toHaveLength(3);
+    for (const choice of synced?.choices ?? []) expect(choice.label).toMatch(/^Sample listing/);
+    // A message delivered twice reads the same thing again.
+    expect(await syncConnection(connection.id, await worker())).toBe("synced");
+    expect((await list(bob, organization.id)).connections[0]?.choices).toHaveLength(3);
+  });
+
+  it("leaves alone one that is being removed, and one whose sign-in it cannot open", async () => {
+    const { connection } = await connected();
+    expect(
+      await syncConnection(connection.id, {
+        store: memoryStore(db, null),
+        key: await sealingKey(newSecret()),
+      }),
+    ).toBe("unreadable");
+    expect(await syncConnection(connection.id, { store: memoryStore(db, null), key: null })).toBe(
+      "unreadable",
+    );
+    expect(db.connections[0]).toMatchObject({ last_synced_at: null, choices: [] });
+
+    await call(alice, "DELETE", `/connections/${connection.id}`);
+    expect(await syncConnection(connection.id, await worker())).toBe("not_working");
+    expect(await syncConnection(crypto.randomUUID(), await worker())).toBe("not_working");
+  });
+
+  it("is queued once a day for each working connection, and never for one that is gone", async () => {
+    const { connection } = await connected();
+    const store = memoryStore(db, null);
+    expect(await enqueueDueSyncs(store, env.SCAN_QUEUE)).toBe(1);
+    expect(queued).toEqual([{ connection_id: connection.id, step: "sync" }]);
+
+    // The store's clock is set, so "a day ago" is measured from when the sync was recorded.
+    const synced = Date.now();
+    db.now = new Date(synced).toISOString();
+    await syncConnection(connection.id, await worker());
+    expect(await enqueueDueSyncs(store, env.SCAN_QUEUE)).toBe(0);
+    db.now = new Date(synced + 19 * 3_600_000).toISOString();
+    expect(await enqueueDueSyncs(store, env.SCAN_QUEUE)).toBe(0);
+    db.now = new Date(synced + 21 * 3_600_000).toISOString();
+    expect(await enqueueDueSyncs(store, env.SCAN_QUEUE)).toBe(1);
+
+    await call(alice, "DELETE", `/connections/${connection.id}`);
+    expect(await enqueueDueSyncs(store, env.SCAN_QUEUE)).toBe(0);
+  });
+
+  it("has its first sync asked for again when the message was lost, for a day", async () => {
+    const organization = await organizationWithMember();
+    queueFails = true;
+    // Connecting still succeeds: the account is connected, and what it reaches comes later.
+    const response = await connectSample(alice, organization.id);
+    expect(response.status).toBe(201);
+    const connection = ConnectionSchema.parse(await response.json());
+    expect(queued).toEqual([]);
+    queueFails = false;
+
+    const store = memoryStore(db, null);
+    const made = Date.parse(connection.connected_at);
+    expect(await requeueFirstSyncs(store, env.SCAN_QUEUE, made + 14 * 60_000)).toBe(0);
+    expect(await requeueFirstSyncs(store, env.SCAN_QUEUE, made + 16 * 60_000)).toBe(1);
+    expect(queued).toEqual([{ connection_id: connection.id, step: "sync" }]);
+    // After a day the daily run has it, so the sweep stops asking.
+    expect(await requeueFirstSyncs(store, env.SCAN_QUEUE, made + 25 * 3_600_000)).toBe(0);
+    await syncConnection(connection.id, await worker());
+    expect(await requeueFirstSyncs(store, env.SCAN_QUEUE, made + 30 * 60_000)).toBe(0);
+  });
+});
+
+describe("matching a location to what an account reaches", () => {
+  /** A synced sample account, and two locations of Alice's organization. */
+  async function synced() {
+    const { organization, connection } = await connected();
+    await syncConnection(connection.id, await worker());
+    const locations = [];
+    for (const name of ["Joe's Pizza", "Joe's Pizza Uptown"]) {
+      locations.push(
+        LocationSchema.parse(
+          await (
+            await call(alice, "POST", `/organizations/${organization.id}/locations`, {
+              name,
+              city: "Raleigh",
+            })
+          ).json(),
+        ),
+      );
+    }
+    const [first, second] = locations;
+    if (!first || !second) throw new Error("no locations");
+    return { organization, connection, first, second };
+  }
+  const match = (user: string | null, connectionId: string, locationId: string, external: string) =>
+    call(user, "PUT", `/connections/${connectionId}/locations/${locationId}`, {
+      external_id: external,
+    });
+  const unmatch = (user: string | null, connectionId: string, locationId: string) =>
+    call(user, "DELETE", `/connections/${connectionId}/locations/${locationId}`);
+  const matchesOf = async (organizationId: string) =>
+    (await list(bob, organizationId)).connections[0]?.matches.map((kept) => [
+      kept.location_id,
+      kept.external_id,
+    ]);
+
+  it("is said by an owner, from what the last sync found, and shown on the location", async () => {
+    const { organization, connection, first } = await synced();
+    const response = await match(alice, connection.id, first.id, "sample-listing-2");
+    expect(response.status).toBe(200);
+    expect(ConnectionMatchSchema.parse(await response.json())).toMatchObject({
+      location_id: first.id,
+      external_id: "sample-listing-2",
+      external_label: "Sample listing: Riverside",
+    });
+    expect(await matchesOf(organization.id)).toEqual([[first.id, "sample-listing-2"]]);
+
+    const detail = LocationDetailSchema.parse(
+      await (await call(bob, "GET", `/locations/${first.id}`)).json(),
+    );
+    expect(detail.connections).toEqual([
+      {
+        connection_id: connection.id,
+        kind: "sample",
+        label: "Sample account",
+        external_label: "Sample listing: Riverside",
+      },
+    ]);
+    // Said again, it replaces what was said before.
+    expect((await match(alice, connection.id, first.id, "sample-listing-3")).status).toBe(200);
+    expect(await matchesOf(organization.id)).toEqual([[first.id, "sample-listing-3"]]);
+  });
+
+  it("refuses what the account does not reach, what is another location's, and a second account of a kind", async () => {
+    const { organization, connection, first, second } = await synced();
+    const unreached = await match(alice, connection.id, first.id, "nonesuch");
+    expect(unreached.status).toBe(409);
+    expect(await errorCode(unreached)).toBe("limit_reached");
+    expect((await match(alice, connection.id, first.id, "  ")).status).toBe(422);
+
+    await match(alice, connection.id, first.id, "sample-listing-1");
+    expect((await match(alice, connection.id, second.id, "sample-listing-1")).status).toBe(409);
+
+    const other = ConnectionSchema.parse(
+      await (await connectSample(alice, organization.id)).json(),
+    );
+    await syncConnection(other.id, await worker());
+    expect((await match(alice, other.id, first.id, "sample-listing-2")).status).toBe(409);
+    expect((await match(alice, other.id, second.id, "sample-listing-2")).status).toBe(200);
+    expect(await matchesOf(organization.id)).toHaveLength(1);
+  });
+
+  it("is not for a member, a stranger, or a location of another organization", async () => {
+    const { connection, first } = await synced();
+    expect((await match(bob, connection.id, first.id, "sample-listing-1")).status).toBe(404);
+    expect((await match(null, connection.id, first.id, "sample-listing-1")).status).toBe(401);
+    expect((await match(alice, crypto.randomUUID(), first.id, "sample-listing-1")).status).toBe(
+      404,
+    );
+
+    // Carol's own organization and location: Alice cannot match her account to it.
+    const theirs = OrganizationSchema.parse(
+      await (await call(carol, "POST", "/organizations", { name: "Durham Tacos" })).json(),
+    );
+    const elsewhere = LocationSchema.parse(
+      await (
+        await call(carol, "POST", `/organizations/${theirs.id}/locations`, {
+          name: "Durham Tacos",
+          city: "Durham",
+        })
+      ).json(),
+    );
+    expect((await match(alice, connection.id, elsewhere.id, "sample-listing-1")).status).toBe(404);
+    expect((await match(carol, connection.id, elsewhere.id, "sample-listing-1")).status).toBe(404);
+    expect(db.connections[0]?.matches).toEqual([]);
+  });
+
+  it("can be taken away by an owner, and goes with the account when it is removed", async () => {
+    const { organization, connection, first, second } = await synced();
+    await match(alice, connection.id, first.id, "sample-listing-1");
+    await match(alice, connection.id, second.id, "sample-listing-2");
+    expect((await unmatch(bob, connection.id, first.id)).status).toBe(404);
+    expect((await unmatch(alice, connection.id, first.id)).status).toBe(204);
+    expect((await unmatch(alice, connection.id, first.id)).status).toBe(404);
+    expect(await matchesOf(organization.id)).toEqual([[second.id, "sample-listing-2"]]);
+
+    await call(alice, "DELETE", `/connections/${connection.id}`);
+    // Being removed, it takes no new match.
+    expect((await match(alice, connection.id, first.id, "sample-listing-1")).status).toBe(409);
+    await removeConnection(connection.id, await worker());
+    expect(db.connections[0]).toMatchObject({ status: "removed", choices: [], matches: [] });
+    const detail = LocationDetailSchema.parse(
+      await (await call(alice, "GET", `/locations/${second.id}`)).json(),
+    );
+    expect(detail.connections).toEqual([]);
+  });
+
+  it("keeps its choice and takes the name the choice has at the next sync", async () => {
+    const { connection, first } = await synced();
+    await match(alice, connection.id, first.id, "sample-listing-1");
+    await memoryStore(db, null).recordConnectionSync(connection.id, [
+      { id: "sample-listing-1", label: "Renamed at the outside service" },
+    ]);
+    expect(db.connections[0]?.matches).toMatchObject([
+      { external_id: "sample-listing-1", external_label: "Renamed at the outside service" },
+    ]);
   });
 });

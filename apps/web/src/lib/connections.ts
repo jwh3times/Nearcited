@@ -1,22 +1,46 @@
 import type { Connection, OrganizationConnections } from "@nearcited/shared";
 import { api } from "./api";
 
-/** How often the page asks again while a removal is waiting for the worker. */
+/** How often the page asks again while something is waiting for the worker. */
 const WAITING_MS = 2000;
 
 /**
- * An organization's connections, read the same way by the page and by the sidebar. While one is
- * being removed it is asked for again every couple of seconds, since the worker finishes that
- * on its own time.
+ * True while the worker owes a connection something the page is waiting to show: finishing a
+ * removal, or the first sync, which is what tells the page what the account reaches.
+ */
+export const awaitingWorker = (connection: Connection): boolean =>
+  connection.status === "removing" ||
+  (connection.status === "working" && connection.last_synced_at === null);
+
+/**
+ * An organization's connections, read the same way by the page and by the sidebar. While the
+ * worker owes one something it is asked for again every couple of seconds, since the worker
+ * does that on its own time.
  */
 export const connectionsQuery = (organizationId: string) => ({
   queryKey: ["connections", organizationId],
   queryFn: () => api.connections(organizationId),
   refetchInterval: (query: { state: { data?: OrganizationConnections } }) =>
-    query.state.data?.connections.some((connection) => connection.status === "removing")
-      ? WAITING_MS
-      : false,
+    query.state.data?.connections.some(awaitingWorker) ? WAITING_MS : false,
 });
+
+/**
+ * What a location can be matched to on one connection: every choice that is not another
+ * location's already. Its own choice is among them, and still is when the last sync no longer
+ * found it at the account: it is then named as such, so the owner can see what happened and
+ * choose again.
+ */
+export function choicesFor(connection: Connection, locationId: string): Connection["choices"] {
+  const own = connection.matches.find((match) => match.location_id === locationId);
+  const taken = new Set(
+    connection.matches
+      .filter((match) => match.location_id !== locationId)
+      .map((match) => match.external_id),
+  );
+  const offered = connection.choices.filter((choice) => !taken.has(choice.id));
+  if (!own || offered.some((choice) => choice.id === own.external_id)) return offered;
+  return [...offered, { id: own.external_id, label: `${own.external_label} (no longer found)` }];
+}
 
 /** The connections still there, and the ones that are gone and kept as a record. */
 export function splitConnections(connections: Connection[]): {

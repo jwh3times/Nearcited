@@ -213,6 +213,19 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
       kind: "forbidden",
     });
     expect(await worker.getConnectionSecret(connectionId)).toBe("sealed-text");
+    // Syncing is the worker's, and matching a location is the owner's, from what a sync found.
+    expect(await worker.listConnectionsDueForSync(100)).toContain(connectionId);
+    const hourAgo = new Date(Date.now() - 3_600_000).toISOString();
+    const hourAhead = new Date(Date.now() + 3_600_000).toISOString();
+    expect(await worker.listConnectionsAwaitingFirstSync(hourAgo, hourAhead)).toContain(
+      connectionId,
+    );
+    await expect(aliceStore.recordConnectionSync(connectionId, [])).rejects.toMatchObject({
+      kind: "forbidden",
+    });
+    const reached = [{ id: "listing-a", label: "Main Street" }];
+    expect(await worker.recordConnectionSync(connectionId, reached)).toBe(true);
+    expect(await worker.listConnectionsDueForSync(100)).not.toContain(connectionId);
     expect(await bobStore.requestConnectionRemoval(connectionId)).toBeNull();
     // Nobody has asked yet, so the worker has nothing to finish.
     expect(await worker.finishConnectionRemoval(connectionId)).toBe(false);
@@ -226,7 +239,12 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
     });
     expect(await worker.finishConnectionRemoval(connectionId)).toBe(true);
     expect(await worker.getConnectionSecret(connectionId)).toBeNull();
-    expect(await aliceStore.getConnection(connectionId)).toMatchObject({ status: "removed" });
+    // What was synced went with the sign-in.
+    expect(await aliceStore.getConnection(connectionId)).toMatchObject({
+      status: "removed",
+      choices: [],
+      matches: [],
+    });
     expect(await worker.getSubscription(fresh.id)).toBeNull();
     const customer = `cus_${crypto.randomUUID()}`;
     await expect(
@@ -350,6 +368,43 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
     });
     expect(location).toMatchObject({ organization_id: organization.id, last_scanned_at: null });
     expect(await aliceStore.listLocations(organization.id)).toEqual([location]);
+
+    // Matching a location to what a connected account reaches is the owner's, from what the
+    // worker's sync found. It is read with the location and goes when the account is removed.
+    const account = {
+      id: crypto.randomUUID(),
+      organization_id: organization.id,
+      kind: "sample" as const,
+      label: "Sample account",
+      sealed: "sealed-text",
+    };
+    await aliceStore.createConnection(account);
+    await worker.recordConnectionSync(account.id, [{ id: "listing-a", label: "Main Street" }]);
+    expect(await bobStore.matchConnectionLocation(account.id, location.id, "listing-a")).toBeNull();
+    await expect(
+      aliceStore.matchConnectionLocation(account.id, location.id, "nonesuch"),
+    ).rejects.toMatchObject({ kind: "limit" });
+    expect(
+      await aliceStore.matchConnectionLocation(account.id, location.id, "listing-a"),
+    ).toMatchObject({ location_id: location.id, external_label: "Main Street" });
+    expect(await aliceStore.getConnection(account.id)).toMatchObject({
+      matches: [{ location_id: location.id, external_id: "listing-a" }],
+    });
+    expect(await aliceStore.listLocationConnections(location.id)).toEqual([
+      {
+        connection_id: account.id,
+        kind: "sample",
+        label: "Sample account",
+        external_label: "Main Street",
+      },
+    ]);
+    expect(await bobStore.listLocationConnections(location.id)).toEqual([]);
+    expect(await bobStore.unmatchConnectionLocation(account.id, location.id)).toBe(false);
+    expect(await aliceStore.unmatchConnectionLocation(account.id, location.id)).toBe(true);
+    await aliceStore.matchConnectionLocation(account.id, location.id, "listing-a");
+    await aliceStore.requestConnectionRemoval(account.id);
+    expect(await worker.finishConnectionRemoval(account.id)).toBe(true);
+    expect(await aliceStore.listLocationConnections(location.id)).toEqual([]);
     expect(await aliceStore.getLocation(location.id)).toEqual(location);
     // The operator's reads return what the caller may read: for a member, only their own.
     expect(await aliceStore.getPlatformRole(alice)).toBeNull();

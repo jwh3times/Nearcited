@@ -950,6 +950,24 @@ export const CONNECTION_STATUSES = ["working", "broken", "paused", "removing", "
 export const ConnectionStatusSchema = z.enum(CONNECTION_STATUSES);
 export type ConnectionStatus = z.infer<typeof ConnectionStatusSchema>;
 
+/** One thing a connection's sign-in reaches: a profile, a site, a property. */
+export const ConnectionChoiceSchema = z.object({
+  /** What the outside service calls it. */
+  id: z.string().min(1),
+  label: z.string(),
+});
+export type ConnectionChoice = z.infer<typeof ConnectionChoiceSchema>;
+
+/** Which of a connection's choices is a location's. */
+export const ConnectionMatchSchema = z.object({
+  location_id: Id,
+  external_id: z.string(),
+  /** What the choice was called when it was chosen, or at the last sync since. */
+  external_label: z.string(),
+  matched_at: Timestamp,
+});
+export type ConnectionMatch = z.infer<typeof ConnectionMatchSchema>;
+
 /**
  * An organization's standing sign-in to an outside account, as its members see it. The sign-in
  * itself is never part of this: only the worker reads it.
@@ -969,8 +987,31 @@ export const ConnectionSchema = z.object({
   removal_requested_at: Timestamp.nullable(),
   /** When the worker had withdrawn access and deleted the sign-in. */
   removed_at: Timestamp.nullable(),
+  /** When the worker last read from it. Null until the first sync, moments after connecting. */
+  last_synced_at: Timestamp.nullable(),
+  /** What the sign-in reaches, as the last sync found it. */
+  choices: z.array(ConnectionChoiceSchema),
+  /** Which of those is each location's. A location with none is not matched. */
+  matches: z.array(ConnectionMatchSchema),
 });
 export type Connection = z.infer<typeof ConnectionSchema>;
+
+/** What is sent to say which of a connection's choices is a location's. */
+export const ConnectionMatchInputSchema = z.object({
+  external_id: z.string().trim().min(1, "Choose one").max(300),
+});
+export type ConnectionMatchInput = z.infer<typeof ConnectionMatchInputSchema>;
+
+/** An account a location is matched to, as the location's own page shows it. */
+export const LocationConnectionSchema = z.object({
+  connection_id: Id,
+  kind: ConnectionKindSchema,
+  /** The account. */
+  label: z.string(),
+  /** Which of the things it reaches is this location's. */
+  external_label: z.string(),
+});
+export type LocationConnection = z.infer<typeof LocationConnectionSchema>;
 
 /** What the Connections page shows for an organization. */
 export const OrganizationConnectionsSchema = z.object({
@@ -991,7 +1032,7 @@ export const ConnectionInputSchema = z.object({ kind: ConnectionKindSchema });
 export type ConnectionInput = z.infer<typeof ConnectionInputSchema>;
 
 /** What the worker is asked to do for one connection. */
-export const CONNECTION_STEPS = ["remove"] as const;
+export const CONNECTION_STEPS = ["remove", "sync"] as const;
 export type ConnectionStep = (typeof CONNECTION_STEPS)[number];
 
 /** A message asking the worker to take one step for one connection. */
@@ -1156,6 +1197,8 @@ export const LocationDetailSchema = z.object({
   actions: z.array(ActionSchema),
   /** The work that follows from the sources, with whether it has been done and what moved. */
   tasks: z.array(TaskSchema),
+  /** The connected accounts this location is matched to. */
+  connections: z.array(LocationConnectionSchema),
 });
 export type LocationDetail = z.infer<typeof LocationDetailSchema>;
 

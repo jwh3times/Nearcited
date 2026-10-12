@@ -111,6 +111,7 @@ export function LocationDetail() {
     site,
     actions,
     tasks,
+    connections,
   } = detail.data;
   const organization = readOnly
     ? theirs.data
@@ -404,6 +405,23 @@ export function LocationDetail() {
               }}
             />
             <div className="settings-side">
+              {connections.length > 0 && (
+                <div className="card side-card">
+                  <h3 className="side-title">Connected accounts</h3>
+                  <ul className="facts">
+                    {connections.map((connection) => (
+                      <li key={connection.connection_id}>
+                        <span>{connection.label}</span>
+                        <span>{connection.external_label}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  <p>
+                    What this location is matched to is chosen on the{" "}
+                    <Link to={`${base}/connections`}>Connections</Link> page.
+                  </p>
+                </div>
+              )}
               <div className="card side-card">
                 <h3 className="side-title">Retired prompts</h3>
                 <p>

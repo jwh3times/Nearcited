@@ -34,6 +34,10 @@ system works; this file only settles vocabulary.
 - **Sign-in**: what a connection keeps so the product can act for the owner at the outside
   service. Sealed by the Worker and read only by the worker, never shown to anyone. See
   `docs/adr/0013-a-sign-in-is-sealed-by-the-worker.md`.
+- **Choice**: one thing a connection's sign-in reaches at the outside service: a profile, a site,
+  a property. A sync finds them.
+- **Match**: which choice is a location's. A location has one match for each kind of connection,
+  and a choice is one location's.
 - **Customer source**: a connection that tells the product who a business's customers are and
   when their job was finished.
 - **Action**: one thing the product does outside itself for a business: a fact corrected, a
