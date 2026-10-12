@@ -41,13 +41,17 @@ locationRoutes.get("/locations/:id", async (c) => {
   // Generated and real results never share a window, so which one to read is decided first. A
   // test organization's are generated even in a live deployment.
   const sample = usesSampleData(c.env) || organization?.is_test === true;
-  const [queries, [latest], recommendations, recent, site] = await Promise.all([
+  const [queries, [latest], recommendations, recent, site, alerts] = await Promise.all([
     store.listQueries(location.id),
     store.listScans(location.id, 1),
     store.listRecommendations(location.id),
     store.listRecentResults(location.id, SCAN_WINDOW, sample),
     store.getSiteCheck(location.id),
+    store.listAlerts(location.id, sample),
   ]);
+  // An alert about a prompt retired since the last scan has nothing left to say. The next scan
+  // clears it; until then it is not shown.
+  const asked = new Set(queries.filter((query) => query.is_active).map((query) => query.id));
 
   // The same pool the rates are counted over, narrowed to the answers that list their sources.
   const answers = poolWindow(recent).filter((result) => CITING_SURFACES.includes(result.surface));
@@ -116,6 +120,9 @@ locationRoutes.get("/locations/:id", async (c) => {
       answers: answers.length,
       evidence,
     }),
+    alerts: alerts.filter(
+      (alert) => alert.dismissed_at === null && asked.has(alert.tracked_query_id),
+    ),
   };
   return c.json(detail);
 });

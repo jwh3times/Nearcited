@@ -1,5 +1,6 @@
 import type {
   Action,
+  Alert,
   Allowances,
   AuditJob,
   AuditPart,
@@ -90,6 +91,8 @@ export interface MemoryDb {
     /** The month, as `YYYY-MM`, whose allowance this action holds one of. */
     allowance_month: string | null;
   })[];
+  /** Every alert, with what keeps one thing from being raised twice beside what is sent. */
+  alerts: (Alert & { subject: string; sample_data: boolean })[];
   /**
    * The `action_kind_terms` table: the allowance a kind of action takes from, and how many days
    * what it replaced may be kept. A test changes a kind's terms to stand for a real kind.
@@ -169,6 +172,7 @@ export function createMemoryDb(): MemoryDb {
     limitChanges: [],
     allowanceUse: new Map(),
     actions: [],
+    alerts: [],
     actionKindTerms: new Map([["sample", { allowance: null, keeps_seen_days: 30 }]]),
     sampleLines: new Map(),
     connections: [],
@@ -370,6 +374,12 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
     db.memberships.some(
       (m) => m.organization_id === organizationId && m.user_id === userId && m.role !== "member",
     );
+  /** An alert as it is sent: without what the database keeps to tell one thing from another. */
+  const sentAlert = ({
+    subject: _subject,
+    sample_data: _sample,
+    ...alert
+  }: MemoryDb["alerts"][number]): Alert => alert;
   const readableLocation = (id: string) =>
     db.locations.find((location) => location.id === id && readsOrg(location.organization_id));
   const readsLocation = (id: string) => readableLocation(id) !== undefined;
@@ -511,6 +521,31 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         .filter((action) => action.location_id === locationId)
         .sort((a, b) => b.proposed_at.localeCompare(a.proposed_at))
         .map(sentAction);
+    },
+
+    async listAlerts(locationId, sampleData) {
+      if (!readsLocation(locationId)) return [];
+      return db.alerts
+        .filter(
+          (alert) =>
+            alert.location_id === locationId &&
+            alert.sample_data === sampleData &&
+            alert.cleared_at === null,
+        )
+        .sort((a, b) => b.raised_at.localeCompare(a.raised_at))
+        .map(sentAlert);
+    },
+
+    // Mirrors dismiss_alert(): a member of the location's organization, and nothing to change
+    // once it is dismissed or cleared.
+    async dismissAlert(id) {
+      const alert = db.alerts.find((candidate) => candidate.id === id);
+      if (!alert || userId === null || !visibleLocation(alert.location_id)) return null;
+      if (alert.dismissed_at === null && alert.cleared_at === null) {
+        alert.dismissed_at = db.now ?? timestamp();
+        alert.dismissed_by_email = db.emails.get(userId) ?? null;
+      }
+      return sentAlert(alert);
     },
 
     async countWaitingActions(organizationId) {
@@ -1942,6 +1977,42 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         ) {
           recommendation.status = "done";
         }
+      }
+      // As complete_scan() does: clear this location's alerts that ended, then keep the new
+      // ones, each once while one for the same thing is current.
+      const at = timestamp();
+      for (const cleared of outcome.alerts?.clear ?? []) {
+        const alert = db.alerts.find(
+          (candidate) =>
+            candidate.id === cleared.id &&
+            candidate.location_id === scan.location_id &&
+            candidate.cleared_at === null,
+        );
+        if (alert) Object.assign(alert, { cleared_at: at, clear_reason: cleared.reason });
+      }
+      for (const { subject, ...raised } of outcome.alerts?.raise ?? []) {
+        const current = db.alerts.some(
+          (candidate) =>
+            candidate.location_id === scan.location_id &&
+            candidate.kind === raised.kind &&
+            candidate.subject === subject &&
+            candidate.sample_data === scan.sample_data &&
+            candidate.cleared_at === null,
+        );
+        if (current) continue;
+        db.alerts.push({
+          ...raised,
+          id: crypto.randomUUID(),
+          location_id: scan.location_id,
+          subject,
+          sample_data: scan.sample_data,
+          scan_id: id,
+          raised_at: at,
+          cleared_at: null,
+          clear_reason: null,
+          dismissed_at: null,
+          dismissed_by_email: null,
+        });
       }
     },
 

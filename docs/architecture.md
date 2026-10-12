@@ -58,8 +58,10 @@ POST /api/locations/:id/scans          cron
                        |
      windowScore() + deriveRecommendations(), over this scan and those six
                        |
-     complete_scan() in Postgres: results, score, last_scanned_at and
-     recommendations, in one transaction
+     listAlerts() + deriveAlerts(): the alerts that window ends, and the ones it raises
+                       |
+     complete_scan() in Postgres: results, score, last_scanned_at,
+     recommendations and alerts, in one transaction
                        |
      recordUsage(): what the providers used, by surface and model (also on failure;
                     nothing on sample data)
@@ -233,6 +235,9 @@ Failure handling in `runScan`:
   After `max_retries` the message goes to the dead-letter queue.
 - **One failed check fails the whole scan.** Scoring a partial scan would move the number for
   reasons unrelated to the business. Revisit this once real providers show how flaky they are.
+- **A failed scan changes no alert.** Alerts are written only by `complete_scan()`, with the
+  results (see "Alerts"), so a failed scan neither raises nor clears one. Failing to read the
+  alerts fails the scan like any other error.
 
 ## Where the answers come from
 
@@ -357,6 +362,66 @@ from counts the product holds; nothing a model wrote is in one.
   copy as a task, and anything the product does outside itself for real. Approvals and actions
   exist (see "Actions") but the only kind is a sample one, which does no task's work, so no action
   has marked a task.
+
+## Alerts
+
+An alert says that something measured got worse at a location (`alerts`; the term is in
+`GLOSSARY.md`, the decision in `docs/adr/0015-an-alert-is-kept-not-worked-out-again.md`). The only
+kind is a drop. The rule, the sentences and the grouping are in `packages/shared/src/alerts.ts`
+(`deriveAlerts`, `alertTitle`, `alertDetail`, `groupAlerts`). Everything is composed by rule from
+counts the product holds, says what was seen and never what to do, and no model writes one.
+
+- **A drop is a prompt on one surface that named the business and has stopped.** It is raised when
+  the latest `DROP_MISSES` (3) checks of the cell did not name the business and at least
+  `DROP_NAMED_BEFORE` (3) of the `DROP_CHECKS_BEFORE` (4) before them did. It needs all seven
+  checks in the cell, a full `SCAN_WINDOW`, so a new location or a new prompt is quiet for its
+  first seven scans. The thresholds are public constants, not tuning. The row keeps the counts it
+  rests on (`facts`: the prompt as asked, how many checks in a row missed, how many came before
+  and how many of those named the business) and when the run of misses began (`since`). A drop
+  that could not be raised at its third miss (the cell's window was not yet full, or alerts did
+  not exist yet) counts the whole run it can see, up to four.
+- **What raises one and what clears one are different conditions.** After seven scans that did not
+  name the business the window holds nothing that says it ever was, so a rule that looked only
+  there would stop firing and clear an alert that had not ended. `runScan` gives `deriveAlerts`
+  the window and the location's alerts that are not cleared (`listAlerts`). One is cleared as
+  `named_again` when a check from a scan after the one that raised it names the business (any
+  scan in the window, once the one that raised it has left), and as `not_tracked` when the newest
+  scan has no cell for it: its prompt is retired or its surface is no longer checked. Never by
+  age.
+- **A dismissed alert is still current.** Dismissing takes it off the page and nothing else. The
+  rule goes on firing, and a unique index allows one alert that is not cleared for a location,
+  kind, subject (here the prompt and surface) and kind of data, so the same thing is not raised
+  again until the worker has cleared it and it begins afresh. `complete_scan()` raises with
+  `on conflict do nothing`, so running a scan twice raises nothing twice.
+- **They are written with the scan.** `runScan` passes `alerts` (`{ clear, raise }`) to
+  `completeScan`, and `complete_scan()` clears and raises them in the same transaction as the
+  results, for manual and scheduled scans alike. A clear names an alert by its ID and touches only
+  the scan's own location. The alerts are an optional fifth argument, so the Worker deployed
+  before the migration, which passes four, goes on working and changes none.
+- **Sample and real alerts are kept apart.** `alerts.sample_data` records whether the scan that
+  raised it ran on generated data, and `listAlerts` and the location page take only the kind the
+  page is showing, as the window does (see "Rates over a window of scans").
+- **Who reads and writes.** `alerts` has a `select` policy for whoever can read the location
+  (`can_access_location`) and one for the operator, and no write grant for any API role. Only the
+  worker raises or clears one, through `complete_scan()`. `POST /api/alerts/:alertId/dismiss` calls
+  `dismiss_alert()`, a security-definer function that returns a row only to a member of the
+  location's organization, so the route answers 404 to anyone else, the operator included. It
+  keeps who dismissed (the address they had then) and when, and changes nothing about an alert
+  already dismissed or cleared. `subject` is the worker's bookkeeping, and no route sends it. An
+  alert is deleted with its location.
+- **What the page shows.** `GET /api/locations/:id` returns `alerts`: those not cleared, not
+  dismissed and not about a prompt retired since the last scan, newest first. The next scan clears
+  one about a retired prompt; one about a surface that is no longer checked shows until it does.
+  The Overview tab lists them under "Alerts", above "What to do next". The drops one scan raised
+  on one surface are one card (`groupAlerts`), because a surface that stops naming the business
+  does so for every prompt at once; each says what was counted and since when, links to the
+  Prompts tab, and has a Dismiss that dismisses the whole card. The locations table shows the
+  count beside the location. The operator reading through an account sees alerts and has no
+  Dismiss.
+- Not built: an email about an alert, and the other kinds named in
+  [#136](https://github.com/jwh3times/Nearcited/issues/136): a competitor named for the first
+  time, a site read for the first time, and an answer that gives a phone number or address that is
+  not the location's.
 
 ## Shareable audits
 
@@ -838,7 +903,8 @@ copy, edit and lower a plan.
   "Connections".
 
 Users can insert exactly one kind of scan row: a queued, manual scan in their own name for a
-location they can see. Results, scores and recommendations are written only by the worker.
+location they can see. Results, scores, recommendations and alerts are written only by the worker;
+a member can dismiss an alert and nothing more (see "Alerts").
 Organizations are created only through `create_organization()`, which makes the caller the owner.
 
 **The operator reads every row, through policies.** `is_operator()` is true for an account with the

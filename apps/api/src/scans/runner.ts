@@ -1,6 +1,7 @@
 import {
   analyzeObservation,
   analyzeSite,
+  deriveAlerts,
   deriveRecommendations,
   type Location,
   poolWindow,
@@ -170,11 +171,27 @@ export async function runScan(scanId: string, deps: RunScanDeps): Promise<ScanOu
       site = analyzeSite(snapshot, location);
     }
 
+    // An alert is kept from one scan to the next, so its rules are given the ones still
+    // current beside the window. Each earlier scan is known by the results it left.
+    const alerts = deriveAlerts(
+      [
+        { id: scanId, at: at.toISOString(), checks: results },
+        ...earlier.map((checks) => ({
+          id: checks[0]?.scan_id ?? null,
+          at: checks[0]?.sampled_at ?? at.toISOString(),
+          checks,
+        })),
+      ],
+      await store.listAlerts(location.id, sampleData),
+      queries,
+    );
+
     await store.completeScan(scanId, {
       score,
       results,
       recommendations: deriveRecommendations(location, pooled, site),
       site,
+      alerts,
     });
 
     // A test organization's owner is automation: there is nobody to tell.

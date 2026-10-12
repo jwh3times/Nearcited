@@ -129,6 +129,33 @@ export async function withUnnamedSource(locationId: string, host: string): Promi
   });
 }
 
+/**
+ * Gives a location a drop on one of its prompts, as a scan's rule would once the prompt had been
+ * named and then missed three times running. One scan cannot show one. Returns the prompt.
+ * Local stack only.
+ */
+export async function withDrop(account: Account, locationId: string): Promise<string> {
+  const detail = await api<{ queries: { id: string; text: string }[] }>(
+    account,
+    "GET",
+    `/locations/${locationId}`,
+  );
+  const [query] = detail.queries;
+  if (!query) throw new Error("The location has no prompt to drop out of.");
+  await asWorker("alerts", {
+    location_id: locationId,
+    kind: "drop",
+    subject: `${query.id}|chatgpt`,
+    tracked_query_id: query.id,
+    surface: "chatgpt",
+    facts: { prompt: query.text, missed: 3, checks_before: 4, named_before: 4 },
+    since: new Date(Date.now() - 3 * 86_400_000).toISOString(),
+    // The local stack serves sample data, and a location's page shows the alerts of that kind.
+    sample_data: true,
+  });
+  return query.text;
+}
+
 /** Writes a row with the secret key. Never against a deployment: its data is not a test's. */
 async function asWorker(table: string, row: unknown): Promise<void> {
   if (process.env.E2E_APP_URL) throw new Error("Tests do not write to a deployment's database.");

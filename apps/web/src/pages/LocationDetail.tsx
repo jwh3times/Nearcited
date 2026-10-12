@@ -12,6 +12,7 @@ import { type FormEvent, type KeyboardEvent, useEffect, useRef, useState } from 
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { ActionPlan } from "../components/ActionPlan";
 import { Actions } from "../components/Actions";
+import { Alerts } from "../components/Alerts";
 import { ErrorNote } from "../components/ErrorNote";
 import { Field } from "../components/Field";
 import { LocationEditor } from "../components/LocationEditor";
@@ -118,6 +119,7 @@ export function LocationDetail() {
     action_plan: steps,
     tasks,
     connections,
+    alerts,
   } = detail.data;
   const organization = readOnly
     ? theirs.data
@@ -252,6 +254,12 @@ export function LocationDetail() {
           ) : (
             <div className="overview">
               <div>
+                <Alerts
+                  alerts={alerts}
+                  onChanged={refresh}
+                  readOnly={readOnly}
+                  onOpenPrompts={() => openTab("prompts")}
+                />
                 {steps.length > 0 ? (
                   <>
                     <ActionPlan

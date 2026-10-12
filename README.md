@@ -90,6 +90,17 @@ tasks the owner can mark done, with the answers that cited the site before besid
 task that an action did the work of is marked done by that action, and a member cannot clear it.
 How often a location is scanned, and on which assistants, are settings on its organization.
 
+The Overview tab also lists **alerts**: statements that something measured got worse. The only
+kind is a drop, a prompt that named the business on an assistant, or a keyword on a Google
+surface, and has stopped: none of its latest three checks named it, and at least three of the four
+before them did. It needs seven checks, so a new location is quiet for its first seven scans. Like
+the action plan, an alert is composed by rule, says what was counted and never what to do, and no
+model writes one. It stays until a later scan names the business again, or its prompt is retired
+or its surface is no longer checked, and is never cleared by age. A member can dismiss one, which
+takes it off the page; the same thing is raised again only once it has ended and begun afresh. The
+locations table shows how many each location has. Nothing is emailed about an alert yet (see
+[What is not built](#what-is-not-built)).
+
 The location page charts the score over time, and each cell of the results grid carries a strip
 of dots, one per recent scan, showing how that prompt has moved on that assistant.
 
@@ -169,8 +180,9 @@ Only the owner of the deployment can make one, from the command line (see
 audit. It costs real money, prompts x samples x assistants answers, and refuses to run on sample
 data or on the default tuning.
 
-[docs/architecture.md](docs/architecture.md) covers the scan flow, how an audit runs, how a
-connection's sign-in is kept, how an action is proposed and carried out, the tenancy model, the limits a Worker imposes, and the known gaps.
+[docs/architecture.md](docs/architecture.md) covers the scan flow, how an alert is raised and
+cleared, how an audit runs, how a connection's sign-in is kept, how an action is proposed and
+carried out, the tenancy model, the limits a Worker imposes, and the known gaps.
 
 ## Stack
 
@@ -194,8 +206,8 @@ apps/
 packages/
   shared/       Zod schemas for every wire type, plus the logic that decides whether a business
                 was named, the visibility score, the rule-based recommendations, the audit,
-                cited-source and on-page check logic, the action plan, and the checks on what a form accepts
-                (phone, website, postal code, country).
+                cited-source and on-page check logic, the action plan, the alert rules, and the
+                checks on what a form accepts (phone, website, postal code, country).
   db/           Tests that run the migrations in in-process Postgres and attack the policies.
 supabase/
   migrations/   Schema, row-level security, and the SQL functions the Worker calls.
@@ -365,7 +377,8 @@ organization reads as missing and returns 404. Payloads are defined in
 | `POST /api/actions/:actionId/approve` | A member's yes. Takes an optional `text`, 1 to 5,000 characters, which replaces what was proposed and is kept beside it. Records the yes and queues the worker to carry the action out; answers the action. Any member of the location's organization: 404 to anyone else, the operator included. 409 `limit_reached` with the reason when it is no longer waiting or the plan has no more of its kind this month; 422 for a bad `text`; 503 `actions_unavailable` without `RESEND_API_KEY`, unless the deployment serves sample data or the organization is a test one. |
 | `POST /api/actions/:actionId/decline` | A member's no. Takes an optional `reason`, up to 200 characters. Answers the action. Any member of the location's organization: 404 to anyone else, the operator included. 409 `limit_reached` when it is no longer waiting; 422 for a longer `reason`. |
 | `POST /api/actions/:actionId/retry` | Asks for a failed action again: a new action, already approved by the caller, that points at the one that failed; queues the worker. Answers the new action, 201. Any member of the location's organization: 404 to anyone else, the operator included. 409 `limit_reached` for an action that did not fail, when another for the same thing is waiting or on its way, or when the plan has no more of its kind this month; 503 `actions_unavailable` as for the yes. |
-| `GET /api/locations/:id` | One location with its queries, latest scan, rates over recent scans, the sites those answers cited, the surfaces being checked, recommendations, the latest website check, the action plan, the owner's tasks and the connected accounts it is matched to (`connections`). |
+| `POST /api/alerts/:alertId/dismiss` | A member's dismissal of an alert: it leaves the location page, and the same thing is raised again only once it has ended and begun afresh. Records who and when; answers the alert. Dismissing one already dismissed or cleared changes nothing. Any member of the location's organization: 404 to anyone else, the operator included. Alerts are raised and cleared only by the worker, when a scan finishes. |
+| `GET /api/locations/:id` | One location with its queries, latest scan, rates over recent scans, the sites those answers cited, the surfaces being checked, recommendations, the latest website check, the action plan, the owner's tasks, the connected accounts it is matched to (`connections`) and its open alerts (`alerts`: not cleared, not dismissed, and not about a prompt since retired). |
 | `PATCH /api/locations/:id` | Replace a location's details with a whole location body, as when adding one; a field left out goes back to blank or its default. The same checks as adding. |
 | `POST /api/locations/:id/activate` | Brings a location the plan paused back into use. Takes `instead_of`, the location in use that is paused in its place, when the plan has no room; 409 with the reason without one. 404 to a non-member. |
 | `DELETE /api/locations/:id` | Delete a location and its history. |
@@ -390,6 +403,7 @@ The migrations in `supabase/migrations/` define everything.
 | `scans` | One run for a location: its trigger, status, whether it ran on sample data, the score over the window it closed, and the check of the location's website it made. |
 | `scan_results` | One row per query and surface: named or not, position, and who else was named. |
 | `recommendations` | What a scan suggested, whether the user has dealt with it, when a member said they did the work, or an action did it (`acted_at`, which no scan changes), and the action that did it (`acted_by_action`, which a member cannot clear). |
+| `alerts` | Something measured that got worse at a location, kept from the scan that raised it. Its kind (`drop` so far), the prompt and surface it is about, the counts it rests on (`facts`), when it began (`since`) and the scan that raised it; whether that scan ran on sample data (`sample_data`), since sample and real alerts are kept apart. The Worker clears it, with a reason (`named_again` or `not_tracked`), when a later scan shows it has ended; a member dismisses it, which records who, as the address they had then, and when, and does not clear it. `subject` is the Worker's bookkeeping, so one alert is current for a thing. Read by whoever can read the location and by the operator; written by no API role directly, only by the Worker's `complete_scan()` and, for a dismissal, `dismiss_alert()`, which answers a member of the location's organization alone. Deleted with its location. |
 | `audits` | A shareable audit: the business, its prompts, the results as each prompt finishes, and its token, expiry and revocation. Belongs to no organization; only the operator can read it through the API. |
 | `operator_actions` | What the operator changed or made, one row per action, with who and what: an organization's limits before and after, a plan's settings or prices before and after, or the audit made. Written only by the function that does it; only the operator can read it through the API. |
 | `plans` | What is on sale: a monthly price for the locations a plan includes, a price for each extra location, its limits and its allowances. Read by everyone; written by no API role. An organization's `plan_key` names its plan, or is null when its limits were set by hand. |
@@ -415,9 +429,10 @@ the database directly. Going over one returns 409 `limit_reached` with a message
 limit and its value.
 
 Row-level security policies on every table are the authorization layer. Signed-in users can
-insert one kind of scan row, a queued manual scan for a location they can see; results, scores
-and recommendations are written only by the worker, through `complete_scan()`. A member may change
-two things on a recommendation and nothing else: its status, and whether its work was done (not once an action did it).
+insert one kind of scan row, a queued manual scan for a location they can see; results, scores,
+recommendations and alerts are written only by the worker, through `complete_scan()`. A member may
+change two things on a recommendation and nothing else: its status, and whether its work was done
+(not once an action did it). The one thing a member may do to an alert is dismiss it.
 
 `audits` is the exception to "every row belongs to an organization". Its table is closed to
 signed-in and anonymous users alike, except that the operator can read it; the Worker and the owner's script use the secret key, and a
@@ -427,15 +442,15 @@ reader gets one audit only by its token, through the `get_audit()` function.
 
 - **`packages/shared`**: name matching, mention detection, scoring, recommendation rules, input
   validation, the tuning schema, its defaults and prompt rendering, audits, cited sources, the
-  on-page check and the action plan.
+  on-page check, the action plan and the alert rules (when a drop is raised and when it clears).
 - **`packages/db`**: applies the real migrations to in-process Postgres (PGlite) and checks, as
   different users, that one organization cannot read or write another's rows, that users cannot
-  forge scan results or grant themselves a platform role, that worker-only functions and the `audits`, `provider_usage`, `connection_secrets`, `connection_kind_allowances`, `sample_listings` and `action_kind_terms` tables are closed to them, that only an owner or admin can connect, match or remove an account, that a connection breaks and is paused as it should, that only a member of a location's organization can approve, decline or ask again for an action and only the worker can propose or carry one out, that an organization is held once its owners have gone 36 hours untold of an action, that what an action replaced is dropped on its day, that a task an action did stays marked, that an action of a counted kind takes from the month's allowance once and gives it back unless the thing is done, that only the worker can ask that of an organization and a stranger is told nothing of a location's, and that the operator reads every organization and changes only an organization's limits or a plan's settings or prices, each through one function that records it (announcing and calling off a price change or a reduction included). No Docker needed. It
+  forge scan results or grant themselves a platform role, that worker-only functions and the `audits`, `provider_usage`, `connection_secrets`, `connection_kind_allowances`, `sample_listings` and `action_kind_terms` tables are closed to them, that only an owner or admin can connect, match or remove an account, that a connection breaks and is paused as it should, that only a member of a location's organization can approve, decline or ask again for an action and only the worker can propose or carry one out, that an organization is held once its owners have gone 36 hours untold of an action, that what an action replaced is dropped on its day, that a task an action did stays marked, that an action of a counted kind takes from the month's allowance once and gives it back unless the thing is done, that only the worker can ask that of an organization and a stranger is told nothing of a location's, that only the worker raises or clears an alert and only a member of a location's organization can dismiss one, and that the operator reads every organization and changes only an organization's limits or a plan's settings or prices, each through one function that records it (announcing and calling off a price change or a reduction included). No Docker needed. It
   also checks `private/tuning.json` against the tuning schema where that file exists.
 - **`apps/api`**: every route against an in-memory store, the scan runner (success, retry,
   permanent failure, reporting, scoring with given weights, refusing live scans on default tuning),
   the ChatGPT and Claude providers against responses in the shape the real APIs return, the
-  scheduler, actions (proposing after a sync, a member's yes and no, carrying one out once, trying again, lapsing, telling the owners, holding back while they are untold, dropping what they replaced, marking a task, and counting against an allowance), billing (checkout, the portal and the Stripe webhook, against a stand-in for Stripe), the audit runner, the site fetch (what it refuses and how it follows redirects), and
+  scheduler, actions (proposing after a sync, a member's yes and no, carrying one out once, trying again, lapsing, telling the owners, holding back while they are untold, dropping what they replaced, marking a task, and counting against an allowance), alerts (raising a drop, clearing it, keeping a dismissed one from being raised again, and leaving sample data apart), billing (checkout, the portal and the Stripe webhook, against a stand-in for Stripe), the audit runner, the site fetch (what it refuses and how it follows redirects), and
   the mock providers.
 - **`apps/web`**: the logic that lays results out as a grid, the logic behind the chart of the
   score over time, the logic behind the audit page, the logic that fills the location edit form,
@@ -443,7 +458,7 @@ reader gets one audit only by its token, through the `get_audit()` function.
   the Connections page and its sidebar link show, what the Actions tab says of each action, and what a task says when an action did it.
 - **`apps/e2e`**: `pnpm e2e` drives the real web app and Worker in Chromium against the local
   Supabase stack, in mock mode: sign-in by the emailed link, onboarding through the first scan, the
-  location page, account settings, connecting a sample account, matching a location to it and removing it, approving a proposed action with its text changed and declining another, the operator's view and reading through an account, the public pages and one phone-sized run. It starts the Worker
+  location page, account settings, connecting a sample account, matching a location to it and removing it, approving a proposed action with its text changed and declining another, a drop shown on the Overview and in the locations table and then dismissed, the operator's view and reading through an account, the public pages and one phone-sized run. It starts the Worker
   and web app itself, or reuses them if `pnpm dev` is up. `pnpm smoke` is a separate run against a
   real deployment: it signs in as the test account, refuses to go on unless that account's
   organization is a test one, then adds a location and a prompt, runs a scan (generated data), reads
@@ -618,6 +633,11 @@ pnpm sync:agents
   [ADR 0014](docs/adr/0014-only-the-worker-carries-out-an-action.md) decides is built, and no real
   kind uses it: the sample kind is given 30 days to keep what it replaced, so that dropping can be
   seen, it does no task's work, and it takes from no allowance, since no kind of allowance exists.
+- **Telling an owner about an alert, and the other kinds of alert.** An alert is shown on the
+  Overview tab and counted on the locations table; nothing is emailed about one. A drop is the only
+  kind. A competitor named for the first time, a site read for the first time, and an answer that
+  gives a phone number or address that is not the location's are not built
+  ([#136](https://github.com/jwh3times/Nearcited/issues/136)).
 
 More detail, and the open product questions, in [docs/architecture.md](docs/architecture.md).
 What is planned, in order, is in [Build order](https://github.com/jwh3times/Nearcited/issues/15).

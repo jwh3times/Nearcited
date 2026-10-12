@@ -1185,6 +1185,53 @@ export const ActionMessageSchema = z.object({
 });
 export type ActionMessage = z.infer<typeof ActionMessageSchema>;
 
+export const ALERT_KINDS = ["drop"] as const;
+export const AlertKindSchema = z.enum(ALERT_KINDS);
+export type AlertKind = z.infer<typeof AlertKindSchema>;
+
+/** Why the worker cleared an alert: the thing ended, or what it was about is no longer checked. */
+export const ALERT_CLEAR_REASONS = ["named_again", "not_tracked"] as const;
+export const AlertClearReasonSchema = z.enum(ALERT_CLEAR_REASONS);
+export type AlertClearReason = z.infer<typeof AlertClearReasonSchema>;
+
+/** What a drop rests on, as it was counted when the alert was raised. */
+export const DropFactsSchema = z.object({
+  /** The prompt or keyword, as it is asked. */
+  prompt: z.string(),
+  /** How many checks in a row, up to the newest, did not name the business. */
+  missed: z.number().int().positive(),
+  /** How many checks the window held before those, and how many of them named the business. */
+  checks_before: z.number().int().positive(),
+  named_before: z.number().int().nonnegative(),
+});
+export type DropFacts = z.infer<typeof DropFactsSchema>;
+
+/**
+ * Something measured that got worse at a location. The worker raises it when a scan finishes
+ * and clears it when a later scan shows it has ended. See the glossary's "Alert".
+ *
+ * A drop is the one kind so far: a prompt on one surface that named the business and stopped.
+ */
+export const AlertSchema = z.object({
+  id: Id,
+  location_id: Id,
+  kind: AlertKindSchema,
+  /** The prompt and the surface it is about. */
+  tracked_query_id: Id,
+  surface: SurfaceSchema,
+  facts: DropFactsSchema,
+  /** When what it says began: the first check that did not name the business. */
+  since: Timestamp,
+  /** The scan that raised it. Alerts from one scan are shown together. */
+  scan_id: Id.nullable(),
+  raised_at: Timestamp,
+  cleared_at: Timestamp.nullable(),
+  clear_reason: AlertClearReasonSchema.nullable(),
+  dismissed_at: Timestamp.nullable(),
+  dismissed_by_email: z.string().nullable(),
+});
+export type Alert = z.infer<typeof AlertSchema>;
+
 export const MeSchema = z.object({
   user_id: Id,
   email: z.string().nullable(),
@@ -1349,6 +1396,8 @@ export const LocationDetailSchema = z.object({
   tasks: z.array(TaskSchema),
   /** The connected accounts this location is matched to. */
   connections: z.array(LocationConnectionSchema),
+  /** What got worse and has neither ended nor been dismissed, newest first. */
+  alerts: z.array(AlertSchema),
 });
 export type LocationDetail = z.infer<typeof LocationDetailSchema>;
 
