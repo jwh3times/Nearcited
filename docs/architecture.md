@@ -317,14 +317,36 @@ detail not on file is left out, never filled in, and the block says which of str
 code and phone number are missing so the page can lead to Settings. Every `<` in a detail is
 written as `\u003c`, so no detail can close the script element. No model writes any of it.
 
-Nothing is stored. The web app builds the block from the location it already holds, so it always
-says what the details say now, and there is no route, table or wire type for it.
+The block itself is not stored. The web app builds it from the location it already holds, so it
+always says what the details say now, and there is no route or table for it.
 `needsBusinessBlock` decides when it is offered: the page was read and `structured_data` failed,
 and not when the page could not be loaded, since nothing is known about it then. The Website tab
 shows it under the failed check and the action plan shows it on its website step. An operator
 reading through an account sees it without the link to Settings, and a shareable audit's checklist
 offers none, because an audit has no location to build it from. It promises nothing: whether it
 changes what an assistant answers is not known, and the card says so.
+
+**Marking it as pasted.** The card lets a member say the block is on the page. That is the
+`site:structured_data` recommendation (`DETAILS_RULE`) marked the way a task is:
+`PATCH /api/recommendations/:id` with `{ "acted": true }` sets `acted_at` and `false` clears it
+(see "Tasks"), so there is no new route, column or table. Any member of the organization may; the
+operator reading through sees the mark and the counts and has no button. `buildDetailsFix` turns
+that recommendation into `details_fix` on `GET /api/locations/:id`. It is null while the check has
+never found the details missing, and when the recommendation was dismissed. The mark stays once the
+page passes the check: the recommendation clears, `acted_at` does not, and the Website tab keeps
+the line and the counts under the passed check.
+
+- **The next scan confirms it, or not.** `checked_since` is true once a successful scan has been
+  made since the mark. Until then the card says the next scan will look for it, and claims nothing
+  about the page. After that it says whether the scan since found the details on the page or did
+  not, from the latest on-page check.
+- **The answers before the mark are set beside those since.** The route reads them the way it does
+  for a task (`Store.listResultsAround`: the `SCAN_WINDOW` scans before the mark, every scan since up
+  to `MAX_SCANS_SINCE`), and `citedCount` counts, over each side, how many written answers
+  (`CITING_SURFACES`) cited the business's own website, matched as sources are everywhere else. Both
+  counts are null until it is marked. With fewer than `MIN_ANSWERS_SINCE` answers since, the card
+  says it is too early to say. The counts are set side by side, as for a task, and nothing says
+  the block caused a change.
 
 The address is typed by a user, so the fetch treats it as hostile: `http` and `https` on default
 ports only, no IP addresses or internal names, every redirect checked the same way before it is
@@ -360,8 +382,8 @@ recommendations a scan stores are unchanged; the location page leaves the ones t
 covers (`source:*`, `site:*`, `own_site_uncited`) out of its list.
 
 The block from "The on-page check" is shown on the `fix_website` step while `structured_data`
-fails. The location page puts it there; `buildActionPlan` does not carry it, and an audit's plan
-shows none.
+fails, with its mark done. The location page puts it there; `buildActionPlan` does not carry it,
+and an audit's plan shows none.
 
 ## Tasks
 
@@ -395,6 +417,7 @@ from counts the product holds; nothing a model wrote is in one.
   `Store.listResultsAround`, separately from the rate window, because that window moves on and the
   mark does not. With fewer than `MIN_ANSWERS_SINCE` (2) answers since, the page says it is too
   early to compare. The two counts are set side by side; nothing says the work caused the change.
+  The mark on the structured details uses the same read (see "The on-page check").
 - A dismissed recommendation has no task. Ticks on action-plan steps are still kept in the browser
   only. The operator's read-only view hides the buttons.
 - Not built: anything a model drafts, a direct review link, a printable code or request text, page
@@ -1209,9 +1232,7 @@ drop it.
   the choice is still there; a real kind will have to.
 - The `structured_data` check passes for a block that names the business and gives an address, and
   compares nothing else in it, so a phone number or street address that differs from what is on
-  file passes. Nothing marks that a block was added or compares the answers from before and since.
-  Opening hours are not held, so the block has none
-  ([#137](https://github.com/jwh3times/Nearcited/issues/137)).
+  file passes. Opening hours are not held, so the block has none.
 - There is no real kind of action yet (see "Actions"). So no action takes from an allowance, none
   does a task's work, and the only limit on keeping what one replaced is the sample kind's 30 days,
   which is there so that dropping can be seen. The only notices sent are about sample actions, by a

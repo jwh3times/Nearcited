@@ -56,7 +56,10 @@ running scripts: does it load, does `robots.txt` let the assistants' search craw
 free of `noindex`, does it have text, does that text state the business name and city, and does
 it carry structured business details that name the business. Each failed check is a recommendation
 that clears when a later scan finds it fixed. Where a page has none, the location page offers a
-block of them to copy into the page, built from the details on file and nothing else.
+block of them to copy into the page, built from the details on file and nothing else. An owner
+marks it done once it is on the page, the next scan says whether it found it there, and the
+answers that cited the business's website before the mark are set beside those since. Neither
+count says the block caused a change.
 The shareable audit shows the whole checklist. The fetch identifies
 itself as `NearcitedBot`, with a link to the public `/bot` page, and is skipped while the deployment serves sample data.
 
@@ -395,13 +398,13 @@ organization reads as missing and returns 404. Payloads are defined in
 | `POST /api/actions/:actionId/decline` | A member's no. Takes an optional `reason`, up to 200 characters. Answers the action. Any member of the location's organization: 404 to anyone else, the operator included. 409 `limit_reached` when it is no longer waiting; 422 for a longer `reason`. |
 | `POST /api/actions/:actionId/retry` | Asks for a failed action again: a new action, already approved by the caller, that points at the one that failed; queues the worker. Answers the new action, 201. Any member of the location's organization: 404 to anyone else, the operator included. 409 `limit_reached` for an action that did not fail, when another for the same thing is waiting or on its way, or when the plan has no more of its kind this month; 503 `actions_unavailable` as for the yes. |
 | `POST /api/alerts/:alertId/dismiss` | A member's dismissal of an alert: it leaves the location page, and a drop is raised again only once it has ended and begun afresh. Records who and when; answers the alert. Dismissing one already dismissed or cleared changes nothing. Any member of the location's organization: 404 to anyone else, the operator included. Alerts are raised and cleared only by the worker, when a scan finishes. |
-| `GET /api/locations/:id` | One location with its queries, latest scan, rates over recent scans, the sites those answers cited, the surfaces being checked, recommendations, the latest website check, the action plan, the owner's tasks, the connected accounts it is matched to (`connections`) and its open alerts (`alerts`: not cleared, not dismissed, and, for a drop, not about a prompt since retired). |
+| `GET /api/locations/:id` | One location with its queries, latest scan, rates over recent scans, the sites those answers cited, the surfaces being checked, recommendations, the latest website check, the action plan, the owner's tasks, the connected accounts it is matched to (`connections`), its open alerts (`alerts`: not cleared, not dismissed, and, for a drop, not about a prompt since retired) and the fix for a page with no structured business details (`details_fix`: whether a member marked it done, whether a scan has looked since, and how many answers cited the business's website before the mark and since; null until the check has found them missing). |
 | `PATCH /api/locations/:id` | Replace a location's details with a whole location body, as when adding one; a field left out goes back to blank or its default. The same checks as adding. |
 | `POST /api/locations/:id/activate` | Brings a location the plan paused back into use. Takes `instead_of`, the location in use that is paused in its place, when the plan has no room; 409 with the reason without one. 404 to a non-member. |
 | `DELETE /api/locations/:id` | Delete a location and its history. |
 | `POST /api/locations/:id/queries` | Add a prompt or keyword to track; the text needs letters (three for a prompt). Adding one that was retired restores it. |
 | `PATCH /api/queries/:id` | Retire a tracked query, or restore it. Its results are kept. |
-| `PATCH /api/recommendations/:id` | Mark a recommendation open, done or dismissed (`status`), and/or say its work was done or undone (`acted`, a boolean). 409 `limit_reached` for `acted` on a task an action did: that mark stays. |
+| `PATCH /api/recommendations/:id` | Mark a recommendation open, done or dismissed (`status`), and/or say its work was done or undone (`acted`, a boolean; also how a member marks the structured business details as on the page). 409 `limit_reached` for `acted` on a task an action did: that mark stays. |
 | `GET /api/locations/:id/scans` | The last 30 scans for a location. |
 | `POST /api/locations/:id/scans` | Queue a manual scan. 409 if one is already under way, which the database enforces. |
 | `GET /api/scans/:id` | One scan with its results. |
@@ -459,7 +462,7 @@ reader gets one audit only by its token, through the `get_audit()` function.
 
 - **`packages/shared`**: name matching, mention detection, scoring, recommendation rules, input
   validation, the tuning schema, its defaults and prompt rendering, audits, cited sources, the
-  on-page check, the action plan, the structured business details block (what it states, what it leaves out, and that no detail can close its script element) and the alert rules (when a drop, a first sighting or a phone number is raised and when it clears), and which phone numbers an answer gives for the business.
+  on-page check, the action plan, the structured business details block (what it states, what it leaves out, and that no detail can close its script element) and the fix for a page without it (unmarked, marked, and the answers that cited the business's website before and since), and the alert rules (when a drop, a first sighting or a phone number is raised and when it clears), and which phone numbers an answer gives for the business.
 - **`packages/db`**: applies the real migrations to in-process Postgres (PGlite) and checks, as
   different users, that one organization cannot read or write another's rows, that users cannot
   forge scan results or grant themselves a platform role, that worker-only functions and the `audits`, `provider_usage`, `connection_secrets`, `connection_kind_allowances`, `sample_listings` and `action_kind_terms` tables are closed to them, that only an owner or admin can connect, match or remove an account, that a connection breaks and is paused as it should, that only a member of a location's organization can approve, decline or ask again for an action and only the worker can propose or carry one out, that an organization is held once its owners have gone 36 hours untold of an action, that what an action replaced is dropped on its day, that a task an action did stays marked, that an action of a counted kind takes from the month's allowance once and gives it back unless the thing is done, that only the worker can ask that of an organization and a stranger is told nothing of a location's, that only the worker raises or clears an alert, reads what a location's earlier scans named and cited, or keeps that its owners were told of an alert, and only a member of a location's organization can dismiss one, that a result sent without phone numbers is kept with none, and that the operator reads every organization and changes only an organization's limits or a plan's settings or prices, each through one function that records it (announcing and calling off a price change or a reduction included). No Docker needed. It
@@ -472,10 +475,10 @@ reader gets one audit only by its token, through the `get_audit()` function.
 - **`apps/web`**: the logic that lays results out as a grid, the logic behind the chart of the
   score over time, the logic behind the audit page, the logic that fills the location edit form,
   the locations table's summary figures, the onboarding suggestions, the location page's tabs, what
-  the Connections page and its sidebar link show, what the Actions tab says of each action, and what a task says when an action did it.
+  the Connections page and its sidebar link show, what the Actions tab says of each action, what a task says when an action did it, and what the structured details' card says before a scan has looked and after.
 - **`apps/e2e`**: `pnpm e2e` drives the real web app and Worker in Chromium against the local
   Supabase stack, in mock mode: sign-in by the emailed link, onboarding through the first scan, the
-  location page, account settings, connecting a sample account, matching a location to it and removing it, approving a proposed action with its text changed and declining another, a drop shown on the Overview and in the locations table and then dismissed, a business named for the first time shown with a link to the answers, a phone number the answers give shown and dismissed as the business's own, the structured business details offered where a page has none and copied, the operator's view and reading through an account, the public pages and one phone-sized run. It starts the Worker
+  location page, account settings, connecting a sample account, matching a location to it and removing it, approving a proposed action with its text changed and declining another, a drop shown on the Overview and in the locations table and then dismissed, a business named for the first time shown with a link to the answers, a phone number the answers give shown and dismissed as the business's own, the structured business details offered where a page has none, copied, marked done, kept with the location and taken back, the operator's view and reading through an account, the public pages and one phone-sized run. It starts the Worker
   and web app itself, or reuses them if `pnpm dev` is up. `pnpm smoke` is a separate run against a
   real deployment: it signs in as the test account, refuses to go on unless that account's
   organization is a test one, then adds a location and a prompt, runs a scan (generated data), reads
@@ -650,12 +653,10 @@ pnpm sync:agents
   [ADR 0014](docs/adr/0014-only-the-worker-carries-out-an-action.md) decides is built, and no real
   kind uses it: the sample kind is given 30 days to keep what it replaced, so that dropping can be
   seen, it does no task's work, and it takes from no allowance, since no kind of allowance exists.
-- **A check of the structured details beyond the name.** Where the on-page check finds no
-  structured business details that name the business, the Website tab and the action plan offer a
-  block to paste. The check passes for a JSON-LD block that names this business and gives an
-  address; what else the block says is not compared with what is on file. Nothing marks that a
-  block was added or compares the answers from before and since, and opening hours are not held,
-  so the block has none ([#137](https://github.com/jwh3times/Nearcited/issues/137)).
+- **A comparison of the structured details with what is on file.** The on-page check passes for a
+  JSON-LD block that names this business and gives an address. What else the block says, such as a
+  phone number or street address, is not compared with what is on file, so one that differs
+  passes. Opening hours are not held, so the block has none.
 - **An alert about a wrong address.** A drop, a business named for the first time, a site read for
   the first time and a phone number the answers give that is not the location's are built, shown
   on the Overview tab, counted on the locations table and emailed to the owners in the scan
