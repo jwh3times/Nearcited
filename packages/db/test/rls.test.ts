@@ -4559,6 +4559,7 @@ describe("the operator", () => {
         `insert into public.alerts (location_id, kind, subject, facts, since) values ('${main}', 'drop', 'planted', '{}'::jsonb, now())`,
         "update public.alerts set cleared_at = now(), clear_reason = 'named_again'",
         "update public.alerts set dismissed_at = now()",
+        "update public.alerts set told_at = now(), cleared_told_at = now()",
         "delete from public.alerts",
         `select public.complete_scan('${made[0]}', 50, '[]'::jsonb, '[]'::jsonb, '{}'::jsonb)`,
       ]) {
@@ -4662,6 +4663,22 @@ describe("the operator", () => {
           "update public.alerts set cleared_at = now(), clear_reason = 'bored' where cleared_at is null",
         ),
       ).rejects.toThrow(/check constraint/);
+    });
+
+    it("keep whether the owners were told, which only the worker writes", async () => {
+      await finish({ raise: ["prompt-told|chatgpt"] });
+      const untold =
+        "select id from public.alerts where subject = 'prompt-told|chatgpt' and told_at is null";
+      expect(await rows(untold)).toHaveLength(1);
+      await as("service_role", null, () =>
+        db.query("update public.alerts set told_at = now() where subject = 'prompt-told|chatgpt'"),
+      );
+      expect(await rows(untold)).toEqual([]);
+      expect(
+        await rows(
+          "select 1 from public.alerts where subject = 'prompt-told|chatgpt' and cleared_told_at is null",
+        ),
+      ).toHaveLength(1);
     });
 
     it("go with their location", async () => {

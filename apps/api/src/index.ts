@@ -282,6 +282,8 @@ export default {
             ? async (report) => {
                 const owners = await store.listOwnerEmails(report.location.organization_id);
                 await sendEmail(env, owners, buildScanReportEmail(report, env.APP_URL));
+                // With nobody to send to, what the report would have said is still to tell.
+                return owners.length > 0;
               }
             : undefined,
         });

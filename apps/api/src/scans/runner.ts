@@ -1,4 +1,5 @@
 import {
+  type AlertsToTell,
   analyzeObservation,
   analyzeSite,
   deriveAlerts,
@@ -26,6 +27,8 @@ export interface ScanReport {
   results: NewScanResult[];
   /** Every check the score was counted over: this scan and the recent ones before it. */
   window: { scans: number; results: NewScanResult[] };
+  /** What the owners have not been told yet: new alerts, and drops that have ended. */
+  alerts: AlertsToTell;
 }
 
 export interface RunScanDeps {
@@ -49,8 +52,11 @@ export interface RunScanDeps {
    * fetched, such as a deployment serving sample data; the scan then makes no claim about the site.
    */
   inspectSite?: (website: string) => Promise<SiteSnapshot>;
-  /** Called after a scheduled scan succeeds. A failure here is logged and does not fail the scan. */
-  notify?: (report: ScanReport) => Promise<void>;
+  /**
+   * Called after a scheduled scan succeeds, and answers whether the report went to anyone. A
+   * failure here is logged and does not fail the scan.
+   */
+  notify?: (report: ScanReport) => Promise<boolean>;
 }
 
 export type ScanOutcome = "succeeded" | "failed" | "skipped";
@@ -202,16 +208,36 @@ export async function runScan(scanId: string, deps: RunScanDeps): Promise<ScanOu
       !organization?.is_test &&
       organization?.emails_report !== false
     ) {
+      // An alert is told once, in the report: the ones not yet told lead it. A manual scan
+      // sends no report, so what it raised goes in the next one that is sent.
+      let told: AlertsToTell | null = null;
       try {
-        await deps.notify({
+        const news = await store.listAlertsToTell(location.id, sampleData);
+        const sent = await deps.notify({
           location,
           scan,
           score,
           results,
           window: { scans: scans.length, results: pooled },
+          alerts: news,
         });
+        if (sent) told = news;
       } catch (error) {
         console.error(`Scan ${scanId} finished but its report was not sent`, error);
+      }
+      if (told && told.raised.length + told.named_again.length > 0) {
+        try {
+          await store.markAlertsTold(
+            {
+              raised: told.raised.map((alert) => alert.id),
+              named_again: told.named_again.map((alert) => alert.id),
+            },
+            now().toISOString(),
+          );
+        } catch (error) {
+          // The report went. Without this the next one says the same alerts again.
+          console.error(`Scan ${scanId}: could not keep that its alerts were told`, error);
+        }
       }
     }
     return "succeeded";

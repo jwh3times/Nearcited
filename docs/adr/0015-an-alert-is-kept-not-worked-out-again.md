@@ -43,6 +43,16 @@ not prompt wording or score weights.
 the row, in the shared package, so the page and any message say the same sentence. No model
 writes one. What to do stays with the action plan and the tasks.
 
+**The owners are told in the scan report, once.** Where an organization's plan emails a report
+after each scheduled scan, the alerts not yet told lead that report and its subject line. An
+alert only ever comes of a scan, and the report already goes to the same owners after every
+scheduled scan, so a message of its own would always arrive beside one. An alert a manual scan
+raised goes in the next report, if it is still open. A drop the owners were told of gets one line
+when the business is named again. One that a member dismissed first is not sent, and nothing is
+said when a dismissed one ends, or when one ends because its prompt was retired. An alert is
+marked told only when the report went to someone: a report that failed, or had nobody to go to,
+leaves it for the next. A test organization is sent nothing.
+
 ## Considered options
 
 - **Working alerts out from the window at each scan, as recommendations are.** Rejected. It
@@ -56,6 +66,9 @@ writes one. What to do stays with the action plan and the tasks.
   prompt named half the time reads five of seven or better in more than one window in five, and
   two of seven or worse as often, with nothing having changed.
 
+- **An email of its own for each alert.** Rejected. It would land beside the report every time,
+  and a surface that stops naming the business would send one for every prompt.
+
 ## Consequences
 
 - A drop is not raised until its prompt has seven checks on its surface, so a new location, and
@@ -67,4 +80,7 @@ writes one. What to do stays with the action plan and the tasks.
   window still shows it, dated from its first miss. One older than the window is never raised.
 - Sample scans and real ones never share a window, so each alert keeps which kind raised it and
   a page shows only the kind it is showing.
+- An organization whose plan sends no report is told of no alert by email. If it moves to a plan
+  that does, the alerts still open go in its first report.
+- If the report goes and keeping that it went fails, the next report says the same alerts again.
 - What is built so far, and what of issue #136 is still to come, is in `docs/architecture.md`.

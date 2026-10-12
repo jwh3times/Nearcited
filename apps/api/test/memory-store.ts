@@ -92,7 +92,13 @@ export interface MemoryDb {
     allowance_month: string | null;
   })[];
   /** Every alert, with what keeps one thing from being raised twice beside what is sent. */
-  alerts: (Alert & { subject: string; sample_data: boolean })[];
+  alerts: (Alert & {
+    subject: string;
+    sample_data: boolean;
+    /** When the owners were emailed that it was raised, and that it ended. */
+    told_at: string | null;
+    cleared_told_at: string | null;
+  })[];
   /**
    * The `action_kind_terms` table: the allowance a kind of action takes from, and how many days
    * what it replaced may be kept. A test changes a kind's terms to stand for a real kind.
@@ -378,6 +384,8 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
   const sentAlert = ({
     subject: _subject,
     sample_data: _sample,
+    told_at: _told,
+    cleared_told_at: _clearedTold,
     ...alert
   }: MemoryDb["alerts"][number]): Alert => alert;
   const readableLocation = (id: string) =>
@@ -534,6 +542,42 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         )
         .sort((a, b) => b.raised_at.localeCompare(a.raised_at))
         .map(sentAlert);
+    },
+
+    async listAlertsToTell(locationId, sampleData) {
+      const mine = readsLocation(locationId)
+        ? db.alerts
+            .filter(
+              (alert) =>
+                alert.location_id === locationId &&
+                alert.sample_data === sampleData &&
+                alert.dismissed_at === null,
+            )
+            .sort((a, b) => b.raised_at.localeCompare(a.raised_at))
+        : [];
+      return {
+        raised: mine
+          .filter((alert) => alert.cleared_at === null && alert.told_at === null)
+          .map(sentAlert),
+        named_again: mine
+          .filter(
+            (alert) =>
+              alert.clear_reason === "named_again" &&
+              alert.told_at !== null &&
+              alert.cleared_told_at === null,
+          )
+          .map(sentAlert),
+      };
+    },
+
+    // No API role may update the table, so only the worker keeps this.
+    async markAlertsTold(told, at) {
+      if (told.raised.length + told.named_again.length === 0) return;
+      if (userId !== null) throw new StoreError("forbidden", "permission denied for table alerts");
+      for (const alert of db.alerts) {
+        if (told.raised.includes(alert.id)) alert.told_at = at;
+        if (told.named_again.includes(alert.id)) alert.cleared_told_at = at;
+      }
     },
 
     // Mirrors dismiss_alert(): a member of the location's organization, and nothing to change
@@ -2012,6 +2056,8 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
           clear_reason: null,
           dismissed_at: null,
           dismissed_by_email: null,
+          told_at: null,
+          cleared_told_at: null,
         });
       }
     },
