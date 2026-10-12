@@ -961,6 +961,33 @@ describe("alerts", () => {
       errors.mockRestore();
     });
 
+    it("do not hold the report back when they cannot be read", async () => {
+      const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+      await scans(providers, 4);
+      await scans(silent, 2);
+      const queued = await queueScan("scheduled");
+      let report: ScanReport | undefined;
+      await runScan(queued.id, {
+        store: {
+          ...worker,
+          listAlertsToTell: async () => {
+            throw new Error("the database is away");
+          },
+        },
+        providers: silent,
+        notify: async (given) => {
+          report = given;
+          return true;
+        },
+      });
+
+      // The report went, saying nothing of alerts, and the alert is still to tell.
+      expect(report?.alerts).toEqual({ raised: [], named_again: [] });
+      expect(db.alerts.map((alert) => alert.told_at)).toEqual([null]);
+      expect(news(await scheduled(silent))).toEqual([1, 0]);
+      errors.mockRestore();
+    });
+
     it("stay untold where the plan sends no report", async () => {
       await scans(providers, 4);
       await scans(silent, 2);

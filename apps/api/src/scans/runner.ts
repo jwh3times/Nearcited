@@ -210,10 +210,16 @@ export async function runScan(scanId: string, deps: RunScanDeps): Promise<ScanOu
     ) {
       // An alert is told once, in the report: the ones not yet told lead it. A manual scan
       // sends no report, so what it raised goes in the next one that is sent.
-      let told: AlertsToTell | null = null;
+      let news: AlertsToTell = { raised: [], named_again: [] };
       try {
-        const news = await store.listAlertsToTell(location.id, sampleData);
-        const sent = await deps.notify({
+        news = await store.listAlertsToTell(location.id, sampleData);
+      } catch (error) {
+        // The report still goes. What it would have said of alerts leads the next one.
+        console.error(`Scan ${scanId}: its report goes without its alerts, unread`, error);
+      }
+      let sent = false;
+      try {
+        sent = await deps.notify({
           location,
           scan,
           score,
@@ -221,16 +227,15 @@ export async function runScan(scanId: string, deps: RunScanDeps): Promise<ScanOu
           window: { scans: scans.length, results: pooled },
           alerts: news,
         });
-        if (sent) told = news;
       } catch (error) {
         console.error(`Scan ${scanId} finished but its report was not sent`, error);
       }
-      if (told && told.raised.length + told.named_again.length > 0) {
+      if (sent && news.raised.length + news.named_again.length > 0) {
         try {
           await store.markAlertsTold(
             {
-              raised: told.raised.map((alert) => alert.id),
-              named_again: told.named_again.map((alert) => alert.id),
+              raised: news.raised.map((alert) => alert.id),
+              named_again: news.named_again.map((alert) => alert.id),
             },
             now().toISOString(),
           );

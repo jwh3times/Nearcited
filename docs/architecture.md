@@ -27,7 +27,8 @@
   calls `advanceLimitChanges`, which queues the reminders a week before an announced reduction in a
   plan's limits and, on its day, makes the reduction through `apply_limit_change()`.
 - **`queue`**: the consumer. For each scan ID it runs the scan and, for scheduled scans, emails
-  the organization's owners. A message shaped `{ audit_id, prompt_index }` is one prompt of a
+  the organization's owners a report, which opens with any alert they have not been told of (see
+  "Alerts"). A message shaped `{ audit_id, prompt_index }` is one prompt of a
   shareable audit instead (see "Shareable audits"). A message shaped
   `{ price_change_id, organization_id, step }` is one step of a price change for one organization
   (see "Price changes"). A message shaped `{ limit_change_id, organization_id, step }` is one step of
@@ -65,6 +66,10 @@ POST /api/locations/:id/scans          cron
                        |
      recordUsage(): what the providers used, by surface and model (also on failure;
                     nothing on sample data)
+                       |
+     scheduled scans only, where the plan emails a report (not a test organization):
+        listAlertsToTell() -> notify(): the report, with the alerts not yet told first
+        markAlertsTold() only if the report went to someone
 ```
 
 A provider only fetches. Whether the business was named is decided by `analyzeObservation` in
@@ -238,6 +243,12 @@ Failure handling in `runScan`:
 - **A failed scan changes no alert.** Alerts are written only by `complete_scan()`, with the
   results (see "Alerts"), so a failed scan neither raises nor clears one. Failing to read the
   alerts fails the scan like any other error.
+- **A report that is not sent does not fail the scan, and leaves its alerts untold.** The report
+  comes after `complete_scan()`. Failing to send it is logged and the scan stands as succeeded.
+  `notify` answers whether the report went to anyone, and it answers false when the organization
+  has no owner with an address. Failing to read what is still to tell is logged too, and the
+  report goes without its alerts. In each case the alerts stay untold and lead the next report. If the report went and keeping that it went fails, that is
+  logged too, and the next report says the same alerts again (see "Alerts").
 
 ## Where the answers come from
 
@@ -403,12 +414,14 @@ counts the product holds, says what was seen and never what to do, and no model 
   page is showing, as the window does (see "Rates over a window of scans").
 - **Who reads and writes.** `alerts` has a `select` policy for whoever can read the location
   (`can_access_location`) and one for the operator, and no write grant for any API role. Only the
-  worker raises or clears one, through `complete_scan()`. `POST /api/alerts/:alertId/dismiss` calls
-  `dismiss_alert()`, a security-definer function that returns a row only to a member of the
-  location's organization, so the route answers 404 to anyone else, the operator included. It
-  keeps who dismissed (the address they had then) and when, and changes nothing about an alert
-  already dismissed or cleared. `subject` is the worker's bookkeeping, and no route sends it. An
-  alert is deleted with its location.
+  worker raises or clears one, through `complete_scan()`, and only the worker keeps that its owners
+  were told (`markAlertsTold`, an update the secret key alone may make).
+  `POST /api/alerts/:alertId/dismiss` calls `dismiss_alert()`, a security-definer function that
+  returns a row only to a member of the location's organization, so the route answers 404 to
+  anyone else, the operator included. It keeps who dismissed (the address they had then) and when,
+  and changes nothing about an alert already dismissed or cleared. `subject`, `told_at` and
+  `cleared_told_at` are the worker's bookkeeping, and no route sends them. An alert is deleted
+  with its location.
 - **What the page shows.** `GET /api/locations/:id` returns `alerts`: those not cleared, not
   dismissed and not about a prompt retired since the last scan, newest first. The next scan clears
   one about a retired prompt; one about a surface that is no longer checked shows until it does.
@@ -418,7 +431,32 @@ counts the product holds, says what was seen and never what to do, and no model 
   Prompts tab, and has a Dismiss that dismisses the whole card. The locations table shows the
   count beside the location. The operator reading through an account sees alerts and has no
   Dismiss.
-- Not built: an email about an alert, and the other kinds named in
+- **The owners are told in the scan report, once.** A scheduled scan's report already goes to the
+  organization's owners where the deployment has a Resend key, the plan emails a report
+  (`emails_report`) and the organization is not a test one, so an alert goes in that report and
+  has no message of its own. Before sending, `runScan` asks `listAlertsToTell` what is still to
+  say, for the kind of data the scan ran on (`AlertsToTell`, in `packages/shared/src/alerts.ts`):
+  `raised`, the alerts not cleared, not dismissed and not yet told (`told_at` is null), and
+  `named_again`, the drops the owners were told of that ended as `named_again`, were not
+  dismissed, and whose ending is not yet told (`cleared_told_at` is null). They go on the report
+  as `alerts`. `buildScanReportEmail` puts new alerts first, in the subject and at the head of the
+  message. One group of them gives the subject `<location>: no longer named for "<prompt>" on
+  <surface>`, or `no longer named for N prompts on <surface>` when the group is several (keywords
+  on a Google surface); several groups give `<location>: N new alerts`, N counting alerts. Then
+  comes one line for each drop that ended (`alertEnded`), then the report as it was. With nothing
+  new, the subject and the message are what they were.
+- **An alert is marked told only when the report went to someone.** `notify` answers whether it
+  did (false, when the organization has no owner with an address), and only then does `runScan` call
+  `markAlertsTold`, which sets `told_at` for the new alerts and `cleared_told_at` for the endings.
+  A report that fails, or goes to nobody, leaves them untold for the next one (see "How a scan
+  runs"). A manual scan sends no report, so what it raised goes in the next scheduled one if it is
+  still open. An organization whose plan sends no report, or a deployment with no Resend key, tells
+  no one of an alert, and the alerts still open go in its first report once it can send one.
+- **What is not told.** An alert a member dismissed before it was sent. That a dismissed alert
+  ended, even one the owners had been told of. That an alert ended because its prompt was retired
+  or its surface is no longer checked (`not_tracked`). A drop that began and ended between two
+  reports. Anything for a test organization. Telling changes nothing the page shows.
+- Not built: the other kinds named in
   [#136](https://github.com/jwh3times/Nearcited/issues/136): a competitor named for the first
   time, a site read for the first time, and an answer that gives a phone number or address that is
   not the location's.
