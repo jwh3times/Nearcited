@@ -1066,6 +1066,105 @@ export const ConnectionMessageSchema = z.object({
 });
 export type ConnectionMessage = z.infer<typeof ConnectionMessageSchema>;
 
+/**
+ * The kinds of action: what the product can do outside itself for a business. `sample` changes
+ * a made-up line on a sample listing, where the data is generated. See
+ * `docs/adr/0014-only-the-worker-carries-out-an-action.md`.
+ */
+export const ACTION_KINDS = ["sample"] as const;
+export const ActionKindSchema = z.enum(ACTION_KINDS);
+export type ActionKind = z.infer<typeof ActionKindSchema>;
+
+/**
+ * Where an action stands. `proposed` waits for a member's yes. `approved` is on its way to
+ * being carried out by the worker, and ends `done` or `failed`. `declined` is a member's no.
+ * `lapsed` waited fourteen days, or the thing changed before it was carried out.
+ */
+export const ACTION_STATUSES = [
+  "proposed",
+  "approved",
+  "done",
+  "failed",
+  "declined",
+  "lapsed",
+] as const;
+export const ActionStatusSchema = z.enum(ACTION_STATUSES);
+export type ActionStatus = z.infer<typeof ActionStatusSchema>;
+
+/**
+ * One thing the product does outside itself for a location, once a member said yes: what it
+ * would do, what it replaces, who answered and what became of it. See the glossary's "Action".
+ */
+export const ActionSchema = z.object({
+  id: Id,
+  location_id: Id,
+  kind: ActionKindSchema,
+  /** The connection it goes through. */
+  connection_id: Id.nullable(),
+  /** What it would do, in a sentence composed by rule. */
+  summary: z.string(),
+  /** What was there when it was proposed, which is what it replaces. */
+  seen: z.object({ text: z.string().nullable() }).nullable(),
+  /** The text it would put there, and whether a rule or a model wrote it. */
+  proposed_text: z.string().nullable(),
+  written_by: z.enum(["rule", "model"]),
+  status: ActionStatusSchema,
+  proposed_at: Timestamp,
+  /** When it stops waiting, if nobody has answered. */
+  lapses_at: Timestamp,
+  approved_by_email: z.string().nullable(),
+  approved_at: Timestamp.nullable(),
+  /** What was approved, when a member changed the text first. Null when it went as proposed. */
+  approved_text: z.string().nullable(),
+  declined_by_email: z.string().nullable(),
+  declined_at: Timestamp.nullable(),
+  decline_reason: z.string().nullable(),
+  done_at: Timestamp.nullable(),
+  failed_at: Timestamp.nullable(),
+  /** Why it failed, or why the last try did not work. */
+  failure: z.string().nullable(),
+  lapsed_at: Timestamp.nullable(),
+  lapse_reason: z.enum(["expired", "out_of_date"]).nullable(),
+  /** The failed action this one was asked for again from. */
+  retry_of: Id.nullable(),
+});
+export type Action = z.infer<typeof ActionSchema>;
+
+/** A location's actions: what is waiting for a yes, and the record of the rest, newest first. */
+export const LocationActionsSchema = z.object({
+  waiting: z.array(ActionSchema),
+  record: z.array(ActionSchema),
+});
+export type LocationActions = z.infer<typeof LocationActionsSchema>;
+
+/** A member's yes. `text` is sent when they changed what would be published. */
+export const ActionApprovalSchema = z.object({
+  text: z
+    .string()
+    .trim()
+    .min(1, "Write something, or decline it")
+    .max(5000, "Use 5,000 characters or fewer")
+    .optional(),
+});
+export type ActionApproval = z.infer<typeof ActionApprovalSchema>;
+
+/** A member's no, with a reason or without. */
+export const ActionDeclineSchema = z.object({
+  reason: z.string().trim().max(200, "Use 200 characters or fewer").optional(),
+});
+export type ActionDecline = z.infer<typeof ActionDeclineSchema>;
+
+/** How many actions are waiting for a yes, by location. A location with none is absent. */
+export const WaitingActionsSchema = z.record(Id, z.number().int().positive());
+export type WaitingActions = z.infer<typeof WaitingActionsSchema>;
+
+/** A message asking the worker to carry out one approved action. */
+export const ActionMessageSchema = z.object({
+  action_id: Id,
+  step: z.enum(["carry_out"]),
+});
+export type ActionMessage = z.infer<typeof ActionMessageSchema>;
+
 export const MeSchema = z.object({
   user_id: Id,
   email: z.string().nullable(),

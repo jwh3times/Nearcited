@@ -104,6 +104,13 @@ pass `pnpm check` and run in mock mode without it.
   the queue, and no route or wire type carries it, sealed or not. Do not add a policy or a grant
   on `connection_secrets`, and do not read it anywhere but `getConnectionSecret`, which only the
   worker calls.
+- **Only the worker proposes an action, and only the worker carries one out.** A request records a
+  member's yes or no (`approve_action()`, `decline_action()`, `retry_action()`) and queues the
+  worker (`docs/adr/0014-only-the-worker-carries-out-an-action.md`). `carryOutAction`
+  (`apps/api/src/actions/index.ts`) reads what is there before it writes: already as the action
+  would make it is done, and no longer what the member was shown is out of date, and neither
+  writes. Do not carry an action out on a request path, do not write through a connection
+  anywhere else, and keep the read before the write.
 - **`packages/shared/src/schemas.ts` defines every wire type.** Change the schema first, then the
   API and the client. Field names stay snake_case end to end.
 - **All database access goes through the `Store` interface** (`apps/api/src/store/types.ts`). A

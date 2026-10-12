@@ -1540,6 +1540,43 @@ mark {
   align-self: flex-start;
 }
 
+/* One action on a location's Actions tab: what it would do, its text, and the answers. */
+.action {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1.375rem;
+}
+
+.action-name {
+  font-size: 1.0625rem;
+}
+
+.action li {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.action li span:last-child {
+  overflow-wrap: anywhere;
+}
+
+/* The text an action would publish: a field like any other, tall enough to read and change. */
+.action textarea {
+  width: 100%;
+  min-height: 5.5rem;
+  padding: 0.625rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  resize: vertical;
+}
+
 /* A connected account on the Connections page: what it is, who connected it, and the way out. */
 .connection {
   display: flex;

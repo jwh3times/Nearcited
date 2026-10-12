@@ -1,4 +1,5 @@
 import {
+  ActionSchema,
   AllowanceClaimSchema,
   AllowanceUseSchema,
   AuditJobSchema,
@@ -72,6 +73,7 @@ const ERROR_KINDS: Record<string, StoreErrorKind> = {
   NC010: "limit", // a reduction that needs announcing, cannot be, or is held while one is open
   NC011: "limit", // an allowance of a kind that does not exist, or a value its kind does not take
   NC012: "limit", // a match a connection cannot take: not reached, already taken, or not working
+  NC013: "limit", // an action that is no longer waiting, or cannot be asked for again
 };
 
 function fail(action: string, error: DbError): never {
@@ -180,6 +182,10 @@ const LISTED_AUDIT_COLUMNS =
 const ORGANIZATION_COLUMNS =
   "id, name, max_locations, max_queries_per_location, max_manual_scans_per_month, scan_every_days, surfaces, is_test, emails_report, allowances, plan_key, created_at";
 
+// What a member is sent of an action. `subject` and `basis` are the worker's own bookkeeping.
+const ACTION_COLUMNS =
+  "id, location_id, kind, connection_id, summary, seen, proposed_text, written_by, status, proposed_at, lapses_at, approved_by_email, approved_at, approved_text, declined_by_email, declined_at, decline_reason, done_at, failed_at, failure, lapsed_at, lapse_reason, retry_of";
+
 // Never the sign-in: that is in another table, which only the worker reads.
 const CONNECTION_COLUMNS =
   "id, organization_id, kind, label, status, connected_by_email, connected_at, removed_by_email, removal_requested_at, removed_at, broken_reason, broken_at, paused_at, removal_reason, last_synced_at, choices, matches:connection_locations(location_id, external_id, external_label, matched_at)";
@@ -259,6 +265,59 @@ export function createSupabaseStore(db: SupabaseClient): Store {
       // The count is for the month it names. In any other month nothing has been used yet.
       const thisMonth = `${new Date().toISOString().slice(0, 7)}-01`;
       return counted.manual_scans_month === thisMonth ? counted.manual_scans_used : 0;
+    },
+
+    async listLocationActions(locationId) {
+      const { data, error } = await db
+        .from("actions")
+        .select(ACTION_COLUMNS)
+        .eq("location_id", locationId)
+        .order("proposed_at", { ascending: false })
+        .limit(100);
+      if (error) fail("List actions", error);
+      return z.array(ActionSchema).parse(data ?? []);
+    },
+
+    async countWaitingActions(organizationId) {
+      // By the organization named, not by what the caller can read: the operator reads them all.
+      const { data, error } = await db
+        .from("actions")
+        .select("location_id, locations!inner(organization_id)")
+        .eq("status", "proposed")
+        .eq("locations.organization_id", organizationId);
+      if (error) fail("Count waiting actions", error);
+      const waiting: Record<string, number> = {};
+      for (const row of z.array(z.object({ location_id: z.uuid() })).parse(data ?? [])) {
+        waiting[row.location_id] = (waiting[row.location_id] ?? 0) + 1;
+      }
+      return waiting;
+    },
+
+    async approveAction(id, text) {
+      const { data, error } = await db
+        .rpc("approve_action", { action: id, edited_text: text ?? null })
+        .select(ACTION_COLUMNS)
+        .maybeSingle();
+      if (error) fail("Approve an action", error);
+      return data ? ActionSchema.parse(data) : null;
+    },
+
+    async declineAction(id, reason) {
+      const { data, error } = await db
+        .rpc("decline_action", { action: id, reason: reason ?? null })
+        .select(ACTION_COLUMNS)
+        .maybeSingle();
+      if (error) fail("Decline an action", error);
+      return data ? ActionSchema.parse(data) : null;
+    },
+
+    async retryAction(id) {
+      const { data, error } = await db
+        .rpc("retry_action", { action: id })
+        .select(ACTION_COLUMNS)
+        .maybeSingle();
+      if (error) fail("Ask for an action again", error);
+      return data ? ActionSchema.parse(data) : null;
     },
 
     async listConnections(organizationId) {
@@ -426,6 +485,97 @@ export function createSupabaseStore(db: SupabaseClient): Store {
         .maybeSingle();
       if (error) fail("Choose assistants", error);
       return data ? OrganizationSchema.parse(data) : null;
+    },
+
+    async proposeAction(action) {
+      const { data, error } = await db
+        .rpc("propose_action", {
+          location: action.location_id,
+          of_kind: action.kind,
+          via: action.connection_id,
+          about: action.subject,
+          resting_on: action.basis,
+          what: action.summary,
+          was: action.seen,
+          new_text: action.proposed_text,
+          author: action.written_by,
+        })
+        .select(ACTION_COLUMNS)
+        .maybeSingle();
+      if (error) fail("Propose an action", error);
+      return data ? ActionSchema.parse(data) : null;
+    },
+
+    async getAction(id) {
+      const { data, error } = await db
+        .from("actions")
+        .select(ACTION_COLUMNS)
+        .eq("id", id)
+        .maybeSingle();
+      if (error) fail("Get action", error);
+      return data ? ActionSchema.parse(data) : null;
+    },
+
+    async claimAction(id) {
+      const { data, error } = await db.rpc("claim_action", { action: id });
+      if (error) fail("Claim an action", error);
+      return z
+        .number()
+        .int()
+        .parse(data ?? 0);
+    },
+
+    async finishAction(id, outcome, why) {
+      const { data, error } = await db.rpc("finish_action", {
+        action: id,
+        outcome,
+        why: why ?? null,
+      });
+      if (error) fail("Finish an action", error);
+      return data === true;
+    },
+
+    async lapseActions() {
+      const { data, error } = await db.rpc("lapse_actions");
+      if (error) fail("Lapse actions", error);
+      return z
+        .number()
+        .int()
+        .parse(data ?? 0);
+    },
+
+    async listStalledActions(before) {
+      const { data, error } = await db
+        .from("actions")
+        .select("id")
+        .eq("status", "approved")
+        .lt("approved_at", before)
+        .is("carrying_since", null);
+      if (error) fail("List stalled actions", error);
+      return z
+        .array(z.object({ id: z.uuid() }))
+        .parse(data ?? [])
+        .map((row) => row.id);
+    },
+
+    async getSampleLine(connectionId, externalId) {
+      const { data, error } = await db
+        .from("sample_listings")
+        .select("opening_line")
+        .eq("connection_id", connectionId)
+        .eq("external_id", externalId)
+        .maybeSingle();
+      if (error) fail("Read a sample listing", error);
+      return data
+        ? z.object({ opening_line: z.string().nullable() }).parse(data).opening_line
+        : null;
+    },
+
+    async setSampleLine(connectionId, externalId, line) {
+      const { error } = await db
+        .from("sample_listings")
+        .upsert({ connection_id: connectionId, external_id: externalId, opening_line: line });
+      if (error) fail("Write a sample listing", error);
     },
 
     async getConnection(id) {

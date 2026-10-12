@@ -3765,6 +3765,296 @@ describe("the operator", () => {
     });
   });
 
+  describe("actions", () => {
+    const member = "ab000000-0000-4000-8000-00000000ab0a";
+    const account = "c2000000-0000-4000-8000-000000000001";
+    const propose = (about: string, restingOn: string, text: string | null = "New line") =>
+      as("service_role", null, () =>
+        rows<{ id: string; status: string; waits: string }>(
+          "select id, status, (lapses_at - proposed_at)::text as waits from public.propose_action($1, 'sample', $2, $3, $4, 'Set the opening line', '{\"text\": null}'::jsonb, $5, 'rule')",
+          [main, account, about, restingOn, text],
+        ),
+      );
+    const approve =
+      "select status, approved_by_email, approved_text from public.approve_action($1, $2)";
+    const decline =
+      "select status, declined_by_email, decline_reason from public.decline_action($1, $2)";
+    const claim = (id: string) =>
+      as("service_role", null, () =>
+        rows<{ try: number }>("select public.claim_action($1) as try", [id]),
+      );
+    const finish = (id: string, outcome: string, why: string | null = null) =>
+      as("service_role", null, () =>
+        rows<{ finished: boolean }>("select public.finish_action($1, $2, $3) as finished", [
+          id,
+          outcome,
+          why,
+        ]),
+      );
+    const stands = (id: string) =>
+      rows<Record<string, unknown>>(
+        "select status, attempts, carrying_since is not null as carrying, failure, lapse_reason from public.actions where id = $1",
+        [id],
+      );
+    let main: string;
+    let first: string;
+
+    beforeAll(async () => {
+      const [location] = await rows<{ id: string }>(
+        "select id from public.locations where organization_id = $1 limit 1",
+        [theirs],
+      );
+      main = location?.id ?? "";
+      await db.query("insert into auth.users (id, email) values ($1, 'acting@example.com')", [
+        member,
+      ]);
+      await db.query(
+        "insert into public.memberships (organization_id, user_id, role) values ($1, $2, 'member')",
+        [theirs, member],
+      );
+      await db.query(
+        "insert into public.connections (id, organization_id, kind, label) values ($1, $2, 'sample', 'Sample account')",
+        [account, theirs],
+      );
+    });
+    afterAll(async () => {
+      await db.query("delete from public.actions");
+      await db.query("delete from public.connections where id = $1", [account]);
+      await db.query("delete from public.memberships where user_id = $1", [member]);
+    });
+
+    it("are proposed by the worker alone, one at a time for a thing, with fourteen days to answer", async () => {
+      const asked =
+        "select * from public.propose_action($1, 'sample', $2, 'opening-line:a', 'basis', 'Planted', null, 'Planted', 'rule')";
+      for (const user of [alice, member, operator]) {
+        await expect(
+          as("authenticated", user, () => db.query(asked, [main, account])),
+          user,
+        ).rejects.toThrow(/permission denied/);
+      }
+      const [made] = await propose("opening-line:a", "first");
+      first = made?.id ?? "";
+      expect(made).toMatchObject({ status: "proposed", waits: "14 days" });
+      // A second for the same thing is not made while the first waits, whatever it rests on.
+      expect(await propose("opening-line:a", "second")).toEqual([]);
+      // Another thing is another proposal.
+      expect(await propose("opening-line:b", "first")).toHaveLength(1);
+    });
+
+    it("are read by whoever reads the location and by the operator, and written by no one directly", async () => {
+      const read = "select id from public.actions where location_id = $1";
+      for (const user of [alice, member, operator]) {
+        expect(await as("authenticated", user, () => rows(read, [main])), user).toHaveLength(2);
+      }
+      expect(await as("authenticated", bob, () => rows(read, [main]))).toEqual([]);
+      await expect(as("anon", null, () => db.query(read, [main]))).rejects.toThrow(
+        /permission denied/,
+      );
+      for (const sql of [
+        `insert into public.actions (location_id, kind, subject, basis, summary, written_by) values ('${main}', 'sample', 'planted', 'planted', 'Planted', 'rule')`,
+        "update public.actions set status = 'done'",
+        "update public.actions set proposed_text = 'Swapped'",
+        "delete from public.actions",
+        "select opening_line from public.sample_listings",
+        "delete from public.sample_listings",
+      ]) {
+        for (const user of [alice, operator]) {
+          await expect(
+            as("authenticated", user, () => db.query(sql)),
+            sql,
+          ).rejects.toThrow(/permission denied/);
+        }
+      }
+      for (const fn of [
+        `public.claim_action('${first}')`,
+        `public.finish_action('${first}', 'done')`,
+        "public.lapse_actions()",
+      ]) {
+        for (const user of [alice, operator]) {
+          await expect(
+            as("authenticated", user, () => db.query(`select ${fn}`)),
+            fn,
+          ).rejects.toThrow(/permission denied/);
+        }
+      }
+    });
+
+    it("are approved by any member of the organization, and by nobody else", async () => {
+      for (const user of [bob, operator]) {
+        expect(await as("authenticated", user, () => rows(approve, [first, null])), user).toEqual(
+          [],
+        );
+      }
+      await expect(as("anon", null, () => db.query(approve, [first, null]))).rejects.toThrow(
+        /permission denied/,
+      );
+      // The worker takes nothing that nobody approved.
+      expect(await claim(first)).toEqual([{ try: 0 }]);
+
+      expect(await as("authenticated", member, () => rows(approve, [first, null]))).toEqual([
+        { status: "approved", approved_by_email: "acting@example.com", approved_text: null },
+      ]);
+      await expect(
+        as("authenticated", alice, () => db.query(approve, [first, null])),
+      ).rejects.toThrow(/no longer waiting for a yes/);
+      await expect(
+        as("authenticated", alice, () => db.query(decline, [first, "Too late"])),
+      ).rejects.toThrow(/no longer waiting for an answer/);
+    });
+
+    it("keep what was approved beside what was proposed, when a member changed the text", async () => {
+      const [same] = await propose("opening-line:c", "first", "As proposed");
+      expect(
+        await as("authenticated", alice, () => rows(approve, [same?.id, "  As proposed  "])),
+      ).toMatchObject([{ approved_text: null }]);
+      const [changed] = await propose("opening-line:d", "first", "As proposed");
+      expect(
+        await as("authenticated", alice, () => rows(approve, [changed?.id, "  As changed  "])),
+      ).toMatchObject([{ status: "approved", approved_text: "As changed" }]);
+      const [wordless] = await propose("opening-line:e", "first", null);
+      await expect(
+        as("authenticated", alice, () => db.query(approve, [wordless?.id, "Words"])),
+      ).rejects.toThrow(/no text to change/);
+    });
+
+    it("are declined with a reason or without, and then not proposed again on the same footing", async () => {
+      const [second] = await rows<{ id: string }>(
+        "select id from public.actions where subject = 'opening-line:b'",
+      );
+      expect(await as("authenticated", bob, () => rows(decline, [second?.id, null]))).toEqual([]);
+      expect(
+        await as("authenticated", member, () => rows(decline, [second?.id, "  Not this one  "])),
+      ).toEqual([
+        {
+          status: "declined",
+          declined_by_email: "acting@example.com",
+          decline_reason: "Not this one",
+        },
+      ]);
+      await expect(
+        as("authenticated", alice, () => db.query(decline, [second?.id, "x".repeat(201)])),
+      ).rejects.toThrow(/no longer waiting/);
+      expect(await propose("opening-line:b", "first")).toEqual([]);
+      // What it rests on has changed, so it may be offered again.
+      expect(await propose("opening-line:b", "something new")).toHaveLength(1);
+    });
+
+    it("are carried out by one worker at a time, which says which try it is", async () => {
+      expect(await claim(first)).toEqual([{ try: 1 }]);
+      expect(await claim(first)).toEqual([{ try: 0 }]);
+      // Whoever had it is taken to have died after ten minutes.
+      await db.query(
+        "update public.actions set carrying_since = now() - interval '11 minutes' where id = $1",
+        [first],
+      );
+      expect(await claim(first)).toEqual([{ try: 2 }]);
+      // A try that did not work lets go of it, keeping why.
+      expect(await finish(first, "again", "The outside service is down.")).toEqual([
+        { finished: true },
+      ]);
+      expect(await stands(first)).toEqual([
+        {
+          status: "approved",
+          attempts: 2,
+          carrying: false,
+          failure: "The outside service is down.",
+          lapse_reason: null,
+        },
+      ]);
+      expect(await claim(first)).toEqual([{ try: 3 }]);
+      await expect(finish(first, "abandoned")).rejects.toThrow(/ends done, failed/);
+    });
+
+    it("end done, failed or out of date, once", async () => {
+      expect(await finish(first, "failed", "It could not be done.")).toEqual([{ finished: true }]);
+      expect(await stands(first)).toMatchObject([
+        { status: "failed", carrying: false, failure: "It could not be done." },
+      ]);
+      expect(await finish(first, "done")).toEqual([{ finished: false }]);
+      expect(await claim(first)).toEqual([{ try: 0 }]);
+
+      const [changed] = await rows<{ id: string }>(
+        "select id from public.actions where subject = 'opening-line:d'",
+      );
+      await claim(changed?.id ?? "");
+      expect(await finish(changed?.id ?? "", "out_of_date")).toEqual([{ finished: true }]);
+      expect(await stands(changed?.id ?? "")).toMatchObject([
+        { status: "lapsed", lapse_reason: "out_of_date" },
+      ]);
+
+      const [same] = await rows<{ id: string }>(
+        "select id from public.actions where subject = 'opening-line:c'",
+      );
+      await claim(same?.id ?? "");
+      expect(await finish(same?.id ?? "", "done")).toEqual([{ finished: true }]);
+      expect(
+        await rows("select status, done_at is not null as done from public.actions where id = $1", [
+          same?.id,
+        ]),
+      ).toEqual([{ status: "done", done: true }]);
+    });
+
+    it("are asked for again only after failing, as a new action that points at the old", async () => {
+      const again = "select id, status, retry_of, approved_by_email from public.retry_action($1)";
+      expect(await as("authenticated", bob, () => rows(again, [first]))).toEqual([]);
+      expect(await as("authenticated", operator, () => rows(again, [first]))).toEqual([]);
+      const [done] = await rows<{ id: string }>(
+        "select id from public.actions where subject = 'opening-line:c'",
+      );
+      await expect(as("authenticated", alice, () => db.query(again, [done?.id]))).rejects.toThrow(
+        /Only an action that failed/,
+      );
+
+      const [retried] = await as("authenticated", alice, () =>
+        rows<Record<string, unknown>>(again, [first]),
+      );
+      expect(retried).toMatchObject({
+        status: "approved",
+        retry_of: first,
+        approved_by_email: "alice@example.com",
+      });
+      // Not twice: the first asking is on its way.
+      await expect(as("authenticated", member, () => db.query(again, [first]))).rejects.toThrow(
+        /already one of these/,
+      );
+      expect(await stands(first)).toMatchObject([{ status: "failed" }]);
+    });
+
+    it("lapse when nobody answers in fourteen days, and cannot be approved past their day", async () => {
+      const [late] = await propose("opening-line:f", "first");
+      await db.query(
+        "update public.actions set lapses_at = now() - interval '1 minute' where id = $1",
+        [late?.id],
+      );
+      await expect(
+        as("authenticated", alice, () => db.query(approve, [late?.id, null])),
+      ).rejects.toThrow(/no longer waiting for a yes/);
+      expect(
+        await as("service_role", null, () =>
+          rows<{ lapsed: number }>("select public.lapse_actions() as lapsed"),
+        ),
+      ).toEqual([{ lapsed: 1 }]);
+      expect(await stands(late?.id ?? "")).toMatchObject([
+        { status: "lapsed", lapse_reason: "expired" },
+      ]);
+      // Lapsed, it can be proposed again.
+      expect(await propose("opening-line:f", "first")).toHaveLength(1);
+    });
+
+    it("go with their location", async () => {
+      const [gone] = await rows<{ id: string }>(
+        "insert into public.locations (organization_id, name, city) values ($1, 'Closing', 'Raleigh') returning id",
+        [theirs],
+      );
+      await db.query(
+        "insert into public.actions (location_id, kind, subject, basis, summary, written_by) values ($1, 'sample', 'a', 'b', 'Summary', 'rule')",
+        [gone?.id],
+      );
+      await db.query("delete from public.locations where id = $1", [gone?.id]);
+      expect(await rows("select 1 from public.actions where subject = 'a'")).toEqual([]);
+    });
+  });
+
   describe("making an audit", () => {
     const create =
       "select id, token, business_name, website, region, country_code, prompts, samples, status from public.operator_create_audit('Joe''s Pizza', 'https://joes.example/', 'Raleigh', null, 'US', array['best pizza', 'late night food'], 2)";

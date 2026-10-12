@@ -90,6 +90,12 @@ connectionRoutes.put("/connections/:connectionId/locations/:locationId", async (
   const { external_id } = await parseJson(c, ConnectionMatchInputSchema);
   const match = await c.get("store").matchConnectionLocation(connectionId, locationId, external_id);
   if (!match) throw notFound("Connection");
+  // The worker reads the account again, now that it knows which part of it is this location's.
+  try {
+    await c.env.SCAN_QUEUE.send({ connection_id: connectionId, step: "sync" });
+  } catch (error) {
+    console.error(`Connection ${connectionId}: could not queue a sync after a match`, error);
+  }
   return c.json(match);
 });
 

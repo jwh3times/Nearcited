@@ -1,5 +1,7 @@
 import type {
   AccountFacts,
+  Action,
+  ActionKind,
   AllowanceClaim,
   AllowanceUse,
   AuditInput,
@@ -37,6 +39,7 @@ import type {
   TrackedQuery,
   TrackedQueryInput,
   UsageByMonth,
+  WaitingActions,
 } from "@nearcited/shared";
 
 /** A scan as the operator's overview reads it: what happened, and what it found of the website. */
@@ -76,6 +79,21 @@ export interface PriceVersion {
   extra_location_price_cents: number | null;
   stripe_price_id: string;
   stripe_extra_location_price_id: string | null;
+}
+
+/** An action for the worker to propose. */
+export interface NewAction {
+  location_id: string;
+  kind: ActionKind;
+  connection_id: string | null;
+  /** What it is about, so the same thing is not proposed twice. */
+  subject: string;
+  /** A fingerprint of what the proposal rests on. */
+  basis: string;
+  summary: string;
+  seen: { text: string | null } | null;
+  proposed_text: string | null;
+  written_by: "rule" | "model";
 }
 
 /** A connection to make: its sign-in is already sealed, to the ID given here. */
@@ -150,6 +168,22 @@ export interface Store {
    * Null for an organization the caller cannot read.
    */
   getManualScansUsed(organizationId: string): Promise<number | null>;
+  /** A location's actions, newest first, for whoever can read the location. */
+  listLocationActions(locationId: string): Promise<Action[]>;
+  /** How many actions wait for a yes at each of an organization's locations. */
+  countWaitingActions(organizationId: string): Promise<WaitingActions>;
+  /**
+   * A member's yes to an action, with the text changed or not. Null for anyone who is not a
+   * member of the location's organization. Throws a limit when it is no longer waiting.
+   */
+  approveAction(id: string, text?: string): Promise<Action | null>;
+  /** A member's no, with a reason or without. Null for anyone who is not a member. */
+  declineAction(id: string, reason?: string): Promise<Action | null>;
+  /**
+   * Asks for a failed action again: a new action, approved by whoever asked, that points at the
+   * one that failed. Null for anyone who is not a member.
+   */
+  retryAction(id: string): Promise<Action | null>;
   /** An organization's connections, removed ones included, newest first. */
   listConnections(organizationId: string): Promise<Connection[]>;
   /** Whether the caller may connect and remove for the organization: its owner or an admin. */
@@ -367,6 +401,37 @@ export interface Store {
    * Returns how many. The prompts that did report are kept.
    */
   failStaleAudits(olderThan: string, error: string): Promise<number>;
+  /**
+   * Proposes an action. Null when nothing was proposed: one for the same thing is waiting or on
+   * its way, or one was declined and what it rests on has not changed. Worker only.
+   */
+  proposeAction(action: NewAction): Promise<Action | null>;
+  /** One action, for whoever may read its location. The worker reads any. */
+  getAction(id: string): Promise<Action | null>;
+  /**
+   * Takes an approved action to carry out. Says which try this is, counting from one, or zero
+   * when it is not approved or the worker is already on it. Worker only.
+   */
+  claimAction(id: string): Promise<number>;
+  /**
+   * Keeps what became of carrying an action out. `again` lets go of it for another try. False
+   * when it was not approved. Worker only.
+   */
+  finishAction(
+    id: string,
+    outcome: "done" | "failed" | "out_of_date" | "again",
+    why?: string,
+  ): Promise<boolean>;
+  /** Lapses every proposal that has waited its fourteen days. Returns how many. Worker only. */
+  lapseActions(): Promise<number>;
+  /**
+   * The actions approved before `before` that nobody is carrying out: their message was lost.
+   * Worker only.
+   */
+  listStalledActions(before: string): Promise<string[]>;
+  /** What one of the sample account's listings says. Worker only. */
+  getSampleLine(connectionId: string, externalId: string): Promise<string | null>;
+  setSampleLine(connectionId: string, externalId: string, line: string): Promise<void>;
   /** One connection, for whoever may read its organization. The worker reads any. */
   getConnection(id: string): Promise<Connection | null>;
   /**

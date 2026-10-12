@@ -35,6 +35,13 @@ export function Shell({ me, organization, children }: ShellProps) {
   // The link is there once the page has something to show: an account connected, or one that
   // could be. The operator reading through follows it too, and changes nothing there.
   const connections = useQuery(connectionsQuery(organization.id));
+  // How many actions wait for a yes at each location, so the sidebar can say where to look.
+  const waiting = useQuery({
+    queryKey: ["actions-waiting", organization.id],
+    queryFn: () => api.waitingActions(organization.id),
+    // The worker proposes on its own time, so this is asked again now and then.
+    refetchInterval: 30_000,
+  });
   const home = base || "/";
   const locations = useQuery({
     queryKey: ["locations", organization.id],
@@ -92,6 +99,7 @@ export function Shell({ me, organization, children }: ShellProps) {
                     <span className="nav-place">
                       {placeOf(location)}
                       {location.paused_by_plan ? " · paused" : ""}
+                      {waiting.data?.[location.id] ? ` · ${waiting.data[location.id]} waiting` : ""}
                     </span>
                   </span>
                   <span className="mono">{score ?? "—"}</span>

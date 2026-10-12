@@ -1,4 +1,5 @@
 import {
+  ActionSchema,
   ApiErrorSchema,
   type AssistantChoice,
   type AuditFormValues,
@@ -8,6 +9,7 @@ import {
   ConnectionMatchSchema,
   ConnectionSchema,
   LimitChangeSchema,
+  LocationActionsSchema,
   type LocationDetail,
   LocationDetailSchema,
   type LocationFormValues,
@@ -35,6 +37,7 @@ import {
   SubscriptionChangeSchema,
   type TrackedQueryInput,
   TrackedQuerySchema,
+  WaitingActionsSchema,
 } from "@nearcited/shared";
 import type { z } from "zod";
 import { supabase } from "./supabase";
@@ -142,6 +145,19 @@ export const api = {
     json(SubscriptionChangeSchema, "PUT", `/organizations/${id}/subscription`, input),
   /** Drops a change that was waiting for the period to end. */
   keepCurrentPlan: (id: string) => send("DELETE", `/organizations/${id}/subscription/pending`),
+  /** What is waiting for a yes at a location, and the record of what was done. */
+  locationActions: (locationId: string) =>
+    json(LocationActionsSchema, "GET", `/locations/${locationId}/actions`),
+  /** How many actions wait for a yes, by location. */
+  waitingActions: (organizationId: string) =>
+    json(WaitingActionsSchema, "GET", `/organizations/${organizationId}/actions/waiting`),
+  /** A yes to one action. `text` is sent only when the reader changed it. */
+  approveAction: (id: string, text?: string) =>
+    json(ActionSchema, "POST", `/actions/${id}/approve`, text === undefined ? {} : { text }),
+  declineAction: (id: string, reason?: string) =>
+    json(ActionSchema, "POST", `/actions/${id}/decline`, reason ? { reason } : {}),
+  /** Asks for a failed action again. */
+  retryAction: (id: string) => json(ActionSchema, "POST", `/actions/${id}/retry`),
   /** What an organization has connected, what it could connect, and whether the reader may. */
   connections: (organizationId: string) =>
     json(OrganizationConnectionsSchema, "GET", `/organizations/${organizationId}/connections`),

@@ -11,6 +11,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, type KeyboardEvent, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { ActionPlan } from "../components/ActionPlan";
+import { Actions } from "../components/Actions";
 import { ErrorNote } from "../components/ErrorNote";
 import { Field } from "../components/Field";
 import { LocationEditor } from "../components/LocationEditor";
@@ -22,13 +23,14 @@ import { ScoreCard } from "../components/ScoreCard";
 import { SiteChecklist } from "../components/SiteChecklist";
 import { SourceTable } from "../components/SourceTable";
 import { Tasks } from "../components/Tasks";
+import { actionsQuery, hasActions } from "../lib/actions";
 import { api } from "../lib/api";
 import { useFormErrors } from "../lib/form";
 import { cadence, formatDate, listOf } from "../lib/format";
 import { locationKey, placeOf, scansKey } from "../lib/locations";
 import { tallyCompetitors } from "../lib/matrix";
 import { windowRate } from "../lib/summary";
-import { neighbour, TAB_LABELS, TABS, type Tab, tabFrom } from "../lib/tabs";
+import { neighbour, TAB_LABELS, type Tab, tabFrom, tabsFor } from "../lib/tabs";
 import { buildTrend } from "../lib/trend";
 import { useViewing } from "../lib/viewing";
 
@@ -42,7 +44,11 @@ export function LocationDetail() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [params, setParams] = useSearchParams();
-  const tab = tabFrom(params.get("tab"));
+  // What Nearcited would do for this location and what it has done. The tab is there once
+  // there is anything to put on it.
+  const actions = useQuery(actionsQuery(id));
+  const tabs = tabsFor(hasActions(actions.data));
+  const tab = tabFrom(params.get("tab"), tabs);
   const { base, readOnly } = useViewing();
   const home = base || "/";
   const tabbar = useRef<HTMLDivElement>(null);
@@ -146,7 +152,7 @@ export function LocationDetail() {
     const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : null;
     if (step === null) return;
     event.preventDefault();
-    const next = neighbour(tab, step);
+    const next = neighbour(tab, step, tabs);
     openTab(next);
     document.getElementById(`tab-${next}`)?.focus();
   }
@@ -207,7 +213,7 @@ export function LocationDetail() {
 
       <div className="tabbar" ref={tabbar}>
         <div className="tabs" role="tablist" aria-label={location.name} onKeyDown={onTabKey}>
-          {TABS.map((name) => (
+          {tabs.map((name) => (
             <button
               key={name}
               type="button"
@@ -220,6 +226,9 @@ export function LocationDetail() {
               onClick={() => openTab(name)}
             >
               {TAB_LABELS[name]}
+              {name === "actions" && (actions.data?.waiting.length ?? 0) > 0 && (
+                <span className="badge">{actions.data?.waiting.length}</span>
+              )}
               {name === "prompts" && active.length > 0 && (
                 <span className="badge">{active.length}</span>
               )}
@@ -286,6 +295,16 @@ export function LocationDetail() {
             </div>
           ))}
 
+        {tab === "actions" && actions.data && (
+          <Actions
+            actions={actions.data}
+            readOnly={readOnly}
+            onChanged={() => {
+              queryClient.invalidateQueries({ queryKey: ["actions", id] });
+              queryClient.invalidateQueries({ queryKey: ["actions-waiting"] });
+            }}
+          />
+        )}
         {tab === "prompts" && (
           <>
             <div className="section-head">

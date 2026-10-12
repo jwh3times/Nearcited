@@ -1,4 +1,5 @@
 import type {
+  Action,
   Allowances,
   AuditJob,
   AuditPart,
@@ -20,6 +21,7 @@ import type {
 } from "@nearcited/shared";
 import { ALLOWANCE_KINDS, allowanceErrors, allowedEachMonth, reductions } from "@nearcited/shared";
 import {
+  type NewAction,
   type PriceVersion,
   type Store,
   StoreError,
@@ -69,6 +71,15 @@ export interface MemoryDb {
   limitChanges: LimitChange[];
   /** Use of a counted allowance in a month, keyed `organization:kind:month`. */
   allowanceUse: Map<string, number>;
+  /** Every action, with the worker's own bookkeeping beside what a member is sent. */
+  actions: (Action & {
+    subject: string;
+    basis: string;
+    attempts: number;
+    carrying_since: string | null;
+  })[];
+  /** The sample account's made-up listings, keyed `connection:external`. */
+  sampleLines: Map<string, string>;
   connections: Connection[];
   /** What the worker keeps about a connection and no member is sent. */
   connectionHealth: Map<
@@ -140,6 +151,8 @@ export function createMemoryDb(): MemoryDb {
     priceChanges: [],
     limitChanges: [],
     allowanceUse: new Map(),
+    actions: [],
+    sampleLines: new Map(),
     connections: [],
     connectionHealth: new Map(),
     connectionKindAllowances: new Map(),
@@ -194,6 +207,56 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
   /** Mirrors the operator's select policies: reads everything, and that is all. */
   const isOperator = userId !== null && db.operators.has(userId);
   const readsOrg = (organizationId: string) => isOperator || seesOrg(organizationId);
+  /** An action as a member is sent it: without the worker's own bookkeeping. */
+  const sentAction = ({
+    subject: _subject,
+    basis: _basis,
+    attempts: _attempts,
+    carrying_since: _since,
+    ...action
+  }: MemoryDb["actions"][number]): Action => action;
+  /** Whether one for the same thing is waiting or on its way, as the unique index has it. */
+  const openFor = (locationId: string, kind: string, subject: string) =>
+    db.actions.some(
+      (action) =>
+        action.location_id === locationId &&
+        action.kind === kind &&
+        action.subject === subject &&
+        (action.status === "proposed" || action.status === "approved"),
+    );
+  /** A new proposal, waiting its fourteen days from `now`. */
+  const newAction = (
+    action: NewAction | MemoryDb["actions"][number],
+    now: string,
+  ): MemoryDb["actions"][number] => ({
+    id: crypto.randomUUID(),
+    location_id: action.location_id,
+    kind: action.kind,
+    connection_id: action.connection_id,
+    subject: action.subject,
+    basis: action.basis,
+    summary: action.summary,
+    seen: action.seen,
+    proposed_text: action.proposed_text,
+    written_by: action.written_by,
+    status: "proposed",
+    proposed_at: now,
+    lapses_at: new Date(Date.parse(now) + 14 * 86_400_000).toISOString(),
+    approved_by_email: null,
+    approved_at: null,
+    approved_text: null,
+    declined_by_email: null,
+    declined_at: null,
+    decline_reason: null,
+    done_at: null,
+    failed_at: null,
+    failure: null,
+    lapsed_at: null,
+    lapse_reason: null,
+    retry_of: null,
+    attempts: 0,
+    carrying_since: null,
+  });
   /** Mirrors the due and sync rules: working, or broken only by failing, which is still tried. */
   const syncs = (connection: Connection) =>
     connection.status === "working" ||
@@ -358,6 +421,180 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         throw new StoreError("limit", `This organization's plan checks ${plan.assistants}.`);
       }
       return Object.assign(organization, { surfaces: picked });
+    },
+
+    async listLocationActions(locationId) {
+      if (!readsLocation(locationId)) return [];
+      return db.actions
+        .filter((action) => action.location_id === locationId)
+        .sort((a, b) => b.proposed_at.localeCompare(a.proposed_at))
+        .map(sentAction);
+    },
+
+    async countWaitingActions(organizationId) {
+      if (!readsOrg(organizationId)) return {};
+      const waiting: Record<string, number> = {};
+      for (const action of db.actions) {
+        const location = db.locations.find((candidate) => candidate.id === action.location_id);
+        if (action.status === "proposed" && location?.organization_id === organizationId) {
+          waiting[action.location_id] = (waiting[action.location_id] ?? 0) + 1;
+        }
+      }
+      return waiting;
+    },
+
+    // Mirrors approve_action(): a member of the location's organization, and only while it waits.
+    async approveAction(id, text) {
+      const action = db.actions.find((candidate) => candidate.id === id);
+      if (!action || !visibleLocation(action.location_id)) return null;
+      const now = db.now ?? new Date().toISOString();
+      if (action.status !== "proposed" || action.lapses_at <= now) {
+        throw new StoreError("limit", "This is no longer waiting for a yes.");
+      }
+      const changed = text?.trim() || null;
+      if (changed !== null && action.proposed_text === null) {
+        throw new StoreError("limit", "This action has no text to change.");
+      }
+      Object.assign(action, {
+        status: "approved",
+        approved_by_email: db.emails.get(userId ?? "") ?? null,
+        approved_at: now,
+        approved_text: changed !== null && changed !== action.proposed_text ? changed : null,
+      });
+      return sentAction(action);
+    },
+
+    async declineAction(id, reason) {
+      const action = db.actions.find((candidate) => candidate.id === id);
+      if (!action || !visibleLocation(action.location_id)) return null;
+      if (action.status !== "proposed") {
+        throw new StoreError("limit", "This is no longer waiting for an answer.");
+      }
+      Object.assign(action, {
+        status: "declined",
+        declined_by_email: db.emails.get(userId ?? "") ?? null,
+        declined_at: db.now ?? new Date().toISOString(),
+        decline_reason: reason?.trim() || null,
+      });
+      return sentAction(action);
+    },
+
+    // Mirrors retry_action(): a new action, approved by whoever asked, pointing at the failed one.
+    async retryAction(id) {
+      const failed = db.actions.find((candidate) => candidate.id === id);
+      if (!failed || !visibleLocation(failed.location_id)) return null;
+      if (failed.status !== "failed") {
+        throw new StoreError("limit", "Only an action that failed can be asked for again.");
+      }
+      if (openFor(failed.location_id, failed.kind, failed.subject)) {
+        throw new StoreError("limit", "There is already one of these waiting or on its way.");
+      }
+      const now = db.now ?? new Date().toISOString();
+      const again = {
+        ...newAction(failed, now),
+        status: "approved" as const,
+        approved_by_email: db.emails.get(userId ?? "") ?? null,
+        approved_at: now,
+        approved_text: failed.approved_text,
+        retry_of: failed.id,
+      };
+      db.actions.push(again);
+      return sentAction(again);
+    },
+
+    // Mirrors propose_action(): not while one is open, nor again after a no on the same basis.
+    async proposeAction(action) {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      const declined = db.actions.some(
+        (kept) =>
+          kept.location_id === action.location_id &&
+          kept.kind === action.kind &&
+          kept.subject === action.subject &&
+          kept.status === "declined" &&
+          kept.basis === action.basis,
+      );
+      if (declined || openFor(action.location_id, action.kind, action.subject)) return null;
+      const made = newAction(action, db.now ?? new Date().toISOString());
+      db.actions.push(made);
+      return sentAction(made);
+    },
+
+    async getAction(id) {
+      const action = db.actions.find((candidate) => candidate.id === id);
+      const readable = userId === null || (action && readsLocation(action.location_id));
+      return readable && action ? sentAction(action) : null;
+    },
+
+    // Mirrors claim_action(): approved, and nobody on it for the last ten minutes.
+    async claimAction(id) {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      const now = db.now ?? new Date().toISOString();
+      const stale = new Date(Date.parse(now) - 10 * 60_000).toISOString();
+      const action = db.actions.find(
+        (candidate) =>
+          candidate.id === id &&
+          candidate.status === "approved" &&
+          (candidate.carrying_since === null || candidate.carrying_since < stale),
+      );
+      if (!action) return 0;
+      action.carrying_since = now;
+      action.attempts += 1;
+      return action.attempts;
+    },
+
+    // Mirrors finish_action().
+    async finishAction(id, outcome, why) {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      const action = db.actions.find(
+        (candidate) => candidate.id === id && candidate.status === "approved",
+      );
+      if (!action) return false;
+      const now = db.now ?? new Date().toISOString();
+      action.carrying_since = null;
+      if (outcome === "done") Object.assign(action, { status: "done", done_at: now });
+      if (outcome === "failed") {
+        Object.assign(action, { status: "failed", failed_at: now, failure: why ?? null });
+      }
+      if (outcome === "out_of_date") {
+        Object.assign(action, { status: "lapsed", lapsed_at: now, lapse_reason: "out_of_date" });
+      }
+      if (outcome === "again") action.failure = why ?? null;
+      return true;
+    },
+
+    async lapseActions() {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      const now = db.now ?? new Date().toISOString();
+      const due = db.actions.filter(
+        (action) => action.status === "proposed" && action.lapses_at <= now,
+      );
+      for (const action of due) {
+        Object.assign(action, { status: "lapsed", lapsed_at: now, lapse_reason: "expired" });
+      }
+      return due.length;
+    },
+
+    async listStalledActions(before) {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      return db.actions
+        .filter(
+          (action) =>
+            action.status === "approved" &&
+            action.approved_at !== null &&
+            action.approved_at < before &&
+            action.carrying_since === null,
+        )
+        .map((action) => action.id);
+    },
+
+    async getSampleLine(connectionId, externalId) {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      return db.sampleLines.get(`${connectionId}:${externalId}`) ?? null;
+    },
+
+    async setSampleLine(connectionId, externalId, line) {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      db.sampleLines.set(`${connectionId}:${externalId}`, line);
     },
 
     async listConnections(organizationId) {

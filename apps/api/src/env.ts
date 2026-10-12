@@ -1,4 +1,5 @@
 import type {
+  ActionMessage,
   AuditMessage,
   ConnectionMessage,
   LimitChangeMessage,
@@ -11,10 +12,16 @@ export interface Env {
   ASSETS: Fetcher;
   /**
    * Carries scans, the prompts of shareable audits, the steps of a price change or of a
-   * reduction in what a plan allows, and what the worker is asked to do for a connection.
+   * reduction in what a plan allows, what the worker is asked to do for a connection, and the
+   * approved actions it is asked to carry out.
    */
   SCAN_QUEUE: Queue<
-    ScanMessage | AuditMessage | PriceChangeMessage | LimitChangeMessage | ConnectionMessage
+    | ScanMessage
+    | AuditMessage
+    | PriceChangeMessage
+    | LimitChangeMessage
+    | ConnectionMessage
+    | ActionMessage
   >;
 
   SUPABASE_URL: string;
