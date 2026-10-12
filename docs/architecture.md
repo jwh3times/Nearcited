@@ -297,7 +297,7 @@ same as for providers: `fetchSite` (`apps/api/src/site/fetch.ts`) only fetches a
 | `text_content` | The page has at least `MIN_PAGE_WORDS` words with scripts, styles and tags removed. Nothing is rendered, because the crawlers mostly do not run scripts. |
 | `names_business` | The title or text contains the business name, matched the way answers are matched. |
 | `names_city` | The same for the city. Left out when the location has none. |
-| `structured_data` | A JSON-LD block gives something both a `name` and an `address`. |
+| `structured_data` | A JSON-LD block has a `name` that is this business's, matched the way answers are matched, and an `address`. A block for somebody else on the page, such as the agency that built the site, does not count. What else the block says is not compared with what is on file. The name is the location's, or the audit's business name. |
 
 Each failed check becomes a `site:<check>` recommendation, which clears when a later scan's fetch
 passes it. A site that will not load never fails the scan. One that leads nowhere is the finding;
@@ -1207,9 +1207,10 @@ drop it.
   the thing, or its access to it. The Connections page names it "no longer found" so its owner can
   choose again. Only the sample kind of action acts through a match, and it does not check that
   the choice is still there; a real kind will have to.
-- The `structured_data` check passes for any JSON-LD block that gives a name and an address, so a
-  block for some other business passes it, and nothing marks that a block was added or compares the
-  answers from before and since. Opening hours are not held, so the block has none
+- The `structured_data` check passes for a block that names the business and gives an address, and
+  compares nothing else in it, so a phone number or street address that differs from what is on
+  file passes. Nothing marks that a block was added or compares the answers from before and since.
+  Opening hours are not held, so the block has none
   ([#137](https://github.com/jwh3times/Nearcited/issues/137)).
 - There is no real kind of action yet (see "Actions"). So no action takes from an allowance, none
   does a task's work, and the only limit on keeping what one replaced is the sample kind's 30 days,
