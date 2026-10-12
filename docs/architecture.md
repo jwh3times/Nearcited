@@ -60,6 +60,8 @@ POST /api/locations/:id/scans          cron
      windowScore() + deriveRecommendations(), over this scan and those six
                        |
      listAlerts() + deriveAlerts(): the alerts that window ends, and the ones it raises
+        listSeenBefore() first, only if hasNewcomers(): the latest scans hold something
+        that might be a first sighting, so the record before the window is read
                        |
      complete_scan() in Postgres: results, score, last_scanned_at,
      recommendations and alerts, in one transaction
@@ -242,7 +244,7 @@ Failure handling in `runScan`:
   reasons unrelated to the business. Revisit this once real providers show how flaky they are.
 - **A failed scan changes no alert.** Alerts are written only by `complete_scan()`, with the
   results (see "Alerts"), so a failed scan neither raises nor clears one. Failing to read the
-  alerts fails the scan like any other error.
+  alerts, or the record a first sighting is checked against, fails the scan like any other error.
 - **A report that is not sent does not fail the scan, and leaves its alerts untold.** The report
   comes after `complete_scan()`. Failing to send it is logged and the scan stands as succeeded.
   `notify` answers whether the report went to anyone, and it answers false when the organization
@@ -376,34 +378,74 @@ from counts the product holds; nothing a model wrote is in one.
 
 ## Alerts
 
-An alert says that something measured got worse at a location (`alerts`; the term is in
-`GLOSSARY.md`, the decision in `docs/adr/0015-an-alert-is-kept-not-worked-out-again.md`). The only
-kind is a drop. The rule, the sentences and the grouping are in `packages/shared/src/alerts.ts`
-(`deriveAlerts`, `alertTitle`, `alertDetail`, `groupAlerts`). Everything is composed by rule from
-counts the product holds, says what was seen and never what to do, and no model writes one.
+An alert says that something measured has changed at a location in a way its owner would want to
+know (`alerts`; the term is in `GLOSSARY.md`, the decision in
+`docs/adr/0015-an-alert-is-kept-not-worked-out-again.md`). There are three kinds: a drop, a
+business named for the first time (`competitor`) and a site read for the first time (`site`), the
+last two being first sightings. The rule, the sentences and the grouping are in
+`packages/shared/src/alerts.ts` (`deriveAlerts`, `hasNewcomers`, `alertTitle`, `alertDetail`,
+`groupAlerts`). Everything is composed by rule from counts the product holds, says what was seen
+and never what to do, and no model writes one.
 
 - **A drop is a prompt on one surface that named the business and has stopped.** It is raised when
   the latest `DROP_MISSES` (3) checks of the cell did not name the business and at least
   `DROP_NAMED_BEFORE` (3) of the `DROP_CHECKS_BEFORE` (4) before them did. It needs all seven
-  checks in the cell, a full `SCAN_WINDOW`, so a new location or a new prompt is quiet for its
-  first seven scans. The thresholds are public constants, not tuning. The row keeps the counts it
+  checks in the cell, a full `SCAN_WINDOW`, so a new location or a new prompt is quiet until
+  its seventh scan. The thresholds are public constants, not tuning. The row keeps the counts it
   rests on (`facts`: the prompt as asked, how many checks in a row missed, how many came before
   and how many of those named the business) and when the run of misses began (`since`). A drop
   that could not be raised at its third miss (the cell's window was not yet full, or alerts did
   not exist yet) counts the whole run it can see, up to four.
+- **A first sighting is a business, or a site, the written answers have begun to name or cite.**
+  It is raised when the written answers of the latest `FIRST_SEEN_SCANS` (3) scans name the
+  business, or cite the site, in at least `FIRST_SEEN_ANSWERS` (3) answers across at least
+  `FIRST_SEEN_IN_SCANS` (2) of those scans, and no written answer of any earlier scan on record
+  did. Written answers are those of `CITING_SURFACES`, the assistants and AI Overview. A results
+  list (the map pack, organic lists) names ten businesses every time and its tail changes daily,
+  so it is not counted. A site counts once per answer, however many of its pages the answer cited.
+  Names are matched with `namesMatch` and sites with `hostsMatch`, as everywhere else, so a longer
+  name that contains a known one is the same business (a new branch of a known business is not
+  said) and a subdomain is the same site. A site that looks like a named competitor's own
+  (`belongsTo`) is not said as a site: naming the competitor says it. The business's own website
+  counts, and is worded apart (`facts.own`). Nothing is raised until the location has
+  `FIRST_SEEN_BASELINE` scans, a full `SCAN_WINDOW`, because its first scans name everyone for the
+  first time. The thresholds are public constants, not tuning. The row keeps what it rests on
+  (`facts`: the business as the answers most often wrote it, or the site's host; how many answers
+  and how many of the latest scans it was counted over; for a business, the first three prompts it
+  was named for with their surfaces and how many prompts in all; for a site, how many of its
+  answers named the business, whether it is the business's own, and the page cited most) and when
+  the oldest of those scans asked (`since`). It is about no one prompt, so `tracked_query_id` and
+  `surface` are null.
+- **"For the first time" is said of the whole record, not of the window.** Seven scans cannot say
+  "first". The rest of the window is in hand and rules out nearly every candidate, the businesses
+  and sites the answers name week after week. `hasNewcomers` is what is left, and only when
+  something is does `runScan` call `listSeenBefore(location, sampleData, FIRST_SEEN_SCANS - 1)`,
+  which calls `seen_before()` in Postgres. That returns every business as it was written and every
+  cited page's address up to its path, from the written answers of the location's finished scans
+  of that kind other than the newest two (the scan that just ran is not yet finished, so those two
+  and it are the latest three). It decides nothing: `deriveAlerts` compares the names and sites
+  itself, by the rules above. `seen_before()` is granted to the service role alone, so only the
+  worker reads it. Where it was not read (`seen` is null) no first sighting is raised. It covers
+  every result the location has on those surfaces, so it costs more as the history grows, which
+  the window in hand keeps rare.
 - **What raises one and what clears one are different conditions.** After seven scans that did not
   name the business the window holds nothing that says it ever was, so a rule that looked only
   there would stop firing and clear an alert that had not ended. `runScan` gives `deriveAlerts`
-  the window and the location's alerts that are not cleared (`listAlerts`). One is cleared as
+  the window and the location's alerts that are not cleared (`listAlerts`). A drop is cleared as
   `named_again` when a check from a scan after the one that raised it names the business (any
   scan in the window, once the one that raised it has left), and as `not_tracked` when the newest
-  scan has no cell for it: its prompt is retired or its surface is no longer checked. Never by
-  age.
+  scan has no cell for it: its prompt is retired or its surface is no longer checked. A drop is
+  never cleared by age.
+- **A first sighting is news, not a state.** Nothing ends it, so it is cleared as `old_news` when
+  the scan that raised it has left the window, seven scans on. It is said once for a business or a
+  site: afterwards the record holds it, so it is not raised again.
 - **A dismissed alert is still current.** Dismissing takes it off the page and nothing else. The
-  rule goes on firing, and a unique index allows one alert that is not cleared for a location,
-  kind, subject (here the prompt and surface) and kind of data, so the same thing is not raised
-  again until the worker has cleared it and it begins afresh. `complete_scan()` raises with
-  `on conflict do nothing`, so running a scan twice raises nothing twice.
+  rule can go on firing, and a unique index allows one alert that is not cleared for a location,
+  kind, subject (for a drop the prompt and surface, for a business its name as normalised, for a
+  site its host) and kind of data, so the same thing is not raised again until the worker has
+  cleared it and it begins afresh. A dismissed first sighting stays current until it is old news.
+  `complete_scan()` raises with `on conflict do nothing`, so running a scan twice raises nothing
+  twice.
 - **They are written with the scan.** `runScan` passes `alerts` (`{ clear, raise }`) to
   `completeScan`, and `complete_scan()` clears and raises them in the same transaction as the
   results, for manual and scheduled scans alike. A clear names an alert by its ID and touches only
@@ -423,14 +465,15 @@ counts the product holds, says what was seen and never what to do, and no model 
   `cleared_told_at` are the worker's bookkeeping, and no route sends them. An alert is deleted
   with its location.
 - **What the page shows.** `GET /api/locations/:id` returns `alerts`: those not cleared, not
-  dismissed and not about a prompt retired since the last scan, newest first. The next scan clears
-  one about a retired prompt; one about a surface that is no longer checked shows until it does.
-  The Overview tab lists them under "Alerts", above "What to do next". The drops one scan raised
-  on one surface are one card (`groupAlerts`), because a surface that stops naming the business
-  does so for every prompt at once; each says what was counted and since when, links to the
-  Prompts tab, and has a Dismiss that dismisses the whole card. The locations table shows the
-  count beside the location. The operator reading through an account sees alerts and has no
-  Dismiss.
+  dismissed and, for a drop, not about a prompt retired since the last scan, newest first. The next
+  scan clears a drop on a retired prompt; one on a surface that is no longer checked shows until
+  it does. The Overview tab lists them under "Alerts", above "What to do next". The drops one scan
+  raised on one surface are one card (`groupAlerts`), because a surface that stops naming the
+  business does so for every prompt at once; a first sighting stands alone. Each says what was
+  counted and since when, links to where its evidence is (a drop to the Prompts tab, a business to
+  the Answers tab, a site to the Sources tab, and a site also to the page that was cited), and has
+  a Dismiss that dismisses the whole card. The locations table shows the count beside the
+  location. The operator reading through an account sees alerts and has no Dismiss.
 - **The owners are told in the scan report, once.** A scheduled scan's report already goes to the
   organization's owners where the deployment has a Resend key, the plan emails a report
   (`emails_report`) and the organization is not a test one, so an alert goes in that report and
@@ -440,11 +483,13 @@ counts the product holds, says what was seen and never what to do, and no model 
   `named_again`, the drops the owners were told of that ended as `named_again`, were not
   dismissed, and whose ending is not yet told (`cleared_told_at` is null). They go on the report
   as `alerts`. `buildScanReportEmail` puts new alerts first, in the subject and at the head of the
-  message. One group of them gives the subject `<location>: No longer named for "<prompt>" on
-  <surface>`, or `No longer named for N prompts on <surface>` when the group is several (keywords
-  on a Google surface); several groups give `<location>: N new alerts`, N counting alerts. Then
-  comes one line for each drop that ended (`alertEnded`), then the report as it was. With nothing
-  new, the subject and the message are what they were.
+  message. One group of them gives the subject `<location>: <the group's title>`: `No longer named
+  for "<prompt>" on <surface>`, or `No longer named for N prompts on <surface>` when a group of
+  drops is several (keywords on a Google surface); `<business> is named for the first time`;
+  `<host> is read for the first time`, or `Your website is read for the first time` for the
+  business's own. Several groups give `<location>: N new alerts`, N counting alerts. Then comes
+  one line for each drop that ended (`alertEnded`), then the report as it was. With nothing new,
+  the subject and the message are what they were.
 - **An alert is marked told only when the report went to someone.** `notify` answers whether it
   did (false, when the organization has no owner with an address), and only then does `runScan` call
   `markAlertsTold`, which sets `told_at` for the new alerts and `cleared_told_at` for the endings.
@@ -453,13 +498,13 @@ counts the product holds, says what was seen and never what to do, and no model 
   still open. An organization whose plan sends no report, or a deployment with no Resend key, tells
   no one of an alert, and the alerts still open go in its first report once it can send one.
 - **What is not told.** An alert a member dismissed before it was sent. That a dismissed alert
-  ended, even one the owners had been told of. That an alert ended because its prompt was retired
-  or its surface is no longer checked (`not_tracked`). A drop that began and ended between two
-  reports. Anything for a test organization. Telling changes nothing the page shows.
-- Not built: the other kinds named in
-  [#136](https://github.com/jwh3times/Nearcited/issues/136): a competitor named for the first
-  time, a site read for the first time, and an answer that gives a phone number or address that is
-  not the location's.
+  ended, even one the owners had been told of. That a drop ended because its prompt was retired
+  or its surface is no longer checked (`not_tracked`), or that a first sighting is old news
+  (`old_news`). A drop that began and ended between two reports. Anything for a test
+  organization. Telling changes nothing the page shows.
+- Not built: the last kind named in
+  [#136](https://github.com/jwh3times/Nearcited/issues/136), an answer that gives a phone number
+  or address that is not the location's.
 
 ## Shareable audits
 

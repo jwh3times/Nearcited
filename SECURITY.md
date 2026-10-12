@@ -58,7 +58,9 @@ Nearcited is multi-tenant, and tenant isolation is enforced by Postgres row-leve
   `sample_listings` or `action_kind_terms`, which no API role reaches.
 - Raising or clearing an alert as anyone but the worker, or dismissing one as anyone but a member
   of its location's organization: writing `alerts` directly, calling `complete_scan()`, or calling
-  `dismiss_alert()` for a location the caller is not a member of, the operator included.
+  `dismiss_alert()` for a location the caller is not a member of, the operator included. Also
+  calling `seen_before()`, which returns what any location's earlier scans named and cited, as
+  anyone but the worker.
 - Taking back what an action did, or keeping what it replaced past its day: clearing a task an
   action marked done, or writing `recommendations.acted_by_action`, as a signed-in user; or finding
   a copy of what an action replaced anywhere but `seen`, which `drop_expired_seen()` clears once

@@ -39,8 +39,8 @@ the rules it uses everywhere else. That read is the location's whole record. It 
 when the latest scans hold something the rest of the window does not, which is rare: the
 businesses and sites the answers name week after week are ruled out by the window in hand.
 
-**Only written answers count toward one, and a location's first seven scans raise none.** A
-results list names ten businesses every time and its tail changes daily. A location's first
+**Only written answers count toward one, and none is raised before a location's seventh scan.**
+A results list names ten businesses every time and its tail changes daily. A location's first
 scans name everyone for the first time, so nothing is new until there is a full window to be new
 against. A competitor's own website is not said as a site: naming the competitor says it.
 
@@ -96,7 +96,7 @@ leaves it for the next. A test organization is sent nothing.
 ## Consequences
 
 - A drop is not raised until its prompt has seven checks on its surface, so a new location, and
-  a new prompt, are quiet for their first seven scans. A first sighting waits for the same seven.
+  a new prompt, are quiet until their seventh scan. A first sighting waits for the same seven.
 - Names are matched as they are everywhere else, loosely: a longer name that contains a known
   one is the same business. A new branch of a known business is therefore not said.
 - Reading the record costs more as a location's history grows. It is one query over that

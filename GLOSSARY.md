@@ -27,9 +27,9 @@ system works; this file only settles vocabulary.
   did it. A step of the action plan states an observation; a task is the work that follows from
   it. See `docs/adr/0011-the-product-does-the-work-and-the-owner-approves.md`.
 - **Alert**: a statement that something measured has changed at a location in a way its owner
-  would want to know, composed by rule from what the scans recorded and saying what was counted. It is shown from the scan that raised it
-  until a later scan shows the thing has ended or a member dismisses it. Not a task or a step:
-  it says what was seen, never what to do. See
+  would want to know, composed by rule from what the scans recorded and saying what was counted.
+  It is shown from the scan that raised it until a later scan clears it or a member dismisses
+  it. Not a task or a step: it says what was seen, never what to do. See
   `docs/adr/0015-an-alert-is-kept-not-worked-out-again.md`.
 - **Drop**: the alert that a prompt on one assistant, or a keyword on one Google surface, named
   the business and has stopped: none of its latest three checks did, and at least three of the

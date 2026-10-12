@@ -125,13 +125,16 @@ pass `pnpm check` and run in mock mode without it.
   `packages/shared/src/alerts.ts`). A request only dismisses one, through `dismiss_alert()`, which
   answers a member of the location's organization and no one else, the operator included
   (`docs/adr/0015-an-alert-is-kept-not-worked-out-again.md`). What raises an alert and what clears
-  it are separate conditions: never clear one because its rule stopped firing over the window, and
-  never by age. A dismissed alert stays current until the worker clears it, so the same thing is
-  not raised twice. An alert is composed by rule from the facts on its row, says what was seen and
-  never what to do, and no model writes one. An alert is told to the owners once, in the report a
-  scheduled scan emails, and marked told (`markAlertsTold`) only when the report went to someone:
-  one that failed, or had nobody to go to, leaves it for the next. Nothing on a request path
-  writes `told_at` or `cleared_told_at`.
+  it are separate conditions: never clear a drop because its rule stopped firing over the window,
+  and never by age. A first sighting is news, not a state: it is cleared as `old_news` when the
+  scan that raised it leaves the window, and by nothing else. "For the first time" is said of the
+  whole record, read through `listSeenBefore` (`seen_before()`, worker only), never of the window
+  alone, and only written answers count. A dismissed alert stays current until the worker clears
+  it, so the same thing is not raised twice. An alert is composed by rule from the facts on its
+  row, says what was seen and never what to do, and no model writes one. An alert is told to the
+  owners once, in the report a scheduled scan emails, and marked told (`markAlertsTold`) only when
+  the report went to someone: one that failed, or had nobody to go to, leaves it for the next.
+  Nothing on a request path writes `told_at` or `cleared_told_at`.
 - **`packages/shared/src/schemas.ts` defines every wire type.** Change the schema first, then the
   API and the client. Field names stay snake_case end to end.
 - **All database access goes through the `Store` interface** (`apps/api/src/store/types.ts`). A

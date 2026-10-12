@@ -42,7 +42,8 @@ export function Alerts({ alerts, onChanged, readOnly, onOpenTab }: AlertsProps) 
           if (!first) return null;
           const evidence = EVIDENCE[first.kind];
           return (
-            <li key={group.key} className="card also alert">
+            // A site newly read is not bad news, and the business's own is good news.
+            <li key={group.key} className={`card also${first.kind === "site" ? "" : " alert"}`}>
               <div className="task-body">
                 <h3>{group.title}</h3>
                 {group.alerts.length === 1 ? (
