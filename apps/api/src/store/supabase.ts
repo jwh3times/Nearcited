@@ -2,6 +2,7 @@ import {
   AllowanceClaimSchema,
   AllowanceUseSchema,
   AuditJobSchema,
+  ConnectionSchema,
   LimitChangeSchema,
   LocationSchema,
   OperatorAuditSchema,
@@ -176,6 +177,10 @@ const LISTED_AUDIT_COLUMNS =
 const ORGANIZATION_COLUMNS =
   "id, name, max_locations, max_queries_per_location, max_manual_scans_per_month, scan_every_days, surfaces, is_test, emails_report, allowances, plan_key, created_at";
 
+// Never the sign-in: that is in another table, which only the worker reads.
+const CONNECTION_COLUMNS =
+  "id, organization_id, kind, label, status, connected_by_email, connected_at, removed_by_email, removal_requested_at, removed_at";
+
 const LOCATION_COLUMNS =
   "id, organization_id, name, website, phone, address_line, city, region, postal_code, country_code, google_place_id, primary_category, paused_by_plan, last_scanned_at, created_at";
 const SCAN_COLUMNS =
@@ -232,6 +237,49 @@ export function createSupabaseStore(db: SupabaseClient): Store {
       // The count is for the month it names. In any other month nothing has been used yet.
       const thisMonth = `${new Date().toISOString().slice(0, 7)}-01`;
       return counted.manual_scans_month === thisMonth ? counted.manual_scans_used : 0;
+    },
+
+    async listConnections(organizationId) {
+      const { data, error } = await db
+        .from("connections")
+        .select(CONNECTION_COLUMNS)
+        .eq("organization_id", organizationId)
+        .order("connected_at", { ascending: false });
+      if (error) fail("List connections", error);
+      return z.array(ConnectionSchema).parse(data ?? []);
+    },
+
+    async managesConnections(organizationId) {
+      const { data, error } = await db.rpc("has_org_role", {
+        org: organizationId,
+        roles: ["owner", "admin"],
+      });
+      if (error) fail("Check who manages connections", error);
+      return data === true;
+    },
+
+    async createConnection(connection) {
+      const { data, error } = await db
+        .rpc("create_connection", {
+          org: connection.organization_id,
+          new_id: connection.id,
+          of_kind: connection.kind,
+          account_label: connection.label,
+          sealed_sign_in: connection.sealed,
+        })
+        .select(CONNECTION_COLUMNS)
+        .maybeSingle();
+      if (error) fail("Create connection", error);
+      return data ? ConnectionSchema.parse(data) : null;
+    },
+
+    async requestConnectionRemoval(id) {
+      const { data, error } = await db
+        .rpc("request_connection_removal", { connection: id })
+        .select(CONNECTION_COLUMNS)
+        .maybeSingle();
+      if (error) fail("Ask for a connection to be removed", error);
+      return data ? ConnectionSchema.parse(data) : null;
     },
 
     async getAllowanceUse(organizationId) {
@@ -315,6 +363,45 @@ export function createSupabaseStore(db: SupabaseClient): Store {
         .maybeSingle();
       if (error) fail("Choose assistants", error);
       return data ? OrganizationSchema.parse(data) : null;
+    },
+
+    async getConnection(id) {
+      const { data, error } = await db
+        .from("connections")
+        .select(CONNECTION_COLUMNS)
+        .eq("id", id)
+        .maybeSingle();
+      if (error) fail("Get connection", error);
+      return data ? ConnectionSchema.parse(data) : null;
+    },
+
+    async getConnectionSecret(id) {
+      const { data, error } = await db
+        .from("connection_secrets")
+        .select("sealed")
+        .eq("connection_id", id)
+        .maybeSingle();
+      if (error) fail("Get a connection's sign-in", error);
+      return data ? z.object({ sealed: z.string() }).parse(data).sealed : null;
+    },
+
+    async finishConnectionRemoval(id) {
+      const { data, error } = await db.rpc("finish_connection_removal", { connection: id });
+      if (error) fail("Finish removing a connection", error);
+      return data === true;
+    },
+
+    async listStalledRemovals(before) {
+      const { data, error } = await db
+        .from("connections")
+        .select("id")
+        .eq("status", "removing")
+        .lt("removal_requested_at", before);
+      if (error) fail("List stalled removals", error);
+      return z
+        .array(z.object({ id: z.uuid() }))
+        .parse(data ?? [])
+        .map((row) => row.id);
     },
 
     async claimAllowance(organizationId, kind, amount = 1) {

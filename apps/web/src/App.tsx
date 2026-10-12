@@ -11,6 +11,7 @@ import { supabase } from "./lib/supabase";
 import { readThroughBase, ViewingProvider } from "./lib/viewing";
 import { AccountSettings } from "./pages/AccountSettings";
 import { Audit } from "./pages/Audit";
+import { Connections } from "./pages/Connections";
 import { LocationDetail } from "./pages/LocationDetail";
 import { Locations } from "./pages/Locations";
 import { Bot } from "./pages/legal/Bot";
@@ -86,6 +87,7 @@ function SignedIn() {
           path="settings"
           element={<AccountSettings organization={organization} email={me.data.email} />}
         />
+        <Route path="connections" element={<Connections organization={organization} />} />
         {/* Only an operator has this page. The server refuses everyone else whatever is shown. */}
         {me.data.platform_role === "operator" && <Route path="operator" element={<Operator />} />}
         <Route path="*" element={<Navigate to="/" replace />} />
@@ -138,6 +140,7 @@ function ReadThrough({ me, organizationId }: { me: Me; organizationId: string })
               path="plan"
               element={<OperatorPlan key={organizationId} organization={organization.data} />}
             />
+            <Route path="connections" element={<Connections organization={organization.data} />} />
             <Route path="*" element={<Navigate to={base} replace />} />
           </Route>
         </Routes>

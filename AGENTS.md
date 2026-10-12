@@ -95,6 +95,13 @@ pass `pnpm check` and run in mock mode without it.
   in the same change (`docs/adr/0012-a-plans-allowances-are-one-set.md`). A form shows and sends
   only the kinds its build knows, and the API puts back the ones it does not: keep that, or the
   Worker running while a migration adds a kind will drop it.
+- **A connection's sign-in is sealed by the Worker and read only by the worker.** It is sealed
+  before it is stored (`apps/api/src/connections/seal.ts`) and kept in `connection_secrets`, which
+  no API role reads (`docs/adr/0013-a-sign-in-is-sealed-by-the-worker.md`). A request may write
+  one, through `create_connection()`, and never reads one: whatever needs the sign-in runs from
+  the queue, and no route or wire type carries it, sealed or not. Do not add a policy or a grant
+  on `connection_secrets`, and do not read it anywhere but `getConnectionSecret`, which only the
+  worker calls.
 - **`packages/shared/src/schemas.ts` defines every wire type.** Change the schema first, then the
   API and the client. Field names stay snake_case end to end.
 - **All database access goes through the `Store` interface** (`apps/api/src/store/types.ts`). A

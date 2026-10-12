@@ -1,6 +1,8 @@
 import {
   type AuditMessage,
   AuditMessageSchema,
+  type ConnectionMessage,
+  ConnectionMessageSchema,
   type LimitChangeMessage,
   LimitChangeMessageSchema,
   type PriceChangeMessage,
@@ -14,6 +16,8 @@ import { authenticateWithSupabase } from "./auth";
 import { advanceLimitChanges, runLimitChangeStep } from "./billing/limit-change";
 import { advancePriceChanges, runPriceChangeStep } from "./billing/price-change";
 import { createStripePayments } from "./billing/stripe";
+import { removeConnection, requeueStalledRemovals } from "./connections";
+import { sealingKey } from "./connections/seal";
 import { buildScanReportEmail, sendEmail } from "./email/report";
 import type { Env } from "./env";
 import { createProviders, liveScansUnavailable, usesSampleData } from "./providers";
@@ -44,8 +48,9 @@ export default {
   fetch: app.fetch,
 
   /**
-   * Cron. Every run clears abandoned scans and unfinished audits; the daily run also queues a
-   * scan for every location that is due. The two schedules are in wrangler.jsonc.
+   * Cron. Every run clears abandoned scans and unfinished audits, and asks again for any
+   * connection's removal that has not been finished; the daily run also queues a scan for every
+   * location that is due. The two schedules are in wrangler.jsonc.
    */
   async scheduled(controller, env) {
     const store = createSupabaseStore(createAdminClient(env));
@@ -53,6 +58,8 @@ export default {
     if (abandoned > 0) console.log(`Failed ${abandoned} abandoned scans`);
     const unfinished = await failStaleAudits(store);
     if (unfinished > 0) console.log(`Failed ${unfinished} unfinished audits`);
+    const stalled = await requeueStalledRemovals(store, env.SCAN_QUEUE);
+    if (stalled > 0) console.log(`Queued ${stalled} stalled removals of connections again`);
     if (controller.cron === SWEEP_ONLY_CRON) return;
 
     const queued = await enqueueDueScans(store, env.SCAN_QUEUE);
@@ -144,6 +151,24 @@ export default {
         continue;
       }
 
+      const connection = ConnectionMessageSchema.safeParse(message.body);
+      if (connection.success) {
+        const { connection_id, step } = connection.data;
+        const what = `Connection ${connection_id} ${step}`;
+        try {
+          const outcome = await removeConnection(connection_id, {
+            store,
+            key: await sealingKey(env.CONNECTIONS_KEY),
+          });
+          console.log(`${what}: ${outcome}`);
+          message.ack();
+        } catch (error) {
+          console.error(`${what} failed, will retry`, error);
+          message.retry();
+        }
+        continue;
+      }
+
       const parsed = ScanMessageSchema.safeParse(message.body);
       if (!parsed.success) {
         console.error("Dropping malformed scan message", message.body);
@@ -178,5 +203,5 @@ export default {
   },
 } satisfies ExportedHandler<
   Env,
-  ScanMessage | AuditMessage | PriceChangeMessage | LimitChangeMessage
+  ScanMessage | AuditMessage | PriceChangeMessage | LimitChangeMessage | ConnectionMessage
 >;

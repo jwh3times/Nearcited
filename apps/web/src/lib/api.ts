@@ -4,6 +4,8 @@ import {
   type AuditFormValues,
   BillingRedirectSchema,
   type CheckoutInput,
+  type ConnectionKind,
+  ConnectionSchema,
   LimitChangeSchema,
   type LocationDetail,
   LocationDetailSchema,
@@ -16,6 +18,7 @@ import {
   OperatorPlanSchema,
   OperatorSpendSchema,
   OrganizationAccountSchema,
+  OrganizationConnectionsSchema,
   type OrganizationLimits,
   OrganizationSchema,
   type PlanChangeInput,
@@ -138,6 +141,13 @@ export const api = {
     json(SubscriptionChangeSchema, "PUT", `/organizations/${id}/subscription`, input),
   /** Drops a change that was waiting for the period to end. */
   keepCurrentPlan: (id: string) => send("DELETE", `/organizations/${id}/subscription/pending`),
+  /** What an organization has connected, what it could connect, and whether the reader may. */
+  connections: (organizationId: string) =>
+    json(OrganizationConnectionsSchema, "GET", `/organizations/${organizationId}/connections`),
+  connect: (organizationId: string, kind: ConnectionKind) =>
+    json(ConnectionSchema, "POST", `/organizations/${organizationId}/connections`, { kind }),
+  /** Asks for a connection to be removed. The worker finishes it shortly after. */
+  removeConnection: (id: string) => json(ConnectionSchema, "DELETE", `/connections/${id}`),
   renameOrganization: (id: string, name: string) =>
     json(OrganizationSchema, "PATCH", `/organizations/${id}`, { name }),
   listLocations: (organizationId: string) =>

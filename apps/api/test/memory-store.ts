@@ -2,6 +2,7 @@ import type {
   Allowances,
   AuditJob,
   AuditPart,
+  Connection,
   LimitChange,
   LimitChangeNotice,
   Location,
@@ -34,7 +35,7 @@ import {
 
 export interface MemoryDb {
   organizations: Organization[];
-  memberships: { organization_id: string; user_id: string; role: "owner" | "member" }[];
+  memberships: { organization_id: string; user_id: string; role: "owner" | "admin" | "member" }[];
   locations: Location[];
   queries: TrackedQuery[];
   scans: Scan[];
@@ -68,6 +69,9 @@ export interface MemoryDb {
   limitChanges: LimitChange[];
   /** Use of a counted allowance in a month, keyed `organization:kind:month`. */
   allowanceUse: Map<string, number>;
+  connections: Connection[];
+  /** Each connection's sign-in as it was sealed, by connection. Only the worker reads it. */
+  connectionSecrets: Map<string, string>;
   /**
    * The `allowance_kinds` table: each kind, and whether it is counted. It starts as the kinds
    * this build lists. A test adds one to stand for a kind a migration made before the Worker
@@ -124,6 +128,8 @@ export function createMemoryDb(): MemoryDb {
     priceChanges: [],
     limitChanges: [],
     allowanceUse: new Map(),
+    connections: [],
+    connectionSecrets: new Map(),
     allowanceKinds: new Map(
       Object.entries(ALLOWANCE_KINDS).map(([key, kind]) => [key, kind.counted]),
     ),
@@ -174,6 +180,11 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
   /** Mirrors the operator's select policies: reads everything, and that is all. */
   const isOperator = userId !== null && db.operators.has(userId);
   const readsOrg = (organizationId: string) => isOperator || seesOrg(organizationId);
+  /** An owner or admin of the organization, by their own membership. */
+  const managesOrg = (organizationId: string) =>
+    db.memberships.some(
+      (m) => m.organization_id === organizationId && m.user_id === userId && m.role !== "member",
+    );
   const readableLocation = (id: string) =>
     db.locations.find((location) => location.id === id && readsOrg(location.organization_id));
   const readsLocation = (id: string) => readableLocation(id) !== undefined;
@@ -307,6 +318,82 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         throw new StoreError("limit", `This organization's plan checks ${plan.assistants}.`);
       }
       return Object.assign(organization, { surfaces: picked });
+    },
+
+    async listConnections(organizationId) {
+      if (!readsOrg(organizationId)) return [];
+      return db.connections
+        .filter((connection) => connection.organization_id === organizationId)
+        .sort((a, b) => b.connected_at.localeCompare(a.connected_at));
+    },
+
+    // Mirrors has_org_role(): the caller's own role, which the operator reading through has not.
+    async managesConnections(organizationId) {
+      return managesOrg(organizationId);
+    },
+
+    async createConnection(connection) {
+      if (!managesOrg(connection.organization_id)) return null;
+      if (connection.sealed === "") throw new StoreError("unexpected", "made with its sign-in");
+      const { sealed, ...row } = connection;
+      const made: Connection = {
+        ...row,
+        status: "working",
+        connected_by_email: db.emails.get(userId ?? "") ?? null,
+        connected_at: db.now ?? timestamp(),
+        removed_by_email: null,
+        removal_requested_at: null,
+        removed_at: null,
+      };
+      db.connections.push(made);
+      db.connectionSecrets.set(made.id, sealed);
+      return made;
+    },
+
+    async requestConnectionRemoval(id) {
+      const connection = db.connections.find((candidate) => candidate.id === id);
+      if (!connection || !managesOrg(connection.organization_id)) return null;
+      if (connection.status === "removing" || connection.status === "removed") return connection;
+      return Object.assign(connection, {
+        status: "removing",
+        removed_by_email: db.emails.get(userId ?? "") ?? null,
+        removal_requested_at: db.now ?? timestamp(),
+      });
+    },
+
+    async getConnection(id) {
+      const connection = db.connections.find((candidate) => candidate.id === id);
+      const readable = userId === null || (connection && readsOrg(connection.organization_id));
+      return (readable && connection) || null;
+    },
+
+    async getConnectionSecret(id) {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      return db.connectionSecrets.get(id) ?? null;
+    },
+
+    // Mirrors finish_connection_removal(): only one waiting to be removed loses its sign-in.
+    async finishConnectionRemoval(id) {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      const connection = db.connections.find(
+        (candidate) => candidate.id === id && candidate.status === "removing",
+      );
+      if (!connection) return false;
+      Object.assign(connection, { status: "removed", removed_at: db.now ?? timestamp() });
+      db.connectionSecrets.delete(id);
+      return true;
+    },
+
+    async listStalledRemovals(before) {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      return db.connections
+        .filter(
+          (connection) =>
+            connection.status === "removing" &&
+            connection.removal_requested_at !== null &&
+            connection.removal_requested_at < before,
+        )
+        .map((connection) => connection.id);
     },
 
     async getAllowanceUse(organizationId) {

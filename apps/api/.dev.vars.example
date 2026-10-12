@@ -19,3 +19,7 @@ RESEND_API_KEY=
 # outside production) and the signing secret of the webhook endpoint at /api/stripe/webhook.
 STRIPE_SECRET_KEY=
 STRIPE_WEBHOOK_SECRET=
+# Optional secret. The key a connection's sign-in is sealed with: 32 random bytes in base64
+# (`openssl rand -base64 32`). Left blank, nothing can be connected. `pnpm local:env` makes one
+# for this machine. Changing it makes every sign-in already kept unreadable.
+CONNECTIONS_KEY=

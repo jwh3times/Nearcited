@@ -930,6 +930,77 @@ export type RecommendationUpdate = z.output<typeof RecommendationUpdateSchema>;
 // API responses
 // ---------------------------------------------------------------------------
 
+/**
+ * The kinds of outside account that can be connected. `sample` stands in for a real one where
+ * the data is generated. See `docs/adr/0013-a-sign-in-is-sealed-by-the-worker.md`.
+ */
+export const CONNECTION_KINDS = ["sample"] as const;
+export const ConnectionKindSchema = z.enum(CONNECTION_KINDS);
+export type ConnectionKind = z.infer<typeof ConnectionKindSchema>;
+
+export const CONNECTION_KIND_LABELS: Record<ConnectionKind, string> = {
+  sample: "Sample account",
+};
+
+/**
+ * Where a connection stands. `removing` is asked to be removed and waiting for the worker to
+ * withdraw access and delete the sign-in; `removed` is done, and kept as a record.
+ */
+export const CONNECTION_STATUSES = ["working", "broken", "paused", "removing", "removed"] as const;
+export const ConnectionStatusSchema = z.enum(CONNECTION_STATUSES);
+export type ConnectionStatus = z.infer<typeof ConnectionStatusSchema>;
+
+/**
+ * An organization's standing sign-in to an outside account, as its members see it. The sign-in
+ * itself is never part of this: only the worker reads it.
+ */
+export const ConnectionSchema = z.object({
+  id: Id,
+  organization_id: Id,
+  kind: ConnectionKindSchema,
+  /** What its owner knows the account by at the outside service. */
+  label: z.string(),
+  status: ConnectionStatusSchema,
+  /** Who connected it, as the address they had then. */
+  connected_by_email: z.string().nullable(),
+  connected_at: Timestamp,
+  /** Who asked for it to be removed. */
+  removed_by_email: z.string().nullable(),
+  removal_requested_at: Timestamp.nullable(),
+  /** When the worker had withdrawn access and deleted the sign-in. */
+  removed_at: Timestamp.nullable(),
+});
+export type Connection = z.infer<typeof ConnectionSchema>;
+
+/** What the Connections page shows for an organization. */
+export const OrganizationConnectionsSchema = z.object({
+  /**
+   * The kinds that can be connected here now. Empty where this deployment holds no key to seal
+   * a sign-in with.
+   */
+  available: z.array(ConnectionKindSchema),
+  /** True for the organization's owner or an admin, who alone may connect and remove. */
+  can_manage: z.boolean(),
+  /** Every connection it has or had, newest first. */
+  connections: z.array(ConnectionSchema),
+});
+export type OrganizationConnections = z.infer<typeof OrganizationConnectionsSchema>;
+
+/** What is sent to connect an account. */
+export const ConnectionInputSchema = z.object({ kind: ConnectionKindSchema });
+export type ConnectionInput = z.infer<typeof ConnectionInputSchema>;
+
+/** What the worker is asked to do for one connection. */
+export const CONNECTION_STEPS = ["remove"] as const;
+export type ConnectionStep = (typeof CONNECTION_STEPS)[number];
+
+/** A message asking the worker to take one step for one connection. */
+export const ConnectionMessageSchema = z.object({
+  connection_id: Id,
+  step: z.enum(CONNECTION_STEPS),
+});
+export type ConnectionMessage = z.infer<typeof ConnectionMessageSchema>;
+
 export const MeSchema = z.object({
   user_id: Id,
   email: z.string().nullable(),

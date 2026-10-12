@@ -9,7 +9,9 @@
   `index.html` so client-side routes work. That routing lives in `wrangler.jsonc` under `assets`.
 - **`scheduled`**: two Cron Triggers. Every 15 minutes it fails scans that have been queued or
   running for more than 30 minutes, so an abandoned scan cannot block its location for long. It
-  also fails audits still `queued` after 30 minutes (see "Shareable audits").
+  also fails audits still `queued` after 30 minutes (see "Shareable audits"), and queues again
+  the removal of any connection asked for more than 15 minutes ago and not finished (see
+  "Connections").
   Once a day it also asks Postgres which locations are due (`locations_due_for_scan`), creates a
   `scheduled` scan row for each, and puts the scan IDs on the queue. It also calls
   `advancePriceChanges`, which queues the reminders a week before an announced price change and,
@@ -21,7 +23,8 @@
   shareable audit instead (see "Shareable audits"). A message shaped
   `{ price_change_id, organization_id, step }` is one step of a price change for one organization
   (see "Price changes"). A message shaped `{ limit_change_id, organization_id, step }` is one step of
-  a reduction for one organization (see "Reductions in limits").
+  a reduction for one organization (see "Reductions in limits"). A message shaped
+  `{ connection_id, step }` is one step of a connection's removal (see "Connections").
 
 ## How a scan runs
 
@@ -335,7 +338,8 @@ from counts the product holds; nothing a model wrote is in one.
 - A dismissed recommendation has no task. Ticks on action-plan steps are still kept in the browser
   only. The operator's read-only view hides the buttons.
 - Not built: anything a model drafts, a direct review link, a printable code or request text, page
-  copy as a task, and anything the product does outside itself (connections, approvals, actions).
+  copy as a task, and anything the product does outside itself: approvals and actions. A connection
+  can be made (see "Connections") and nothing acts through it.
 
 ## Shareable audits
 
@@ -395,12 +399,67 @@ callable by `service_role` only.
 The web pages at `/audit/:token`, `/privacy`, `/terms` and `/bot` are rendered before the sign-in gate; the audit page polls while the
 audit is queued.
 
+## Connections
+
+A connection is an organization's standing sign-in to an outside account (`connections`; the term
+is in `GLOSSARY.md`, the decision in `docs/adr/0013-a-sign-in-is-sealed-by-the-worker.md`). What
+exists is making one, listing them and removing one. The only kind is `sample`. Nothing yet syncs
+from a connection, matches a location to its profile or site, or acts through one, and nothing
+sets a connection `broken` or `paused`, though the statuses exist.
+
+- **Only an owner or admin connects or removes.** `create_connection()` and
+  `request_connection_removal()` are security-definer functions that return no row to anyone else,
+  so `POST /api/organizations/:organizationId/connections` and `DELETE /api/connections/:connectionId`
+  answer 404 as they do for a stranger. Members read their organization's connections through a
+  `select` policy, the operator reads all of them, and no API role writes the table directly.
+  `GET /api/organizations/:organizationId/connections` also says whether the caller may change
+  them (`can_manage`, from `has_org_role`), which is false for a plain member and for the operator
+  reading through the account.
+- **The sign-in is sealed by the Worker and kept apart.** `apps/api/src/connections/seal.ts` seals
+  it with AES-256-GCM under `CONNECTIONS_KEY`, a Worker secret of 32 random bytes in base64. Each
+  sealing uses a fresh nonce and authenticates the connection's ID, so sealed text moved to
+  another connection's row does not open. It is stored in `connection_secrets`, which has
+  row-level security on, no policy and no grant to any API role, the operator included. Only the
+  Worker's secret key reaches it, and `getConnectionSecret` is the only read. `connections`
+  has no column for it, and no route or wire type carries a sign-in, sealed or not. A request
+  writes a sign-in and never reads one: the Worker chooses the connection's ID, seals the
+  sign-in to it and hands the sealed text to `create_connection()`, which stores both rows in one
+  transaction.
+- **Removal is two steps.** `DELETE /api/connections/:connectionId` calls
+  `request_connection_removal()`, which marks the connection `removing` and records who asked (as
+  the address they had then) and when. The route then queues `{ connection_id, step: "remove" }`,
+  and the queue consumer runs `removeConnection`: it opens the sign-in, takes back the access at the outside
+  service, then calls `finish_connection_removal()`, which only the worker may call. That marks
+  the connection `removed`, deletes the sign-in and keeps the row as a record of who connected it
+  and who removed it. Asking twice changes nothing recorded, and running the step twice is safe:
+  `finish_connection_removal()` answers false when none is waiting. A sign-in the Worker cannot
+  open (another key, or none) is deleted all the same, without taking the access back. The
+  `sample` kind has none to take back.
+- **A lost message is asked for again.** If the send fails, the request still succeeds and logs it.
+  If a step throws, the queue redelivers it, and after `max_retries` it goes to the dead-letter
+  queue. Either way the connection stays `removing`, and every run of the schedule queues again
+  (`requeueStalledRemovals`) each removal asked for more than 15 minutes ago.
+- **The sample kind is offered only where the data is generated.** `availableConnectionKinds`
+  returns `sample` for a deployment in mock mode, or for a test organization in any deployment,
+  and nothing otherwise. It makes up a sign-in and calls the account "Sample account", so the path
+  runs with no outside account.
+- **Without the key nothing can be connected.** With no `CONNECTIONS_KEY`, `available` is empty and
+  `POST` answers 503 `connections_unavailable`. A kind that is not offered answers 422
+  `connection_unavailable`. A value that is not base64, or not 32 bytes, throws instead of
+  sealing weakly. Changing the key makes every sign-in already kept unreadable (see "Known gaps").
+
+The Connections page is at `/connections`, and at `/operator/o/:organizationId/connections` for
+the operator reading through an account, where `can_manage` is false and nothing on it can be
+changed. The sidebar links to it once an account has been connected or one could be. While a
+removal is waiting, the page asks again every couple of seconds.
+
 ## Tenancy
 
 Every row belongs to an organization, and a user reaches a row only through a membership. The
 exceptions are `audits`, described above, and `provider_usage`, which keeps its rows after the
 organization, scan or audit they describe is deleted. No API role can write either table, and
-the only account that can read them is the operator's; the Worker's secret key writes them.
+the only account that can read them is the operator's; the Worker's secret key writes them. A
+third, `connection_secrets`, no API role can read or write at all (see "Connections").
 
 The API does not check ownership in application code. For each request it builds a Supabase
 client that carries the caller's own access token (`createUserClient`), so Postgres evaluates the
@@ -539,7 +598,7 @@ Organizations are created only through `create_organization()`, which makes the 
 
 **The operator reads every row, through policies.** `is_operator()` is true for an account with the
 `operator` platform role, and each table, including `audits` and `provider_usage`, has a `select`
-policy that answers it. Only `select` policies exist, so the operator cannot change another
+policy that answers it, except `connection_secrets`, which no policy opens to anyone. Only `select` policies exist, so the operator cannot change another
 organization's rows by writing to them: the routes answer 404 for an update or delete and 403 for an insert. The one change the operator can make goes through
 `operator_set_limits()`, below. Because
 "every organization I can read" now means all of them for the operator, `listOrganizations` asks
@@ -686,6 +745,9 @@ drop it.
   `allowance_kinds` are empty) and nothing calls `claim_allowance()`, so a number would be stored,
   shown, lowered by announcement and counted, but no work would stop at it
   ([#133](https://github.com/jwh3times/Nearcited/issues/133)).
+- Nothing seals the sign-ins again under a new `CONNECTIONS_KEY`. Changing or losing the key makes
+  every sign-in kept unreadable and its owner has to connect again; a removal still finishes, but
+  cannot take the access back at the outside service (see "Connections").
 
 ## Open product questions
 

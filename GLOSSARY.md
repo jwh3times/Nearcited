@@ -31,6 +31,9 @@ system works; this file only settles vocabulary.
 - **Connection**: an owner's standing sign-in to an outside account where a business's work
   happens: its Google profile, its website, its visitor statistics, a customer source. Made once
   and synced from on a schedule.
+- **Sign-in**: what a connection keeps so the product can act for the owner at the outside
+  service. Sealed by the Worker and read only by the worker, never shown to anyone. See
+  `docs/adr/0013-a-sign-in-is-sealed-by-the-worker.md`.
 - **Customer source**: a connection that tells the product who a business's customers are and
   when their job was finished.
 - **Action**: one thing the product does outside itself for a business: a fact corrected, a

@@ -9,6 +9,7 @@
 // app against generated data, which is what development and the end-to-end tests do.
 
 import { execFileSync } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -23,15 +24,18 @@ export const TARGETS = [
 
 /**
  * An example file with the stack's keys filled in. Every line that sets a URL or key the stack
- * provides is replaced; everything else, comments included, is kept as written.
+ * provides is replaced; everything else, comments included, is kept as written. `made` holds
+ * what was made up for this machine, which the stack knows nothing of: the key connections are
+ * sealed with.
  */
-export function fillExample(example, status) {
+export function fillExample(example, status, made = {}) {
   const values = {
     SUPABASE_URL: status.API_URL,
     SUPABASE_PUBLISHABLE_KEY: status.PUBLISHABLE_KEY,
     SUPABASE_SECRET_KEY: status.SECRET_KEY,
     VITE_SUPABASE_URL: status.API_URL,
     VITE_SUPABASE_PUBLISHABLE_KEY: status.PUBLISHABLE_KEY,
+    CONNECTIONS_KEY: made.CONNECTIONS_KEY,
   };
   return example
     .split("\n")
@@ -78,7 +82,10 @@ function main() {
       console.log(`= ${path} is already there`);
       continue;
     }
-    const filled = fillExample(readFileSync(join(root, example), "utf8"), status);
+    const filled = fillExample(readFileSync(join(root, example), "utf8"), status, {
+      // 32 random bytes, as the Worker expects. Only ever this machine's.
+      CONNECTIONS_KEY: randomBytes(32).toString("base64"),
+    });
     // Holds the stack's secret key, so it is readable by its owner only.
     writeFileSync(join(root, path), filled, { mode: 0o600 });
     console.log(`+ ${path}`);
