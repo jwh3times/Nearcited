@@ -145,6 +145,8 @@ pass `pnpm check` and run in mock mode without it.
   the integration test.
 - **Providers only fetch.** They return an `Observation`; `analyzeObservation` in the shared
   package decides what it means. Do not put matching logic in a provider.
+- **Structured details carry only what a location holds.** A detail not on file is left out, never
+  filled in, and no model writes any of it (`packages/shared/src/structured-details.ts`).
 - **Tuning is data, and its real values are private.** A new prompt, weight or sampling value
   starts as a field and a placeholder default in `TuningSchema` (`packages/shared/src/tuning.ts`);
   the real value goes in `private/tuning.json`. Code takes the tuning as an argument. Only the
