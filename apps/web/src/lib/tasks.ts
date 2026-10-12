@@ -33,3 +33,10 @@ export function proof(task: Pick<Task, "before" | "since">): {
         : `Since: ${named(task.since)}.`,
   };
 }
+
+/**
+ * Who says a task is done, and since when. An action that did the work says so itself, and
+ * that mark is not a member's to take back.
+ */
+export const markedDone = (task: Pick<Task, "acted_by_action">, day: string): string =>
+  task.acted_by_action ? `Done by Nearcited on ${day}.` : `Marked done ${day}.`;

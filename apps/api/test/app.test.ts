@@ -1031,6 +1031,7 @@ describe("recommendations", () => {
       detail: "Detail",
       status: "open",
       acted_at: null,
+      acted_by_action: null,
       created_at: "2026-10-01T00:00:00Z",
     });
 

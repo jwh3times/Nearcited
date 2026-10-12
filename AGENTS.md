@@ -114,7 +114,12 @@ pass `pnpm check` and run in mock mode without it.
   action within 48 hours: `claim_action()` refuses an organization one of whose actions has gone
   36 hours untold, and a yes is refused where no notice could be sent (`requireNotice`). Keep
   both, and mark an action told only when the email went, for a test organization, or on sample
-  data with no email to send with.
+  data with no email to send with. A kind of action has a row in `action_kind_terms`: the
+  allowance it takes from, and how many days what it replaced may be kept. `claim_action()` takes
+  from the month and `finish_action()` gives it back when the thing was not done and marks the
+  task the action did: count an action nowhere else, and add no path by which a member clears a
+  task an action marked. What an action read from outside is kept in `seen` and nowhere else, so
+  that `drop_expired_seen()` can drop it on its day.
 - **`packages/shared/src/schemas.ts` defines every wire type.** Change the schema first, then the
   API and the client. Field names stay snake_case end to end.
 - **All database access goes through the `Store` interface** (`apps/api/src/store/types.ts`). A

@@ -16,7 +16,8 @@
   Once a day it also asks Postgres which locations are due (`locations_due_for_scan`), creates a
   `scheduled` scan row for each, and puts the scan IDs on the queue. It also queues a sync for each
   connection that is due (`enqueueDueSyncs`). It also lapses the proposals that waited fourteen
-  days (`lapse_actions()`) and tells each organization's owners what was done and what is newly
+  days (`lapse_actions()`), drops what an action replaced once it may be kept no longer
+  (`drop_expired_seen()`) and tells each organization's owners what was done and what is newly
   waiting (`sendActionNotices`; see "Actions"). It also starts the removal of each connection that
   has been paused for thirty days (`expirePausedConnections`) and reminds, once, the owners and
   admins of each they were told a week ago had broken and that still is
@@ -338,6 +339,12 @@ from counts the product holds; nothing a model wrote is in one.
   writes it, so no scan moves or clears the mark. A recommendation whose rule has stopped firing
   is resolved by `complete_scan()` as before; the task stays in view if it was marked (the three
   most recently marked), worded as no longer among the sites read most.
+- **An action that did the work marks it instead.** `finish_action()` sets `acted_at` and
+  `acted_by_action` when it records `done` for an action that points at the task
+  (`recommendation_id`), in place of a member's own mark if they had made one, and leaves a mark an
+  earlier action made. The trigger then refuses a member's change to that time (`NC013`), so
+  `PATCH /api/recommendations/:id` with `acted` answers 409 `limit_reached`, and the task says
+  "Done by Nearcited" and offers no Undo. A member's own mark is unchanged: they can clear it.
 - **Showing whether it worked.** For a marked task the route counts, for the site, how many answers
   cited it and how many of those named the business, over the seven scans before the mark
   (`SCAN_WINDOW`) and over every scan since, at most `MAX_SCANS_SINCE` (60). These are read by
@@ -348,7 +355,8 @@ from counts the product holds; nothing a model wrote is in one.
   only. The operator's read-only view hides the buttons.
 - Not built: anything a model drafts, a direct review link, a printable code or request text, page
   copy as a task, and anything the product does outside itself for real. Approvals and actions
-  exist (see "Actions") but the only kind is a sample one, and no action marks a task done.
+  exist (see "Actions") but the only kind is a sample one, which does no task's work, so no action
+  has marked a task.
 
 ## Shareable audits
 
@@ -552,7 +560,8 @@ An action is one thing the product does outside itself for a location, once a me
 `done` or `failed`; a proposed one can instead be `declined` or `lapsed`. The only kind is
 `sample`: it sets the opening line of one of the sample account's listings, rows in
 `sample_listings` that stand in for an outside service, so nothing leaves the product. There is no
-real kind. What ADR 0014 decides and is not built is under "Known gaps".
+real kind, so nothing is counted against an allowance and no action marks a task yet (see "Known
+gaps").
 
 - **Only the worker proposes.** After a sync that read a connection (`syncConnection` answers
   `synced`), the queue consumer calls `proposeAfterSync`. For each location matched to a working
@@ -566,28 +575,36 @@ real kind. What ADR 0014 decides and is not built is under "Known gaps".
   sends them. A partial unique index allows one `proposed` or `approved` action for a location, kind
   and subject. `propose_action()` makes none, and returns no row, while one is open, or while a
   declined one rests on the same `basis`. A lapsed one does not stop a new proposal.
+- **Each kind is held to terms.** `action_kind_terms` has a row for a kind: the allowance it takes
+  from (null for none) and how many days what it replaced may be kept (null for no limit). A kind
+  with no row is held to nothing. No API role reads or writes it. The `sample` kind takes from no
+  allowance and is given 30 days, though nothing limits how long a made-up listing may be held, so
+  that dropping can be seen where the data is generated.
 - **A request records the answer.** `approve_action()`, `decline_action()` and `retry_action()` are
   security-definer functions that return a row only to a member of the location's organization
   (`can_access_location`), so their routes answer 404 to anyone else, the operator included. An
-  action that is no longer waiting raises `NC013`, a `limit`, so 409 `limit_reached` with the
-  reason. A member may change the text while approving: `approved_text` then keeps it beside
+  action that is no longer waiting, or whose kind has no room left this month, raises `NC013`, a
+  `limit`, so 409 `limit_reached` with the reason. A member may change the text while approving: `approved_text` then keeps it beside
   `proposed_text`, and stays null when the text sent is what was proposed. Who answered is kept as
   the address they had then. Approving and asking again queue `{ action_id, step: "carry_out" }`; if
   the send fails, the request still succeeds and logs it.
 - **Asking again is a new action.** `retry_action()` takes a `failed` action and makes another,
   already `approved` by whoever asked, with `retry_of` pointing at the one that failed, so the
   record keeps who approved each try. It refuses an action that did not fail, and one that has
-  another waiting or on its way (`NC013`).
+  another waiting or on its way (`NC013`). The new action is for the same task and keeps the first
+  one's `seen_until`.
 - **It is carried out once, and only by the worker.** `carryOutAction` first calls
-  `claim_action()`, which counts the try. It answers zero, and the worker goes no further, unless
-  the action is approved and no worker has had it in the last ten minutes. The worker then finds
+  `claim_action()`, which counts the try and, where the kind takes from an allowance, takes one
+  from the month's (below). It answers zero, and the worker goes no further, unless the action is
+  approved and no worker has had it in the last ten minutes. The worker then finds
   the connection, the location's match and the opened sign-in; if the connection is not working,
   the match is gone or the sign-in will not open, the action fails with that reason. Then it reads
   what is there. If that is already the text to put there (what was approved, which is the proposal
   unless a member changed it), the action is `done` and nothing is written: that is what makes a
   message delivered twice harmless. If it is not what the member was shown, nothing is written and
   the action lapses with `lapse_reason` `out_of_date`, since a yes to one change is not a yes to
-  another; the queue consumer then queues a sync of the connection, which proposes a fresh action
+  another, and so does one whose `seen` was dropped (below), before anything is read; the queue
+  consumer then queues a sync of the connection, which proposes a fresh action
   against what is there now. Otherwise it writes the text and records `done`.
   `finish_action()` records each end, and only the worker may call it.
 - **A try that does not work is made again, three times in all.** A try that throws is let go with
@@ -628,6 +645,30 @@ real kind. What ADR 0014 decides and is not built is under "Known gaps".
   A deployment on sample data with no `RESEND_API_KEY` sends nothing and marks its actions told at
   the daily run, as a test organization's are, because nothing an action did there left the
   product. So it is never held for want of email.
+- **What the product wrote is kept; what it replaced only as long as it may be.** The text, who
+  approved it and when stay for as long as the action does. `seen` is held until `seen_until`,
+  which `propose_action()` sets from the kind's days, counted from the proposal. The daily run calls
+  `drop_expired_seen()`, which only the worker may call: it sets `seen` to null once that day has
+  passed and records `seen_dropped_at`, which the routes send, and it lapses as out of date a
+  proposal still waiting then, since nobody can be shown what it would replace. The record says
+  "No longer kept" and the day, in place of what was there.
+- **A kind that takes from an allowance is counted when it is carried out.**
+  `action_kind_terms.allowance` names the allowance (see "Tenancy"). `claim_action()` calls
+  `claim_allowance()` for it as it takes the action, once for all its tries, and keeps the month in
+  `allowance_month`; a kind included without a number counts nothing and keeps none. When the month
+  has no room, `claim_action()` fails the action there, with the reason, and answers zero, and
+  `carryOutAction` returns `failed`. `finish_action()` gives back what was taken
+  (`release_allowance()`, into the month it came from) when the action ends `failed` or
+  `out_of_date`, and not when it ends `done`. Before that, `propose_action()` proposes nothing of
+  a kind whose allowance has no room this month or is not in the plan, and `approve_action()` and
+  `retry_action()` raise `NC013` ("Your plan has no more of these this month.") while it has none,
+  since a yes that could only fail is better not taken. `allowance_has_room()` answers that
+  question, for the worker only. The sample kind takes from no allowance.
+- **An action that does a task's work marks it.** `propose_action()` takes the task
+  (`recommendation_id`) and refuses one that is not the location's. When `finish_action()` records
+  `done` it sets the task's `acted_at` and `acted_by_action` (see "Tasks"), and a failed or
+  out-of-date action marks nothing. The sample kind does no task's work, so nothing is marked in
+  practice.
 - **A proposal nobody answers lapses.** `lapses_at` is fourteen days after it was proposed. The
   daily run calls `lapse_actions()`, which only the worker may call, and `approve_action()` refuses
   one past its day before then. The record says whether it lapsed because nobody answered or
@@ -635,15 +676,18 @@ real kind. What ADR 0014 decides and is not built is under "Known gaps".
 - **Who reads and writes.** `actions` has a `select` policy for whoever can read the location and
   one for the operator, and no write grant for any API role: every change goes through the
   functions above, except `told_at` and `waiting_told_at`, which the Worker's secret key writes.
-  `sample_listings` has row-level security on, no policy and no grant for any API
-  role, the operator included; only the Worker's secret key reaches it (`getSampleLine`,
-  `setSampleLine`).
+  `seen_until`, `allowance_month` and `recommendation_id` are the worker's bookkeeping, and no route
+  sends them. No API role writes `recommendations.acted_by_action`: only `finish_action()` does.
+  `sample_listings` and `action_kind_terms` have row-level security on, no policy and no grant for
+  any API role, the operator included; only the Worker's secret key reaches them
+  (`getSampleLine`, `setSampleLine`; the terms are read by the functions above, as their owner).
 
 The Actions tab of the location page (`?tab=actions`) is there once the location has an action,
 and carries the count of those waiting. It lists what is waiting, each with what is there now, the
 text it would put there and who wrote it (editable; the button then reads "Approve as changed"),
 "Approve" and "Decline" with a reason of up to 200 characters, and below it the record, newest first
-(at most 100 actions in all), with "Try again" on a failed one. While an action is approved the
+(at most 100 actions in all), with "Try again" on a failed one. The record shows what an action replaced ("What it replaced", or
+"What was there" for one that was not done), or "No longer kept" once it was dropped. While an action is approved the
 page asks again every couple of seconds. When the organization is held, a notice above the lists says
 so. The sidebar says how many are waiting at each location
 (`GET /api/organizations/:organizationId/actions/waiting`, asked every 30 seconds). The operator
@@ -654,9 +698,9 @@ reading through an account sees the tab and has no buttons.
 Every row belongs to an organization, and a user reaches a row only through a membership. The
 exceptions are `audits`, described above, and `provider_usage`, which keeps its rows after the
 organization, scan or audit they describe is deleted. No API role can write either table, and
-the only account that can read them is the operator's; the Worker's secret key writes them. Three
-more, `connection_secrets`, `connection_kind_allowances` and `sample_listings`, no API role can read
-or write at all (see "Connections" and "Actions").
+the only account that can read them is the operator's; the Worker's secret key writes them. Four
+more, `connection_secrets`, `connection_kind_allowances`, `sample_listings` and `action_kind_terms`,
+no API role can read or write at all (see "Connections" and "Actions").
 
 The API does not check ownership in application code. For each request it builds a Supabase
 client that carries the caller's own access token (`createUserClient`), so Postgres evaluates the
@@ -786,9 +830,10 @@ copy, edit and lower a plan.
   clear. `claim_allowance()`, which only the worker may call, adds to the month while the
   organization's number for the kind, times its locations limit (extra locations included), has
   room, locking the organization row so two claims at once cannot both take the last one. It says
-  whether it claimed, what the month allows and how much of it is used, and a claim is not given
-  back. A kind that is included without a number is not counted. Nothing calls it yet (see "Known
-  gaps").
+  whether it claimed, what the month allows and how much of it is used. `release_allowance()`,
+  also worker only, gives back what was claimed for a month, for work that was then not done. A kind
+  that is included without a number is not counted. Only the action functions call either, and no
+  kind of action is counted yet (see "Actions" and "Known gaps").
 - **A kind of connection can name the allowance it needs**, in `connection_kind_allowances`; see
   "Connections".
 
@@ -798,7 +843,7 @@ Organizations are created only through `create_organization()`, which makes the 
 
 **The operator reads every row, through policies.** `is_operator()` is true for an account with the
 `operator` platform role, and each table, including `audits` and `provider_usage`, has a `select`
-policy that answers it, except `connection_secrets`, `connection_kind_allowances` and `sample_listings`, which no policy opens to anyone. Only `select` policies exist, so the operator cannot change another
+policy that answers it, except `connection_secrets`, `connection_kind_allowances`, `sample_listings` and `action_kind_terms`, which no policy opens to anyone. Only `select` policies exist, so the operator cannot change another
 organization's rows by writing to them: the routes answer 404 for an update or delete and 403 for an insert. The one change the operator can make goes through
 `operator_set_limits()`, below. Because
 "every organization I can read" now means all of them for the operator, `listOrganizations` asks
@@ -943,10 +988,10 @@ drop it.
 - On a Supabase project that still signs tokens with a legacy shared secret, `getClaims` asks the
   Auth server on every request. Use asymmetric signing keys.
 - Allowances limit almost nothing yet. No kind of allowance exists (`ALLOWANCE_KINDS` and
-  `allowance_kinds` are empty) and nothing calls `claim_allowance()`, so a number would be stored,
-  shown, lowered by announcement and counted, but no work would stop at it. The one thing an
-  allowance can stop is a kind of connection that needs it (see "Connections"), and none does
-  ([#133](https://github.com/jwh3times/Nearcited/issues/133)).
+  `allowance_kinds` are empty) and no kind of connection or of action names one, so a number would
+  be stored, shown and lowered by announcement, but no work would stop at it or be counted against
+  it. What an allowance can stop is a kind of connection that needs it (see "Connections") and a
+  kind of action that takes from it (see "Actions"), and none does ([#133](https://github.com/jwh3times/Nearcited/issues/133)).
 - Nothing seals the sign-ins again under a new `CONNECTIONS_KEY`. Changing or losing the key makes
   every sign-in kept unreadable and its owner has to connect again; a sync of one changes nothing,
   and a removal still finishes but cannot take the access back at the outside service (see
@@ -955,11 +1000,10 @@ drop it.
   the thing, or its access to it. The Connections page names it "no longer found" so its owner can
   choose again. Only the sample kind of action acts through a match, and it does not check that
   the choice is still there; a real kind will have to.
-- ADR 0014 decides more than is built. Not built: dropping what an action replaced once a
-  platform's limit on holding it is reached, an action marking a task done, and an action taking
-  from the month's allowance and giving it back. There is no real kind of action yet (see
-  "Actions"), so the only notices sent are about sample actions, by a deployment on sample data
-  that has email set up.
+- There is no real kind of action yet (see "Actions"). So no action takes from an allowance, none
+  does a task's work, and the only limit on keeping what one replaced is the sample kind's 30 days,
+  which is there so that dropping can be seen. The only notices sent are about sample actions, by a
+  deployment on sample data that has email set up.
 
 ## Open product questions
 

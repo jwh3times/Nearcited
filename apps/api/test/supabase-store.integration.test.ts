@@ -495,6 +495,13 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
       decline_reason: "Not this one",
     });
     expect(await worker.lapseActions()).toBe(0);
+    // What an action replaced is dropped by the worker alone, and not before its day.
+    await expect(aliceStore.dropExpiredSeen()).rejects.toMatchObject({ kind: "forbidden" });
+    expect(await worker.dropExpiredSeen()).toBe(0);
+    expect(await aliceStore.getAction(again.id)).toMatchObject({
+      seen: { text: null },
+      seen_dropped_at: null,
+    });
     // Telling the owners, and holding back while they have not been told, are the worker's: no
     // member can keep that they were told, and a stranger reads nothing of what there is to tell.
     await expect(
@@ -709,7 +716,27 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
     ).toEqual({ before: [], since: [] });
     expect(await aliceStore.setRecommendationActed(recommendation.id, false)).toMatchObject({
       acted_at: null,
+      acted_by_action: null,
     });
+    // An action that does the work marks it when it is carried out, and that mark is not a
+    // member's to take back.
+    const forTask = await worker.proposeAction({
+      ...proposal,
+      connection_id: null,
+      subject: "opening-line:for-the-task",
+      recommendation_id: recommendation.id,
+    });
+    if (!forTask) throw new Error("nothing was proposed for the task");
+    await aliceStore.approveAction(forTask.id);
+    expect(await worker.claimAction(forTask.id)).toBe(1);
+    expect(await worker.finishAction(forTask.id, "done")).toBe(true);
+    await worker.markActionsTold([forTask.id], "done", new Date().toISOString());
+    expect(await aliceStore.listRecommendations(location.id)).toContainEqual(
+      expect.objectContaining({ id: recommendation.id, acted_by_action: forTask.id }),
+    );
+    await expect(aliceStore.setRecommendationActed(recommendation.id, false)).rejects.toMatchObject(
+      { kind: "limit" },
+    );
     expect(await aliceStore.setRecommendationStatus(recommendation.id, "dismissed")).toMatchObject({
       id: recommendation.id,
       status: "dismissed",

@@ -34,7 +34,9 @@ Nearcited is multi-tenant, and tenant isolation is enforced by Postgres row-leve
   `fit_to_plan()` or `fit_connections_to_plan()`, or writing a limit, `allowances`, `plan_key`,
   `paused_by_plan` or `set_aside_by_plan` directly.
 - Using up or clearing an organization's allowance: writing `allowance_use` as a signed-in user, or
-  calling `claim_allowance()` as anyone but the worker.
+  calling `claim_allowance()`, `release_allowance()` or `allowance_has_room()` as anyone but the
+  worker. Also getting an action of a counted kind proposed, approved or carried out past the
+  month's number.
 - Reading a connection's sign-in, sealed or not, by any path: `connection_secrets` has no policy
   and no grant for any API role, the operator included, and no route, response or log line carries
   a sign-in. The same goes for the `CONNECTIONS_KEY` that seals it.
@@ -51,9 +53,13 @@ Nearcited is multi-tenant, and tenant isolation is enforced by Postgres row-leve
   `approve_action()`, `decline_action()` or `retry_action()` for a location the caller is not a
   member of, the operator included, or writing `actions` directly.
 - Proposing or carrying out an action as anyone but the worker: calling `propose_action()`,
-  `claim_action()`, `finish_action()` or `lapse_actions()`, or getting a request to propose one,
-  carry one out or write through a connection. Also reading or writing `sample_listings`, which no
-  API role reaches.
+  `claim_action()`, `finish_action()`, `lapse_actions()` or `drop_expired_seen()`, or getting a
+  request to propose one, carry one out or write through a connection. Also reading or writing
+  `sample_listings` or `action_kind_terms`, which no API role reaches.
+- Taking back what an action did, or keeping what it replaced past its day: clearing a task an
+  action marked done, or writing `recommendations.acted_by_action`, as a signed-in user; or finding
+  a copy of what an action replaced anywhere but `seen`, which `drop_expired_seen()` clears once
+  its `seen_until` has passed.
 - Getting an action carried out for an organization that is held, or marked told when its owners
   were not: calling `organization_held()` as anyone but the worker, writing `told_at` or
   `waiting_told_at`, approving a real action where no email could tell its owners, or learning from

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { proof } from "../src/lib/tasks";
+import { markedDone, proof } from "../src/lib/tasks";
 
 describe("proof", () => {
   it("says nothing until the task is marked", () => {
@@ -28,5 +28,14 @@ describe("proof", () => {
     expect(
       proof({ before: { answers: 0, named: 0 }, since: { answers: 2, named: 0 } })?.before,
     ).toBe("Before: no answer in the scans before had cited it.");
+  });
+});
+
+describe("markedDone", () => {
+  it("says a member marked it, or that an action did the work", () => {
+    expect(markedDone({ acted_by_action: null }, "12 Oct 2026")).toBe("Marked done 12 Oct 2026.");
+    expect(
+      markedDone({ acted_by_action: "ac000000-0000-4000-8000-000000000001" }, "12 Oct 2026"),
+    ).toBe("Done by Nearcited on 12 Oct 2026.");
   });
 });

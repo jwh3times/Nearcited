@@ -1,6 +1,13 @@
 import type { Action, LocationActions } from "@nearcited/shared";
 import { describe, expect, it } from "vitest";
-import { actionState, actionsQuery, actionText, hasActions, writtenBy } from "../src/lib/actions";
+import {
+  actionState,
+  actionsQuery,
+  actionText,
+  hasActions,
+  whatItReplaced,
+  writtenBy,
+} from "../src/lib/actions";
 
 const action = (extra: Partial<Action> = {}): Action => ({
   id: "ac000000-0000-4000-8000-000000000001",
@@ -9,6 +16,7 @@ const action = (extra: Partial<Action> = {}): Action => ({
   connection_id: "c0000000-0000-4000-8000-000000000001",
   summary: "Set the opening line of Sample listing: Riverside",
   seen: { text: null },
+  seen_dropped_at: null,
   proposed_text: "Joe's Pizza in Raleigh: open every day.",
   written_by: "rule",
   status: "proposed",
@@ -146,6 +154,66 @@ describe("actionState", () => {
       actionState(action({ status: "lapsed", lapse_reason: "out_of_date", ...approved }), day),
     ).toBe(
       "Not done: what it would have replaced had changed since it was proposed. Approved by owner@example.com.",
+    );
+  });
+});
+
+describe("whatItReplaced", () => {
+  it("is what was there, or that nothing was", () => {
+    expect(whatItReplaced(action({ seen: { text: "The old line" } }), day)).toBe("The old line");
+    expect(whatItReplaced(action({ seen: { text: null } }), day)).toBe("Nothing");
+  });
+
+  it("is nothing to show for an action that read nothing", () => {
+    expect(whatItReplaced(action({ seen: null }), day)).toBeNull();
+  });
+
+  it("says when it was dropped, once it could be kept no longer", () => {
+    expect(
+      whatItReplaced(action({ seen: null, seen_dropped_at: "2026-11-11T09:00:00.000Z" }), day),
+    ).toBe("No longer kept. It was dropped on 2026-11-11.");
+  });
+});
+
+describe("actionState for an action that was out of date", () => {
+  const lapsed = (extra: Partial<Action>) =>
+    actionState(
+      action({
+        status: "lapsed",
+        lapse_reason: "out_of_date",
+        lapsed_at: "2026-10-20T09:00:00.000Z",
+        ...extra,
+      }),
+      day,
+    );
+
+  it("says the thing had changed, and who had approved it", () => {
+    expect(lapsed({ approved_by_email: "alice@example.com", approved_at: "2026-10-13" })).toBe(
+      "Not done: what it would have replaced had changed since it was proposed. Approved by alice@example.com.",
+    );
+  });
+
+  it("still says so when what it replaced was dropped long afterwards", () => {
+    expect(
+      lapsed({
+        approved_by_email: "alice@example.com",
+        approved_at: "2026-10-13",
+        seen: null,
+        seen_dropped_at: "2026-11-11T09:00:00.000Z",
+      }),
+    ).toContain("had changed since it was proposed");
+  });
+
+  it("says it could not be checked when what it replaced was dropped first", () => {
+    const dropped = { seen: null, seen_dropped_at: "2026-10-20T09:00:00.000Z" };
+    // Nobody had answered: there is no approver to name.
+    expect(lapsed(dropped)).toBe(
+      "Not done: what it would have replaced could no longer be kept, so it could not be checked.",
+    );
+    expect(
+      lapsed({ ...dropped, approved_by_email: "bob@example.com", approved_at: "2026-10-13" }),
+    ).toBe(
+      "Not done: what it would have replaced could no longer be kept, so it could not be checked. Approved by bob@example.com.",
     );
   });
 });

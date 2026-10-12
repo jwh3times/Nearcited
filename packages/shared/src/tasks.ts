@@ -119,6 +119,7 @@ export function buildTasks(input: TaskInput): Task[] {
       url: source?.urls[0] ?? null,
       open,
       acted_at: recommendation.acted_at,
+      acted_by_action: recommendation.acted_by_action,
       before: evidence ? namedCount(evidence.before, host) : null,
       since: evidence ? namedCount(evidence.since, host) : null,
     });

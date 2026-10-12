@@ -64,8 +64,9 @@ export default {
    * Cron. Every run clears abandoned scans and unfinished audits, and asks again for any
    * connection's removal or first sync that has not been finished and any approved action nobody
    * is carrying out; the daily run also queues a scan for every location that is due and a sync
-   * for every connection that is, lapses the proposals nobody answered, and tells each
-   * organization's owners what was done for it. The two schedules are in wrangler.jsonc.
+   * for every connection that is, lapses the proposals nobody answered, drops what an action
+   * replaced once it may be kept no longer, and tells each organization's owners what was done
+   * for it. The two schedules are in wrangler.jsonc.
    */
   async scheduled(controller, env) {
     const store = createSupabaseStore(createAdminClient(env));
@@ -87,6 +88,8 @@ export default {
     if (syncs > 0) console.log(`Queued ${syncs} syncs of connections`);
     const lapsed = await store.lapseActions();
     if (lapsed > 0) console.log(`Lapsed ${lapsed} actions that waited fourteen days`);
+    const dropped = await store.dropExpiredSeen();
+    if (dropped > 0) console.log(`Dropped what ${dropped} actions replaced`);
     // The day's message to each organization's owners: what was done, and what is waiting.
     const noticed = await sendActionNotices({
       store,

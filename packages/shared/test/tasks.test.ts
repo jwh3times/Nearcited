@@ -24,6 +24,7 @@ const recommendation = (rule: string, fields: Partial<Recommendation> = {}): Rec
     detail: "Detail",
     status: "open",
     acted_at: null,
+    acted_by_action: null,
     created_at: "2026-10-01T00:00:00.000Z",
     ...fields,
   };
@@ -153,6 +154,22 @@ describe("tasks", () => {
       before: { answers: 2, named: 0 },
       since: { answers: 1, named: 1 },
     });
+  });
+
+  it("says which action did a task's work, when one did", () => {
+    const action = "ac000000-0000-4000-8000-000000000001";
+    const [mine, theirs] = build(
+      [
+        recommendation("source:a.example", { acted_at: "2026-10-05T00:00:00.000Z" }),
+        recommendation("source:b.example", {
+          acted_at: "2026-10-06T00:00:00.000Z",
+          acted_by_action: action,
+        }),
+      ],
+      [source("a.example", 3, 0), source("b.example", 2, 0)],
+    );
+    expect(mine?.acted_by_action).toBeNull();
+    expect(theirs?.acted_by_action).toBe(action);
   });
 
   it("leaves out a dismissed one, and one that cleared without anyone marking it", () => {

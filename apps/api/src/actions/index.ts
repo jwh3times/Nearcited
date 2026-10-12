@@ -130,6 +130,10 @@ export const actionText = (action: Pick<Action, "approved_text" | "proposed_text
  * A try that does not work is tried again, up to three times, and then the action is failed
  * with the reason. `again` asks whoever called to have it delivered again later. `held` is an
  * action left approved because its organization's owners are still to be told of an earlier one.
+ *
+ * Taking the action also takes one from the month's allowance, where its kind is counted, and
+ * an ending that left the thing undone gives it back. Being done marks the task the action does
+ * the work of. The database does both, in the same step as it records the taking and the ending.
  */
 export async function carryOutAction(
   actionId: string,
@@ -142,7 +146,10 @@ export async function carryOutAction(
   const location = await store.getLocation(action.location_id);
   if (location && (await store.isOrganizationHeld(location.organization_id))) return "held";
   const attempt = await store.claimAction(actionId);
-  if (attempt === 0) return "busy";
+  if (attempt === 0) {
+    // Nobody else is on it if the month had no room for it: it was failed as it was taken.
+    return (await store.getAction(actionId))?.status === "failed" ? "failed" : "busy";
+  }
 
   const fail = async (why: string): Promise<CarriedOut> => {
     await store.finishAction(actionId, "failed", why);
@@ -165,6 +172,12 @@ export async function carryOutAction(
   }
   const text = actionText(action);
   if (text === null) return fail("There is nothing for this action to put there.");
+  // What the member was shown it would replace is no longer kept, so there is nothing to check
+  // what is there now against.
+  if (action.seen_dropped_at !== null) {
+    await store.finishAction(actionId, "out_of_date");
+    return "out_of_date";
+  }
 
   const handler = HANDLERS[action.kind];
   const target = { store, connection, match, signIn };

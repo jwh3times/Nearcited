@@ -240,8 +240,10 @@ export const RecommendationSchema = z.object({
   title: z.string(),
   detail: z.string(),
   status: RecommendationStatusSchema,
-  /** When a member said they did the work. A scan never changes it. */
+  /** When a member said they did the work, or an action did it. A scan never changes it. */
   acted_at: Timestamp.nullable(),
+  /** The action that did the work. A member cannot take back a mark that has one. */
+  acted_by_action: Id.nullable(),
   created_at: Timestamp,
 });
 export type Recommendation = z.infer<typeof RecommendationSchema>;
@@ -1107,6 +1109,11 @@ export const ActionSchema = z.object({
   summary: z.string(),
   /** What was there when it was proposed, which is what it replaces. */
   seen: z.object({ text: z.string().nullable() }).nullable(),
+  /**
+   * When what it replaced was dropped, because where it was read from limits how long it may
+   * be held. `seen` is null from then on.
+   */
+  seen_dropped_at: Timestamp.nullable(),
   /** The text it would put there, and whether a rule or a model wrote it. */
   proposed_text: z.string().nullable(),
   written_by: z.enum(["rule", "model"]),
@@ -1318,6 +1325,8 @@ export const TaskSchema = z.object({
   /** False once the rule stopped firing for the site. */
   open: z.boolean(),
   acted_at: Timestamp.nullable(),
+  /** The action that did the work, when one did. The mark then stays. */
+  acted_by_action: Id.nullable(),
   /** Counted over the scans before `acted_at` and over those since. Null until it is marked. */
   before: NamedCountSchema.nullable(),
   since: NamedCountSchema.nullable(),

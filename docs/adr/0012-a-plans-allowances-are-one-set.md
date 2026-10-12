@@ -67,6 +67,7 @@ drop it.
 - No kind exists yet. The first arrives with the work that needs it, which is also the first thing
   to call `claim_allowance()`.
 - A claim is made before the work and is not given back if the work then fails. Whether a kind of
-  work gives it back is decided with that kind.
+  work gives it back is decided with that kind. An action does
+  ([0014](0014-only-the-worker-carries-out-an-action.md)).
 - Which plan includes what, and the numbers, are decided with the prices and kept privately until
   the migration that turns each on.

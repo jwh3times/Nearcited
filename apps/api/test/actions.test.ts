@@ -240,7 +240,15 @@ describe("a location's actions", () => {
   it("never carry the worker's own bookkeeping", async () => {
     const { location } = await matched();
     const text = await (await call(alice, "GET", `/locations/${location.id}/actions`)).text();
-    for (const kept of ["subject", "basis", "attempts", "carrying_since"]) {
+    for (const kept of [
+      "subject",
+      "basis",
+      "attempts",
+      "carrying_since",
+      "recommendation_id",
+      "seen_until",
+      "allowance_month",
+    ]) {
       expect(text, kept).not.toContain(`"${kept}"`);
     }
   });
@@ -707,5 +715,278 @@ describe("telling the owners", () => {
     await matched();
     env = { ...env, PROVIDER_MODE: "live" } as Env;
     expect((await approve(alice, db.actions[0]?.id ?? "")).status).toBe(200);
+  });
+});
+
+describe("what an action replaced", () => {
+  it("is on the record, and is dropped once it may be kept no longer, which the record says", async () => {
+    const { connection, location } = await matched();
+    const first = db.actions[0]?.id ?? "";
+    await approve(alice, first);
+    expect(await carryOutAction(first, await worker())).toBe("done");
+    // A second change, so there is something it replaced.
+    const kept = db.locations.find((candidate) => candidate.id === location.id);
+    if (kept) kept.name = "Joe's Pizza and Subs";
+    await proposeAfterSync(connection.id, await worker());
+    const second = db.actions[1]?.id ?? "";
+    await approve(bob, second);
+    expect(await carryOutAction(second, await worker())).toBe("done");
+    const recorded = async () =>
+      (await actionsOf(alice, location.id)).record.find((action) => action.id === second);
+    expect(await recorded()).toMatchObject({ seen: { text: LINE }, seen_dropped_at: null });
+
+    const store = memoryStore(db, null);
+    const proposed = Date.parse(db.actions[1]?.proposed_at ?? "");
+    db.now = new Date(proposed + 29 * DAY).toISOString();
+    expect(await store.dropExpiredSeen()).toBe(0);
+    db.now = new Date(proposed + 31 * DAY).toISOString();
+    expect(await store.dropExpiredSeen()).toBe(2);
+    // What the product wrote and who approved it stay. What it replaced is gone, and it says when.
+    expect(await recorded()).toMatchObject({
+      status: "done",
+      seen: null,
+      seen_dropped_at: db.now,
+      proposed_text:
+        "Joe's Pizza and Subs in Raleigh: open every day. Call ahead for large orders.",
+      approved_by_email: "bob@example.com",
+    });
+    expect(await store.dropExpiredSeen()).toBe(0);
+  });
+
+  it("takes a proposal still waiting on it with it, and nothing approved is then carried out", async () => {
+    // A kind held to fewer days than a proposal waits.
+    db.actionKindTerms.set("sample", { allowance: null, keeps_seen_days: 7 });
+    const { connection, location } = await matched();
+    const approved = db.actions[0]?.id ?? "";
+    await approve(alice, approved);
+    const store = memoryStore(db, null);
+    const waiting = await store.proposeAction({
+      location_id: location.id,
+      kind: "sample",
+      connection_id: connection.id,
+      subject: "opening-line:another",
+      basis: "first",
+      summary: "Set another line",
+      seen: { text: "What was there" },
+      proposed_text: "Another line",
+      written_by: "rule",
+    });
+
+    db.now = new Date(Date.parse(db.actions[0]?.proposed_at ?? "") + 8 * DAY).toISOString();
+    expect(await store.dropExpiredSeen()).toBe(2);
+    expect(db.actions.find((action) => action.id === waiting?.id)).toMatchObject({
+      status: "lapsed",
+      lapse_reason: "out_of_date",
+      seen: null,
+    });
+    // The yes was to replacing what the member was shown, and that can no longer be checked.
+    expect(await carryOutAction(approved, await worker())).toBe("out_of_date");
+    expect(line()).toBeNull();
+    expect(db.actions[0]).toMatchObject({ status: "lapsed", lapse_reason: "out_of_date" });
+  });
+});
+
+describe("a task an action does the work of", () => {
+  /** A task of the location, and an approved action that does its work. */
+  async function withTask() {
+    const made = await matched();
+    const task = {
+      id: crypto.randomUUID(),
+      location_id: made.location.id,
+      scan_id: null,
+      rule: "source:listing.example",
+      title: "Check your listing",
+      detail: "Detail",
+      status: "open" as const,
+      acted_at: null,
+      acted_by_action: null,
+      created_at: "2026-10-01T00:00:00Z",
+    };
+    db.recommendations.push(task);
+    const store = memoryStore(db, null);
+    const proposal = {
+      location_id: made.location.id,
+      kind: "sample" as const,
+      connection_id: made.connection.id,
+      subject: "opening-line:for-the-task",
+      basis: "first",
+      summary: "Set the line the task asks for",
+      seen: { text: null },
+      proposed_text: "The line the task asks for",
+      written_by: "rule" as const,
+      recommendation_id: task.id,
+    };
+    const action = await store.proposeAction(proposal);
+    return { ...made, task, proposal, store, id: action?.id ?? "" };
+  }
+  const marked = (id: string) => db.recommendations.find((candidate) => candidate.id === id);
+
+  it("is marked done when the action is carried out, by the action, and not before", async () => {
+    const { task, id } = await withTask();
+    await approve(alice, id);
+    expect(marked(task.id)).toMatchObject({ acted_at: null, acted_by_action: null });
+    db.now = "2026-10-20T12:00:00.000Z";
+    expect(await carryOutAction(id, await worker())).toBe("done");
+    expect(marked(task.id)).toMatchObject({ acted_at: db.now, acted_by_action: id });
+  });
+
+  it("keeps that mark: a member cannot take it back, though they can their own", async () => {
+    const { task, id } = await withTask();
+    // Their own word that the work was done is theirs to take back.
+    expect((await call(bob, "PATCH", `/recommendations/${task.id}`, { acted: true })).status).toBe(
+      200,
+    );
+    expect((await call(bob, "PATCH", `/recommendations/${task.id}`, { acted: false })).status).toBe(
+      200,
+    );
+
+    await approve(alice, id);
+    expect(await carryOutAction(id, await worker())).toBe("done");
+    for (const acted of [false, true]) {
+      const refused = await call(alice, "PATCH", `/recommendations/${task.id}`, { acted });
+      expect(refused.status, String(acted)).toBe(409);
+      expect(await errorCode(refused)).toBe("limit_reached");
+    }
+    expect(marked(task.id)?.acted_by_action).toBe(id);
+    // Whether it is shown at all is still the member's to say.
+    expect(
+      (await call(alice, "PATCH", `/recommendations/${task.id}`, { status: "dismissed" })).status,
+    ).toBe(200);
+  });
+
+  it("is left alone by an action that failed, and by one for another location's task", async () => {
+    const { task, id, proposal, store } = await withTask();
+    await approve(alice, id);
+    for (const connection of db.connections) connection.status = "broken";
+    expect(await carryOutAction(id, await worker())).toBe("failed");
+    expect(marked(task.id)).toMatchObject({ acted_at: null, acted_by_action: null });
+
+    const other = { ...task, id: crypto.randomUUID(), location_id: crypto.randomUUID() };
+    db.recommendations.push(other);
+    await expect(
+      store.proposeAction({ ...proposal, subject: "opening-line:x", recommendation_id: other.id }),
+    ).rejects.toThrow(/belongs to the location/);
+  });
+});
+
+describe("an action of a kind that is counted", () => {
+  const NO_ROOM = "Your plan has no more of these this month.";
+  /**
+   * The sample kind made to take from an allowance, as a real kind would, and Alice's
+   * organization given `most` of them a month. Nothing is proposed until it has them.
+   */
+  async function counted(most: number | true) {
+    db.allowanceKinds.set("pretend_changes", most !== true);
+    db.actionKindTerms.set("sample", { allowance: "pretend_changes", keeps_seen_days: 30 });
+    const made = await matched();
+    expect(db.actions).toEqual([]);
+    const organization = db.organizations.find((o) => o.id === made.organization.id);
+    Object.assign(organization ?? {}, { max_locations: 1, allowances: { pretend_changes: most } });
+    expect(await proposeAfterSync(made.connection.id, await worker())).toBe(1);
+    const store = memoryStore(db, null);
+    const another = (subject: string) =>
+      store.proposeAction({
+        location_id: made.location.id,
+        kind: "sample",
+        connection_id: made.connection.id,
+        subject,
+        basis: "first",
+        summary: "Set another line",
+        seen: { text: null },
+        proposed_text: LINE,
+        written_by: "rule",
+      });
+    const used = async () =>
+      (await store.getAllowanceUse(made.organization.id)).pretend_changes ?? 0;
+    return { ...made, store, another, used, id: db.actions[0]?.id ?? "" };
+  }
+
+  it("takes one from the month when it is carried out, and not when proposed or approved", async () => {
+    const { id, used } = await counted(2);
+    expect(await used()).toBe(0);
+    await approve(alice, id);
+    expect(await used()).toBe(0);
+    expect(await carryOutAction(id, await worker())).toBe("done");
+    expect(await used()).toBe(1);
+    // Delivered again, nothing more is taken.
+    expect(await carryOutAction(id, await worker())).toBe("not_approved");
+    expect(await used()).toBe(1);
+  });
+
+  it("takes one for all its tries together, and gives it back when it fails", async () => {
+    const { id, used, store } = await counted(2);
+    await approve(alice, id);
+    const failing = {
+      key: await sealingKey(SECRET),
+      store: {
+        ...store,
+        setSampleLine: async () => {
+          throw new Error("The outside service is down.");
+        },
+      },
+    };
+    expect(await carryOutAction(id, failing)).toBe("again");
+    expect(await used()).toBe(1);
+    expect(await carryOutAction(id, failing)).toBe("again");
+    expect(await used()).toBe(1);
+    expect(await carryOutAction(id, failing)).toBe("failed");
+    expect(await used()).toBe(0);
+  });
+
+  it("gives it back when the thing had changed and nothing was written", async () => {
+    const { id, used, connection } = await counted(2);
+    await approve(alice, id);
+    db.sampleLines.set(`${connection.id}:sample-listing-2`, "Somebody else's line");
+    expect(await carryOutAction(id, await worker())).toBe("out_of_date");
+    expect(await used()).toBe(0);
+  });
+
+  it("is failed with the reason when the month is used by the time it is carried out", async () => {
+    const { id, used, another } = await counted(1);
+    const second = (await another("opening-line:second"))?.id ?? "";
+    await approve(alice, id);
+    await approve(bob, second);
+    expect(await carryOutAction(id, await worker())).toBe("done");
+    expect(await used()).toBe(1);
+
+    expect(await carryOutAction(second, await worker())).toBe("failed");
+    expect(db.actions.find((action) => action.id === second)).toMatchObject({
+      status: "failed",
+      failure: NO_ROOM,
+      attempts: 0,
+    });
+    expect(await used()).toBe(1);
+    // Asking again is refused while there is still no room, with the reason.
+    const refused = await retry(alice, second);
+    expect(refused.status).toBe(409);
+    expect(((await refused.json()) as { error: { message: string } }).error.message).toBe(NO_ROOM);
+  });
+
+  it("is not proposed, or said yes to, once the month is used", async () => {
+    const { id, used, another, location } = await counted(1);
+    const waiting = (await another("opening-line:waiting"))?.id ?? "";
+    await approve(alice, id);
+    expect(await carryOutAction(id, await worker())).toBe("done");
+    expect(await used()).toBe(1);
+
+    expect(await another("opening-line:more")).toBeNull();
+    const refused = await approve(alice, waiting);
+    expect(refused.status).toBe(409);
+    expect(((await refused.json()) as { error: { message: string } }).error.message).toBe(NO_ROOM);
+    expect((await actionsOf(alice, location.id)).waiting).toHaveLength(1);
+
+    // The next month has its own number.
+    const now = new Date();
+    db.now = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)).toISOString();
+    expect(await used()).toBe(0);
+    expect(await another("opening-line:more")).not.toBeNull();
+  });
+
+  it("counts nothing for a kind the plan includes without a number", async () => {
+    const { id, store, organization } = await counted(true);
+    await approve(alice, id);
+    expect(await carryOutAction(id, await worker())).toBe("done");
+    expect(await store.getAllowanceUse(organization.id)).toEqual({});
+    expect(db.actions[0]?.allowance_month).toBeNull();
   });
 });
