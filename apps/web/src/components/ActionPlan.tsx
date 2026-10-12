@@ -1,4 +1,5 @@
 import type { ActionPlanStep } from "@nearcited/shared";
+import type { ReactNode } from "react";
 import { stepKey, useDone } from "../lib/done";
 import { STEP_PLACE, type Tab } from "../lib/tabs";
 
@@ -8,6 +9,8 @@ interface ActionPlanProps {
   onOpenTab: (tab: Tab) => void;
   /** True while the operator is reading a customer's account: the ticks are the customer's. */
   readOnly?: boolean;
+  /** Something to do the website step's work with, shown on that step: the block to paste. */
+  websiteFix?: ReactNode;
 }
 
 /** A step's evidence. The links are pages the assistants cited, which their terms require shown. */
@@ -35,7 +38,13 @@ export function StepItems({ items }: { items: ActionPlanStep["items"] }) {
  * The action plan as a checklist. Each step states the observation it rests on and points to the
  * tab where that evidence is set out. Ticking a step is a note in this browser, nothing more.
  */
-export function ActionPlan({ locationId, steps, onOpenTab, readOnly }: ActionPlanProps) {
+export function ActionPlan({
+  locationId,
+  steps,
+  onOpenTab,
+  readOnly,
+  websiteFix,
+}: ActionPlanProps) {
   const [done, toggle] = useDone(locationId);
   const finished = steps.filter((step) => done.has(stepKey(step))).length;
 
@@ -74,6 +83,7 @@ export function ActionPlan({ locationId, steps, onOpenTab, readOnly }: ActionPla
                 </div>
                 <p>{step.summary}</p>
                 <StepItems items={step.items} />
+                {step.id === "fix_website" && websiteFix}
                 <button type="button" className="go" onClick={() => onOpenTab(place.tab)}>
                   {place.link} →
                 </button>

@@ -13,5 +13,6 @@ export * from "./site";
 export * from "./source-kinds";
 export * from "./sources";
 export * from "./spend";
+export * from "./structured-details";
 export * from "./tasks";
 export * from "./tuning";

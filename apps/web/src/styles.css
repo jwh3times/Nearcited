@@ -1414,6 +1414,60 @@ details.as-table td {
   color: var(--muted);
 }
 
+/* The structured details to paste: what they are for, the button, and the block folded away. */
+.paste-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  margin-top: 0.625rem;
+  padding: 0.875rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: var(--surface);
+}
+
+.paste-block p {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+
+/* An action in the run of a sentence has to look like one. */
+.paste-block button.link {
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+}
+
+.paste-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+
+.paste-actions button {
+  height: 2.25rem;
+  padding: 0 0.75rem;
+  font-size: 0.8125rem;
+}
+
+.paste-summary {
+  cursor: pointer;
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+
+.paste-block pre {
+  margin: 0.5rem 0 0;
+  padding: 0.75rem;
+  overflow-x: auto;
+  border-radius: 0.375rem;
+  background: var(--soft);
+  color: var(--ink);
+}
+
 .notice {
   padding: 1rem 1.25rem;
   font-size: 0.875rem;

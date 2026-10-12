@@ -1,6 +1,7 @@
 import {
   type LocationDetail as Detail,
   hostOf,
+  needsBusinessBlock,
   QUERY_KIND_LABELS,
   type QueryKind,
   type ScanWithResults,
@@ -13,6 +14,7 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { ActionPlan } from "../components/ActionPlan";
 import { Actions } from "../components/Actions";
 import { Alerts } from "../components/Alerts";
+import { BusinessBlock } from "../components/BusinessBlock";
 import { ErrorNote } from "../components/ErrorNote";
 import { Field } from "../components/Field";
 import { LocationEditor } from "../components/LocationEditor";
@@ -150,6 +152,9 @@ export function LocationDetail() {
     if (window.scrollY > top) window.scrollTo({ top });
   }
 
+  // Whoever is only reading through an account has no details of it to add.
+  const openSettings = readOnly ? undefined : () => openTab("settings");
+
   function onTabKey(event: KeyboardEvent) {
     const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : null;
     if (step === null) return;
@@ -267,6 +272,11 @@ export function LocationDetail() {
                       steps={steps}
                       onOpenTab={openTab}
                       readOnly={readOnly}
+                      websiteFix={
+                        needsBusinessBlock(site) && (
+                          <BusinessBlock location={location} onOpenSettings={openSettings} />
+                        )
+                      }
                     />
                     <p className="footnote">
                       Worked out by rule from the answers of the last {scans(scanWindow.scans)} and
@@ -386,7 +396,7 @@ export function LocationDetail() {
               )}
             </div>
             {site ? (
-              <SiteChecklist site={site} />
+              <SiteChecklist site={site} location={location} onOpenSettings={openSettings} />
             ) : (
               <p className="lede">
                 {location.website
