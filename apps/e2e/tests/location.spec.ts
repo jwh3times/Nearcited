@@ -5,6 +5,7 @@ import {
   createAccount,
   onPlan,
   signIn,
+  withDrop,
   withScannedLocation,
   withUnnamedSource,
 } from "../support/account";
@@ -128,6 +129,33 @@ test("marks a task done, keeps that with the location, and takes it back", async
   await task.getByRole("button", { name: "Undo" }).click();
   await expect(task.getByText(/^Marked done /)).toHaveCount(0);
   await expect(task.getByRole("button", { name: "Mark done" })).toBeVisible();
+});
+
+test("shows a drop on the Overview and in the list, and takes it off when dismissed", async ({
+  page,
+}) => {
+  const prompt = await withDrop(account, locationPath.replace("/locations/", ""));
+  await signIn(page, account);
+  const row = page.getByRole("link", { name: /Joe's Pizza/ }).filter({ hasText: "1 alert" });
+  await expect(row).toBeVisible();
+
+  await row.click();
+  const panel = page.getByRole("tabpanel");
+  await expect(panel.getByRole("heading", { name: "Alerts" })).toBeVisible();
+  const alert = panel
+    .getByRole("listitem")
+    .filter({ hasText: `No longer named for "${prompt}" on ChatGPT` });
+  // It says what was counted, and nothing about what to do.
+  await expect(alert).toContainText(
+    "It was named in 4 of the 4 checks before that and in none of the 3 since.",
+  );
+
+  await alert.getByRole("button", { name: /^Dismiss/ }).click();
+  await expect(alert).toHaveCount(0);
+  // It is kept with the location, not in this browser.
+  await page.reload();
+  await expect(panel.getByRole("heading", { name: "What to do next" })).toBeVisible();
+  await expect(panel.getByRole("heading", { name: "Alerts" })).toHaveCount(0);
 });
 
 test("opens the menu on a phone, and stacks the tables @phone", async ({ page }) => {

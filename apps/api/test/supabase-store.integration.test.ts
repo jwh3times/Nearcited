@@ -663,6 +663,19 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
         },
       ],
       recommendations: [{ rule: "absent:gemini", title: "Not named on Gemini", detail: "Detail" }],
+      alerts: {
+        clear: [],
+        raise: [
+          {
+            kind: "drop",
+            subject: `${query.id}|chatgpt`,
+            tracked_query_id: query.id,
+            surface: "chatgpt",
+            facts: { prompt: query.text, missed: 3, checks_before: 4, named_before: 4 },
+            since: "2026-10-05T09:00:00Z",
+          },
+        ],
+      },
     });
 
     const finished = await aliceStore.getScan(scan.id);
@@ -690,6 +703,32 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
     expect(await bobStore.getScan(scan.id)).toBeNull();
     expect(await bobStore.listScans(location.id, 5)).toEqual([]);
     expect(await bobStore.listScanResults(scan.id)).toEqual([]);
+
+    // Alerts: kept with the scan that raised them, read by the location's members, and
+    // dismissed by one of them. A dismissed alert is still current, which the worker is told.
+    const [alert] = await aliceStore.listAlerts(location.id, false);
+    if (!alert) throw new Error("alert missing");
+    expect(alert).toMatchObject({
+      kind: "drop",
+      tracked_query_id: query.id,
+      surface: "chatgpt",
+      facts: { prompt: query.text, missed: 3, checks_before: 4, named_before: 4 },
+      scan_id: scan.id,
+      cleared_at: null,
+      dismissed_at: null,
+    });
+    expect(Date.parse(alert.since)).toBe(Date.parse("2026-10-05T09:00:00Z"));
+    expect(await aliceStore.listAlerts(location.id, true)).toEqual([]);
+    expect(await bobStore.listAlerts(location.id, false)).toEqual([]);
+    expect(await bobStore.dismissAlert(alert.id)).toBeNull();
+    expect(await worker.dismissAlert(alert.id)).toBeNull();
+    expect(await aliceStore.dismissAlert(alert.id)).toMatchObject({
+      id: alert.id,
+      dismissed_by_email: "alice@example.com",
+    });
+    expect(await worker.listAlerts(location.id, false)).toMatchObject([
+      { id: alert.id, dismissed_by_email: "alice@example.com" },
+    ]);
 
     // Recommendations
     const [recommendation] = await aliceStore.listRecommendations(location.id);
@@ -784,7 +823,15 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
       blocked_crawlers: [],
       words: 120,
     };
-    await worker.completeScan(scan.id, { score: 80, results, recommendations: [], site: check });
+    await worker.completeScan(scan.id, {
+      score: 80,
+      results,
+      recommendations: [],
+      site: check,
+      // The scan that finishes is also what clears an alert.
+      alerts: { clear: [{ id: alert.id, reason: "named_again" }], raise: [] },
+    });
+    expect(await aliceStore.listAlerts(location.id, false)).toEqual([]);
     expect(await aliceStore.getSiteCheck(location.id)).toEqual(check);
     expect(await worker.getSiteCheck(location.id)).toEqual(check);
     expect(await bobStore.getSiteCheck(location.id)).toBeNull();

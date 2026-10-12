@@ -738,3 +738,133 @@ describe("the on-page check", () => {
     expect(await siteRules()).toEqual([]);
   });
 });
+
+describe("alerts", () => {
+  /** Nobody names the business. */
+  const silent: ProviderRegistry = {
+    chatgpt: {
+      surface: "chatgpt",
+      observe: async () => ({
+        kind: "answer",
+        text: "Try Tony's Slice House.",
+        businesses: ["Tony's Slice House"],
+        cited_urls: [],
+      }),
+    },
+    gemini: providers.gemini,
+  };
+
+  async function scans(registry: ProviderRegistry, count: number, sampleData = false) {
+    for (let i = 0; i < count; i++) {
+      const queued = await queueScan();
+      await runScan(queued.id, { store: worker, providers: registry, sampleData });
+    }
+  }
+
+  it("raises a drop at the third scan in a row that does not name the business", async () => {
+    await scans(providers, 4);
+    await scans(silent, 2);
+    expect(db.alerts).toEqual([]);
+
+    await scans(silent, 1);
+    // ChatGPT named it four times and then stopped. Gemini never named it, which is not a drop.
+    expect(db.alerts).toHaveLength(1);
+    expect(db.alerts[0]).toMatchObject({
+      location_id: locationId,
+      kind: "drop",
+      surface: "chatgpt",
+      tracked_query_id: db.queries[0]?.id,
+      facts: { prompt: "best pizza in Raleigh", missed: 3, checks_before: 4, named_before: 4 },
+      scan_id: db.scans[6]?.id,
+      cleared_at: null,
+      dismissed_at: null,
+    });
+    // It dates from the first scan that missed, not from the one that raised it.
+    expect(db.alerts[0]?.since).toBe(
+      db.results.find((result) => result.scan_id === db.scans[4]?.id)?.sampled_at,
+    );
+  });
+
+  it("says it once while it goes on, and clears it when the business is named again", async () => {
+    await scans(providers, 4);
+    await scans(silent, 5);
+    expect(db.alerts).toHaveLength(1);
+    expect(db.alerts[0]?.cleared_at).toBeNull();
+
+    await scans(providers, 1);
+    expect(db.alerts).toHaveLength(1);
+    expect(db.alerts[0]).toMatchObject({ clear_reason: "named_again" });
+    expect(db.alerts[0]?.cleared_at).not.toBeNull();
+    expect(await worker.listAlerts(locationId, false)).toEqual([]);
+  });
+
+  it("does not clear one by age, however long the business stays unnamed", async () => {
+    await scans(providers, 4);
+    await scans(silent, 12);
+    expect(db.alerts).toHaveLength(1);
+    expect(db.alerts[0]?.cleared_at).toBeNull();
+  });
+
+  it("leaves a dismissed alert dismissed while the drop goes on, then clears it", async () => {
+    await scans(providers, 4);
+    await scans(silent, 3);
+    const [raised] = db.alerts;
+    expect(await memoryStore(db, owner).dismissAlert(raised?.id ?? "")).toMatchObject({
+      dismissed_by_email: "owner@example.com",
+    });
+
+    // The rule still fires at the next scan. The dismissed alert stands in its way.
+    await scans(silent, 1);
+    expect(db.alerts).toHaveLength(1);
+    expect(db.alerts[0]?.dismissed_at).not.toBeNull();
+
+    await scans(providers, 1);
+    expect(db.alerts[0]).toMatchObject({ clear_reason: "named_again" });
+  });
+
+  it("raises a drop again only once it has ended and begun afresh", async () => {
+    await scans(providers, 4);
+    await scans(silent, 3);
+    await scans(providers, 4);
+    await scans(silent, 3);
+    expect(db.alerts.map((alert) => alert.clear_reason)).toEqual(["named_again", null]);
+  });
+
+  it("clears an alert about a prompt that is no longer asked", async () => {
+    await scans(providers, 4);
+    await scans(silent, 3);
+    const user = memoryStore(db, owner);
+    await user.setQueryActive(db.queries[0]?.id ?? "", false);
+    await user.createQuery(locationId, { kind: "ai_prompt", text: "pizza delivery Raleigh" });
+
+    await scans(silent, 1);
+    expect(db.alerts[0]).toMatchObject({ clear_reason: "not_tracked" });
+  });
+
+  it("keeps the alerts of sample scans apart from those of real ones", async () => {
+    await scans(providers, 4, true);
+    await scans(silent, 3, true);
+    expect(await worker.listAlerts(locationId, true)).toHaveLength(1);
+    expect(await worker.listAlerts(locationId, false)).toEqual([]);
+
+    // A real scan that names the business says nothing about the sample window's drop.
+    await scans(providers, 1);
+    expect((await worker.listAlerts(locationId, true))[0]?.cleared_at).toBeNull();
+  });
+
+  it("changes no alert when the scan fails", async () => {
+    await scans(providers, 4);
+    await scans(silent, 2);
+    const queued = await queueScan();
+    const broken: ProviderRegistry = {
+      chatgpt: {
+        surface: "chatgpt",
+        observe: async () => {
+          throw new Error("provider is down");
+        },
+      },
+    };
+    await expect(runScan(queued.id, { store: worker, providers: broken })).rejects.toThrow();
+    expect(db.alerts).toEqual([]);
+  });
+});

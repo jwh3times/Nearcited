@@ -1,5 +1,6 @@
 import {
   ActionSchema,
+  AlertSchema,
   AllowanceClaimSchema,
   AllowanceUseSchema,
   AuditJobSchema,
@@ -186,6 +187,9 @@ const ORGANIZATION_COLUMNS =
 const ACTION_COLUMNS =
   "id, location_id, kind, connection_id, summary, seen, seen_dropped_at, proposed_text, written_by, status, proposed_at, lapses_at, approved_by_email, approved_at, approved_text, declined_by_email, declined_at, decline_reason, done_at, failed_at, failure, lapsed_at, lapse_reason, retry_of";
 
+const ALERT_COLUMNS =
+  "id, location_id, kind, tracked_query_id, surface, facts, since, scan_id, raised_at, cleared_at, clear_reason, dismissed_at, dismissed_by_email";
+
 // Never the sign-in: that is in another table, which only the worker reads.
 const CONNECTION_COLUMNS =
   "id, organization_id, kind, label, status, connected_by_email, connected_at, removed_by_email, removal_requested_at, removed_at, broken_reason, broken_at, paused_at, removal_reason, last_synced_at, choices, matches:connection_locations(location_id, external_id, external_label, matched_at)";
@@ -334,6 +338,28 @@ export function createSupabaseStore(db: SupabaseClient): Store {
         .maybeSingle();
       if (error) fail("Ask for an action again", error);
       return data ? ActionSchema.parse(data) : null;
+    },
+
+    async listAlerts(locationId, sampleData) {
+      const { data, error } = await db
+        .from("alerts")
+        .select(ALERT_COLUMNS)
+        .eq("location_id", locationId)
+        .eq("sample_data", sampleData)
+        .is("cleared_at", null)
+        .order("raised_at", { ascending: false })
+        .limit(200);
+      if (error) fail("List alerts", error);
+      return z.array(AlertSchema).parse(data ?? []);
+    },
+
+    async dismissAlert(id) {
+      const { data, error } = await db
+        .rpc("dismiss_alert", { alert: id })
+        .select(ALERT_COLUMNS)
+        .maybeSingle();
+      if (error) fail("Dismiss an alert", error);
+      return data ? AlertSchema.parse(data) : null;
     },
 
     async listConnections(organizationId) {
@@ -1481,6 +1507,7 @@ export function createSupabaseStore(db: SupabaseClient): Store {
         p_score: outcome.score,
         p_results: outcome.results,
         p_recommendations: outcome.recommendations,
+        p_alerts: outcome.alerts ?? { clear: [], raise: [] },
       });
       if (error) fail("Complete scan", error);
     },

@@ -120,6 +120,15 @@ pass `pnpm check` and run in mock mode without it.
   task the action did: count an action nowhere else, and add no path by which a member clears a
   task an action marked. What an action read from outside is kept in `seen` and nowhere else, so
   that `drop_expired_seen()` can drop it on its day.
+- **Only the worker raises or clears an alert, and an alert is kept, not worked out again.**
+  `complete_scan()` writes the alerts a scan raises and clears (`deriveAlerts`,
+  `packages/shared/src/alerts.ts`). A request only dismisses one, through `dismiss_alert()`, which
+  answers a member of the location's organization and no one else, the operator included
+  (`docs/adr/0015-an-alert-is-kept-not-worked-out-again.md`). What raises an alert and what clears
+  it are separate conditions: never clear one because its rule stopped firing over the window, and
+  never by age. A dismissed alert stays current until the worker clears it, so the same thing is
+  not raised twice. An alert is composed by rule from the facts on its row, says what was seen and
+  never what to do, and no model writes one.
 - **`packages/shared/src/schemas.ts` defines every wire type.** Change the schema first, then the
   API and the client. Field names stay snake_case end to end.
 - **All database access goes through the `Store` interface** (`apps/api/src/store/types.ts`). A

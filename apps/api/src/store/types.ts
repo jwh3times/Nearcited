@@ -2,6 +2,8 @@ import type {
   AccountFacts,
   Action,
   ActionKind,
+  Alert,
+  AlertChanges,
   AllowanceClaim,
   AllowanceUse,
   AuditInput,
@@ -147,6 +149,8 @@ export interface CompletedScan {
   recommendations: DerivedRecommendation[];
   /** The on-page check this scan made, or null when it made none. Kept with the scan. */
   site?: SiteCheck | null;
+  /** The alerts this scan shows have ended, and the ones its rules raise. */
+  alerts?: AlertChanges;
 }
 
 /**
@@ -203,6 +207,18 @@ export interface Store {
    * one that failed. Null for anyone who is not a member.
    */
   retryAction(id: string): Promise<Action | null>;
+  /**
+   * A location's alerts that the worker has not cleared, newest first, for whoever can read the
+   * location. The dismissed ones are among them: a dismissed alert is still current, which is
+   * what keeps the same thing from being raised again. Only those from scans of the given kind,
+   * since sample scans and real ones never share a window.
+   */
+  listAlerts(locationId: string, sampleData: boolean): Promise<Alert[]>;
+  /**
+   * A member's dismissal of an alert. Null for anyone who is not a member of the location's
+   * organization. One already dismissed, or already cleared, comes back as it was.
+   */
+  dismissAlert(id: string): Promise<Alert | null>;
   /** An organization's connections, removed ones included, newest first. */
   listConnections(organizationId: string): Promise<Connection[]>;
   /** Whether the caller may connect and remove for the organization: its owner or an admin. */
@@ -602,6 +618,10 @@ export interface Store {
   recordUsage(source: UsageSource, usage: readonly ProviderUsage[]): Promise<void>;
   /** Throws a conflict when a different scan for the same location is already in flight. */
   markScanRunning(id: string, sampleData: boolean): Promise<void>;
+  /**
+   * Writes a finished scan in one go: its results and score, the recommendations its rules
+   * produced, and the alerts it cleared and raised. Worker only.
+   */
   completeScan(id: string, outcome: CompletedScan): Promise<void>;
   failScan(id: string, error: string): Promise<void>;
   /**

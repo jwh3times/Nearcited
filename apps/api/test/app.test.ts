@@ -1047,6 +1047,110 @@ describe("recommendations", () => {
   });
 });
 
+describe("alerts", () => {
+  /** A drop, as a scan's rule would have kept it. The app in these tests serves sample data. */
+  function raise(
+    locationId: string,
+    queryId: string,
+    overrides: Partial<MemoryDb["alerts"][0]> = {},
+  ) {
+    const alert: MemoryDb["alerts"][number] = {
+      id: crypto.randomUUID(),
+      location_id: locationId,
+      kind: "drop",
+      subject: `${queryId}|chatgpt`,
+      sample_data: true,
+      tracked_query_id: queryId,
+      surface: "chatgpt",
+      facts: { prompt: "best pizza in Raleigh", missed: 3, checks_before: 4, named_before: 4 },
+      since: "2026-10-05T09:00:00Z",
+      scan_id: null,
+      raised_at: "2026-10-07T09:00:00Z",
+      cleared_at: null,
+      clear_reason: null,
+      dismissed_at: null,
+      dismissed_by_email: null,
+      ...overrides,
+    };
+    db.alerts.push(alert);
+    return alert;
+  }
+
+  const alertsOf = async (user: string, locationId: string) =>
+    LocationDetailSchema.parse(await (await call(user, "GET", `/locations/${locationId}`)).json())
+      .alerts;
+
+  it("shows a location's alerts to its members, with what each rests on", async () => {
+    const { location, query } = await seed();
+    const alert = raise(location.id, query.id);
+
+    const alerts = await alertsOf(alice, location.id);
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]).toMatchObject({
+      id: alert.id,
+      kind: "drop",
+      surface: "chatgpt",
+      tracked_query_id: query.id,
+      facts: { prompt: "best pizza in Raleigh", missed: 3, checks_before: 4, named_before: 4 },
+      since: "2026-10-05T09:00:00Z",
+    });
+    // What the database keeps to tell one thing from another is not sent.
+    expect(alerts[0]).not.toHaveProperty("subject");
+    expect((await call(bob, "GET", `/locations/${location.id}`)).status).toBe(404);
+  });
+
+  it("leaves out an alert that was cleared, dismissed, or raised by the other kind of scan", async () => {
+    const { location, query } = await seed();
+    raise(location.id, query.id, {
+      cleared_at: "2026-10-08T09:00:00Z",
+      clear_reason: "named_again",
+    });
+    raise(location.id, query.id, { dismissed_at: "2026-10-08T09:00:00Z" });
+    raise(location.id, query.id, { sample_data: false });
+    expect(await alertsOf(alice, location.id)).toEqual([]);
+  });
+
+  it("leaves out an alert about a prompt retired since the last scan", async () => {
+    const { location, query } = await seed();
+    raise(location.id, query.id);
+    await call(alice, "PATCH", `/queries/${query.id}`, { is_active: false });
+    expect(await alertsOf(alice, location.id)).toEqual([]);
+  });
+
+  it("lets a member dismiss one, and keeps who did and when", async () => {
+    const { location, query } = await seed();
+    db.emails.set(alice, "alice@example.com");
+    const alert = raise(location.id, query.id);
+
+    const response = await call(alice, "POST", `/alerts/${alert.id}/dismiss`);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      id: alert.id,
+      dismissed_by_email: "alice@example.com",
+    });
+    expect(db.alerts[0]?.dismissed_at).not.toBeNull();
+    expect(await alertsOf(alice, location.id)).toEqual([]);
+
+    // Dismissing it again changes nothing.
+    const at = db.alerts[0]?.dismissed_at;
+    expect((await call(alice, "POST", `/alerts/${alert.id}/dismiss`)).status).toBe(200);
+    expect(db.alerts[0]?.dismissed_at).toBe(at);
+  });
+
+  it("does not find an alert for anyone who is not a member, the operator included", async () => {
+    const { location, query } = await seed();
+    const alert = raise(location.id, query.id);
+    db.operators.add(bob);
+
+    expect((await call(bob, "POST", `/alerts/${alert.id}/dismiss`)).status).toBe(404);
+    expect((await call(null, "POST", `/alerts/${alert.id}/dismiss`)).status).toBe(401);
+    expect((await call(alice, "POST", `/alerts/${crypto.randomUUID()}/dismiss`)).status).toBe(404);
+    expect(db.alerts[0]?.dismissed_at).toBeNull();
+    // The operator reads a customer's alerts, as every other row, and changes none.
+    expect(await alertsOf(bob, location.id)).toHaveLength(1);
+  });
+});
+
 describe("tasks", () => {
   const yelp = { rule: "source:yelp.com", title: "Check your listing", detail: "Detail" };
 

@@ -26,6 +26,14 @@ system works; this file only settles vocabulary.
   minutes when the owner does it themselves, and marked done by the owner or by the action that
   did it. A step of the action plan states an observation; a task is the work that follows from
   it. See `docs/adr/0011-the-product-does-the-work-and-the-owner-approves.md`.
+- **Alert**: a statement that something measured got worse at a location, composed by rule from
+  what the scans recorded and saying what was counted. It is shown from the scan that raised it
+  until a later scan shows the thing has ended or a member dismisses it. Not a task or a step:
+  it says what was seen, never what to do. See
+  `docs/adr/0015-an-alert-is-kept-not-worked-out-again.md`.
+- **Drop**: the alert that a prompt on one assistant, or a keyword on one Google surface, named
+  the business and has stopped: none of its latest three checks did, and at least three of the
+  four before them did.
 - **Draft**: text a model wrote, labelled as such. The owner sends or publishes it themselves, or
   approves an action that does. Never a measurement, a step or a recommendation.
 - **Connection**: an owner's standing sign-in to an outside account where a business's work

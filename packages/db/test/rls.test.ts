@@ -4456,6 +4456,228 @@ describe("the operator", () => {
     });
   });
 
+  describe("alerts", () => {
+    const facts = { prompt: "x", missed: 3, checks_before: 4, named_before: 4 };
+    let main: string;
+    let prompt: string;
+    const made: string[] = [];
+
+    /** A scan of the location, finished by the worker with what its rules cleared and raised. */
+    async function finish(
+      alerts: { clear?: { id: string; reason: string }[]; raise?: string[] } | null,
+      options: { location?: string; sample?: boolean } = {},
+    ) {
+      const [scan] = await rows<{ id: string }>(
+        "insert into public.scans (location_id, trigger, status, sample_data) values ($1, 'scheduled', 'running', $2) returning id",
+        [options.location ?? main, options.sample ?? false],
+      );
+      made.push(scan?.id ?? "");
+      const changes = alerts && {
+        clear: alerts.clear ?? [],
+        raise: (alerts.raise ?? []).map((subject) => ({
+          kind: "drop",
+          subject,
+          tracked_query_id: prompt,
+          surface: "chatgpt",
+          facts,
+          since: "2026-10-05T09:00:00Z",
+        })),
+      };
+      await as("service_role", null, () =>
+        changes
+          ? db.query("select public.complete_scan($1, 50, '[]'::jsonb, '[]'::jsonb, $2::jsonb)", [
+              scan?.id,
+              JSON.stringify(changes),
+            ])
+          : // As the Worker deployed before alerts existed calls it.
+            db.query("select public.complete_scan($1, 50, '[]'::jsonb, '[]'::jsonb)", [scan?.id]),
+      );
+      return scan?.id ?? "";
+    }
+    const alerts = (where = "true") =>
+      rows<Record<string, unknown>>(
+        `select id, subject, scan_id, sample_data, cleared_at is not null as cleared, clear_reason, dismissed_at is not null as dismissed, dismissed_by_email from public.alerts where ${where} order by raised_at, id`,
+      );
+    const dismiss = "select id, dismissed_by_email from public.dismiss_alert($1)";
+
+    beforeAll(async () => {
+      const [location] = await rows<{ id: string; query: string }>(
+        "select l.id, q.id as query from public.locations l join public.tracked_queries q on q.location_id = l.id where l.organization_id = $1 limit 1",
+        [theirs],
+      );
+      main = location?.id ?? "";
+      prompt = location?.query ?? "";
+    });
+    afterAll(async () => {
+      await db.query("delete from public.alerts");
+      await db.query("delete from public.scans where id = any($1::uuid[])", [made]);
+    });
+
+    it("are raised by the worker when a scan finishes, once while one for the thing is current", async () => {
+      const scan = await finish({ raise: ["prompt-a|chatgpt"] });
+      expect(await alerts()).toEqual([
+        {
+          id: expect.any(String),
+          subject: "prompt-a|chatgpt",
+          scan_id: scan,
+          sample_data: false,
+          cleared: false,
+          clear_reason: null,
+          dismissed: false,
+          dismissed_by_email: null,
+        },
+      ]);
+      const [kept] = await rows<{ location_id: string; facts: unknown; kind: string }>(
+        "select location_id, facts, kind from public.alerts",
+      );
+      expect(kept).toEqual({ location_id: main, facts, kind: "drop" });
+
+      // The next scan's rule fires for the same thing. The alert is not kept a second time.
+      await finish({ raise: ["prompt-a|chatgpt", "prompt-b|chatgpt"] });
+      expect((await alerts()).map((alert) => alert.subject)).toEqual([
+        "prompt-a|chatgpt",
+        "prompt-b|chatgpt",
+      ]);
+    });
+
+    it("are left alone by a scan finished the way the Worker before them finishes one", async () => {
+      const before = await alerts();
+      await finish(null);
+      expect(await alerts()).toEqual(before);
+    });
+
+    it("are read by whoever reads the location and by the operator, and written by no one directly", async () => {
+      const read = "select id from public.alerts where location_id = $1";
+      for (const user of [alice, operator]) {
+        expect(await as("authenticated", user, () => rows(read, [main])), user).toHaveLength(2);
+      }
+      expect(await as("authenticated", bob, () => rows(read, [main]))).toEqual([]);
+      await expect(as("anon", null, () => db.query(read, [main]))).rejects.toThrow(
+        /permission denied/,
+      );
+      for (const sql of [
+        `insert into public.alerts (location_id, kind, subject, facts, since) values ('${main}', 'drop', 'planted', '{}'::jsonb, now())`,
+        "update public.alerts set cleared_at = now(), clear_reason = 'named_again'",
+        "update public.alerts set dismissed_at = now()",
+        "delete from public.alerts",
+        `select public.complete_scan('${made[0]}', 50, '[]'::jsonb, '[]'::jsonb, '{}'::jsonb)`,
+      ]) {
+        for (const user of [alice, operator]) {
+          await expect(
+            as("authenticated", user, () => db.query(sql)),
+            sql,
+          ).rejects.toThrow(/permission denied/);
+        }
+      }
+    });
+
+    it("are dismissed by a member of the organization, and by nobody else", async () => {
+      const [first] = await alerts("subject = 'prompt-a|chatgpt'");
+      for (const user of [bob, operator]) {
+        expect(await as("authenticated", user, () => rows(dismiss, [first?.id])), user).toEqual([]);
+      }
+      // The worker is nobody's member either.
+      expect(await as("service_role", null, () => rows(dismiss, [first?.id]))).toEqual([]);
+      await expect(as("anon", null, () => db.query(dismiss, [first?.id]))).rejects.toThrow(
+        /permission denied/,
+      );
+      expect((await alerts("subject = 'prompt-a|chatgpt'"))[0]?.dismissed).toBe(false);
+
+      expect(await as("authenticated", alice, () => rows(dismiss, [first?.id]))).toEqual([
+        { id: first?.id, dismissed_by_email: "alice@example.com" },
+      ]);
+      const [at] = await rows<{ at: string }>(
+        "select dismissed_at::text as at from public.alerts where id = $1",
+        [first?.id],
+      );
+      // Dismissing it again changes nothing.
+      await as("authenticated", alice, () => rows(dismiss, [first?.id]));
+      expect(
+        await rows("select dismissed_at::text as at from public.alerts where id = $1", [first?.id]),
+      ).toEqual([at]);
+    });
+
+    it("stay in the way of the same thing once dismissed, until the worker clears them", async () => {
+      const [dismissed] = await alerts("subject = 'prompt-a|chatgpt'");
+      await finish({ raise: ["prompt-a|chatgpt"] });
+      expect(await alerts("subject = 'prompt-a|chatgpt'")).toHaveLength(1);
+
+      await finish({ clear: [{ id: String(dismissed?.id), reason: "named_again" }] });
+      expect(await alerts("subject = 'prompt-a|chatgpt'")).toMatchObject([
+        { cleared: true, clear_reason: "named_again", dismissed: true },
+      ]);
+
+      // It has ended, so the same thing beginning afresh is a new alert.
+      await finish({ raise: ["prompt-a|chatgpt"] });
+      expect(
+        (await alerts("subject = 'prompt-a|chatgpt'")).map((alert) => [
+          alert.cleared,
+          alert.dismissed,
+        ]),
+      ).toEqual([
+        [true, true],
+        [false, false],
+      ]);
+    });
+
+    it("are cleared only once, and only for the location whose scan it is", async () => {
+      const [other] = await rows<{ id: string }>(
+        "insert into public.locations (organization_id, name, city) values ($1, 'Elsewhere', 'Raleigh') returning id",
+        [theirs],
+      );
+      const [current] = await alerts("subject = 'prompt-b|chatgpt'");
+      // A scan of another location names this one's alert. Nothing is cleared.
+      await finish(
+        { clear: [{ id: String(current?.id), reason: "not_tracked" }] },
+        { location: other?.id },
+      );
+      expect((await alerts("subject = 'prompt-b|chatgpt'"))[0]?.cleared).toBe(false);
+
+      await finish({ clear: [{ id: String(current?.id), reason: "not_tracked" }] });
+      await finish({ clear: [{ id: String(current?.id), reason: "named_again" }] });
+      expect(await alerts("subject = 'prompt-b|chatgpt'")).toMatchObject([
+        { cleared: true, clear_reason: "not_tracked" },
+      ]);
+      // A member has nothing to dismiss in a cleared alert, and is not refused.
+      expect(await as("authenticated", alice, () => rows(dismiss, [current?.id]))).toHaveLength(1);
+      expect((await alerts("subject = 'prompt-b|chatgpt'"))[0]?.dismissed).toBe(false);
+      await db.query("delete from public.locations where id = $1", [other?.id]);
+    });
+
+    it("are kept apart for sample scans and real ones", async () => {
+      await finish({ raise: ["prompt-a|chatgpt"] }, { sample: true });
+      expect(
+        (await alerts("subject = 'prompt-a|chatgpt' and cleared_at is null")).map(
+          (alert) => alert.sample_data,
+        ),
+      ).toEqual([false, true]);
+    });
+
+    it("are cleared with a reason, or not at all", async () => {
+      await expect(
+        db.query("update public.alerts set cleared_at = now() where cleared_at is null"),
+      ).rejects.toThrow(/check constraint/);
+      await expect(
+        db.query(
+          "update public.alerts set cleared_at = now(), clear_reason = 'bored' where cleared_at is null",
+        ),
+      ).rejects.toThrow(/check constraint/);
+    });
+
+    it("go with their location", async () => {
+      const [gone] = await rows<{ id: string }>(
+        "insert into public.locations (organization_id, name, city) values ($1, 'Closing', 'Raleigh') returning id",
+        [theirs],
+      );
+      await db.query(
+        "insert into public.alerts (location_id, kind, subject, facts, since) values ($1, 'drop', 'closing', '{}'::jsonb, now())",
+        [gone?.id],
+      );
+      await db.query("delete from public.locations where id = $1", [gone?.id]);
+      expect(await rows("select 1 from public.alerts where subject = 'closing'")).toEqual([]);
+    });
+  });
+
   describe("making an audit", () => {
     const create =
       "select id, token, business_name, website, region, country_code, prompts, samples, status from public.operator_create_audit('Joe''s Pizza', 'https://joes.example/', 'Raleigh', null, 'US', array['best pizza', 'late night food'], 2)";

@@ -1092,6 +1092,11 @@ button.go {
   gap: 0.5rem;
 }
 
+/* Something got worse: edged as the bar for a failed scan is. */
+.also.alert {
+  border-color: var(--danger);
+}
+
 .also .task-proof {
   color: var(--ink);
 }
@@ -2358,6 +2363,11 @@ mark {
 
   .also {
     flex-direction: column;
+  }
+
+  /* Stacked, the width its text asks for beside the buttons would be read as a height. */
+  .also > div:first-child {
+    flex-basis: auto;
   }
 
   .summary-card li {

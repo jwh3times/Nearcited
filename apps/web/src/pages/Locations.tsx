@@ -140,13 +140,16 @@ function Row({ to, location, trend, detail, surfaces }: RowProps) {
   const rates = surfaceRates(detail?.window.cells ?? [], surfaces);
   const rival = detail?.action_plan.find((step) => step.id === "competitors")?.items[0];
   const steps = detail?.action_plan ?? [];
+  const alerts = detail?.alerts.length ?? 0;
 
   return (
     <Link to={to} className="gtable-row">
       <span className="stack-tight">
         <span className="loc-name ellipsis">{location.name}</span>
         <span className="small muted ellipsis">
-          {placeOf(location)} · {location.paused_by_plan ? "paused by your plan · " : ""}
+          {placeOf(location)} ·{" "}
+          {alerts > 0 ? `${alerts} ${alerts === 1 ? "alert" : "alerts"} · ` : ""}
+          {location.paused_by_plan ? "paused by your plan · " : ""}
           {location.last_scanned_at
             ? `scanned ${formatDate(location.last_scanned_at)}`
             : "not scanned yet"}
