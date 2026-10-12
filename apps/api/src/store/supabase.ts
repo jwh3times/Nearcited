@@ -73,7 +73,7 @@ const ERROR_KINDS: Record<string, StoreErrorKind> = {
   NC010: "limit", // a reduction that needs announcing, cannot be, or is held while one is open
   NC011: "limit", // an allowance of a kind that does not exist, or a value its kind does not take
   NC012: "limit", // a match a connection cannot take: not reached, already taken, or not working
-  NC013: "limit", // an action that is no longer waiting, or cannot be asked for again
+  NC013: "limit", // an action that is no longer waiting or cannot be asked for, or a task one did
 };
 
 function fail(action: string, error: DbError): never {
@@ -184,7 +184,7 @@ const ORGANIZATION_COLUMNS =
 
 // What a member is sent of an action. `subject` and `basis` are the worker's own bookkeeping.
 const ACTION_COLUMNS =
-  "id, location_id, kind, connection_id, summary, seen, proposed_text, written_by, status, proposed_at, lapses_at, approved_by_email, approved_at, approved_text, declined_by_email, declined_at, decline_reason, done_at, failed_at, failure, lapsed_at, lapse_reason, retry_of";
+  "id, location_id, kind, connection_id, summary, seen, seen_dropped_at, proposed_text, written_by, status, proposed_at, lapses_at, approved_by_email, approved_at, approved_text, declined_by_email, declined_at, decline_reason, done_at, failed_at, failure, lapsed_at, lapse_reason, retry_of";
 
 // Never the sign-in: that is in another table, which only the worker reads.
 const CONNECTION_COLUMNS =
@@ -197,7 +197,7 @@ const SCAN_COLUMNS =
   "id, location_id, status, trigger, visibility_score, error, sample_data, created_at, started_at, finished_at";
 
 const RECOMMENDATION_COLUMNS =
-  "id, location_id, scan_id, rule, title, detail, status, acted_at, created_at";
+  "id, location_id, scan_id, rule, title, detail, status, acted_at, acted_by_action, created_at";
 
 const RESULT_COLUMNS =
   "id, scan_id, tracked_query_id, surface, mentioned, position, competitors, cited_urls, answer_excerpt, sampled_at";
@@ -515,6 +515,7 @@ export function createSupabaseStore(db: SupabaseClient): Store {
           was: action.seen,
           new_text: action.proposed_text,
           author: action.written_by,
+          for_task: action.recommendation_id ?? null,
         })
         .select(ACTION_COLUMNS)
         .maybeSingle();
@@ -589,6 +590,15 @@ export function createSupabaseStore(db: SupabaseClient): Store {
     async lapseActions() {
       const { data, error } = await db.rpc("lapse_actions");
       if (error) fail("Lapse actions", error);
+      return z
+        .number()
+        .int()
+        .parse(data ?? 0);
+    },
+
+    async dropExpiredSeen() {
+      const { data, error } = await db.rpc("drop_expired_seen");
+      if (error) fail("Drop what actions replaced", error);
       return z
         .number()
         .int()

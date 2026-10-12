@@ -3583,6 +3583,8 @@ describe("the operator", () => {
           [theirs],
         );
         await db.query("update public.plans set allowances = '{}'");
+        // A test organization is given every kind there is, so one still names this.
+        await db.query("update public.organizations set allowances = allowances - 'sample_access'");
         await db.query("delete from public.allowance_kinds where key = 'sample_access'");
         await db.query(
           "delete from public.operator_actions where action = 'set_limits' and organization_id = $1 and created_at > now() - interval '1 minute' and detail -> 'to' -> 'allowances' ? 'sample_access'",
@@ -4090,6 +4092,354 @@ describe("the operator", () => {
       expect(await organizationHeld()).toEqual([{ held: false }]);
       expect(await claim(waiting?.id ?? "")).toEqual([{ try: 1 }]);
       await finish(waiting?.id ?? "", "done");
+    });
+
+    it("keep what each kind is held to where no API role reads it", async () => {
+      const read = "select kind from public.action_kind_terms";
+      for (const user of [alice, member, operator]) {
+        await expect(
+          as("authenticated", user, () => db.query(read)),
+          user,
+        ).rejects.toThrow(/permission denied/);
+      }
+      await expect(as("anon", null, () => db.query(read))).rejects.toThrow(/permission denied/);
+      expect(
+        await rows("select kind, allowance, keeps_seen_days from public.action_kind_terms"),
+      ).toEqual([{ kind: "sample", allowance: null, keeps_seen_days: 30 }]);
+    });
+
+    it("drop what one replaced once it may be kept no longer, and lapse a proposal waiting on it", async () => {
+      const drop = () =>
+        as("service_role", null, () =>
+          rows<{ dropped: number }>("select public.drop_expired_seen() as dropped"),
+        );
+      const kept = (id: string | undefined) =>
+        rows<Record<string, unknown>>(
+          "select status, lapse_reason, seen, seen_dropped_at is not null as dropped, proposed_text, approved_by_email from public.actions where id = $1",
+          [id],
+        );
+      for (const user of [alice, operator]) {
+        await expect(
+          as("authenticated", user, () => db.query("select public.drop_expired_seen()")),
+          user,
+        ).rejects.toThrow(/permission denied/);
+      }
+
+      const [waiting] = await propose("opening-line:h", "first");
+      // What it read may be kept for as long as its kind says, counted from when it was read.
+      expect(
+        await rows(
+          "select (seen_until - proposed_at)::text as kept_for from public.actions where id = $1",
+          [waiting?.id],
+        ),
+      ).toEqual([{ kept_for: "30 days" }]);
+      const [done] = await rows<{ id: string }>(
+        "select id from public.actions where subject = 'opening-line:c'",
+      );
+      await db.query("update public.actions set seen_until = now() + interval '30 days'");
+      expect(await drop()).toEqual([{ dropped: 0 }]);
+
+      await db.query(
+        "update public.actions set seen_until = now() - interval '1 minute' where id = any($1::uuid[])",
+        [[done?.id, waiting?.id]],
+      );
+      expect(await drop()).toEqual([{ dropped: 2 }]);
+      // The record keeps what the product wrote and who approved it, and says the rest is gone.
+      expect(await kept(done?.id)).toEqual([
+        {
+          status: "done",
+          lapse_reason: null,
+          seen: null,
+          dropped: true,
+          proposed_text: "As proposed",
+          approved_by_email: "alice@example.com",
+        },
+      ]);
+      // Nobody can be shown what the waiting one would replace, so it is no longer one to answer.
+      expect(await kept(waiting?.id)).toMatchObject([
+        { status: "lapsed", lapse_reason: "out_of_date", seen: null, dropped: true },
+      ]);
+      expect(await drop()).toEqual([{ dropped: 0 }]);
+    });
+
+    it("mark the task one did the work of, which a member can then not take back", async () => {
+      const proposeFor = (about: string, task: string | undefined, location = main) =>
+        as("service_role", null, () =>
+          rows<{ id: string; recommendation_id: string | null }>(
+            "select id, recommendation_id from public.propose_action($1, 'sample', $2, $3, 'first', 'Set the opening line', '{\"text\": null}'::jsonb, 'New line', 'rule', $4)",
+            [location, account, about, task],
+          ),
+        );
+      const marked = (id: string | undefined) =>
+        rows<{ acted: boolean; acted_by_action: string | null; status: string }>(
+          "select acted_at is not null as acted, acted_by_action, status from public.recommendations where id = $1",
+          [id],
+        );
+      const [task] = await rows<{ id: string }>(
+        "insert into public.recommendations (location_id, rule, title, detail) values ($1, 'source:listing.example', 'Check the listing', 'Detail') returning id",
+        [main],
+      );
+      const [elsewhere] = await rows<{ id: string }>(
+        "insert into public.locations (organization_id, name, city) values ($1, 'Elsewhere', 'Raleigh') returning id",
+        [theirs],
+      );
+
+      // A task belongs to the location its action is for.
+      await expect(proposeFor("opening-line:i", task?.id, elsewhere?.id)).rejects.toThrow(
+        /belongs to the location/,
+      );
+      await db.query("delete from public.locations where id = $1", [elsewhere?.id]);
+      const [made] = await proposeFor("opening-line:i", task?.id);
+      expect(made?.recommendation_id).toBe(task?.id);
+
+      // Proposed, approved and tried, the task is still the member's to mark and unmark.
+      await as("authenticated", alice, () => db.query(approve, [made?.id, null]));
+      await as("authenticated", alice, () =>
+        db.query("update public.recommendations set acted_at = now() where id = $1", [task?.id]),
+      );
+      expect(await claim(made?.id ?? "")).toEqual([{ try: 1 }]);
+      await finish(made?.id ?? "", "again", "Not this time.");
+      expect(await marked(task?.id)).toEqual([
+        { acted: true, acted_by_action: null, status: "open" },
+      ]);
+      await as("authenticated", alice, () =>
+        db.query("update public.recommendations set acted_at = null where id = $1", [task?.id]),
+      );
+
+      // Carried out, it is marked by the action, as of then.
+      await db.query("update public.actions set carrying_since = null where id = $1", [made?.id]);
+      expect(await claim(made?.id ?? "")).toEqual([{ try: 2 }]);
+      await finish(made?.id ?? "", "done");
+      expect(await marked(task?.id)).toEqual([
+        { acted: true, acted_by_action: made?.id, status: "open" },
+      ]);
+
+      // The mark records something that happened: no member takes it back or moves its day.
+      for (const user of [alice, member]) {
+        for (const value of ["null", "now()"]) {
+          await expect(
+            as("authenticated", user, () =>
+              db.query(`update public.recommendations set acted_at = ${value} where id = $1`, [
+                task?.id,
+              ]),
+            ),
+            `${user} ${value}`,
+          ).rejects.toThrow(/stays marked done/);
+        }
+      }
+      await expect(
+        as("authenticated", alice, () =>
+          db.query("update public.recommendations set acted_by_action = null where id = $1", [
+            task?.id,
+          ]),
+        ),
+      ).rejects.toThrow(/permission denied/);
+      // Its status is still theirs.
+      await as("authenticated", alice, () =>
+        db.query("update public.recommendations set status = 'dismissed' where id = $1", [
+          task?.id,
+        ]),
+      );
+      expect(await marked(task?.id)).toEqual([
+        { acted: true, acted_by_action: made?.id, status: "dismissed" },
+      ]);
+
+      // A later action for the same task leaves the first one's mark where it is.
+      const [later] = await proposeFor("opening-line:j", task?.id);
+      await as("authenticated", alice, () => db.query(approve, [later?.id, null]));
+      await claim(later?.id ?? "");
+      await finish(later?.id ?? "", "failed", "It could not be done.");
+      // Asked for again, it is for the same task.
+      const [again] = await as("authenticated", alice, () =>
+        rows<{ id: string; recommendation_id: string | null }>(
+          "select id, recommendation_id from public.retry_action($1)",
+          [later?.id],
+        ),
+      );
+      expect(again?.recommendation_id).toBe(task?.id);
+      await claim(again?.id ?? "");
+      await finish(again?.id ?? "", "done");
+      expect(await marked(task?.id)).toMatchObject([{ acted_by_action: made?.id }]);
+    });
+
+    describe("of a kind that is counted", () => {
+      const thisMonth = "date_trunc('month', now() at time zone 'UTC')::date";
+      const used = async () =>
+        (
+          await rows<{ used: number }>(
+            `select used from public.allowance_use where organization_id = $1 and kind = 'pretend_changes' and month = ${thisMonth}`,
+            [theirs],
+          )
+        )[0]?.used ?? 0;
+      const holds = async (id: string | undefined) =>
+        (
+          await rows<{ holds: boolean }>(
+            "select allowance_month is not null as holds from public.actions where id = $1",
+            [id],
+          )
+        )[0]?.holds;
+      const noRoom = /no more of these this month/;
+      let most: number;
+
+      beforeAll(async () => {
+        await db.query(
+          "insert into public.allowance_kinds (key, counted) values ('pretend_changes', true), ('pretend_access', false)",
+        );
+        await db.query("update public.action_kind_terms set allowance = 'pretend_changes'");
+        const [organization] = await rows<{ max_locations: number }>(
+          "update public.organizations set allowances = '{\"pretend_changes\": 1}' where id = $1 returning max_locations",
+          [theirs],
+        );
+        // One a month for each location the plan covers. All but one of them are used already.
+        most = organization?.max_locations ?? 0;
+        await db.query(
+          `insert into public.allowance_use (organization_id, kind, month, used) values ($1, 'pretend_changes', ${thisMonth}, $2)`,
+          [theirs, most - 1],
+        );
+      });
+      afterAll(async () => {
+        await db.query("update public.action_kind_terms set allowance = null");
+        await db.query("delete from public.allowance_use where kind like 'pretend_%'");
+        await db.query(
+          "update public.organizations set allowances = allowances - 'pretend_changes' - 'pretend_access'",
+        );
+        await db.query("delete from public.allowance_kinds where key like 'pretend_%'");
+      });
+
+      it("take one from the month when the worker takes them, once, and not before", async () => {
+        const [x] = await propose("opening-line:k", "first");
+        const [y] = await propose("opening-line:l", "first");
+        await as("authenticated", alice, () => db.query(approve, [x?.id, null]));
+        await as("authenticated", alice, () => db.query(approve, [y?.id, null]));
+        // Proposing and approving count nothing.
+        expect(await used()).toBe(most - 1);
+        expect(await holds(x?.id)).toBe(false);
+
+        expect(await claim(x?.id ?? "")).toEqual([{ try: 1 }]);
+        expect(await used()).toBe(most);
+        expect(await holds(x?.id)).toBe(true);
+        // A second try is the same action: it holds one already.
+        await finish(x?.id ?? "", "again", "Not this time.");
+        expect(await claim(x?.id ?? "")).toEqual([{ try: 2 }]);
+        expect(await used()).toBe(most);
+
+        // The month is used. One already approved is failed as it is taken, with the reason.
+        expect(await claim(y?.id ?? "")).toEqual([{ try: 0 }]);
+        expect(await stands(y?.id ?? "")).toEqual([
+          {
+            status: "failed",
+            attempts: 0,
+            carrying: false,
+            failure: "Your plan has no more of these this month.",
+            lapse_reason: null,
+          },
+        ]);
+        expect(await used()).toBe(most);
+      });
+
+      it("are not proposed, approved or asked for again once the month is used", async () => {
+        expect(await propose("opening-line:m", "first")).toEqual([]);
+        const [y] = await rows<{ id: string }>(
+          "select id from public.actions where subject = 'opening-line:l'",
+        );
+        await expect(
+          as("authenticated", alice, () => db.query("select public.retry_action($1)", [y?.id])),
+        ).rejects.toThrow(noRoom);
+        // One proposed while there was room cannot be said yes to now.
+        await db.query(
+          "insert into public.actions (location_id, kind, subject, basis, summary, written_by) values ($1, 'sample', 'opening-line:n', 'first', 'Set the opening line', 'rule')",
+          [main],
+        );
+        const [z] = await rows<{ id: string }>(
+          "select id from public.actions where subject = 'opening-line:n'",
+        );
+        await expect(
+          as("authenticated", alice, () => db.query(approve, [z?.id, null])),
+        ).rejects.toThrow(noRoom);
+        // A stranger is still told nothing.
+        expect(await as("authenticated", bob, () => rows(approve, [z?.id, null]))).toEqual([]);
+      });
+
+      it("give it back when they end without the thing being done, and keep it when it is", async () => {
+        const [x] = await rows<{ id: string }>(
+          "select id from public.actions where subject = 'opening-line:k'",
+        );
+        const [y] = await rows<{ id: string }>(
+          "select id from public.actions where subject = 'opening-line:l'",
+        );
+        await finish(x?.id ?? "", "failed", "It could not be done.");
+        expect(await used()).toBe(most - 1);
+        expect(await holds(x?.id)).toBe(false);
+
+        // There is room again, so the one that found none can be asked for again.
+        const [again] = await as("authenticated", alice, () =>
+          rows<{ id: string }>("select id from public.retry_action($1)", [y?.id]),
+        );
+        expect(await claim(again?.id ?? "")).toEqual([{ try: 1 }]);
+        expect(await used()).toBe(most);
+        await finish(again?.id ?? "", "out_of_date");
+        expect(await used()).toBe(most - 1);
+
+        const [z] = await rows<{ id: string }>(
+          "select id from public.actions where subject = 'opening-line:n'",
+        );
+        await as("authenticated", alice, () => db.query(approve, [z?.id, null]));
+        await claim(z?.id ?? "");
+        await finish(z?.id ?? "", "done");
+        expect(await used()).toBe(most);
+        expect(await holds(z?.id)).toBe(true);
+      });
+
+      it("are given back and asked about by the worker alone", async () => {
+        for (const user of [alice, operator]) {
+          for (const call of [
+            `select public.release_allowance('${theirs}', 'pretend_changes', ${thisMonth})`,
+            `select public.allowance_has_room('${theirs}', 'pretend_changes')`,
+          ]) {
+            await expect(
+              as("authenticated", user, () => db.query(call)),
+              `${user} ${call}`,
+            ).rejects.toThrow(/permission denied/);
+          }
+        }
+        const release = (amount: number) =>
+          as("service_role", null, () =>
+            rows<{ left: number | null }>(
+              `select public.release_allowance($1, 'pretend_changes', ${thisMonth}, $2) as left`,
+              [theirs, amount],
+            ),
+          );
+        expect(await release(1)).toEqual([{ left: most - 1 }]);
+        // Never below nothing, and never for a month nothing was counted in.
+        expect(await release(most + 5)).toEqual([{ left: 0 }]);
+        expect(
+          await as("service_role", null, () =>
+            rows("select public.release_allowance($1, 'pretend_changes', '2020-01-01') as left", [
+              theirs,
+            ]),
+          ),
+        ).toEqual([{ left: null }]);
+        await expect(release(0)).rejects.toThrow(/one or more at a time/);
+      });
+
+      it("count nothing for a kind included without a number, and are not proposed for one that is not included", async () => {
+        await db.query("update public.action_kind_terms set allowance = 'pretend_access'");
+        // Not included: nothing is proposed.
+        expect(await propose("opening-line:o", "first")).toEqual([]);
+
+        await db.query(
+          "update public.organizations set allowances = allowances || '{\"pretend_access\": true}' where id = $1",
+          [theirs],
+        );
+        const [made] = await propose("opening-line:o", "first");
+        await as("authenticated", alice, () => db.query(approve, [made?.id, null]));
+        expect(await claim(made?.id ?? "")).toEqual([{ try: 1 }]);
+        expect(await holds(made?.id)).toBe(false);
+        expect(
+          await rows("select 1 from public.allowance_use where kind = 'pretend_access'"),
+        ).toEqual([]);
+        await finish(made?.id ?? "", "done");
+      });
     });
 
     it("go with their location", async () => {

@@ -101,6 +101,8 @@ export interface NewAction {
   seen: { text: string | null } | null;
   proposed_text: string | null;
   written_by: "rule" | "model";
+  /** The task this does the work of, which is marked done when the action is carried out. */
+  recommendation_id?: string | null;
 }
 
 /** A connection to make: its sign-in is already sealed, to the ID given here. */
@@ -398,7 +400,8 @@ export interface Store {
   setRecommendationStatus(id: string, status: RecommendationStatus): Promise<Recommendation | null>;
   /**
    * Records that a member did the work a recommendation points at, or takes that back. The time
-   * is the database's. Null when the caller cannot see the recommendation.
+   * is the database's. Null when the caller cannot see the recommendation. Refused for one an
+   * action did the work of: that mark stays.
    */
   setRecommendationActed(id: string, acted: boolean): Promise<Recommendation | null>;
 
@@ -426,13 +429,16 @@ export interface Store {
   /** One action, for whoever may read its location. The worker reads any. */
   getAction(id: string): Promise<Action | null>;
   /**
-   * Takes an approved action to carry out. Says which try this is, counting from one, or zero
-   * when it is not approved or the worker is already on it. Worker only.
+   * Takes an approved action to carry out, and with it one from the month's allowance where its
+   * kind is counted. Says which try this is, counting from one, or zero when nothing is to be
+   * carried out: it is not approved, the worker is already on it, its organization is held, or
+   * the month had no room, in which case the action is now failed. Worker only.
    */
   claimAction(id: string): Promise<number>;
   /**
-   * Keeps what became of carrying an action out. `again` lets go of it for another try. False
-   * when it was not approved. Worker only.
+   * Keeps what became of carrying an action out. `again` lets go of it for another try. One that
+   * ends `failed` or `out_of_date` gives back what it took from the month, and one that is
+   * `done` marks the task it does the work of. False when it was not approved. Worker only.
    */
   finishAction(
     id: string,
@@ -456,6 +462,11 @@ export interface Store {
   isOrganizationHeld(organizationId: string): Promise<boolean>;
   /** Lapses every proposal that has waited its fourteen days. Returns how many. Worker only. */
   lapseActions(): Promise<number>;
+  /**
+   * Drops what each action replaced once it may be kept no longer, and lapses a proposal still
+   * waiting on it. Returns how many were dropped. Worker only.
+   */
+  dropExpiredSeen(): Promise<number>;
   /**
    * The actions approved before `before` that nobody is carrying out: their message was lost, or
    * the worker that took one has been on it since before then and is taken to have died. Worker

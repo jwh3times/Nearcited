@@ -85,6 +85,8 @@ test("shows what would be done, does it on a yes with the text changed, and keep
   await expect(happened).toContainText("Done on", { timeout: 30_000 });
   await expect(happened).toContainText(`Approved by ${account.email}, who changed the text.`);
   await expect(happened).toContainText("Joe's Pizza: open late on Fridays.");
+  // The record keeps what it replaced beside what it wrote.
+  await expect(happened).toContainText("What it replaced");
   await page.reload();
   await expect(page.getByRole("link", { name: /Joe's Pizza/ })).not.toContainText("waiting");
 });

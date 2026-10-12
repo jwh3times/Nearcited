@@ -85,7 +85,16 @@ export interface MemoryDb {
     carrying_since: string | null;
     told_at: string | null;
     waiting_told_at: string | null;
+    recommendation_id: string | null;
+    seen_until: string | null;
+    /** The month, as `YYYY-MM`, whose allowance this action holds one of. */
+    allowance_month: string | null;
   })[];
+  /**
+   * The `action_kind_terms` table: the allowance a kind of action takes from, and how many days
+   * what it replaced may be kept. A test changes a kind's terms to stand for a real kind.
+   */
+  actionKindTerms: Map<string, { allowance: string | null; keeps_seen_days: number | null }>;
   /** The sample account's made-up listings, keyed `connection:external`. */
   sampleLines: Map<string, string>;
   connections: Connection[];
@@ -160,6 +169,7 @@ export function createMemoryDb(): MemoryDb {
     limitChanges: [],
     allowanceUse: new Map(),
     actions: [],
+    actionKindTerms: new Map([["sample", { allowance: null, keeps_seen_days: 30 }]]),
     sampleLines: new Map(),
     connections: [],
     connectionHealth: new Map(),
@@ -223,8 +233,40 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
     carrying_since: _since,
     told_at: _told,
     waiting_told_at: _waitingTold,
+    recommendation_id: _task,
+    seen_until: _until,
+    allowance_month: _month,
     ...action
   }: MemoryDb["actions"][number]): Action => action;
+  const thisMonth = () => (db.now ?? new Date().toISOString()).slice(0, 7);
+  /** Mirrors claim_allowance(): the month's number is the plan's for each location it covers. */
+  const takeAllowance = (organizationId: string, kind: string, amount: number) => {
+    const organization = db.organizations.find((o) => o.id === organizationId);
+    if (!organization) return null;
+    const allowance = organization.allowances[kind];
+    if (allowance === undefined) return { claimed: false, allowed: 0, used: 0 };
+    if (allowance === true) return { claimed: true, allowed: null, used: 0 };
+    const most = allowedEachMonth(allowance, organization.max_locations);
+    const key = `${organizationId}:${kind}:${thisMonth()}`;
+    const soFar = db.allowanceUse.get(key) ?? 0;
+    if (soFar + amount > most) return { claimed: false, allowed: most, used: soFar };
+    db.allowanceUse.set(key, soFar + amount);
+    return { claimed: true, allowed: most, used: soFar + amount };
+  };
+  /** Mirrors the room check the action functions make: no allowance needed, or room this month. */
+  const hasRoom = (locationId: string, kind: string) => {
+    const needed = db.actionKindTerms.get(kind)?.allowance;
+    if (!needed) return true;
+    const organization = db.organizations.find(
+      (o) => o.id === db.locations.find((l) => l.id === locationId)?.organization_id,
+    );
+    const allowance = organization?.allowances[needed];
+    if (!organization || allowance === undefined) return false;
+    if (allowance === true) return true;
+    const used = db.allowanceUse.get(`${organization.id}:${needed}:${thisMonth()}`) ?? 0;
+    return used < allowedEachMonth(allowance, organization.max_locations);
+  };
+  const NO_ROOM = "Your plan has no more of these this month.";
   /** Mirrors organization_held(): an action done 36 hours ago and its owners still not told. */
   const organizationHeld = (organizationId: string) => {
     const organization = db.organizations.find((o) => o.id === organizationId);
@@ -250,6 +292,13 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         action.subject === subject &&
         (action.status === "proposed" || action.status === "approved"),
     );
+  /** The day what a new action replaces may no longer be kept, by its kind's terms. */
+  const seenUntil = (action: NewAction, now: string) => {
+    const days = db.actionKindTerms.get(action.kind)?.keeps_seen_days ?? null;
+    return action.seen !== null && days !== null
+      ? new Date(Date.parse(now) + days * 86_400_000).toISOString()
+      : null;
+  };
   /** A new proposal, waiting its fourteen days from `now`. */
   const newAction = (
     action: NewAction | MemoryDb["actions"][number],
@@ -284,6 +333,11 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
     carrying_since: null,
     told_at: null,
     waiting_told_at: null,
+    recommendation_id: action.recommendation_id ?? null,
+    // Asked for again, what it replaces may be kept no longer than the first one's could.
+    seen_dropped_at: "seen_until" in action ? action.seen_dropped_at : null,
+    seen_until: "seen_until" in action ? action.seen_until : seenUntil(action, now),
+    allowance_month: null,
   });
   /** Mirrors the due and sync rules: working, or broken only by failing, which is still tried. */
   const syncs = (connection: Connection) =>
@@ -483,6 +537,7 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
       if (changed !== null && action.proposed_text === null) {
         throw new StoreError("limit", "This action has no text to change.");
       }
+      if (!hasRoom(action.location_id, action.kind)) throw new StoreError("limit", NO_ROOM);
       Object.assign(action, {
         status: "approved",
         approved_by_email: db.emails.get(userId ?? "") ?? null,
@@ -517,6 +572,7 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
       if (openFor(failed.location_id, failed.kind, failed.subject)) {
         throw new StoreError("limit", "There is already one of these waiting or on its way.");
       }
+      if (!hasRoom(failed.location_id, failed.kind)) throw new StoreError("limit", NO_ROOM);
       const now = db.now ?? new Date().toISOString();
       const again = {
         ...newAction(failed, now),
@@ -530,7 +586,8 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
       return sentAction(again);
     },
 
-    // Mirrors propose_action(): not while one is open, nor again after a no on the same basis.
+    // Mirrors propose_action(): not while one is open, nor again after a no on the same basis,
+    // nor once the month's allowance has no room.
     async proposeAction(action) {
       if (userId !== null) throw new StoreError("forbidden", "worker only");
       const declined = db.actions.some(
@@ -542,6 +599,14 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
           kept.basis === action.basis,
       );
       if (declined || openFor(action.location_id, action.kind, action.subject)) return null;
+      if (!hasRoom(action.location_id, action.kind)) return null;
+      const task = action.recommendation_id;
+      if (
+        task &&
+        db.recommendations.find((r) => r.id === task)?.location_id !== action.location_id
+      ) {
+        throw new StoreError("unexpected", "A task belongs to the location its action is for.");
+      }
       const made = newAction(action, db.now ?? new Date().toISOString());
       db.actions.push(made);
       return sentAction(made);
@@ -553,7 +618,8 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
       return readable && action ? sentAction(action) : null;
     },
 
-    // Mirrors claim_action(): approved, and nobody on it for the last ten minutes.
+    // Mirrors claim_action(): approved, and nobody on it for the last ten minutes. A counted
+    // kind takes one from the month as it is taken, and is failed here when there is no room.
     async claimAction(id) {
       if (userId !== null) throw new StoreError("forbidden", "worker only");
       const now = db.now ?? new Date().toISOString();
@@ -568,6 +634,15 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         (l) => l.id === action?.location_id,
       )?.organization_id;
       if (!action || (organizationId && organizationHeld(organizationId))) return 0;
+      const needed = db.actionKindTerms.get(action.kind)?.allowance;
+      if (needed && action.allowance_month === null) {
+        const claim = organizationId ? takeAllowance(organizationId, needed, 1) : null;
+        if (!claim?.claimed) {
+          Object.assign(action, { status: "failed", failed_at: now, failure: NO_ROOM });
+          return 0;
+        }
+        if (claim.allowed !== null) action.allowance_month = thisMonth();
+      }
       action.carrying_since = now;
       action.attempts += 1;
       return action.attempts;
@@ -582,6 +657,21 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
       if (!action) return false;
       const now = db.now ?? new Date().toISOString();
       action.carrying_since = null;
+      // Nothing was done, so what it took from the month is given back.
+      if ((outcome === "failed" || outcome === "out_of_date") && action.allowance_month) {
+        const organizationId = db.locations.find(
+          (l) => l.id === action.location_id,
+        )?.organization_id;
+        const needed = db.actionKindTerms.get(action.kind)?.allowance;
+        const key = `${organizationId}:${needed}:${action.allowance_month}`;
+        db.allowanceUse.set(key, Math.max((db.allowanceUse.get(key) ?? 0) - 1, 0));
+        action.allowance_month = null;
+      }
+      // The task it does the work of is done as of now, unless an earlier action already did it.
+      const task = db.recommendations.find((r) => r.id === action.recommendation_id);
+      if (outcome === "done" && task && !task.acted_by_action) {
+        Object.assign(task, { acted_at: now, acted_by_action: action.id });
+      }
       if (outcome === "done") Object.assign(action, { status: "done", done_at: now });
       if (outcome === "failed") {
         Object.assign(action, { status: "failed", failed_at: now, failure: why ?? null });
@@ -655,6 +745,22 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
       );
       for (const action of due) {
         Object.assign(action, { status: "lapsed", lapsed_at: now, lapse_reason: "expired" });
+      }
+      return due.length;
+    },
+
+    // Mirrors drop_expired_seen().
+    async dropExpiredSeen() {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      const now = db.now ?? new Date().toISOString();
+      const due = db.actions.filter(
+        (action) => action.seen !== null && action.seen_until !== null && action.seen_until <= now,
+      );
+      for (const action of due) {
+        if (action.status === "proposed") {
+          Object.assign(action, { status: "lapsed", lapsed_at: now, lapse_reason: "out_of_date" });
+        }
+        Object.assign(action, { seen: null, seen_dropped_at: now });
       }
       return due.length;
     },
@@ -1010,21 +1116,10 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
       );
     },
 
-    // Mirrors claim_allowance(): the month's number is the plan's for each location it covers.
     async claimAllowance(organizationId, kind, amount = 1) {
       if (userId !== null) throw new StoreError("forbidden", "worker only");
       if (amount < 1) throw new StoreError("unexpected", "claimed one or more at a time");
-      const organization = db.organizations.find((o) => o.id === organizationId);
-      if (!organization) return null;
-      const allowance = organization.allowances[kind];
-      if (allowance === undefined) return { claimed: false, allowed: 0, used: 0 };
-      if (allowance === true) return { claimed: true, allowed: null, used: 0 };
-      const most = allowedEachMonth(allowance, organization.max_locations);
-      const key = `${organizationId}:${kind}:${(db.now ?? new Date().toISOString()).slice(0, 7)}`;
-      const soFar = db.allowanceUse.get(key) ?? 0;
-      if (soFar + amount > most) return { claimed: false, allowed: most, used: soFar };
-      db.allowanceUse.set(key, soFar + amount);
-      return { claimed: true, allowed: most, used: soFar + amount };
+      return takeAllowance(organizationId, kind, amount);
     },
 
     async applyPlan(organizationId, planKey, locations) {
@@ -1679,6 +1774,10 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
     async setRecommendationActed(id, acted) {
       const recommendation = db.recommendations.find((candidate) => candidate.id === id);
       if (!recommendation || !seesLocation(recommendation.location_id)) return null;
+      // Mirrors stamp_recommendation_acted(): what an action did stays marked.
+      if (recommendation.acted_by_action) {
+        throw new StoreError("limit", "Nearcited did this task, so it stays marked done.");
+      }
       recommendation.acted_at = acted ? timestamp() : null;
       return recommendation;
     },
@@ -1830,6 +1929,7 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
             scan_id: id,
             status: "open",
             acted_at: null,
+            acted_by_action: null,
             created_at: timestamp(),
           });
         }

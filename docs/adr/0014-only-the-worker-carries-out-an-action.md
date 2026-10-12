@@ -45,12 +45,17 @@ is the notice.
 **What the product wrote is kept; what it replaced only as long as it may be.** The text, who
 approved it and when are kept for as long as the organization exists. What it replaced, where
 that was read from a platform that limits how long it may be held, is dropped when that limit is
-reached, and the record says so.
+reached, and the record says so. An action still open then lapses as out of date: what is there
+can no longer be checked against what the member was shown.
 
 **An action that does a task's work marks the task done**, at the moment it is carried out, and
-a member cannot clear that mark. **An action takes from the month's allowance when it is carried
-out** and gives it back if it fails; once the month's number is used, no more of that kind are
-proposed.
+a member cannot clear that mark. The mark carries that day, in place of a member's own if they
+had marked it first, and a later action for the same task leaves it where it is.
+
+**An action takes from the month's allowance when it is carried out** and gives it back if it
+fails or was out of date; once the month's number is used, no more of that kind are proposed. A
+yes is refused while the month has no room, and an action approved earlier that finds none when
+the worker takes it is failed with that reason, to be asked for again when there is.
 
 ## Considered options
 

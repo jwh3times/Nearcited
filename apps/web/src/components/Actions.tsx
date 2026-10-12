@@ -1,7 +1,7 @@
 import { type Action, type LocationActions, NOTICE_HOLD_HOURS } from "@nearcited/shared";
 import { useMutation } from "@tanstack/react-query";
 import { useState } from "react";
-import { actionState, actionText, writtenBy } from "../lib/actions";
+import { actionState, actionText, whatItReplaced, writtenBy } from "../lib/actions";
 import { api } from "../lib/api";
 import { formatDay } from "../lib/billing";
 import { ErrorNote } from "./ErrorNote";
@@ -168,10 +168,19 @@ function Recorded({
 }) {
   const retry = useMutation({ mutationFn: () => api.retryAction(action.id), onSuccess: onChanged });
   const text = actionText(action);
+  const replaced = whatItReplaced(action, formatDay);
   return (
     <article className="card action" aria-label={action.summary}>
       <h3 className="action-name">{action.summary}</h3>
       {text !== null && <p>{text}</p>}
+      {replaced !== null && (
+        <ul className="facts">
+          <li>
+            <span>{action.status === "done" ? "What it replaced" : "What was there"}</span>
+            <span>{replaced}</span>
+          </li>
+        </ul>
+      )}
       <p className="small muted">{actionState(action, formatDay)}</p>
       {action.status === "failed" && !readOnly && (
         <div className="button-row">

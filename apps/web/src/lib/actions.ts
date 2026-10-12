@@ -50,8 +50,29 @@ export function actionState(action: Action, day: (iso: string) => string): strin
         action.declined_at ? ` on ${day(action.declined_at)}` : ""
       }${action.decline_reason ? `: ${action.decline_reason}` : "."}`;
     case "lapsed":
-      return action.lapse_reason === "out_of_date"
-        ? `Not done: what it would have replaced had changed since it was proposed. ${approved}`
-        : `Lapsed${action.lapsed_at ? ` on ${day(action.lapsed_at)}` : ""}: nobody answered in fourteen days.`;
+      if (action.lapse_reason !== "out_of_date") {
+        return `Lapsed${action.lapsed_at ? ` on ${day(action.lapsed_at)}` : ""}: nobody answered in fourteen days.`;
+      }
+      // Dropped before it lapsed: there was nothing left to check what was there against.
+      return droppedFirst(action)
+        ? `Not done: what it would have replaced could no longer be kept, so it could not be checked.${action.approved_at ? ` ${approved}` : ""}`
+        : `Not done: what it would have replaced had changed since it was proposed. ${approved}`;
   }
+}
+
+const droppedFirst = (action: Action): boolean =>
+  action.seen_dropped_at !== null &&
+  action.lapsed_at !== null &&
+  Date.parse(action.seen_dropped_at) <= Date.parse(action.lapsed_at);
+
+/**
+ * What an action replaced, for the record. Null when it read nothing to replace. Once that may
+ * be kept no longer it is dropped, and the record says so in its place.
+ */
+export function whatItReplaced(action: Action, day: (iso: string) => string): string | null {
+  if (action.seen_dropped_at !== null) {
+    return `No longer kept. It was dropped on ${day(action.seen_dropped_at)}.`;
+  }
+  if (action.seen === null) return null;
+  return action.seen.text ?? "Nothing";
 }

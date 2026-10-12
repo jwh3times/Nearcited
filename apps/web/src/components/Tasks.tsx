@@ -2,7 +2,7 @@ import type { Task } from "@nearcited/shared";
 import { useMutation } from "@tanstack/react-query";
 import { api } from "../lib/api";
 import { formatDate } from "../lib/format";
-import { KIND_LABELS, proof } from "../lib/tasks";
+import { KIND_LABELS, markedDone, proof } from "../lib/tasks";
 import { ErrorNote } from "./ErrorNote";
 
 interface TasksProps {
@@ -14,7 +14,8 @@ interface TasksProps {
 
 /**
  * The work that follows from the sources, one site each. Marking one done is kept with the
- * location, and the scans before that day are set beside the scans since.
+ * location, and the scans before that day are set beside the scans since. A task an action did
+ * the work of is marked by that, and offers nothing to undo.
  */
 export function Tasks({ tasks, onChanged, readOnly }: TasksProps) {
   const mark = useMutation({
@@ -47,7 +48,7 @@ export function Tasks({ tasks, onChanged, readOnly }: TasksProps) {
                 )}
                 {task.acted_at && lines && (
                   <p className="task-proof">
-                    Marked done {formatDate(task.acted_at)}.
+                    {markedDone(task, formatDate(task.acted_at))}
                     <br />
                     {lines.before}
                     <br />
@@ -55,7 +56,7 @@ export function Tasks({ tasks, onChanged, readOnly }: TasksProps) {
                   </p>
                 )}
               </div>
-              {!readOnly && (
+              {!readOnly && !task.acted_by_action && (
                 <div className="row-actions">
                   <button
                     type="button"
