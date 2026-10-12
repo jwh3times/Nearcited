@@ -665,16 +665,14 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
       recommendations: [{ rule: "absent:gemini", title: "Not named on Gemini", detail: "Detail" }],
       alerts: {
         clear: [],
-        raise: [
-          {
-            kind: "drop",
-            subject: `${query.id}|chatgpt`,
-            tracked_query_id: query.id,
-            surface: "chatgpt",
-            facts: { prompt: query.text, missed: 3, checks_before: 4, named_before: 4 },
-            since: "2026-10-05T09:00:00Z",
-          },
-        ],
+        raise: (["chatgpt", "gemini"] as const).map((surface) => ({
+          kind: "drop" as const,
+          subject: `${query.id}|${surface}`,
+          tracked_query_id: query.id,
+          surface,
+          facts: { prompt: query.text, missed: 3, checks_before: 4, named_before: 4 },
+          since: "2026-10-05T09:00:00Z",
+        })),
       },
     });
 
@@ -706,8 +704,11 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
 
     // Alerts: kept with the scan that raised them, read by the location's members, and
     // dismissed by one of them. A dismissed alert is still current, which the worker is told.
-    const [alert] = await aliceStore.listAlerts(location.id, false);
-    if (!alert) throw new Error("alert missing");
+    const raised = await aliceStore.listAlerts(location.id, false);
+    const alert = raised.find((candidate) => candidate.surface === "chatgpt");
+    const dismissed = raised.find((candidate) => candidate.surface === "gemini");
+    if (!alert || !dismissed) throw new Error("alert missing");
+    expect(raised).toHaveLength(2);
     expect(alert).toMatchObject({
       kind: "drop",
       tracked_query_id: query.id,
@@ -720,15 +721,30 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
     expect(Date.parse(alert.since)).toBe(Date.parse("2026-10-05T09:00:00Z"));
     expect(await aliceStore.listAlerts(location.id, true)).toEqual([]);
     expect(await bobStore.listAlerts(location.id, false)).toEqual([]);
-    expect(await bobStore.dismissAlert(alert.id)).toBeNull();
-    expect(await worker.dismissAlert(alert.id)).toBeNull();
-    expect(await aliceStore.dismissAlert(alert.id)).toMatchObject({
-      id: alert.id,
+    expect(await bobStore.dismissAlert(dismissed.id)).toBeNull();
+    expect(await worker.dismissAlert(dismissed.id)).toBeNull();
+    expect(await aliceStore.dismissAlert(dismissed.id)).toMatchObject({
+      id: dismissed.id,
       dismissed_by_email: "alice@example.com",
     });
-    expect(await worker.listAlerts(location.id, false)).toMatchObject([
-      { id: alert.id, dismissed_by_email: "alice@example.com" },
-    ]);
+    expect(await worker.listAlerts(location.id, false)).toContainEqual(
+      expect.objectContaining({ id: dismissed.id, dismissed_by_email: "alice@example.com" }),
+    );
+    // What the owners have not been told of leads the next report: not what a member dismissed
+    // first, and nothing of a stranger's. Only the worker keeps that they were told.
+    const nothing = { raised: [], named_again: [] };
+    expect(await worker.listAlertsToTell(location.id, false)).toEqual({
+      raised: [alert],
+      named_again: [],
+    });
+    expect(await worker.listAlertsToTell(location.id, true)).toEqual(nothing);
+    expect(await bobStore.listAlertsToTell(location.id, false)).toEqual(nothing);
+    const told = { raised: [alert.id], named_again: [] };
+    await expect(aliceStore.markAlertsTold(told, new Date().toISOString())).rejects.toMatchObject({
+      kind: "forbidden",
+    });
+    await worker.markAlertsTold(told, new Date().toISOString());
+    expect(await worker.listAlertsToTell(location.id, false)).toEqual(nothing);
 
     // Recommendations
     const [recommendation] = await aliceStore.listRecommendations(location.id);
@@ -829,9 +845,23 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
       recommendations: [],
       site: check,
       // The scan that finishes is also what clears an alert.
-      alerts: { clear: [{ id: alert.id, reason: "named_again" }], raise: [] },
+      alerts: {
+        clear: [alert.id, dismissed.id].map((id) => ({ id, reason: "named_again" as const })),
+        raise: [],
+      },
     });
     expect(await aliceStore.listAlerts(location.id, false)).toEqual([]);
+    // The owners were told of one of the two, so they are told once that it ended.
+    const ended = await worker.listAlertsToTell(location.id, false);
+    expect(ended).toMatchObject({
+      raised: [],
+      named_again: [{ id: alert.id, clear_reason: "named_again" }],
+    });
+    await worker.markAlertsTold({ raised: [], named_again: [alert.id] }, new Date().toISOString());
+    expect(await worker.listAlertsToTell(location.id, false)).toEqual({
+      raised: [],
+      named_again: [],
+    });
     expect(await aliceStore.getSiteCheck(location.id)).toEqual(check);
     expect(await worker.getSiteCheck(location.id)).toEqual(check);
     expect(await bobStore.getSiteCheck(location.id)).toBeNull();

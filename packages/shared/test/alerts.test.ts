@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   type AlertScan,
   alertDetail,
+  alertEnded,
   alertTitle,
   type CurrentAlert,
   deriveAlerts,
@@ -194,6 +195,14 @@ describe("what an alert says", () => {
     expect(alertTitle(alert())).toBe('No longer named for "best pizza near me" on ChatGPT');
     expect(alertDetail(alert(), day)).toBe(
       "Since 2026-10-05. It was named in 4 of the 4 checks before that and in none of the 3 since.",
+    );
+  });
+});
+
+describe("what an alert that ended says", () => {
+  it("says the business is named again, and since when it had not been", () => {
+    expect(alertEnded(alert(), day)).toBe(
+      'Named again for "best pizza near me" on ChatGPT. It had not been since 2026-10-05.',
     );
   });
 });

@@ -4,6 +4,7 @@ import type {
   ActionKind,
   Alert,
   AlertChanges,
+  AlertsToTell,
   AllowanceClaim,
   AllowanceUse,
   AuditInput,
@@ -629,6 +630,17 @@ export interface Store {
    * Returns how many. `olderThan` is an ISO timestamp.
    */
   failStaleScans(olderThan: string, error: string): Promise<number>;
+  /**
+   * What a location's owners have not been told of yet, for the report a scheduled scan sends:
+   * alerts raised, still open and not dismissed, and drops they were told of that ended because
+   * the business was named again. Only those from scans of the given kind.
+   */
+  listAlertsToTell(locationId: string, sampleData: boolean): Promise<AlertsToTell>;
+  /**
+   * Keeps that an organization's owners were told: of the alerts in `raised` that they were
+   * raised, and of those in `named_again` that they ended. Worker only.
+   */
+  markAlertsTold(told: { raised: string[]; named_again: string[] }, at: string): Promise<void>;
   listLocationsDueForScan(limit: number): Promise<string[]>;
   listOwnerEmails(organizationId: string): Promise<string[]>;
 }

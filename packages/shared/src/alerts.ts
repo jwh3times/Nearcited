@@ -168,6 +168,24 @@ export function alertDetail(
   return `Since ${day(alert.since)}. It was named in ${named_before} of the ${checks_before} checks before that and in none of the ${missed} since.`;
 }
 
+/** What an alert that ended because the business was named again says, in a line. */
+export function alertEnded(
+  alert: Pick<Alert, "facts" | "surface" | "since">,
+  day: (iso: string) => string,
+): string {
+  return `Named again for "${alert.facts.prompt}" on ${SURFACE_LABELS[alert.surface]}. It had not been since ${day(alert.since)}.`;
+}
+
+/**
+ * What an organization's owners have not been told yet about a location: the alerts raised and
+ * still open, and the drops they were told of that have since ended because the business was
+ * named again. Each is told once.
+ */
+export interface AlertsToTell {
+  raised: Alert[];
+  named_again: Alert[];
+}
+
 /** Alerts that are shown as one: the drops one scan raised on one surface. */
 export interface AlertGroup {
   key: string;

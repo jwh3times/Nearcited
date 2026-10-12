@@ -139,7 +139,7 @@ describe("runScan", () => {
   });
 
   it("sends a report for scheduled scans only", async () => {
-    const notify = vi.fn<(report: ScanReport) => Promise<void>>(async () => {});
+    const notify = vi.fn<(report: ScanReport) => Promise<boolean>>(async () => true);
 
     const manual = await queueScan("manual");
     await runScan(manual.id, { store: worker, providers, notify });
@@ -152,7 +152,7 @@ describe("runScan", () => {
   });
 
   it("sends no report where the organization's plan does not include one", async () => {
-    const notify = vi.fn<(report: ScanReport) => Promise<void>>(async () => {});
+    const notify = vi.fn<(report: ScanReport) => Promise<boolean>>(async () => true);
     for (const organization of db.organizations) organization.emails_report = false;
 
     const scheduled = await queueScan("scheduled");
@@ -433,6 +433,7 @@ describe("buildScanReportEmail", () => {
       providers,
       notify: async (sent) => {
         report = sent;
+        return true;
       },
     });
     if (!report) throw new Error("no report");
@@ -498,6 +499,7 @@ describe("the scan window", () => {
       sampleData: options.sampleData,
       notify: async (sent) => {
         report = sent;
+        return true;
       },
     });
     if (!report) throw new Error("no report");
@@ -850,6 +852,224 @@ describe("alerts", () => {
     // A real scan that names the business says nothing about the sample window's drop.
     await scans(providers, 1);
     expect((await worker.listAlerts(locationId, true))[0]?.cleared_at).toBeNull();
+  });
+
+  describe("in the report", () => {
+    /** One scheduled scan, and the report it sent, if it sent one. */
+    async function scheduled(registry: ProviderRegistry, sent: boolean | Error = true) {
+      const queued = await queueScan("scheduled");
+      let report: ScanReport | undefined;
+      await runScan(queued.id, {
+        store: worker,
+        providers: registry,
+        notify: async (given) => {
+          if (sent instanceof Error) throw sent;
+          report = given;
+          return sent;
+        },
+      });
+      return report;
+    }
+    const news = (report: ScanReport | undefined) => [
+      report?.alerts.raised.length,
+      report?.alerts.named_again.length,
+    ];
+
+    it("lead the report of the scan that raised them, once", async () => {
+      await scans(providers, 4);
+      await scans(silent, 2);
+      const report = await scheduled(silent);
+      expect(news(report)).toEqual([1, 0]);
+      expect(report?.alerts.raised[0]?.facts).toMatchObject({ missed: 3, named_before: 4 });
+      expect(db.alerts[0]?.told_at).not.toBeNull();
+
+      // The drop goes on. The next report has nothing new to say about it.
+      expect(news(await scheduled(silent))).toEqual([0, 0]);
+    });
+
+    it("say once that a drop the owners were told of has ended", async () => {
+      await scans(providers, 4);
+      await scans(silent, 2);
+      await scheduled(silent);
+
+      expect(news(await scheduled(providers))).toEqual([0, 1]);
+      expect(db.alerts[0]?.cleared_told_at).not.toBeNull();
+      expect(news(await scheduled(providers))).toEqual([0, 0]);
+    });
+
+    it("carry what a manual scan raised, if it is still open when the next report goes", async () => {
+      await scans(providers, 4);
+      await scans(silent, 3);
+      expect(db.alerts[0]?.told_at).toBeNull();
+
+      expect(news(await scheduled(silent))).toEqual([1, 0]);
+    });
+
+    it("say nothing of a drop that began and ended between two reports", async () => {
+      await scans(providers, 4);
+      await scans(silent, 3);
+      await scans(providers, 1);
+      expect(db.alerts[0]).toMatchObject({ clear_reason: "named_again", told_at: null });
+
+      expect(news(await scheduled(providers))).toEqual([0, 0]);
+    });
+
+    it("say nothing of an alert a member dismissed first, nor that it ended", async () => {
+      await scans(providers, 4);
+      await scans(silent, 3);
+      await memoryStore(db, owner).dismissAlert(db.alerts[0]?.id ?? "");
+
+      expect(news(await scheduled(silent))).toEqual([0, 0]);
+      expect(news(await scheduled(providers))).toEqual([0, 0]);
+    });
+
+    it("say nothing of the end of a drop that was dismissed after the owners were told", async () => {
+      await scans(providers, 4);
+      await scans(silent, 2);
+      await scheduled(silent);
+      await memoryStore(db, owner).dismissAlert(db.alerts[0]?.id ?? "");
+
+      expect(news(await scheduled(providers))).toEqual([0, 0]);
+    });
+
+    it("say nothing of an alert that ended because its prompt was retired", async () => {
+      await scans(providers, 4);
+      await scans(silent, 2);
+      await scheduled(silent);
+      const user = memoryStore(db, owner);
+      await user.setQueryActive(db.queries[0]?.id ?? "", false);
+      await user.createQuery(locationId, { kind: "ai_prompt", text: "pizza delivery Raleigh" });
+
+      expect(news(await scheduled(silent))).toEqual([0, 0]);
+      expect(db.alerts[0]).toMatchObject({ clear_reason: "not_tracked", cleared_told_at: null });
+    });
+
+    it("stay untold when the report went to nobody, or was not sent, and go in the next", async () => {
+      const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+      await scans(providers, 4);
+      await scans(silent, 2);
+
+      // Nobody is an owner with an address.
+      expect(news(await scheduled(silent, false))).toEqual([1, 0]);
+      expect(db.alerts[0]?.told_at).toBeNull();
+      // The mail service refused it.
+      await scheduled(silent, new Error("Resend is down"));
+      expect(db.alerts[0]?.told_at).toBeNull();
+
+      expect(news(await scheduled(silent))).toEqual([1, 0]);
+      expect(db.alerts[0]?.told_at).not.toBeNull();
+      errors.mockRestore();
+    });
+
+    it("do not hold the report back when they cannot be read", async () => {
+      const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+      await scans(providers, 4);
+      await scans(silent, 2);
+      const queued = await queueScan("scheduled");
+      let report: ScanReport | undefined;
+      await runScan(queued.id, {
+        store: {
+          ...worker,
+          listAlertsToTell: async () => {
+            throw new Error("the database is away");
+          },
+        },
+        providers: silent,
+        notify: async (given) => {
+          report = given;
+          return true;
+        },
+      });
+
+      // The report went, saying nothing of alerts, and the alert is still to tell.
+      expect(report?.alerts).toEqual({ raised: [], named_again: [] });
+      expect(db.alerts.map((alert) => alert.told_at)).toEqual([null]);
+      expect(news(await scheduled(silent))).toEqual([1, 0]);
+      errors.mockRestore();
+    });
+
+    it("stay untold where the plan sends no report", async () => {
+      await scans(providers, 4);
+      await scans(silent, 2);
+      for (const organization of db.organizations) organization.emails_report = false;
+      expect(await scheduled(silent)).toBeUndefined();
+      expect(db.alerts.map((alert) => alert.told_at)).toEqual([null]);
+    });
+
+    it("stay untold for a test organization, which is sent no report", async () => {
+      for (const organization of db.organizations) organization.is_test = true;
+      const notify = vi.fn<(report: ScanReport) => Promise<boolean>>(async () => true);
+      // Its scans are generated, by the providers of sample data.
+      const generated = async (registry: ProviderRegistry, count: number) => {
+        for (let i = 0; i < count; i++) {
+          const queued = await queueScan("scheduled");
+          await runScan(queued.id, {
+            store: worker,
+            providers: {},
+            sampleProviders: registry,
+            notify,
+          });
+        }
+      };
+      await generated(providers, 4);
+      await generated(silent, 3);
+
+      expect(db.alerts).toHaveLength(1);
+      expect(db.alerts[0]).toMatchObject({ sample_data: true, told_at: null });
+      expect(notify).not.toHaveBeenCalled();
+    });
+
+    it("put the alert in the subject and at the head of the message", async () => {
+      await scans(providers, 4);
+      await scans(silent, 2);
+      const report = await scheduled(silent);
+      if (!report) throw new Error("no report");
+      const email = buildScanReportEmail(report, "https://app.example");
+
+      expect(email.subject).toBe(
+        'Joe\'s Pizza: No longer named for "best pizza in Raleigh" on ChatGPT',
+      );
+      const lines = email.text.split("\n");
+      expect(lines.slice(0, 4)).toEqual([
+        "Joe's Pizza has 1 new alert.",
+        "",
+        'No longer named for "best pizza in Raleigh" on ChatGPT',
+        expect.stringMatching(
+          /^ {2}Since October \d+, 2026\. It was named in 4 of the 4 checks before that and in none of the 3 since\.$/,
+        ),
+      ]);
+      // The routine report follows, as it always did.
+      expect(email.text).toContain("Latest scan for Joe's Pizza (Raleigh).");
+      expect(email.text).toContain("ChatGPT: named in 4 of 7");
+    });
+
+    it("say in a line that the business is named again, under the usual subject", async () => {
+      await scans(providers, 4);
+      await scans(silent, 2);
+      await scheduled(silent);
+      const report = await scheduled(providers);
+      if (!report) throw new Error("no report");
+      const email = buildScanReportEmail(report, "https://app.example");
+
+      expect(email.subject).toMatch(/^Joe's Pizza: visibility \d/);
+      expect(email.text.split("\n")[0]).toMatch(
+        /^Named again for "best pizza in Raleigh" on ChatGPT\. It had not been since October \d+, 2026\.$/,
+      );
+    });
+
+    it("count several alerts in the subject, and show one surface's as one", async () => {
+      const user = memoryStore(db, owner);
+      await user.createQuery(locationId, { kind: "ai_prompt", text: "pizza delivery Raleigh" });
+      await scans(providers, 4);
+      await scans(silent, 2);
+      const report = await scheduled(silent);
+      if (!report) throw new Error("no report");
+      const email = buildScanReportEmail(report, "https://app.example");
+
+      expect(email.subject).toBe("Joe's Pizza: No longer named for 2 prompts on ChatGPT");
+      expect(email.text).toContain("Joe's Pizza has 2 new alerts.");
+      expect(email.text).toMatch(/\n {2}"pizza delivery Raleigh": Since October \d+, 2026\./);
+    });
   });
 
   it("changes no alert when the scan fails", async () => {

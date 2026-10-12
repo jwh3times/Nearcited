@@ -353,6 +353,39 @@ export function createSupabaseStore(db: SupabaseClient): Store {
       return z.array(AlertSchema).parse(data ?? []);
     },
 
+    async listAlertsToTell(locationId, sampleData) {
+      const { data, error } = await db
+        .from("alerts")
+        .select(ALERT_COLUMNS)
+        .eq("location_id", locationId)
+        .eq("sample_data", sampleData)
+        .is("dismissed_at", null)
+        .or(
+          "and(cleared_at.is.null,told_at.is.null),and(clear_reason.eq.named_again,told_at.not.is.null,cleared_told_at.is.null)",
+        )
+        .order("raised_at", { ascending: false });
+      if (error) fail("List alerts to tell owners of", error);
+      const alerts = z.array(AlertSchema).parse(data ?? []);
+      return {
+        raised: alerts.filter((alert) => alert.cleared_at === null),
+        named_again: alerts.filter((alert) => alert.cleared_at !== null),
+      };
+    },
+
+    async markAlertsTold(told, at) {
+      if (told.raised.length > 0) {
+        const { error } = await db.from("alerts").update({ told_at: at }).in("id", told.raised);
+        if (error) fail("Keep that owners were told of alerts", error);
+      }
+      if (told.named_again.length > 0) {
+        const { error } = await db
+          .from("alerts")
+          .update({ cleared_told_at: at })
+          .in("id", told.named_again);
+        if (error) fail("Keep that owners were told alerts ended", error);
+      }
+    },
+
     async dismissAlert(id) {
       const { data, error } = await db
         .rpc("dismiss_alert", { alert: id })

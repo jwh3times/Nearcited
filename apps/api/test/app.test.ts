@@ -1070,6 +1070,8 @@ describe("alerts", () => {
       clear_reason: null,
       dismissed_at: null,
       dismissed_by_email: null,
+      told_at: null,
+      cleared_told_at: null,
       ...overrides,
     };
     db.alerts.push(alert);

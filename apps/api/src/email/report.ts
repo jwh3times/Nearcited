@@ -1,4 +1,10 @@
-import { SURFACE_LABELS, summarizeBySurface } from "@nearcited/shared";
+import {
+  alertDetail,
+  alertEnded,
+  groupAlerts,
+  SURFACE_LABELS,
+  summarizeBySurface,
+} from "@nearcited/shared";
 import { Resend } from "resend";
 import type { Env } from "../env";
 import type { ScanReport } from "../scans/runner";
@@ -6,6 +12,52 @@ import type { ScanReport } from "../scans/runner";
 export interface Email {
   subject: string;
   text: string;
+}
+
+const longDate = new Intl.DateTimeFormat("en-US", { dateStyle: "long", timeZone: "UTC" });
+const day = (iso: string) => longDate.format(new Date(iso));
+
+/**
+ * What the owners have not been told yet, as the lines that lead the report: each new alert with
+ * what was counted, then each drop that has ended. Empty when there is nothing new to say.
+ */
+function alertLines(report: ScanReport): string[] {
+  const { raised, named_again: ended } = report.alerts;
+  const lines: string[] = [];
+  if (raised.length > 0) {
+    lines.push(
+      `${report.location.name} has ${raised.length} new ${raised.length === 1 ? "alert" : "alerts"}.`,
+      "",
+    );
+    for (const group of groupAlerts(raised)) {
+      const [only] = group.alerts;
+      lines.push(group.title);
+      if (group.alerts.length === 1 && only) {
+        lines.push(`  ${alertDetail(only, day)}`);
+      } else {
+        for (const alert of group.alerts) {
+          lines.push(`  "${alert.facts.prompt}": ${alertDetail(alert, day)}`);
+        }
+      }
+      lines.push("");
+    }
+  }
+  if (ended.length > 0) {
+    lines.push(...ended.map((alert) => alertEnded(alert, day)), "");
+  }
+  return lines;
+}
+
+/** A new alert leads the subject line, so the message is not taken for a routine report. */
+function subjectOf(report: ScanReport): string {
+  const { location, score } = report;
+  const groups = groupAlerts(report.alerts.raised);
+  const [only] = groups;
+  if (groups.length === 1 && only) {
+    return `${location.name}: ${only.title}`;
+  }
+  if (groups.length > 1) return `${location.name}: ${report.alerts.raised.length} new alerts`;
+  return `${location.name}: visibility ${score === null ? "not scored" : `${score} of 100`}`;
 }
 
 export function buildScanReportEmail(report: ScanReport, appUrl: string): Email {
@@ -17,8 +69,9 @@ export function buildScanReportEmail(report: ScanReport, appUrl: string): Email 
   const link = `${appUrl.replace(/\/$/, "")}/locations/${location.id}`;
 
   return {
-    subject: `${location.name}: visibility ${score === null ? "not scored" : `${score} of 100`}`,
+    subject: subjectOf(report),
     text: [
+      ...alertLines(report),
       `Latest scan for ${location.name} (${location.city}).`,
       "",
       `Visibility score: ${score === null ? "not scored" : `${score} of 100`}`,
