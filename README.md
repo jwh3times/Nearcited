@@ -117,10 +117,13 @@ A **connection** is an organization's standing sign-in to an outside account. Th
 linked from the sidebar once an account has been connected or one could be, lists them for anyone
 in the organization; its owner or an admin connects an account and removes one, after being asked
 twice. The sign-in is sealed by the Worker and nobody can read it back, the operator included.
-Removing is finished a moment later by the worker, which takes back the access, deletes the sign-in
-and keeps a record of who connected the account and who removed it. Only a sample account exists,
-offered where the data is generated, and nothing works from a connection yet (see
-[What is not built](#what-is-not-built)).
+The worker then reads what the account reaches (a profile, a site, a property), and again about
+once a day. The Connections page says when, and the owner or an admin chooses which of those is each
+location's; a location's Settings say which accounts it is matched to. Removing is finished a moment
+later by the worker, which takes back the access, deletes the sign-in and the matches, and keeps a
+record of who connected the account and who removed it. Only a sample account exists, which reaches
+three sample listings and is offered where the data is generated. Nothing else is read from an
+account and nothing acts through one yet (see [What is not built](#what-is-not-built)).
 
 Scans start from the "Run scan" button or from a daily schedule, and run on a queue. A scheduled
 scan emails its result to the organization's owners. When a subscription starts, the owners are thanked by email once. The same queue carries the steps of an
@@ -328,9 +331,11 @@ organization reads as missing and returns 404. Payloads are defined in
 | `PUT /api/organizations/:organizationId/subscription` | Makes that change, same body and answer. An upgrade (a higher monthly price, or the same) is made at Stripe now and the prorated difference charged; a downgrade is scheduled at Stripe for the end of the paid period and charges nothing. Changes no plan here: the plan moves when the webhook reports it. Owner only, 404 otherwise. 402 `payment_declined` when the card is refused (nothing changed), 409 `no_subscription`, 409 `payment_due` when the subscription is not `active`, 422 `no_change`, 422 `plan_unavailable`, 503 `billing_unavailable`. |
 | `DELETE /api/organizations/:organizationId/subscription/pending` | Drops a waiting downgrade; 204. Owner only, 404 otherwise. |
 | `GET /api/organizations/:organizationId/connections` | What the Connections page shows: the organization's `connections`, removed ones included, newest first; `available`, the kinds that can be connected here now (empty without `CONNECTIONS_KEY`); and `can_manage`, whether the caller is its owner or an admin. Never a sign-in. For anyone who can read the organization, the operator included. 404 to a stranger. |
-| `POST /api/organizations/:organizationId/connections` | Connects an account. Takes `kind` (`sample`, the only one). The Worker seals the sign-in before it is stored; answers the connection, 201, without it. Owner or admin only: 404 to anyone else, the operator included. 422 `connection_unavailable` for a kind not offered here, 503 `connections_unavailable` without `CONNECTIONS_KEY`. |
+| `POST /api/organizations/:organizationId/connections` | Connects an account. Takes `kind` (`sample`, the only one). The Worker seals the sign-in before it is stored; answers the connection, 201, without it, and queues its first sync. Owner or admin only: 404 to anyone else, the operator included. 422 `connection_unavailable` for a kind not offered here, 503 `connections_unavailable` without `CONNECTIONS_KEY`. |
 | `DELETE /api/connections/:connectionId` | Asks for a connection to be removed: it becomes `removing` and the worker is queued to take back the access and delete the sign-in, after which it is `removed`. Answers the connection. Asking again changes nothing recorded. Owner or admin only: 404 to anyone else, the operator included. |
-| `GET /api/locations/:id` | One location with its queries, latest scan, rates over recent scans, the sites those answers cited, the surfaces being checked, recommendations, the latest website check, the action plan and the owner's tasks. |
+| `PUT /api/connections/:connectionId/locations/:locationId` | Says which of the things a connection reaches is a location's, replacing what was said before. Takes `external_id`; answers the match. Owner or admin only: 404 to anyone else, the operator included, and for a location of another organization. 409 `limit_reached` with the reason for a choice the account does not reach, one that is another location's, a location that already has an account of the same kind, or a connection that is not working; 422 for a blank `external_id`. |
+| `DELETE /api/connections/:connectionId/locations/:locationId` | Takes a location's match away; 204. Owner or admin only: 404 to anyone else, or when there is none. |
+| `GET /api/locations/:id` | One location with its queries, latest scan, rates over recent scans, the sites those answers cited, the surfaces being checked, recommendations, the latest website check, the action plan, the owner's tasks and the connected accounts it is matched to (`connections`). |
 | `PATCH /api/locations/:id` | Replace a location's details with a whole location body, as when adding one; a field left out goes back to blank or its default. The same checks as adding. |
 | `POST /api/locations/:id/activate` | Brings a location the plan paused back into use. Takes `instead_of`, the location in use that is paused in its place, when the plan has no room; 409 with the reason without one. 404 to a non-member. |
 | `DELETE /api/locations/:id` | Delete a location and its history. |
@@ -366,7 +371,8 @@ The migrations in `supabase/migrations/` define everything.
 | `limit_changes` | One announced reduction per plan: what goes down (each limit's, and each allowance's, `from` and `to`), the day it is made, and when it was reminded, called off or completed. Read by anyone signed in; written by no API role, only by the operator's functions and the Worker's. |
 | `limit_change_notices` | One row per organization in an announcement: when it was told, reminded, told it was called off. Read by the operator; written only by the Worker. |
 | `subscriptions` | An organization's Stripe customer and subscription IDs and the status Stripe last reported. Also the subscription its owners were last thanked for by email. Written only by the Worker, from the webhook; no API role can write it. The operator reads it directly, an owner through `billing_state()`. |
-| `connections` | An organization's standing sign-in to an outside account: its kind (only `sample` so far), a label, and its status (`working`, `broken`, `paused`, `removing` or `removed`; nothing yet sets `broken` or `paused`). Records who connected it and who asked for its removal, as the addresses they had then, and when. The row stays after removal, as the record. Read by the organization's members and the operator; written by no API role directly, only through `create_connection()` and `request_connection_removal()`, which answer an owner or admin alone, and the Worker's `finish_connection_removal()`. |
+| `connections` | An organization's standing sign-in to an outside account: its kind (only `sample` so far), a label, and its status (`working`, `broken`, `paused`, `removing` or `removed`; nothing yet sets `broken` or `paused`). Records who connected it and who asked for its removal, as the addresses they had then, and when. Also when the Worker last read it (`last_synced_at`) and what its sign-in reaches, as that sync found it (`choices`, a list of `id` and `label`; cleared on removal). The row stays after removal, as the record. Read by the organization's members and the operator; written by no API role directly, only through `create_connection()` and `request_connection_removal()`, which answer an owner or admin alone, and the Worker's `record_connection_sync()` and `finish_connection_removal()`. |
+| `connection_locations` | Which of a connection's choices is a location's: one account of a kind for a location, and one location for each thing an account reaches. Read by whoever can read the location and by the operator; written by no API role directly, only through `match_connection_location()` and `unmatch_connection_location()`, which answer an owner or admin of the connection's organization alone. Deleted when the connection's removal finishes. |
 | `connection_secrets` | A connection's sign-in, sealed by the Worker. Row-level security is on with no policy and no grant to any API role, the operator included: only the Worker reads it, and the row is deleted when a removal finishes. |
 | `provider_usage` | What the providers used for a scan or audit prompt, per surface and model: calls, input, cached input and output tokens, searches. Outlives the scan, audit or organization it describes. Written only by the Worker; only the operator can read it through the API. `GET /api/operator/spend` prices it and the operator's view shows it. |
 
@@ -390,7 +396,7 @@ reader gets one audit only by its token, through the `get_audit()` function.
   on-page check and the action plan.
 - **`packages/db`**: applies the real migrations to in-process Postgres (PGlite) and checks, as
   different users, that one organization cannot read or write another's rows, that users cannot
-  forge scan results or grant themselves a platform role, that worker-only functions and the `audits`, `provider_usage` and `connection_secrets` tables are closed to them, that only an owner or admin can connect or remove an account, and that the operator reads every organization and changes only an organization's limits or a plan's settings or prices, each through one function that records it (announcing and calling off a price change or a reduction included). No Docker needed. It
+  forge scan results or grant themselves a platform role, that worker-only functions and the `audits`, `provider_usage` and `connection_secrets` tables are closed to them, that only an owner or admin can connect, match or remove an account, and that the operator reads every organization and changes only an organization's limits or a plan's settings or prices, each through one function that records it (announcing and calling off a price change or a reduction included). No Docker needed. It
   also checks `private/tuning.json` against the tuning schema where that file exists.
 - **`apps/api`**: every route against an in-memory store, the scan runner (success, retry,
   permanent failure, reporting, scoring with given weights, refusing live scans on default tuning),
@@ -403,7 +409,7 @@ reader gets one audit only by its token, through the `get_audit()` function.
   what the Connections page and its sidebar link show.
 - **`apps/e2e`**: `pnpm e2e` drives the real web app and Worker in Chromium against the local
   Supabase stack, in mock mode: sign-in by the emailed link, onboarding through the first scan, the
-  location page, account settings, connecting and removing a sample account, the operator's view and reading through an account, the public pages and one phone-sized run. It starts the Worker
+  location page, account settings, connecting a sample account, matching a location to it and removing it, the operator's view and reading through an account, the public pages and one phone-sized run. It starts the Worker
   and web app itself, or reuses them if `pnpm dev` is up. `pnpm smoke` is a separate run against a
   real deployment: it signs in as the test account, refuses to go on unless that account's
   organization is a test one, then adds a location and a prompt, runs a scan (generated data), reads
@@ -564,10 +570,11 @@ pnpm sync:agents
 - **Any kind of allowance.** A plan and an organization carry allowances, and the operator can set
   them, and the database counts use of one against its number, but no kind exists yet
   ([#133](https://github.com/jwh3times/Nearcited/issues/133)).
-- **Anything that works from a connection.** An owner or admin can connect a sample account and
-  remove it. There is no real kind of connection (a Google profile, a website, a customer source),
-  and nothing syncs from one, matches a location to its profile or site, marks one broken or paused
-  by a plan, or acts through one.
+- **Anything that works from a connection.** An owner or admin can connect a sample account, say
+  which of the three sample listings it reaches is each location's, and remove it. There is no
+  real kind of connection (a Google profile, a website, a customer source). Nothing reads anything
+  from an account beyond the list of what it reaches, marks one broken or paused by a plan, or acts
+  through one.
 
 More detail, and the open product questions, in [docs/architecture.md](docs/architecture.md).
 What is planned, in order, is in [Build order](https://github.com/jwh3times/Nearcited/issues/15).

@@ -111,4 +111,15 @@ describe("choicesFor", () => {
     expect(choicesFor(account, main).map((choice) => choice.id)).toEqual(["a", "b", "c"]);
     expect(choicesFor(account, uptown).map((choice) => choice.id)).toEqual(["b", "c"]);
   });
+
+  it("keeps a location's own choice in view when the last sync no longer found it", () => {
+    const gone = { ...account, choices: account.choices.filter((choice) => choice.id !== "a") };
+    expect(choicesFor(gone, main)).toEqual([
+      { id: "b", label: "Riverside" },
+      { id: "c", label: "Uptown" },
+      { id: "a", label: "Main Street (no longer found)" },
+    ]);
+    // It is still that location's, so no other is offered it.
+    expect(choicesFor(gone, uptown).map((choice) => choice.id)).toEqual(["b", "c"]);
+  });
 });

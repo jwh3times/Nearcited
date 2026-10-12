@@ -26,15 +26,20 @@ export const connectionsQuery = (organizationId: string) => ({
 
 /**
  * What a location can be matched to on one connection: every choice that is not another
- * location's already. Its own choice is among them.
+ * location's already. Its own choice is among them, and still is when the last sync no longer
+ * found it at the account: it is then named as such, so the owner can see what happened and
+ * choose again.
  */
 export function choicesFor(connection: Connection, locationId: string): Connection["choices"] {
+  const own = connection.matches.find((match) => match.location_id === locationId);
   const taken = new Set(
     connection.matches
       .filter((match) => match.location_id !== locationId)
       .map((match) => match.external_id),
   );
-  return connection.choices.filter((choice) => !taken.has(choice.id));
+  const offered = connection.choices.filter((choice) => !taken.has(choice.id));
+  if (!own || offered.some((choice) => choice.id === own.external_id)) return offered;
+  return [...offered, { id: own.external_id, label: `${own.external_label} (no longer found)` }];
 }
 
 /** The connections still there, and the ones that are gone and kept as a record. */

@@ -256,7 +256,13 @@ function Matches({
                   ))}
                 </select>
               ) : (
-                <span>{match?.external_label ?? "Not matched"}</span>
+                <span>
+                  {match
+                    ? (choicesFor(connection, location.id).find(
+                        (choice) => choice.id === match.external_id,
+                      )?.label ?? match.external_label)
+                    : "Not matched"}
+                </span>
               )}
             </li>
           );
