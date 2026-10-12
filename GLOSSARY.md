@@ -55,6 +55,8 @@ system works; this file only settles vocabulary.
   the product acts first and tells the owners afterwards. It can be taken back.
 - **Action notice**: the message that tells an organization's owners what an action changed, sent
   within 48 hours of it.
+- **Hold**: the stop on carrying anything more out for an organization while its owners have not
+  been told of an action in time. It lifts when they are told.
 - **Review request**: one message from the product to one of a business's customers, asking for a
   review on a site that lets a business ask. Sent to every customer alike, once, offering
   nothing.

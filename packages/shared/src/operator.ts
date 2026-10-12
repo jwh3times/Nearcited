@@ -18,7 +18,7 @@ import type {
   SiteCheck,
   SiteCheckId,
 } from "./schemas";
-import { ACCOUNT_STAGES, ATTENTION_KINDS } from "./schemas";
+import { ACCOUNT_STAGES, ATTENTION_KINDS, NOTICE_HOLD_HOURS } from "./schemas";
 import { SITE_CHECKS } from "./site";
 
 /**
@@ -45,6 +45,8 @@ export interface OperatorFacts {
     error: string | null;
     created_at: string;
   }[];
+  /** Actions that were carried out and whose owners have not been told, with when each was done. */
+  untoldActions: readonly { location_id: string; done_at: string }[];
 }
 
 const HOUR = 3_600_000;
@@ -243,6 +245,24 @@ export function buildOperatorOverview(facts: OperatorFacts): Omit<OperatorOvervi
         organizationId: organization.id,
       });
     }
+  }
+
+  // One line for each organization that is held: its oldest action still untold past 36 hours.
+  const untold = new Map<string, string>();
+  for (const action of facts.untoldActions) {
+    const location = locations.get(action.location_id);
+    if (!location || !isReal(location.organization_id)) continue;
+    if (within(action.done_at, NOTICE_HOLD_HOURS * HOUR)) continue;
+    const oldest = untold.get(location.organization_id);
+    if (!oldest || action.done_at < oldest) untold.set(location.organization_id, action.done_at);
+  }
+  for (const [organizationId, since] of untold) {
+    add(
+      "action_untold",
+      `An action was carried out more than ${NOTICE_HOLD_HOURS} hours ago and its owners have not been told. Nothing more is carried out for it until they are: write to them.`,
+      since,
+      { organizationId },
+    );
   }
 
   for (const audit of facts.audits) {

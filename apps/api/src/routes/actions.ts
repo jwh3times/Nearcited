@@ -4,9 +4,11 @@ import {
   ActionDeclineSchema,
   type LocationActions,
 } from "@nearcited/shared";
+import type { Context } from "hono";
 import { Hono } from "hono";
 import type { AppEnv } from "../app";
-import { notFound } from "../errors";
+import { ApiError, notFound } from "../errors";
+import { usesSampleData } from "../providers";
 import { parseJson, uuidParam } from "../validation";
 
 export const actionRoutes = new Hono<AppEnv>();
@@ -22,6 +24,26 @@ async function queueCarryOut(queue: AppEnv["Bindings"]["SCAN_QUEUE"], action: Ac
 }
 
 /**
+ * Refuses a yes where the notice it would need cannot be sent. An organization's owners are told
+ * of every action within 48 hours, so where this deployment has no outgoing email a real action
+ * is not started at all. Sample data and test organizations are let through: their record on
+ * the page is the notice. An action the caller cannot read is left for the store to refuse.
+ */
+async function requireNotice(c: Context<AppEnv>, actionId: string) {
+  if (c.env.RESEND_API_KEY || usesSampleData(c.env)) return;
+  const store = c.get("store");
+  const action = await store.getAction(actionId);
+  const location = action && (await store.getLocation(action.location_id));
+  const organization = location && (await store.getOrganization(location.organization_id));
+  if (!organization || organization.is_test) return;
+  throw new ApiError(
+    503,
+    "actions_unavailable",
+    "Nothing can be approved here: outgoing email is not set up, so your organization's owners could not be told what was done.",
+  );
+}
+
+/**
  * A location's actions, for anyone who can read the location: what is waiting for a yes, and
  * the record of everything else, newest first.
  */
@@ -29,10 +51,14 @@ actionRoutes.get("/locations/:locationId/actions", async (c) => {
   const locationId = uuidParam(c, "locationId", "Location");
   const store = c.get("store");
   if (!(await store.getLocation(locationId))) throw notFound("Location");
-  const actions = await store.listLocationActions(locationId);
+  const [actions, held] = await Promise.all([
+    store.listLocationActions(locationId),
+    store.isLocationHeld(locationId),
+  ]);
   return c.json({
     waiting: actions.filter((action) => action.status === "proposed"),
     record: actions.filter((action) => action.status !== "proposed"),
+    held,
   } satisfies LocationActions);
 });
 
@@ -52,6 +78,7 @@ actionRoutes.get("/organizations/:organizationId/actions/waiting", async (c) => 
 actionRoutes.post("/actions/:actionId/approve", async (c) => {
   const id = uuidParam(c, "actionId", "Action");
   const { text } = await parseJson(c, ActionApprovalSchema);
+  await requireNotice(c, id);
   const action = await c.get("store").approveAction(id, text);
   if (!action) throw notFound("Action");
   await queueCarryOut(c.env.SCAN_QUEUE, action);
@@ -73,6 +100,7 @@ actionRoutes.post("/actions/:actionId/decline", async (c) => {
  */
 actionRoutes.post("/actions/:actionId/retry", async (c) => {
   const id = uuidParam(c, "actionId", "Action");
+  await requireNotice(c, id);
   const action = await c.get("store").retryAction(id);
   if (!action) throw notFound("Action");
   await queueCarryOut(c.env.SCAN_QUEUE, action);

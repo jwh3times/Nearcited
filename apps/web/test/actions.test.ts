@@ -32,6 +32,7 @@ const day = (iso: string) => iso.slice(0, 10);
 const found = (extra: Partial<LocationActions> = {}): LocationActions => ({
   waiting: [],
   record: [],
+  held: false,
   ...extra,
 });
 

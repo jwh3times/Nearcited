@@ -13,7 +13,8 @@ EMAIL_REPLY_TO=
 OPENAI_API_KEY=
 # Optional. The same, for Claude.
 ANTHROPIC_API_KEY=
-# Optional. Leave blank to skip sending scan reports.
+# Optional. Leave blank to skip sending emails. Without it, a deployment on live data cannot
+# approve an action.
 RESEND_API_KEY=
 # Optional. Both are needed before anyone can subscribe: a Stripe secret key (a test-mode one
 # outside production) and the signing secret of the webhook endpoint at /api/stripe/webhook.

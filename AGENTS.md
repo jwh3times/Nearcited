@@ -110,7 +110,11 @@ pass `pnpm check` and run in mock mode without it.
   (`apps/api/src/actions/index.ts`) reads what is there before it writes: already as the action
   would make it is done, and no longer what the member was shown is out of date, and neither
   writes. Do not carry an action out on a request path, do not write through a connection
-  anywhere else, and keep the read before the write.
+  anywhere else, and keep the read before the write. An organization's owners are told of every
+  action within 48 hours: `claim_action()` refuses an organization one of whose actions has gone
+  36 hours untold, and a yes is refused where no notice could be sent (`requireNotice`). Keep
+  both, and mark an action told only when the email went, for a test organization, or on sample
+  data with no email to send with.
 - **`packages/shared/src/schemas.ts` defines every wire type.** Change the schema first, then the
   API and the client. Field names stay snake_case end to end.
 - **All database access goes through the `Store` interface** (`apps/api/src/store/types.ts`). A

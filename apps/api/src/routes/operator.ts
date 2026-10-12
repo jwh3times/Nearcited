@@ -55,14 +55,16 @@ operatorRoutes.use("/operator/*", async (c, next) => {
 const sinceWindow = (now: Date) => new Date(now.getTime() - ATTENTION_WINDOW_MS).toISOString();
 
 async function overview(store: Store, now: Date) {
-  const [organizations, locations, activePrompts, scans, audits, mine] = await Promise.all([
-    store.listEveryOrganization(),
-    store.listEveryLocation(),
-    store.countActiveQueries(),
-    store.listScansSince(sinceWindow(now)),
-    store.listEveryAudit(),
-    store.listOrganizations(),
-  ]);
+  const [organizations, locations, activePrompts, scans, audits, mine, untoldActions] =
+    await Promise.all([
+      store.listEveryOrganization(),
+      store.listEveryLocation(),
+      store.countActiveQueries(),
+      store.listScansSince(sinceWindow(now)),
+      store.listEveryAudit(),
+      store.listOrganizations(),
+      store.listUntoldActions(),
+    ]);
   return buildOperatorOverview({
     now,
     operatorOrganizationIds: mine.map((organization) => organization.id),
@@ -71,6 +73,7 @@ async function overview(store: Store, now: Date) {
     activePrompts,
     scans,
     audits,
+    untoldActions,
   });
 }
 

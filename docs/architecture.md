@@ -16,7 +16,8 @@
   Once a day it also asks Postgres which locations are due (`locations_due_for_scan`), creates a
   `scheduled` scan row for each, and puts the scan IDs on the queue. It also queues a sync for each
   connection that is due (`enqueueDueSyncs`). It also lapses the proposals that waited fourteen
-  days (`lapse_actions()`; see "Actions"). It also starts the removal of each connection that
+  days (`lapse_actions()`) and tells each organization's owners what was done and what is newly
+  waiting (`sendActionNotices`; see "Actions"). It also starts the removal of each connection that
   has been paused for thirty days (`expirePausedConnections`) and reminds, once, the owners and
   admins of each they were told a week ago had broken and that still is
   (`remindBrokenConnections`), and tells those of any broken one nobody could be told of at the
@@ -599,13 +600,42 @@ real kind. What ADR 0014 decides and is not built is under "Known gaps".
   that a worker took more than 15 minutes ago, goes on the queue again, at most 100 a run. That
   covers a message that was lost, an action the worker let go of to be tried again, and one whose
   worker died: a worker's hold lasts ten minutes, so the next can take it.
+- **The owners are told within 48 hours.** The daily run calls `sendActionNotices`: for each
+  organization with something to tell, one email to its owners only (`listOwnerEmails`; the wording
+  is `apps/api/src/email/action-notice.ts`) saying what was carried out since the last, with who
+  approved each (an owner's own approvals included, and whether they changed the text first), and
+  what is newly waiting for a yes. `told_at` is when an action counted as told of, and
+  `waiting_told_at` when a message said it was waiting; only the worker's secret key writes them
+  (`markActionsTold`), and only once the email went. Where `RESEND_API_KEY` is not set on live
+  data, nobody is an owner with an address, or the send fails (logged, and the other organizations
+  are still told), nothing is marked, so the next daily run tries again. A test organization is
+  never emailed: its actions are marked told at once, since the record on its page is the notice.
+- **A notice more than 36 hours late holds the organization.** `organization_held()`, which only
+  the worker may call, is true while one of the organization's actions was done more than 36 hours
+  ago and has no `told_at`, and never for a test organization. While it is, `claim_action()`
+  answers zero and `carryOutAction` returns `held` before it claims anything, leaving the action
+  `approved`. The queue consumer acknowledges the message, and the schedule's next run queues the
+  action again (`requeueStalledActions`), so it goes ahead once the owners have been told. That
+  leaves twelve of the 48 hours to write to them by hand: the operator's overview has an
+  `action_untold` line for each organization held (`listUntoldActions`; see "Tenancy"),
+  and the Actions tab says nothing more is being carried out and why. The tab learns it from
+  `location_held()`, which answers whoever can read the location, or the operator, and is false
+  for anyone else; the list route returns it as `held`.
+- **Where email is not set up, no real action is approved.** `POST /api/actions/:actionId/approve`
+  and `/retry` answer 503 `actions_unavailable` when the deployment has no `RESEND_API_KEY`
+  (`requireNotice`), before anything is recorded, because the owners could not be told. A
+  deployment on sample data and a test organization are let through, and declining is not refused.
+  A deployment on sample data with no `RESEND_API_KEY` sends nothing and marks its actions told at
+  the daily run, as a test organization's are, because nothing an action did there left the
+  product. So it is never held for want of email.
 - **A proposal nobody answers lapses.** `lapses_at` is fourteen days after it was proposed. The
   daily run calls `lapse_actions()`, which only the worker may call, and `approve_action()` refuses
   one past its day before then. The record says whether it lapsed because nobody answered or
   because it was out of date.
 - **Who reads and writes.** `actions` has a `select` policy for whoever can read the location and
   one for the operator, and no write grant for any API role: every change goes through the
-  functions above. `sample_listings` has row-level security on, no policy and no grant for any API
+  functions above, except `told_at` and `waiting_told_at`, which the Worker's secret key writes.
+  `sample_listings` has row-level security on, no policy and no grant for any API
   role, the operator included; only the Worker's secret key reaches it (`getSampleLine`,
   `setSampleLine`).
 
@@ -614,7 +644,8 @@ and carries the count of those waiting. It lists what is waiting, each with what
 text it would put there and who wrote it (editable; the button then reads "Approve as changed"),
 "Approve" and "Decline" with a reason of up to 200 characters, and below it the record, newest first
 (at most 100 actions in all), with "Try again" on a failed one. While an action is approved the
-page asks again every couple of seconds. The sidebar says how many are waiting at each location
+page asks again every couple of seconds. When the organization is held, a notice above the lists says
+so. The sidebar says how many are waiting at each location
 (`GET /api/organizations/:organizationId/actions/waiting`, asked every 30 seconds). The operator
 reading through an account sees the tab and has no buttons.
 
@@ -779,7 +810,8 @@ The operator's view is `/operator` in the web app, served by `GET /api/operator/
 `GET /api/operator/audits`, all 404 to anyone who is not the operator. It
 reads through the request's store, never the secret key. `buildOperatorOverview` in
 `packages/shared/src/operator.ts` decides what needs attention over the last seven days, and never
-counts a test organization. Reading through a customer's account (`/operator/o/:organizationId/...`)
+counts a test organization. One of its items, `action_untold`, is a line for each organization held
+(see "Actions"). Reading through a customer's account (`/operator/o/:organizationId/...`)
 reuses the Locations and location pages with every control that changes something hidden.
 
 **The operator changes limits through one function.** `PUT /api/operator/organizations/:organizationId/limits`
@@ -923,13 +955,11 @@ drop it.
   the thing, or its access to it. The Connections page names it "no longer found" so its owner can
   choose again. Only the sample kind of action acts through a match, and it does not check that
   the choice is still there; a real kind will have to.
-- ADR 0014 decides more than is built. Not built: the daily notice to the owners of what was
-  carried out and what is newly waiting, the hold on an organization whose notice is more than 36
-  hours late and the operator's attention item for it, the refusal to approve a real action where
-  email is not set up, dropping what an action replaced once a platform's limit on holding it is
-  reached, an action marking a task done, and an action taking from the month's allowance and
-  giving it back. Nothing emails anyone about an action; the Actions tab is the only record.
-  There is no real kind of action yet (see "Actions").
+- ADR 0014 decides more than is built. Not built: dropping what an action replaced once a
+  platform's limit on holding it is reached, an action marking a task done, and an action taking
+  from the month's allowance and giving it back. There is no real kind of action yet (see
+  "Actions"), so the only notices sent are about sample actions, by a deployment on sample data
+  that has email set up.
 
 ## Open product questions
 

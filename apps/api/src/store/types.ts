@@ -81,6 +81,13 @@ export interface PriceVersion {
   stripe_extra_location_price_id: string | null;
 }
 
+/** An action its organization's owners are still to be told of, with where it belongs. */
+export interface ActionToTell {
+  action: Action;
+  location_name: string;
+  organization_id: string;
+}
+
 /** An action for the worker to propose. */
 export interface NewAction {
   location_id: string;
@@ -170,6 +177,16 @@ export interface Store {
   getManualScansUsed(organizationId: string): Promise<number | null>;
   /** A location's actions, newest first, for whoever can read the location. */
   listLocationActions(locationId: string): Promise<Action[]>;
+  /**
+   * Whether a location's organization is held, for whoever can read the location, so the page
+   * can say why an approved action is waiting. False for anyone else.
+   */
+  isLocationHeld(locationId: string): Promise<boolean>;
+  /**
+   * Every action that was carried out and whose owners have not been told, with when it was
+   * done. For the operator, who reads them all.
+   */
+  listUntoldActions(): Promise<{ location_id: string; done_at: string }[]>;
   /** How many actions wait for a yes at each of an organization's locations. */
   countWaitingActions(organizationId: string): Promise<WaitingActions>;
   /**
@@ -422,6 +439,21 @@ export interface Store {
     outcome: "done" | "failed" | "out_of_date" | "again",
     why?: string,
   ): Promise<boolean>;
+  /**
+   * The actions an organization's owners have not been told of: carried out and untold, or
+   * waiting for a yes and not yet mentioned. Each with its location's name and its organization.
+   * Worker only.
+   */
+  listActionsToTell(): Promise<ActionToTell[]>;
+  /**
+   * Keeps that the owners were told: of what was done, or of what is waiting. Worker only.
+   */
+  markActionsTold(ids: string[], which: "done" | "waiting", at: string): Promise<void>;
+  /**
+   * Whether nothing more may be carried out for an organization: one of its actions has gone
+   * 36 hours without its owners being told. Worker only.
+   */
+  isOrganizationHeld(organizationId: string): Promise<boolean>;
   /** Lapses every proposal that has waited its fourteen days. Returns how many. Worker only. */
   lapseActions(): Promise<number>;
   /**
