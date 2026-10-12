@@ -129,12 +129,15 @@ pass `pnpm check` and run in mock mode without it.
   and never by age. A first sighting is news, not a state: it is cleared as `old_news` when the
   scan that raised it leaves the window, and by nothing else. "For the first time" is said of the
   whole record, read through `listSeenBefore` (`seen_before()`, worker only), never of the window
-  alone, and only written answers count. A dismissed alert stays current until the worker clears
-  it, so the same thing is not raised twice. An alert is composed by rule from the facts on its
-  row, says what was seen and never what to do, and no model writes one. An alert is told to the
-  owners once, in the report a scheduled scan emails, and marked told (`markAlertsTold`) only when
-  the report went to someone: one that failed, or had nobody to go to, leaves it for the next.
-  Nothing on a request path writes `told_at` or `cleared_told_at`.
+  alone, and only written answers count. A phone number the answers give is read in
+  `analyzeObservation`, never by a provider, and kept on the result (`scan_results.phones`), since
+  a scan keeps only an excerpt of an answer; it is counted over the window, and a dismissed phone
+  alert is never cleared, so that number is not raised again. A dismissed alert stays current
+  until the worker clears it, so the same thing is not raised twice. An alert is composed by rule
+  from the facts on its row, says what was seen and never what to do, and no model writes one. An
+  alert is told to the owners once, in the report a scheduled scan emails, and marked told
+  (`markAlertsTold`) only when the report went to someone: one that failed, or had nobody to go
+  to, leaves it for the next. Nothing on a request path writes `told_at` or `cleared_told_at`.
 - **`packages/shared/src/schemas.ts` defines every wire type.** Change the schema first, then the
   API and the client. Field names stay snake_case end to end.
 - **All database access goes through the `Store` interface** (`apps/api/src/store/types.ts`). A

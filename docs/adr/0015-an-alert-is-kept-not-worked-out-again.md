@@ -139,4 +139,4 @@ leaves it for the next. A test organization is sent nothing.
 - An organization whose plan sends no report is told of no alert by email. If it moves to a plan
   that does, the alerts still open go in its first report.
 - If the report goes and keeping that it went fails, the next report says the same alerts again.
-- What is built so far, and what of issue #136 is still to come, is in `docs/architecture.md`.
+- How each kind is raised, cleared, shown and told is set out in `docs/architecture.md`.

@@ -50,7 +50,8 @@ POST /api/locations/:id/scans          cron
                        |
      for each active query x each surface that kind is checked on:
         provider.observe()   -> Observation   (what the surface returned)
-        analyzeObservation() -> Finding       (was the business named, where, who else)
+        analyzeObservation() -> Finding       (was the business named, where, who else, and the
+                                                phone numbers the answer gave for it)
                        |
      fetchSite() + analyzeSite() -> SiteCheck  (home page, kept in scans.site_check;
                                                  skipped on sample data)
@@ -76,9 +77,12 @@ POST /api/locations/:id/scans          cron
 
 A provider only fetches. Whether the business was named is decided by `analyzeObservation` in
 `packages/shared`, so every surface is judged by the same rules and those rules are tested without
-network access. A provider also reports what each call it is charged for used (`onUsage`); the
-scan and audit runners add those up and store them in `provider_usage`. A failure to store them
-is logged and does not change the outcome. What a row cost is `usageCost` in `packages/shared`,
+network access. The same goes for which phone numbers a written answer gave for the business. A
+result keeps only an excerpt of an answer, 280 characters, so those numbers are read while the
+whole answer is in hand and kept with the result as `scan_results.phones` (see "Alerts"). A
+provider also reports what each call it is charged for used (`onUsage`); the scan and audit
+runners add those up and store them in `provider_usage`. A failure to store them is logged and
+does not change the outcome. What a row cost is `usageCost` in `packages/shared`,
 from the tuning's `rates`: one entry per model, which a public clone leaves empty, so a model
 without an entry has no cost and is never priced as another.
 
@@ -380,9 +384,10 @@ from counts the product holds; nothing a model wrote is in one.
 
 An alert says that something measured has changed at a location in a way its owner would want to
 know (`alerts`; the term is in `GLOSSARY.md`, the decision in
-`docs/adr/0015-an-alert-is-kept-not-worked-out-again.md`). There are three kinds: a drop, a
+`docs/adr/0015-an-alert-is-kept-not-worked-out-again.md`). There are four kinds: a drop, a
 business named for the first time (`competitor`) and a site read for the first time (`site`), the
-last two being first sightings. The rule, the sentences and the grouping are in
+last two being first sightings, and a phone number the answers give for the business that is not
+the one on file (`phone`). The rule, the sentences and the grouping are in
 `packages/shared/src/alerts.ts` (`deriveAlerts`, `hasNewcomers`, `alertTitle`, `alertDetail`,
 `groupAlerts`). Everything is composed by rule from counts the product holds, says what was seen
 and never what to do, and no model writes one.
@@ -416,6 +421,27 @@ and never what to do, and no model writes one.
   answers named the business, whether it is the business's own, and the page cited most) and when
   the oldest of those scans asked (`since`). It is about no one prompt, so `tracked_query_id` and
   `surface` are null.
+- **A phone number is one the written answers give for the business that is not the one on
+  file.** `analyzeObservation` reads the numbers (`phonesGivenFor`, in
+  `packages/shared/src/analysis.ts`), in international form and in the location's country, which
+  is how a number written without its country is read. An answer goes through the businesses it
+  names one after another with each one's details after its name, so a number is the business's
+  when the name written nearest before it in the answer is the business's (`namesMatch`), and one
+  written before any name is nobody's. That reads where a number stands and not what the sentence
+  says, so it can be wrong about a number that follows the business's name and belongs to
+  something the answer did not name. That is why one scan is not enough: it takes the same number
+  in at least `PHONE_IN_SCANS` (2) scans of the window. A results list gives no numbers, and at
+  most five are kept for an answer. Nothing is raised for a location with no phone on file, as
+  there is nothing to differ from. There is no baseline to wait for, so it can be raised at a
+  location's second scan. The threshold is a public constant, not tuning. A scan keeps 280
+  characters of an answer and discards the rest, so the numbers are kept with the result
+  (`scan_results.phones`), and the rule counts them over the window like anything else. A result
+  sent without them, as the Worker deployed before the migration sends it, is kept with none, and
+  so are the results made before numbers were read. The row keeps what it rests on (`facts`: the number and the one on file, and the country both are written out in; how
+  many answers and how many scans of the window it was counted over; the first three prompts it
+  was given for with their surfaces, and how many prompts in all) and when the oldest of those
+  scans asked (`since`). It is about no one prompt, so `tracked_query_id` and `surface` are null.
+  The address an answer gives is not read (see the end of this section).
 - **"For the first time" is said of the whole record, not of the window.** Seven scans cannot say
   "first". The rest of the window is in hand and rules out nearly every candidate, the businesses
   and sites the answers name week after week. `hasNewcomers` is what is left, and only when
@@ -435,17 +461,22 @@ and never what to do, and no model writes one.
   `named_again` when a check from a scan after the one that raised it names the business (any
   scan in the window, once the one that raised it has left), and as `not_tracked` when the newest
   scan has no cell for it: its prompt is retired or its surface is no longer checked. A drop is
-  never cleared by age.
+  never cleared by age. A phone number is cleared as `no_longer_given` when no answer in the
+  window gives it (one answer is enough to keep it, though two scans were needed to raise it), as
+  `now_on_file` when it has become the number on file, and as `not_tracked` when the location has
+  no number on file any more.
 - **A first sighting is news, not a state.** Nothing ends it, so it is cleared as `old_news` when
   the scan that raised it has left the window, seven scans on. It is said once for a business or a
   site: afterwards the record holds it, so it is not raised again.
 - **A dismissed alert is still current.** Dismissing takes it off the page and nothing else. The
   rule can go on firing, and a unique index allows one alert that is not cleared for a location,
   kind, subject (for a drop the prompt and surface, for a business its name as normalised, for a
-  site its host) and kind of data, so the same thing is not raised again until the worker has
-  cleared it and it begins afresh. A dismissed first sighting stays current until it is old news.
-  `complete_scan()` raises with `on conflict do nothing`, so running a scan twice raises nothing
-  twice.
+  site its host, for a phone number the number) and kind of data, so the same thing is not raised
+  again until the worker has cleared it and it begins afresh. A dismissed first sighting stays
+  current until it is old news. A dismissed phone number stays current for good: dismissing it
+  says the number is the business's own, so nothing clears it and it is never raised again,
+  whatever the answers give or the number on file becomes. `complete_scan()` raises with
+  `on conflict do nothing`, so running a scan twice raises nothing twice.
 - **They are written with the scan.** `runScan` passes `alerts` (`{ clear, raise }`) to
   `completeScan`, and `complete_scan()` clears and raises them in the same transaction as the
   results, for manual and scheduled scans alike. A clear names an alert by its ID and touches only
@@ -469,11 +500,13 @@ and never what to do, and no model writes one.
   scan clears a drop on a retired prompt; one on a surface that is no longer checked shows until
   it does. The Overview tab lists them under "Alerts", above "What to do next". The drops one scan
   raised on one surface are one card (`groupAlerts`), because a surface that stops naming the
-  business does so for every prompt at once; a first sighting stands alone. Each says what was
-  counted and since when, links to where its evidence is (a drop to the Prompts tab, a business to
-  the Answers tab, a site to the Sources tab, and a site also to the page that was cited), and has
-  a Dismiss that dismisses the whole card. The locations table shows the count beside the
-  location. The operator reading through an account sees alerts and has no Dismiss.
+  business does so for every prompt at once; a first sighting and a phone number each stand alone.
+  Each says what was counted and since when, links to where its evidence is (a drop to the Prompts
+  tab, a business or a phone number to the Answers tab, a site to the Sources tab, and a site also
+  to the page that was cited), and has a Dismiss that dismisses the whole card. On a phone number
+  the button reads "This number is ours", since that is what dismissing it says. The locations
+  table shows the count beside the location. The operator reading through an account sees alerts
+  and has no Dismiss.
 - **The owners are told in the scan report, once.** A scheduled scan's report already goes to the
   organization's owners where the deployment has a Resend key, the plan emails a report
   (`emails_report`) and the organization is not a test one, so an alert goes in that report and
@@ -487,9 +520,10 @@ and never what to do, and no model writes one.
   for "<prompt>" on <surface>`, or `No longer named for N prompts on <surface>` when a group of
   drops is several (keywords on a Google surface); `<business> is named for the first time`;
   `<host> is read for the first time`, or `Your website is read for the first time` for the
-  business's own. Several groups give `<location>: N new alerts`, N counting alerts. Then comes
-  one line for each drop that ended (`alertEnded`), then the report as it was. With nothing new,
-  the subject and the message are what they were.
+  business's own; `The answers give a different phone number: <the number>`, written as the
+  location's country writes one. Several groups give `<location>: N new alerts`, N counting
+  alerts. Then comes one line for each drop that ended (`alertEnded`), then the report as it was.
+  With nothing new, the subject and the message are what they were.
 - **An alert is marked told only when the report went to someone.** `notify` answers whether it
   did (false, when the organization has no owner with an address), and only then does `runScan` call
   `markAlertsTold`, which sets `told_at` for the new alerts and `cleared_told_at` for the endings.
@@ -499,12 +533,14 @@ and never what to do, and no model writes one.
   no one of an alert, and the alerts still open go in its first report once it can send one.
 - **What is not told.** An alert a member dismissed before it was sent. That a dismissed alert
   ended, even one the owners had been told of. That a drop ended because its prompt was retired
-  or its surface is no longer checked (`not_tracked`), or that a first sighting is old news
-  (`old_news`). A drop that began and ended between two reports. Anything for a test
-  organization. Telling changes nothing the page shows.
-- Not built: the last kind named in
-  [#136](https://github.com/jwh3times/Nearcited/issues/136), an answer that gives a phone number
-  or address that is not the location's.
+  or its surface is no longer checked (`not_tracked`), that a first sighting is old news
+  (`old_news`), or that a phone number is no longer given or is now the one on file
+  (`no_longer_given`, `now_on_file`, `not_tracked`). A drop that began and ended between two
+  reports. Anything for a test organization. Telling changes nothing the page shows.
+- Not built, and not planned: an alert about the address an answer gives. An answer gives part of
+  an address, abbreviated differently each time, and no comparison of that is reliable enough to
+  tell an owner theirs is wrong
+  ([ADR 0015](adr/0015-an-alert-is-kept-not-worked-out-again.md)).
 
 ## Shareable audits
 
