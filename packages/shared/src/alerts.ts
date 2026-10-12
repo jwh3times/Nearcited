@@ -1,4 +1,5 @@
 import { hostOf, hostsMatch, namesMatch, normalizeName } from "./analysis";
+import { formatPhone } from "./inputs";
 import {
   type Alert,
   type AlertClearReason,
@@ -6,6 +7,7 @@ import {
   type CompetitorFacts,
   type DropAlert,
   type DropFacts,
+  type PhoneFacts,
   type SiteFacts,
   SURFACE_LABELS,
   SURFACES,
@@ -34,6 +36,12 @@ import { belongsTo, summarizeSources } from "./sources";
  *   `FIRST_SEEN_ANSWERS` answers across at least `FIRST_SEEN_IN_SCANS` of those scans, and no
  *   written answer of any earlier scan on record did. It is news, not a state, so nothing ends
  *   it: it is cleared once the scan that raised it has left the window, seven scans on.
+ * - A phone number that is not the location's. Raised when the written answers of the window
+ *   give the same number for the business, other than the one on file, in at least
+ *   `PHONE_IN_SCANS` scans, which is at least that many answers. Cleared when no answer in
+ *   the window gives it any more, or when it becomes the number on file. A member who dismisses
+ *   one is saying the number is theirs, so a dismissed one is never cleared and the number is
+ *   never raised again.
  *
  * One answer is a sample, which is why a drop takes three. A prompt that names the business nine
  * times in ten misses three times running by chance about once in a thousand scans, and twice
@@ -53,6 +61,12 @@ export const FIRST_SEEN_ANSWERS = 3;
  * Its first scans name everyone for the first time.
  */
 export const FIRST_SEEN_BASELINE = SCAN_WINDOW;
+
+/**
+ * A number is read by where it stands in an answer, which can tie it to the wrong business
+ * once. The same number in two scans is not that.
+ */
+export const PHONE_IN_SCANS = 2;
 /** How many of the prompts a business was named for an alert lists. */
 const MAX_PLACES = 3;
 
@@ -63,6 +77,8 @@ export interface AlertCheck {
   mentioned: boolean;
   competitors: readonly string[];
   cited_urls: readonly string[];
+  /** The phone numbers the answer gave for the business, in international form. */
+  phones: readonly string[];
 }
 
 /** One scan's checks, and when it asked. `id` is null only where the scan has none to give. */
@@ -76,7 +92,8 @@ export interface AlertScan {
 export type CurrentAlert =
   | Pick<DropAlert, "id" | "kind" | "tracked_query_id" | "surface" | "scan_id">
   | Pick<Extract<Alert, { kind: "competitor" }>, "id" | "kind" | "facts" | "scan_id">
-  | Pick<Extract<Alert, { kind: "site" }>, "id" | "kind" | "facts" | "scan_id">;
+  | Pick<Extract<Alert, { kind: "site" }>, "id" | "kind" | "facts" | "scan_id">
+  | Pick<Extract<Alert, { kind: "phone" }>, "id" | "kind" | "facts" | "scan_id" | "dismissed_at">;
 
 /** An alert a rule raises. The database adds the location, the scan and when. */
 export type NewAlert = {
@@ -87,6 +104,7 @@ export type NewAlert = {
   | { kind: "drop"; tracked_query_id: string; surface: Surface; facts: DropFacts }
   | { kind: "competitor"; facts: CompetitorFacts }
   | { kind: "site"; facts: SiteFacts }
+  | { kind: "phone"; facts: PhoneFacts }
 );
 
 /** What a finished scan changes: the alerts that have ended, and the new ones. */
@@ -118,6 +136,12 @@ export interface AlertInput {
   /** The business's own website, which a first sighting of a site tells apart. */
   website: string | null;
   /**
+   * The phone number on file, in international form, and the country it is written in. With
+   * none on file there is nothing for an answer's number to differ from.
+   */
+  phone: string | null;
+  country_code: string;
+  /**
    * What was named and cited before the latest scans. Null when it was not asked for, which
    * `hasNewcomers` says whether it need be, and then no first sighting is raised.
    */
@@ -130,17 +154,24 @@ const cellOf = (check: Pick<AlertCheck, "tracked_query_id" | "surface">) =>
 /** What an alert is about, with its kind, so one of a kind is not mistaken for another's. */
 function subjectOf(alert: CurrentAlert | NewAlert): string {
   if ("subject" in alert) return `${alert.kind}:${alert.subject}`;
-  if (alert.kind === "drop") return `drop:${cellOf(alert)}`;
-  return alert.kind === "competitor"
-    ? `competitor:${normalizeName(alert.facts.name)}`
-    : `site:${alert.facts.host}`;
+  switch (alert.kind) {
+    case "drop":
+      return `drop:${cellOf(alert)}`;
+    case "competitor":
+      return `competitor:${normalizeName(alert.facts.name)}`;
+    case "site":
+      return `site:${alert.facts.host}`;
+    case "phone":
+      return `phone:${alert.facts.number}`;
+  }
 }
 
 /**
  * What the scan that just finished clears and raises. The newest scan decides which cells
  * exist, as it does for the rates.
  */
-export function deriveAlerts({ scans, current, prompts, website, seen }: AlertInput): AlertChanges {
+export function deriveAlerts(input: AlertInput): AlertChanges {
+  const { scans, current, prompts, website, seen, phone } = input;
   const changes: AlertChanges = { clear: [], raise: [] };
   const [newest] = scans;
   if (!newest) return changes;
@@ -153,24 +184,29 @@ export function deriveAlerts({ scans, current, prompts, website, seen }: AlertIn
     for (const check of scan.checks) cells.get(cellOf(check))?.push({ check, scan: index });
   });
 
+  const text = new Map(prompts.map((prompt) => [prompt.id, prompt.text]));
+  const numbers = numbersGiven(scans);
+
   const stillCurrent = new Set<string>();
   for (const alert of current) {
     // Where the scan that raised it stands in the window, or -1 once it has left.
     const raisedBy = scans.findIndex((scan) => scan.id !== null && scan.id === alert.scan_id);
-    const reason =
-      alert.kind === "drop"
-        ? dropEnded(cells.get(cellOf(alert)), raisedBy === -1 ? scans.length : raisedBy)
-        : raisedBy === -1
-          ? "old_news"
-          : null;
+    let reason: AlertClearReason | null;
+    if (alert.kind === "drop") {
+      reason = dropEnded(cells.get(cellOf(alert)), raisedBy === -1 ? scans.length : raisedBy);
+    } else if (alert.kind === "phone") {
+      reason = numberEnded(alert, numbers, phone);
+    } else {
+      reason = raisedBy === -1 ? "old_news" : null;
+    }
     if (reason) changes.clear.push({ id: alert.id, reason });
     else stillCurrent.add(subjectOf(alert));
   }
 
-  const text = new Map(prompts.map((prompt) => [prompt.id, prompt.text]));
   const raised = [
     ...drops(cells, scans, text),
     ...(seen ? firstSightings(newcomers(scans, website, text), seen) : []),
+    ...otherNumbers(numbers, input, text),
   ];
   changes.raise = raised.filter((alert) => !stillCurrent.has(subjectOf(alert)));
   return changes;
@@ -229,6 +265,95 @@ function drops(
   return raised;
 }
 
+/** Where something was seen: how many answers for each prompt, and on which surfaces. */
+type Places = Map<string, { answers: number; surfaces: Set<Surface> }>;
+
+function seenAt(places: Places, answer: Pick<AlertCheck, "tracked_query_id" | "surface">) {
+  const place = places.get(answer.tracked_query_id) ?? { answers: 0, surfaces: new Set() };
+  place.answers += 1;
+  place.surfaces.add(answer.surface);
+  places.set(answer.tracked_query_id, place);
+}
+
+/** A few of the places, the prompt with the most answers first, and how many there were. */
+function listPlaces(places: Places, text: ReadonlyMap<string, string>) {
+  const sorted = [...places].sort((a, b) => b[1].answers - a[1].answers);
+  return {
+    places: sorted.slice(0, MAX_PLACES).map(([query, place]) => ({
+      prompt: text.get(query) ?? "",
+      surfaces: SURFACES.filter((surface) => place.surfaces.has(surface)),
+    })),
+    prompts: sorted.length,
+  };
+}
+
+/** A phone number the window's answers gave for the business, and where. */
+interface NumberGiven {
+  answers: number;
+  /** The scans that gave it, by their place in the window. */
+  scans: Set<number>;
+  places: Places;
+}
+
+/** Every phone number the written answers of the window gave for the business. */
+function numbersGiven(scans: readonly AlertScan[]): Map<string, NumberGiven> {
+  const given = new Map<string, NumberGiven>();
+  scans.forEach((scan, index) => {
+    for (const answer of scan.checks) {
+      for (const number of new Set(answer.phones)) {
+        const seen = given.get(number) ?? { answers: 0, scans: new Set(), places: new Map() };
+        seen.answers += 1;
+        seen.scans.add(index);
+        seenAt(seen.places, answer);
+        given.set(number, seen);
+      }
+    }
+  });
+  return given;
+}
+
+/**
+ * Why an alert about a phone number has ended, or null while it stands. One a member dismissed
+ * never ends: they said the number is theirs, and it stays in the way of the number being
+ * raised again.
+ */
+function numberEnded(
+  alert: Extract<CurrentAlert, { kind: "phone" }>,
+  numbers: ReadonlyMap<string, NumberGiven>,
+  onFile: string | null,
+): AlertClearReason | null {
+  if (alert.dismissed_at !== null) return null;
+  if (onFile === null) return "not_tracked";
+  if (alert.facts.number === onFile) return "now_on_file";
+  return numbers.has(alert.facts.number) ? null : "no_longer_given";
+}
+
+/** The numbers the answers gave for the business often enough, other than the one on file. */
+function otherNumbers(
+  numbers: ReadonlyMap<string, NumberGiven>,
+  { scans, phone, country_code }: AlertInput,
+  text: ReadonlyMap<string, string>,
+): NewAlert[] {
+  if (phone === null) return [];
+  return [...numbers]
+    .filter(([number, given]) => number !== phone && given.scans.size >= PHONE_IN_SCANS)
+    .map(([number, given]) => ({
+      kind: "phone",
+      subject: number,
+      facts: {
+        number,
+        on_file: phone,
+        country_code,
+        answers: given.answers,
+        scans: given.scans.size,
+        of_scans: scans.length,
+        ...listPlaces(given.places, text),
+      },
+      // The oldest scan in the window that gave it.
+      since: scans[Math.max(...given.scans)]?.at ?? "",
+    }));
+}
+
 /** A business the latest scans named often enough to be told of, if it proves to be new. */
 interface NewBusiness {
   /** Every way the answers wrote it. */
@@ -277,7 +402,7 @@ function newcomers(
     spellings: Map<string, number>;
     answers: number;
     scans: Set<number>;
-    places: Map<string, { answers: number; surfaces: Set<Surface> }>;
+    places: Places;
   }
   const gathered: Gathered[] = [];
   const byName = new Map<string, Gathered>();
@@ -303,13 +428,7 @@ function newcomers(
       for (const business of named) {
         business.answers += 1;
         business.scans.add(scan);
-        const place = business.places.get(answer.tracked_query_id) ?? {
-          answers: 0,
-          surfaces: new Set<Surface>(),
-        };
-        place.answers += 1;
-        place.surfaces.add(answer.surface);
-        business.places.set(answer.tracked_query_id, place);
+        seenAt(business.places, answer);
       }
     }
   });
@@ -318,7 +437,6 @@ function newcomers(
     .filter((business) => often(business.answers, business.scans.size))
     .map((business): NewBusiness => {
       const spellings = [...business.spellings].sort((a, b) => b[1] - a[1]);
-      const places = [...business.places].sort((a, b) => b[1].answers - a[1].answers);
       return {
         spellings: spellings.map(([spelling]) => spelling),
         facts: {
@@ -326,11 +444,7 @@ function newcomers(
           answers: business.answers,
           scans: business.scans.size,
           of_scans: latest.length,
-          places: places.slice(0, MAX_PLACES).map(([query, place]) => ({
-            prompt: text.get(query) ?? "",
-            surfaces: SURFACES.filter((surface) => place.surfaces.has(surface)),
-          })),
-          prompts: places.length,
+          ...listPlaces(business.places, text),
         },
         since: firstSeen(business.scans),
       };
@@ -443,10 +557,22 @@ export function alertTitle(alert: Alert): string {
       return alert.facts.own
         ? "Your website is read for the first time"
         : `${alert.facts.host} is read for the first time`;
+    case "phone":
+      return `The answers give a different phone number: ${formatPhone(alert.facts.number, alert.facts.country_code)}`;
   }
 }
 
-/** How often a newcomer was seen: "3 answers across 2 of the last 3 scans". */
+/** Where something was seen, in words: `"a" on ChatGPT and Claude; "b" on ChatGPT; and 2 more prompts`. */
+function inPlaces(facts: Pick<CompetitorFacts, "places" | "prompts">): string {
+  const where = facts.places.map(
+    (place) =>
+      `"${place.prompt}" on ${listed(place.surfaces.map((surface) => SURFACE_LABELS[surface]))}`,
+  );
+  const more = facts.prompts - facts.places.length;
+  return `${where.join("; ")}${more > 0 ? `; and ${count(more, "more prompt")}` : ""}`;
+}
+
+/** How often something was seen: "3 answers across 2 of the last 3 scans". */
 const sighted = (facts: { answers: number; scans: number; of_scans: number }) =>
   `${count(facts.answers, "answer")} across ${facts.scans} of the last ${facts.of_scans} scans`;
 
@@ -457,15 +583,8 @@ export function alertDetail(alert: Alert, day: (iso: string) => string): string 
       const { missed, checks_before, named_before } = alert.facts;
       return `Since ${day(alert.since)}. It was named in ${named_before} of the ${checks_before} checks before that and in none of the ${missed} since.`;
     }
-    case "competitor": {
-      const { places, prompts } = alert.facts;
-      const where = places.map(
-        (place) =>
-          `"${place.prompt}" on ${listed(place.surfaces.map((surface) => SURFACE_LABELS[surface]))}`,
-      );
-      const more = prompts - places.length;
-      return `Since ${day(alert.since)}. Named in ${sighted(alert.facts)}, and in no answer before. It was named for ${where.join("; ")}${more > 0 ? `; and ${count(more, "more prompt")}` : ""}.`;
-    }
+    case "competitor":
+      return `Since ${day(alert.since)}. Named in ${sighted(alert.facts)}, and in no answer before. It was named for ${inPlaces(alert.facts)}.`;
     case "site": {
       const { answers, named, own } = alert.facts;
       const naming = own
@@ -476,6 +595,10 @@ export function alertDetail(alert: Alert, day: (iso: string) => string): string 
             ? ` All ${answers} of those answers named the business.`
             : ` ${named} of those ${answers} answers named the business.`;
       return `Since ${day(alert.since)}. Cited in ${sighted(alert.facts)}, and in no answer before.${naming}`;
+    }
+    case "phone": {
+      const { on_file, country_code } = alert.facts;
+      return `Since ${day(alert.since)}. Given for the business in ${sighted(alert.facts)}. The number on file is ${formatPhone(on_file, country_code)}. It was given for ${inPlaces(alert.facts)}.`;
     }
   }
 }

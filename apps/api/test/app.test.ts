@@ -336,6 +336,7 @@ describe("organizations and locations", () => {
       competitors: [],
       cited_urls: ["https://reviews.example/best-pizza"],
       answer_excerpt: null,
+      phones: [],
     });
     for (const mentioned of [true, false, true]) {
       const scan = await worker.createScan(location.id, "scheduled", null);
@@ -404,6 +405,7 @@ describe("organizations and locations", () => {
       competitors: ["Tony's Slice House"],
       cited_urls: [cited],
       answer_excerpt: null,
+      phones: [],
     });
     for (const result of [
       answer(false, "https://yelp.example/raleigh"),
@@ -1212,6 +1214,7 @@ describe("tasks", () => {
           competitors: [],
           cited_urls: ["https://www.yelp.com/biz/somewhere"],
           answer_excerpt: null,
+          phones: [],
         },
       ],
       recommendations: fires ? [yelp] : [],

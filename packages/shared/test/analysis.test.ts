@@ -6,6 +6,7 @@ import {
   hostsMatch,
   namesMatch,
   normalizeName,
+  phonesGivenFor,
 } from "../src/analysis";
 
 const business: BusinessIdentity = {
@@ -153,5 +154,93 @@ describe("analyzeObservation: answers", () => {
     );
     expect(finding.answer_excerpt).toContain("Joe's Pizza");
     expect(finding.answer_excerpt?.length).toBeLessThanOrEqual(282);
+  });
+});
+
+describe("phonesGivenFor", () => {
+  const joes = { name: "Joe's Pizza", country_code: "US" };
+  const given = (
+    text: string,
+    named: string[],
+    about: { name: string; country_code?: string } = joes,
+  ) => phonesGivenFor(text, named, about);
+
+  it("reads the number in the business's own entry of a list", () => {
+    const text = [
+      "For pizza in Raleigh I'd start with these:",
+      "1. **Joe's Pizza** — a long-established shop with strong reviews. **12 Main St.; (919) 555-0101.**",
+      "2. **Tony's Slice House** — open late, by the slice. **40 Oak Ave.; (919) 555-0199.**",
+    ].join("\n");
+    const named = ["Joe's Pizza", "Tony's Slice House"];
+
+    expect(given(text, named)).toEqual(["+19195550101"]);
+    expect(given(text, named, { name: "Tony's Slice House", country_code: "US" })).toEqual([
+      "+19195550199",
+    ]);
+  });
+
+  it("reads one written in the run of a sentence", () => {
+    const text =
+      "Best first: 1) Joe's Pizza (Joe and Ann, (919) 555-0101), which looks locally rooted. 2) Tony's Slice House, which has several branches.";
+    expect(given(text, ["Joe's Pizza", "Tony's Slice House"])).toEqual(["+19195550101"]);
+  });
+
+  it("gives a number to the name written nearest before it, not to the first one named", () => {
+    // The business is named in passing, then each has its own entry.
+    const text =
+      "Joe's Pizza and Tony's Slice House are the two to try. Tony's Slice House: 919-555-0199. Joe's Pizza: 919-555-0101.";
+    expect(given(text, ["Joe's Pizza", "Tony's Slice House"])).toEqual(["+19195550101"]);
+  });
+
+  it("takes no number that follows another business's name, or comes before any name", () => {
+    const named = ["Tony's Slice House", "Joe's Pizza"];
+    expect(given("Try Tony's Slice House, (919) 555-0199, or Joe's Pizza.", named)).toEqual([]);
+    expect(given("Call (919) 555-0101 to order from Joe's Pizza.", named)).toEqual([]);
+    expect(given("Try Joe's Pizza or Tony's Slice House.", named)).toEqual([]);
+  });
+
+  it("knows the business by a longer name than the one on file, and by the one on file alone", () => {
+    const text = "1) Joe's Pizza & Pasta - Raleigh: (919) 555-0101. 2) Tony's: (919) 555-0199.";
+    expect(given(text, ["Joe's Pizza & Pasta - Raleigh", "Tony's"])).toEqual(["+19195550101"]);
+    // The answer listed nobody, and still wrote the business's name before the number.
+    expect(given("Joe's Pizza can be reached on (919) 555-0101.", [])).toEqual(["+19195550101"]);
+  });
+
+  it("keeps each number once, however it was written", () => {
+    const text = "Joe's Pizza: (919) 555-0101, or +1 919-555-0101, or 919.555.0102.";
+    expect(given(text, ["Joe's Pizza"])).toEqual(["+19195550101", "+19195550102"]);
+  });
+
+  it("reads a number the way it is written where the business is", () => {
+    const cafe = { name: "Ivy Cafe", country_code: "GB" };
+    expect(given("Ivy Cafe takes bookings on 020 7946 0958.", ["Ivy Cafe"], cafe)).toEqual([
+      "+442079460958",
+    ]);
+    // The same digits are not a number in the United States.
+    expect(
+      given("Ivy Cafe takes bookings on 020 7946 0958.", ["Ivy Cafe"], { name: "Ivy Cafe" }),
+    ).toEqual([]);
+    expect(
+      given("Ivy Cafe: (919) 555-0101.", ["Ivy Cafe"], { name: "Ivy Cafe", country_code: "ZZ" }),
+    ).toEqual([]);
+  });
+
+  it("is part of what an answer is found to say, and no part of a list of results", () => {
+    const answer = analyzeObservation(
+      {
+        kind: "answer",
+        text: "Try Tony's Slice House or Joe's Pizza, (919) 555-0101.",
+        businesses: ["Tony's Slice House", "Joe's Pizza"],
+        cited_urls: [],
+      },
+      { ...business, country_code: "US" },
+    );
+    expect(answer.phones).toEqual(["+19195550101"]);
+
+    const ranking = analyzeObservation(
+      { kind: "ranking", entries: [{ name: "Joe's Pizza (919) 555-0101" }] },
+      business,
+    );
+    expect(ranking.phones).toEqual([]);
   });
 });

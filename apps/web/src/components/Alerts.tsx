@@ -18,13 +18,14 @@ const EVIDENCE: Record<Alert["kind"], { tab: Tab; label: string }> = {
   drop: { tab: "prompts", label: "See every check" },
   competitor: { tab: "answers", label: "Read the answers" },
   site: { tab: "sources", label: "See sources" },
+  phone: { tab: "answers", label: "Read the answers" },
 };
 
 /**
  * What changed for the worse at a location, newest first. Each alert says what was seen and
  * since when, and nothing here is advice. The drops one scan raised on one surface are one card.
  * A dismissed alert leaves the page, and the same thing is raised again only once it has ended
- * and begun afresh.
+ * and begun afresh. A phone number a member dismisses is never raised again.
  */
 export function Alerts({ alerts, onChanged, readOnly, onOpenTab }: AlertsProps) {
   const dismiss = useMutation({
@@ -41,6 +42,8 @@ export function Alerts({ alerts, onChanged, readOnly, onOpenTab }: AlertsProps) 
           const [first] = group.alerts;
           if (!first) return null;
           const evidence = EVIDENCE[first.kind];
+          // Dismissing a phone number says it is the business's own, and the button says that.
+          const dismissal = first.kind === "phone" ? "This number is ours" : "Dismiss";
           return (
             // A site newly read is not bad news, and the business's own is good news.
             <li key={group.key} className={`card also${first.kind === "site" ? "" : " alert"}`}>
@@ -75,10 +78,10 @@ export function Alerts({ alerts, onChanged, readOnly, onOpenTab }: AlertsProps) 
                     type="button"
                     className="link"
                     disabled={dismiss.isPending}
-                    aria-label={`Dismiss: ${group.title}`}
+                    aria-label={`${dismissal}: ${group.title}`}
                     onClick={() => dismiss.mutate(group.alerts.map((alert) => alert.id))}
                   >
-                    Dismiss
+                    {dismissal}
                   </button>
                 </div>
               )}

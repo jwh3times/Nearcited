@@ -4700,6 +4700,60 @@ describe("the operator", () => {
       ).toEqual([{ clear_reason: "old_news" }, { clear_reason: "old_news" }]);
     });
 
+    it("are also of a phone number, read from results that keep what their answers gave", async () => {
+      const [scan] = await rows<{ id: string }>(
+        "insert into public.scans (location_id, trigger, status) values ($1, 'scheduled', 'running') returning id",
+        [main],
+      );
+      made.push(scan?.id ?? "");
+      const result = { tracked_query_id: prompt, mentioned: true, competitors: [], cited_urls: [] };
+      await as("service_role", null, () =>
+        db.query("select public.complete_scan($1, 50, $2::jsonb, '[]'::jsonb, $3::jsonb)", [
+          scan?.id,
+          JSON.stringify([
+            { ...result, surface: "chatgpt", phones: ["+19195550199"] },
+            // As the Worker deployed before the numbers were read sends a result.
+            { ...result, surface: "claude" },
+          ]),
+          JSON.stringify({
+            clear: [],
+            raise: [
+              {
+                kind: "phone",
+                subject: "+19195550199",
+                facts: { number: "+19195550199", on_file: "+19195550100" },
+                since: "2026-10-05T09:00:00Z",
+              },
+            ],
+          }),
+        ]),
+      );
+      expect(
+        await rows(
+          "select surface, phones from public.scan_results where scan_id = $1 order by surface",
+          [scan?.id],
+        ),
+      ).toEqual([
+        { surface: "chatgpt", phones: ["+19195550199"] },
+        { surface: "claude", phones: [] },
+      ]);
+
+      const [number] = await rows<{ id: string }>(
+        "select id from public.alerts where kind = 'phone'",
+      );
+      await finish({ clear: [{ id: String(number?.id), reason: "no_longer_given" }] });
+      await finish({ raise: [{ kind: "phone", subject: "+19195550199", facts: {} }] });
+      const [again] = await rows<{ id: string }>(
+        "select id from public.alerts where kind = 'phone' and cleared_at is null",
+      );
+      await finish({ clear: [{ id: String(again?.id), reason: "now_on_file" }] });
+      expect(
+        await rows(
+          "select clear_reason from public.alerts where kind = 'phone' order by cleared_at",
+        ),
+      ).toEqual([{ clear_reason: "no_longer_given" }, { clear_reason: "now_on_file" }]);
+    });
+
     it("rest on a record only the worker reads: what earlier scans' answers named and cited", async () => {
       const [place] = await rows<{ id: string }>(
         "insert into public.locations (organization_id, name, city) values ($1, 'Long record', 'Raleigh') returning id",

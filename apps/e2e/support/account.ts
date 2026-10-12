@@ -178,6 +178,30 @@ export async function withNewBusiness(locationId: string, name: string): Promise
   });
 }
 
+/**
+ * Gives a location a phone number its answers gave that is not the one on file, as a scan's
+ * rule would once two scans' answers had given it. Local stack only.
+ */
+export async function withOtherNumber(locationId: string): Promise<void> {
+  await asWorker("alerts", {
+    location_id: locationId,
+    kind: "phone",
+    subject: "+19195550199",
+    facts: {
+      number: "+19195550199",
+      on_file: "+19195550100",
+      country_code: "US",
+      answers: 2,
+      scans: 2,
+      of_scans: 7,
+      places: [{ prompt: "Who makes the best pizza in Raleigh?", surfaces: ["chatgpt"] }],
+      prompts: 1,
+    },
+    since: new Date(Date.now() - 2 * 86_400_000).toISOString(),
+    sample_data: true,
+  });
+}
+
 /** Writes a row with the secret key. Never against a deployment: its data is not a test's. */
 async function asWorker(table: string, row: unknown): Promise<void> {
   if (process.env.E2E_APP_URL) throw new Error("Tests do not write to a deployment's database.");

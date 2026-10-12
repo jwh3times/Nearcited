@@ -14,6 +14,7 @@ const finding = (position: number | null | "unranked", change: Partial<Finding> 
   competitors: [],
   cited_urls: [],
   answer_excerpt: null,
+  phones: [],
   ...change,
 });
 

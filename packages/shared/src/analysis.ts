@@ -1,3 +1,9 @@
+import {
+  type CountryCode,
+  findPhoneNumbersInText,
+  isSupportedCountry,
+} from "libphonenumber-js/min";
+
 /**
  * Turns what a surface returned into a finding about one business.
  *
@@ -28,6 +34,8 @@ export interface BusinessIdentity {
   name: string;
   website: string | null;
   google_place_id: string | null;
+  /** Where the business is, which is how a phone number written without its country is read. */
+  country_code?: string | null;
 }
 
 export interface Finding {
@@ -37,11 +45,14 @@ export interface Finding {
   competitors: string[];
   cited_urls: string[];
   answer_excerpt: string | null;
+  /** The phone numbers a written answer gave for the business, in international form. */
+  phones: string[];
 }
 
 const LEGAL_SUFFIXES = new Set(["llc", "inc", "ltd", "corp", "co", "pllc", "llp"]);
 const MAX_COMPETITORS = 10;
 const MAX_CITED_URLS = 20;
+const MAX_PHONES = 5;
 const EXCERPT_LENGTH = 280;
 
 export function normalizeName(name: string): string {
@@ -113,6 +124,50 @@ function excerptAround(text: string, name: string): string | null {
   return `${start > 0 ? "…" : ""}${clean.slice(start, end)}${end < clean.length ? "…" : ""}`;
 }
 
+/**
+ * The phone numbers an answer gives for the business, in international form.
+ *
+ * An answer goes through the businesses it names one after another, each with its details after
+ * its name, so a number is taken to be the business's when the name written nearest before it is
+ * the business's. A number written before any name is nobody's. This reads where a number
+ * stands and not what the sentence says, so it can be wrong about a number that follows the
+ * business's name and belongs to something the answer did not name: whoever uses it should want
+ * to see the same number more than once.
+ */
+export function phonesGivenFor(
+  text: string,
+  named: readonly string[],
+  business: Pick<BusinessIdentity, "name" | "country_code">,
+): string[] {
+  const country = business.country_code ?? "US";
+  if (!isSupportedCountry(country)) return [];
+  const found = findPhoneNumbersInText(text, country as CountryCode);
+  if (found.length === 0) return [];
+
+  // Every place a name is written, with whether that name is the business's.
+  const lower = text.toLowerCase();
+  const mentions: { at: number; length: number; ours: boolean }[] = [];
+  for (const name of new Set([...named, business.name])) {
+    const needle = name.trim().toLowerCase();
+    if (!needle) continue;
+    const ours = namesMatch(name, business.name);
+    for (let at = lower.indexOf(needle); at !== -1; at = lower.indexOf(needle, at + 1)) {
+      mentions.push({ at, length: needle.length, ours });
+    }
+  }
+  // Where two names begin at the same place the longer one is what was written there.
+  mentions.sort((a, b) => a.at - b.at || a.length - b.length);
+
+  const given = found.filter((number) => {
+    const before = mentions.filter((mention) => mention.at <= number.startsAt);
+    return before[before.length - 1]?.ours === true;
+  });
+  return unique(
+    given.map((number) => number.number.number),
+    MAX_PHONES,
+  );
+}
+
 export function analyzeObservation(observation: Observation, business: BusinessIdentity): Finding {
   const businessHost = hostOf(business.website);
 
@@ -132,6 +187,7 @@ export function analyzeObservation(observation: Observation, business: BusinessI
       ),
       cited_urls: [],
       answer_excerpt: null,
+      phones: [],
     };
   }
 
@@ -151,5 +207,6 @@ export function analyzeObservation(observation: Observation, business: BusinessI
     ),
     cited_urls: unique(observation.cited_urls, MAX_CITED_URLS),
     answer_excerpt: excerptAround(observation.text, business.name),
+    phones: phonesGivenFor(observation.text, observation.businesses, business),
   };
 }
