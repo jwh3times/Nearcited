@@ -425,7 +425,7 @@ describe("organizations and locations", () => {
     );
     expect(detail.site).toEqual(site);
     expect(
-      detail.actions.map((action) => [action.id, action.items.map((item) => item.label)]),
+      detail.action_plan.map((step) => [step.id, step.items.map((item) => item.label)]),
     ).toEqual([
       ["get_listed", ["yelp.example"]],
       ["keep_listings", ["maps.example"]],

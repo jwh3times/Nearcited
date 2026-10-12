@@ -1,4 +1,4 @@
-import type { Action } from "@nearcited/shared";
+import type { ActionPlanStep } from "@nearcited/shared";
 
 export const TABS = ["overview", "prompts", "sources", "website", "answers", "settings"] as const;
 export type Tab = (typeof TABS)[number];
@@ -24,7 +24,7 @@ export function neighbour(tab: Tab, step: 1 | -1): Tab {
 }
 
 /** What kind of step each action is, and the tab where its evidence is set out. */
-export const ACTION_PLACE: Record<Action["id"], { kind: string; tab: Tab; link: string }> = {
+export const STEP_PLACE: Record<ActionPlanStep["id"], { kind: string; tab: Tab; link: string }> = {
   fix_website: { kind: "Website", tab: "website", link: "Open website checks" },
   get_listed: { kind: "Listings", tab: "sources", link: "See sources" },
   keep_listings: { kind: "Listings", tab: "sources", link: "See sources" },

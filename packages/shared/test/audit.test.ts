@@ -171,20 +171,20 @@ describe("toPublicAudit", () => {
       ),
     );
     const audit = toPublicAudit({ ...stored, parts: { "0": { cells: [unnamed, unnamed] } } });
-    expect(audit.actions.map((action) => action.id)).toEqual([
+    expect(audit.action_plan.map((step) => step.id)).toEqual([
       "fix_website",
       "get_listed",
       "competitors",
     ]);
-    expect(audit.actions[0]?.summary).toContain("None of the 4 answers cited joes.example");
-    expect(audit.actions[1]?.items).toEqual([
+    expect(audit.action_plan[0]?.summary).toContain("None of the 4 answers cited joes.example");
+    expect(audit.action_plan[1]?.items).toEqual([
       {
         label: "reviews.example",
         detail: "Cited in 4 of 4 answers",
         url: "https://reviews.example/a",
       },
     ]);
-    expect(audit.actions[2]?.items[0]).toMatchObject({
+    expect(audit.action_plan[2]?.items[0]).toMatchObject({
       label: "Tony's Slice House",
       detail: "Named in 4 of 4 answers",
     });
@@ -201,7 +201,7 @@ describe("toPublicAudit", () => {
     ]);
     const audit = toPublicAudit({ ...stored, parts: { "0": { cells: [cell] } } });
     expect(audit.sources.map((site) => site.host)).not.toContain("tonysslicehouse.example");
-    expect(audit.actions.find((action) => action.id === "competitors")?.items[0]?.url).toBe(
+    expect(audit.action_plan.find((step) => step.id === "competitors")?.items[0]?.url).toBe(
       "https://tonysslicehouse.example/menu",
     );
   });
@@ -209,7 +209,7 @@ describe("toPublicAudit", () => {
   it("passes on nothing the page does not show", () => {
     expect(Object.keys(toPublicAudit(stored)).sort()).toEqual(
       [
-        "actions",
+        "action_plan",
         "business_name",
         "city",
         "created_at",

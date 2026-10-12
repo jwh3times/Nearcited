@@ -289,7 +289,7 @@ with up to five including redirects).
 
 ## The action plan
 
-`buildActionPlan` (`packages/shared/src/actions.ts`) turns the evidence into an ordered list of
+`buildActionPlan` (`packages/shared/src/action-plan.ts`) turns the evidence into an ordered list of
 at most four steps. The location route calls it over the scan window and `toPublicAudit` calls it
 over an audit's samples, so both pages show the same plan from the same code.
 

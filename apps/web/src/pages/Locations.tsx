@@ -138,8 +138,8 @@ function Row({ to, location, trend, detail, surfaces }: RowProps) {
   );
   const scanned = score !== undefined;
   const rates = surfaceRates(detail?.window.cells ?? [], surfaces);
-  const rival = detail?.actions.find((action) => action.id === "competitors")?.items[0];
-  const steps = detail?.actions ?? [];
+  const rival = detail?.action_plan.find((step) => step.id === "competitors")?.items[0];
+  const steps = detail?.action_plan ?? [];
 
   return (
     <Link to={to} className="gtable-row">
