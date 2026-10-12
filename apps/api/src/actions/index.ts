@@ -183,12 +183,15 @@ export async function carryOutAction(
 /** The one queue method used here. `env.SCAN_QUEUE` satisfies it. */
 type ActionQueue = Pick<Queue<ActionMessage>, "sendBatch">;
 
-/** How long an approved action may sit with nobody carrying it out before it is queued again. */
+/**
+ * How long an approved action may sit before it is queued again. Longer than the ten minutes a
+ * worker's hold on one lasts, so one a worker took and died with can be taken by the next.
+ */
 const STALLED_AFTER_MS = 15 * 60_000;
 
 /**
- * Queues again every approved action nobody is carrying out: its message was lost, or the worker
- * let go of it to be tried again. Returns how many.
+ * Queues again every approved action nobody is carrying out: its message was lost, the worker
+ * let go of it to be tried again, or the worker that took it died. Returns how many.
  */
 export async function requeueStalledActions(
   store: Store,

@@ -61,9 +61,10 @@ export default {
 
   /**
    * Cron. Every run clears abandoned scans and unfinished audits, and asks again for any
-   * connection's removal or first sync that has not been finished; the daily run also queues a
-   * scan for every location that is due and a sync for every connection that is. The two
-   * schedules are in wrangler.jsonc.
+   * connection's removal or first sync that has not been finished and any approved action nobody
+   * is carrying out; the daily run also queues a scan for every location that is due and a sync
+   * for every connection that is, and lapses the proposals nobody answered. The two schedules are
+   * in wrangler.jsonc.
    */
   async scheduled(controller, env) {
     const store = createSupabaseStore(createAdminClient(env));
@@ -228,6 +229,14 @@ export default {
             key: await sealingKey(env.CONNECTIONS_KEY),
           });
           console.log(`${what}: ${outcome}`);
+          // The thing had changed since the member was shown it. Reading the account again now
+          // proposes a fresh action against what is there, without waiting for the daily run.
+          if (outcome === "out_of_date") {
+            const kept = await store.getAction(action.data.action_id);
+            if (kept?.connection_id) {
+              await env.SCAN_QUEUE.send({ connection_id: kept.connection_id, step: "sync" });
+            }
+          }
           // A try that did not work is made again in ten minutes, three times in all.
           if (outcome === "again") message.retry({ delaySeconds: 600 });
           else message.ack();

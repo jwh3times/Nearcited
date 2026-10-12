@@ -403,6 +403,27 @@ describe("carrying an action out", () => {
     expect(await carryOutAction(id, await worker())).toBe("done");
   });
 
+  it("is taken up again by the schedule when the worker that had it died", async () => {
+    await matched();
+    const id = db.actions[0]?.id ?? "";
+    await approve(alice, id);
+    const store = memoryStore(db, null);
+    const start = Date.now();
+    db.now = new Date(start).toISOString();
+    // A worker takes it and is never heard from again.
+    expect(await store.claimAction(id)).toBe(1);
+    // The queue delivers the message again within its hold, and is told someone is on it.
+    expect(await carryOutAction(id, await worker())).toBe("busy");
+
+    queued = [];
+    expect(await requeueStalledActions(store, env.SCAN_QUEUE, start + 9 * 60_000)).toBe(0);
+    expect(await requeueStalledActions(store, env.SCAN_QUEUE, start + 16 * 60_000)).toBe(1);
+    expect(queued).toEqual([{ action_id: id, step: "carry_out" }]);
+    db.now = new Date(start + 16 * 60_000).toISOString();
+    expect(await carryOutAction(id, await worker())).toBe("done");
+    expect(line()).toBe(LINE);
+  });
+
   it("fails, with the reason, when the account it goes through is gone or not working", async () => {
     const { location, connection } = await matched();
     const id = db.actions[0]?.id ?? "";

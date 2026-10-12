@@ -466,7 +466,10 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
     const inAMinute = new Date(Date.now() + 60_000).toISOString();
     expect(await worker.listStalledActions(inAMinute)).toContain(proposed.id);
     expect(await worker.claimAction(proposed.id)).toBe(1);
-    expect(await worker.listStalledActions(inAMinute)).not.toContain(proposed.id);
+    // Taken a moment ago, it is not stalled yet. Left for longer than a hold lasts, it is.
+    const aMinuteAgo = new Date(Date.now() - 60_000).toISOString();
+    expect(await worker.listStalledActions(aMinuteAgo)).not.toContain(proposed.id);
+    expect(await worker.listStalledActions(inAMinute)).toContain(proposed.id);
     // The sample account's listings are the worker's alone.
     expect(await worker.getSampleLine(account.id, "listing-a")).toBeNull();
     await worker.setSampleLine(account.id, "listing-a", "Changed line");

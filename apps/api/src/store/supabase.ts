@@ -550,7 +550,9 @@ export function createSupabaseStore(db: SupabaseClient): Store {
         .select("id")
         .eq("status", "approved")
         .lt("approved_at", before)
-        .is("carrying_since", null);
+        // Nobody is on it, or whoever was has been on it since before then and is taken to
+        // have died.
+        .or(`carrying_since.is.null,carrying_since.lt.${before}`);
       if (error) fail("List stalled actions", error);
       return z
         .array(z.object({ id: z.uuid() }))

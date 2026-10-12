@@ -93,8 +93,8 @@ of dots, one per recent scan, showing how that prompt has moved on that assistan
 
 The app has a sidebar listing every location and a light or dark theme, kept in the browser. The
 locations page is a table of score, change, rate per assistant, top competitor and next step,
-built from each location's own endpoints. The location page has tabs (Overview, Prompts, Sources,
-Website, Answers, Settings); ticking a step of the action plan is remembered in the browser only.
+built from each location's own endpoints. The location page has tabs (Overview, Actions once the
+location has one, Prompts, Sources, Website, Answers, Settings); ticking a step of the action plan is remembered in the browser only.
 An Account settings page, linked from the sidebar, renames the organization and shows what its
 plan allows, which is not edited there, and the scans run by hand this month. On a plan that
 checks one assistant the owner chooses which. It links to the plans, and the
@@ -127,8 +127,20 @@ daily; the owners and admins are emailed when one breaks and once more a week la
 Connections page and the sidebar say which are not working. When a plan stops including a kind of
 account, the accounts of that kind are paused, and come back with the plan; after thirty days
 paused one is removed. Only a sample account exists, which reaches three sample listings, needs no
-allowance and is offered where the data is generated. Nothing else is read from an account and nothing
-acts through one yet (see [What is not built](#what-is-not-built)).
+allowance and is offered where the data is generated. Nothing else is read from an account, and the
+only thing done through one is the sample action below (see [What is not built](#what-is-not-built)).
+
+An **action** is one thing the product does outside itself for a location, and nothing is done until
+a member of the organization says yes. After the worker reads a connected account, it proposes what
+it could do for each location matched to it, composed by rule, saying what is there now and what it
+would put there. A location that has an action gets an Actions tab, and the sidebar says how many are
+waiting at each location. A member approves a proposal, with its text changed or not, or declines it
+with a reason. The worker, never the page, then carries it out: it reads what is there first, and
+writes nothing if it is already so or has changed since the member was shown it. A try that fails is
+made again in ten minutes, three times in all; then the action is marked failed and a member can ask
+again. A proposal nobody answers lapses after fourteen days. The only kind of action is a sample
+one, which sets the opening line of a made-up listing (see
+[What is not built](#what-is-not-built)).
 
 Scans start from the "Run scan" button or from a daily schedule, and run on a queue. A scheduled
 scan emails its result to the organization's owners. When a subscription starts, the owners are thanked by email once. The same queue carries the steps of an
@@ -150,7 +162,7 @@ audit. It costs real money, prompts x samples x assistants answers, and refuses 
 data or on the default tuning.
 
 [docs/architecture.md](docs/architecture.md) covers the scan flow, how an audit runs, how a
-connection's sign-in is kept, the tenancy model, the limits a Worker imposes, and the known gaps.
+connection's sign-in is kept, how an action is proposed and carried out, the tenancy model, the limits a Worker imposes, and the known gaps.
 
 ## Stack
 
@@ -338,8 +350,13 @@ organization reads as missing and returns 404. Payloads are defined in
 | `GET /api/organizations/:organizationId/connections` | What the Connections page shows: the organization's `connections`, removed ones included, newest first; `available`, the kinds that can be connected here now (empty without `CONNECTIONS_KEY`, and without a kind the organization's allowances leave out); and `can_manage`, whether the caller is its owner or an admin. Never a sign-in. For anyone who can read the organization, the operator included. 404 to a stranger. |
 | `POST /api/organizations/:organizationId/connections` | Connects an account. Takes `kind` (`sample`, the only one). The Worker seals the sign-in before it is stored; answers the connection, 201, without it, and queues its first sync. Owner or admin only: 404 to anyone else, the operator included. 422 `connection_unavailable` for a kind not offered here, which includes one its allowances leave out, 503 `connections_unavailable` without `CONNECTIONS_KEY`. |
 | `DELETE /api/connections/:connectionId` | Asks for a connection to be removed: it becomes `removing` and the worker is queued to take back the access and delete the sign-in, after which it is `removed`. Answers the connection. Asking again changes nothing recorded. Owner or admin only: 404 to anyone else, the operator included. |
-| `PUT /api/connections/:connectionId/locations/:locationId` | Says which of the things a connection reaches is a location's, replacing what was said before. Takes `external_id`; answers the match. Owner or admin only: 404 to anyone else, the operator included, and for a location of another organization. 409 `limit_reached` with the reason for a choice the account does not reach, one that is another location's, a location that already has an account of the same kind, or a connection that is not working; 422 for a blank `external_id`. |
+| `PUT /api/connections/:connectionId/locations/:locationId` | Says which of the things a connection reaches is a location's, replacing what was said before. Takes `external_id`; answers the match, and queues a sync so the worker can propose actions for the location. Owner or admin only: 404 to anyone else, the operator included, and for a location of another organization. 409 `limit_reached` with the reason for a choice the account does not reach, one that is another location's, a location that already has an account of the same kind, or a connection that is not working; 422 for a blank `external_id`. |
 | `DELETE /api/connections/:connectionId/locations/:locationId` | Takes a location's match away; 204. Owner or admin only: 404 to anyone else, or when there is none. |
+| `GET /api/locations/:locationId/actions` | A location's actions, newest first, at most 100 in all: `waiting` (those waiting for a yes) and `record` (the rest, including any being carried out). Each says what it would do, what was there when it was proposed, its text and whether a rule or a model wrote it, who approved or declined it and when, and how it ended. For anyone who can read the location, the operator included. 404 to a stranger. |
+| `GET /api/organizations/:organizationId/actions/waiting` | How many actions wait for a yes at each of the organization's locations, as an object by location ID; a location with none is absent. 404 to a stranger. |
+| `POST /api/actions/:actionId/approve` | A member's yes. Takes an optional `text`, 1 to 5,000 characters, which replaces what was proposed and is kept beside it. Records the yes and queues the worker to carry the action out; answers the action. Any member of the location's organization: 404 to anyone else, the operator included. 409 `limit_reached` with the reason when it is no longer waiting; 422 for a bad `text`. |
+| `POST /api/actions/:actionId/decline` | A member's no. Takes an optional `reason`, up to 200 characters. Answers the action. Any member of the location's organization: 404 to anyone else, the operator included. 409 `limit_reached` when it is no longer waiting; 422 for a longer `reason`. |
+| `POST /api/actions/:actionId/retry` | Asks for a failed action again: a new action, already approved by the caller, that points at the one that failed; queues the worker. Answers the new action, 201. Any member of the location's organization: 404 to anyone else, the operator included. 409 `limit_reached` for an action that did not fail, or when another for the same thing is waiting or on its way. |
 | `GET /api/locations/:id` | One location with its queries, latest scan, rates over recent scans, the sites those answers cited, the surfaces being checked, recommendations, the latest website check, the action plan, the owner's tasks and the connected accounts it is matched to (`connections`). |
 | `PATCH /api/locations/:id` | Replace a location's details with a whole location body, as when adding one; a field left out goes back to blank or its default. The same checks as adding. |
 | `POST /api/locations/:id/activate` | Brings a location the plan paused back into use. Takes `instead_of`, the location in use that is paused in its place, when the plan has no room; 409 with the reason without one. 404 to a non-member. |
@@ -380,6 +397,8 @@ The migrations in `supabase/migrations/` define everything.
 | `connection_locations` | Which of a connection's choices is a location's: one account of a kind for a location, and one location for each thing an account reaches. Read by whoever can read the location and by the operator; written by no API role directly, only through `match_connection_location()` and `unmatch_connection_location()`, which answer an owner or admin of the connection's organization alone. Deleted when the connection's removal finishes. |
 | `connection_secrets` | A connection's sign-in, sealed by the Worker. Row-level security is on with no policy and no grant to any API role, the operator included: only the Worker reads it, and the row is deleted when a removal finishes. |
 | `connection_kind_allowances` | The allowance an organization needs for a kind of connection; a kind not listed needs none, and the table is empty, since the sample kind needs none. Row-level security is on with no policy and no grant to any API role, the operator included: only the database's own functions read it. |
+| `actions` | What the product does outside itself for a location: what it would do, what was there when it was proposed, the text and whether a rule or a model wrote it, and its status (`proposed`, `approved`, `done`, `failed`, `declined` or `lapsed`). Records who approved or declined it, as the address they had then, and when; the text as approved, when a member changed it; how it ended, with the reason for a failure; and the failed action it was asked for again from (`retry_of`). Two more columns, `subject` and `basis`, are the Worker's bookkeeping, so that one action is open for a thing and a declined one is not proposed again until what it rests on changes; no route sends them. Read by whoever can read the location and by the operator; written by no API role directly, only through `approve_action()`, `decline_action()` and `retry_action()`, which answer a member of the location's organization alone, and the Worker's `propose_action()`, `claim_action()`, `finish_action()` and `lapse_actions()`. Deleted with its location. |
+| `sample_listings` | What the sample account's listings say (an opening line): the outside world for the sample kind of action, which has none. Row-level security is on with no policy and no grant to any API role, the operator included: only the Worker reads or writes it. |
 | `provider_usage` | What the providers used for a scan or audit prompt, per surface and model: calls, input, cached input and output tokens, searches. Outlives the scan, audit or organization it describes. Written only by the Worker; only the operator can read it through the API. `GET /api/operator/spend` prices it and the operator's view shows it. |
 
 Usage limits are enforced by database triggers, so they hold for the API and for anyone calling
@@ -402,20 +421,20 @@ reader gets one audit only by its token, through the `get_audit()` function.
   on-page check and the action plan.
 - **`packages/db`**: applies the real migrations to in-process Postgres (PGlite) and checks, as
   different users, that one organization cannot read or write another's rows, that users cannot
-  forge scan results or grant themselves a platform role, that worker-only functions and the `audits`, `provider_usage`, `connection_secrets` and `connection_kind_allowances` tables are closed to them, that only an owner or admin can connect, match or remove an account, that a connection breaks and is paused as it should, and that the operator reads every organization and changes only an organization's limits or a plan's settings or prices, each through one function that records it (announcing and calling off a price change or a reduction included). No Docker needed. It
+  forge scan results or grant themselves a platform role, that worker-only functions and the `audits`, `provider_usage`, `connection_secrets`, `connection_kind_allowances` and `sample_listings` tables are closed to them, that only an owner or admin can connect, match or remove an account, that a connection breaks and is paused as it should, that only a member of a location's organization can approve, decline or ask again for an action and only the worker can propose or carry one out, and that the operator reads every organization and changes only an organization's limits or a plan's settings or prices, each through one function that records it (announcing and calling off a price change or a reduction included). No Docker needed. It
   also checks `private/tuning.json` against the tuning schema where that file exists.
 - **`apps/api`**: every route against an in-memory store, the scan runner (success, retry,
   permanent failure, reporting, scoring with given weights, refusing live scans on default tuning),
   the ChatGPT and Claude providers against responses in the shape the real APIs return, the
-  scheduler, billing (checkout, the portal and the Stripe webhook, against a stand-in for Stripe), the audit runner, the site fetch (what it refuses and how it follows redirects), and
+  scheduler, actions (proposing after a sync, a member's yes and no, carrying one out once, trying again, and lapsing), billing (checkout, the portal and the Stripe webhook, against a stand-in for Stripe), the audit runner, the site fetch (what it refuses and how it follows redirects), and
   the mock providers.
 - **`apps/web`**: the logic that lays results out as a grid, the logic behind the chart of the
   score over time, the logic behind the audit page, the logic that fills the location edit form,
-  the locations table's summary figures, the onboarding suggestions, the location page's tabs, and
-  what the Connections page and its sidebar link show.
+  the locations table's summary figures, the onboarding suggestions, the location page's tabs, what
+  the Connections page and its sidebar link show, and what the Actions tab says of each action.
 - **`apps/e2e`**: `pnpm e2e` drives the real web app and Worker in Chromium against the local
   Supabase stack, in mock mode: sign-in by the emailed link, onboarding through the first scan, the
-  location page, account settings, connecting a sample account, matching a location to it and removing it, the operator's view and reading through an account, the public pages and one phone-sized run. It starts the Worker
+  location page, account settings, connecting a sample account, matching a location to it and removing it, approving a proposed action with its text changed and declining another, the operator's view and reading through an account, the public pages and one phone-sized run. It starts the Worker
   and web app itself, or reuses them if `pnpm dev` is up. `pnpm smoke` is a separate run against a
   real deployment: it signs in as the test account, refuses to go on unless that account's
   organization is a test one, then adds a location and a prompt, runs a scan (generated data), reads
@@ -579,10 +598,17 @@ pnpm sync:agents
 - **Anything that works from a connection.** An owner or admin can connect a sample account, say
   which of the three sample listings it reaches is each location's, and remove it. There is no
   real kind of connection (a Google profile, a website, a customer source). Nothing reads anything
-  from an account beyond the list of what it reaches, or acts through one. The sample kind never
+  from an account beyond the list of what it reaches, and the only thing done through one is the
+  sample kind of action, which sets the opening line of a made-up listing. The sample kind never
   fails and needs no allowance, so nothing breaks or pauses until a real kind exists. Signing in
   again to a connection that refused its sign-in, without removing it, is not built: it is removed
   and connected again.
+- **A real kind of action.** The only kind writes to a table of made-up listings, so nothing is
+  done outside the product. Also decided in
+  [ADR 0014](docs/adr/0014-only-the-worker-carries-out-an-action.md) and not built: the daily
+  email to owners about what was carried out, holding an organization whose notice is late, refusing
+  to approve a real action where email is not set up, dropping what an action replaced after a
+  platform's limit, an action marking a task done, and an action counting against an allowance.
 
 More detail, and the open product questions, in [docs/architecture.md](docs/architecture.md).
 What is planned, in order, is in [Build order](https://github.com/jwh3times/Nearcited/issues/15).

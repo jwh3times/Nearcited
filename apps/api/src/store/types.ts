@@ -425,8 +425,9 @@ export interface Store {
   /** Lapses every proposal that has waited its fourteen days. Returns how many. Worker only. */
   lapseActions(): Promise<number>;
   /**
-   * The actions approved before `before` that nobody is carrying out: their message was lost.
-   * Worker only.
+   * The actions approved before `before` that nobody is carrying out: their message was lost, or
+   * the worker that took one has been on it since before then and is taken to have died. Worker
+   * only.
    */
   listStalledActions(before: string): Promise<string[]>;
   /** What one of the sample account's listings says. Worker only. */

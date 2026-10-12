@@ -20,8 +20,9 @@ a second is not made while the first is waiting or on its way.
 
 - If it is already what the action would make it, the action is done and nothing is written.
   That covers a message delivered twice, and a worker that wrote and died before it could say so.
-- If it is no longer what the member was shown, nothing is written, the action lapses as out of
-  date and a fresh one is proposed. A yes to one change is not a yes to another.
+- If it is no longer what the member was shown, nothing is written and the action lapses as out
+  of date. The worker reads the account again at once, which proposes a fresh action against
+  what is there now. A yes to one change is not a yes to another.
 
 **An action has six states and no others**: proposed, then approved and done, or approved and
 failed; a proposed one can also be declined, or lapse. A proposal lapses after fourteen days. A
@@ -75,8 +76,9 @@ proposed.
 - Delivery is at least once, and an outside write cannot be made exactly once. Reading first
   narrows what can go wrong to a worker that dies between writing and recording, which the next
   try sees as already done.
-- An approved action can wait while its organization is held, and one whose message is lost
-  waits for the next run of the schedule.
+- An approved action can wait while its organization is held. One whose message is lost, or
+  whose worker died while carrying it out, waits for the next run of the schedule: a worker's
+  hold on an action lasts ten minutes, and the schedule asks again for any left longer than that.
 - The sample kind of action writes to a table of made-up listings, so the whole path is
   exercised where the data is generated and nothing leaves the product.
 - What is built so far, and what of the above is still to come, is in `docs/architecture.md`.

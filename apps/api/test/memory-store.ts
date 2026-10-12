@@ -582,7 +582,7 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
             action.status === "approved" &&
             action.approved_at !== null &&
             action.approved_at < before &&
-            action.carrying_since === null,
+            (action.carrying_since === null || action.carrying_since < before),
         )
         .map((action) => action.id);
     },
