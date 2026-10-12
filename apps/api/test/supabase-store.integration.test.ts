@@ -495,8 +495,12 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
       decline_reason: "Not this one",
     });
     expect(await worker.lapseActions()).toBe(0);
-    // Telling the owners, and holding back while they have not been told, are the worker's.
-    await expect(aliceStore.listActionsToTell()).rejects.toMatchObject({ kind: "forbidden" });
+    // Telling the owners, and holding back while they have not been told, are the worker's: no
+    // member can keep that they were told, and a stranger reads nothing of what there is to tell.
+    await expect(
+      aliceStore.markActionsTold([again.id], "done", new Date().toISOString()),
+    ).rejects.toMatchObject({ kind: "forbidden" });
+    expect(await bobStore.listActionsToTell()).toEqual([]);
     const untold = (await worker.listActionsToTell()).filter(
       (row) => row.organization_id === organization.id,
     );
