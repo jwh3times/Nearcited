@@ -122,6 +122,7 @@ export function LocationDetail() {
     tasks,
     connections,
     alerts,
+    details_fix: detailsFix,
   } = detail.data;
   const organization = readOnly
     ? theirs.data
@@ -274,7 +275,12 @@ export function LocationDetail() {
                       readOnly={readOnly}
                       websiteFix={
                         needsBusinessBlock(site) && (
-                          <BusinessBlock location={location} onOpenSettings={openSettings} />
+                          <BusinessBlock
+                            location={location}
+                            onOpenSettings={openSettings}
+                            fix={detailsFix}
+                            onMarked={readOnly ? undefined : refresh}
+                          />
                         )
                       }
                     />
@@ -396,7 +402,13 @@ export function LocationDetail() {
               )}
             </div>
             {site ? (
-              <SiteChecklist site={site} location={location} onOpenSettings={openSettings} />
+              <SiteChecklist
+                site={site}
+                location={location}
+                onOpenSettings={openSettings}
+                fix={detailsFix}
+                onMarked={readOnly ? undefined : refresh}
+              />
             ) : (
               <p className="lede">
                 {location.website

@@ -1457,6 +1457,31 @@ export const TaskSchema = z.object({
 });
 export type Task = z.infer<typeof TaskSchema>;
 
+/** Of a set of answers, how many cited the business's own website. */
+export const CitedCountSchema = z.object({
+  answers: z.number().int().nonnegative(),
+  cited: z.number().int().nonnegative(),
+});
+export type CitedCount = z.infer<typeof CitedCountSchema>;
+
+/**
+ * Where the fix for a page with no structured business details stands: whether an owner has
+ * said the block is on the page, whether a scan has looked since, and what the answers did
+ * before and since. Whether the page has the details now is the on-page check's to say.
+ */
+export const DetailsFixSchema = z.object({
+  /** The recommendation the fix stands on, which is what marking it done updates. */
+  id: Id,
+  /** When a member said the block was on the page. */
+  acted_at: Timestamp.nullable(),
+  /** Whether a scan has finished since then, so that the check on the page is newer than the mark. */
+  checked_since: z.boolean(),
+  /** Counted over the scans before `acted_at` and over those since. Null until it is marked. */
+  before: CitedCountSchema.nullable(),
+  since: CitedCountSchema.nullable(),
+});
+export type DetailsFix = z.infer<typeof DetailsFixSchema>;
+
 export const LocationDetailSchema = z.object({
   location: LocationSchema,
   queries: z.array(TrackedQuerySchema),
@@ -1475,6 +1500,11 @@ export const LocationDetailSchema = z.object({
   connections: z.array(LocationConnectionSchema),
   /** What got worse and has neither ended nor been dismissed, newest first. */
   alerts: z.array(AlertSchema),
+  /**
+   * The fix for a page with no structured business details, once the on-page check has found
+   * them missing. Null until then.
+   */
+  details_fix: DetailsFixSchema.nullable(),
 });
 export type LocationDetail = z.infer<typeof LocationDetailSchema>;
 

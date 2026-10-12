@@ -1,4 +1,5 @@
-import type { Location, SiteCheck } from "./schemas";
+import type { CitedCount, DetailsFix, Location, Recommendation, SiteCheck } from "./schemas";
+import { type SourcedAnswer, summarizeSources } from "./sources";
 
 /**
  * Structured business details: the block an owner pastes into their page so that it states who
@@ -81,4 +82,49 @@ export function buildBusinessBlock(location: BlockLocation): BusinessBlock {
  */
 export function needsBusinessBlock(site: SiteCheck | null): boolean {
   return site?.checks.some((check) => check.id === "structured_data" && !check.passed) ?? false;
+}
+
+/** The recommendation a page with no structured business details is given. */
+export const DETAILS_RULE = "site:structured_data";
+
+/** The answers either side of the day the block was said to be on the page. */
+export interface DetailsEvidence {
+  before: readonly SourcedAnswer[];
+  since: readonly SourcedAnswer[];
+  /** How many scans have finished since. */
+  scans_since: number;
+}
+
+/** Of the answers given, how many cited the business's own website. */
+export function citedCount(answers: readonly SourcedAnswer[], website: string | null): CitedCount {
+  const own = summarizeSources(answers, website, Number.POSITIVE_INFINITY).find(
+    (source) => source.own,
+  );
+  return { answers: answers.length, cited: own?.answers ?? 0 };
+}
+
+/**
+ * Where the fix stands, or null when the on-page check has never found the details missing.
+ * The counts are set side by side and nothing more: nothing here says the block caused a change,
+ * and the published evidence that such a block changes what an assistant answers is weak.
+ */
+export function buildDetailsFix(input: {
+  recommendations: readonly Recommendation[];
+  website: string | null;
+  /** By recommendation ID, for each one a member has marked. */
+  evidence: ReadonlyMap<string, DetailsEvidence>;
+}): DetailsFix | null {
+  const fix = input.recommendations.find(
+    (recommendation) =>
+      recommendation.rule === DETAILS_RULE && recommendation.status !== "dismissed",
+  );
+  if (!fix) return null;
+  const evidence = fix.acted_at ? input.evidence.get(fix.id) : undefined;
+  return {
+    id: fix.id,
+    acted_at: fix.acted_at,
+    checked_since: (evidence?.scans_since ?? 0) > 0,
+    before: evidence ? citedCount(evidence.before, input.website) : null,
+    since: evidence ? citedCount(evidence.since, input.website) : null,
+  };
 }

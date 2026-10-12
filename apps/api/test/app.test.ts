@@ -1195,6 +1195,132 @@ describe("alerts", () => {
   });
 });
 
+describe("the fix for a page with no structured business details", () => {
+  const missing = {
+    rule: "site:structured_data",
+    title: "No structured details",
+    detail: "Detail",
+  };
+
+  /**
+   * Runs one scan of two answers, of which `cited` cited the business's own website. `found`
+   * says whether the on-page check found structured details on the page.
+   */
+  async function scanOnce(locationId: string, queryId: string, cited: number, found = false) {
+    const worker = memoryStore(db, null);
+    const scan = await worker.createScan(locationId, "scheduled", null);
+    await worker.markScanRunning(scan.id, true);
+    await worker.completeScan(scan.id, {
+      score: 0,
+      results: (["chatgpt", "claude"] as const).map((surface, index) => ({
+        tracked_query_id: queryId,
+        surface,
+        mentioned: index < cited,
+        position: null,
+        competitors: [],
+        cited_urls: [index < cited ? "https://joes.example/menu" : "https://www.yelp.com/biz/x"],
+        answer_excerpt: null,
+        phones: [],
+      })),
+      recommendations: found ? [] : [missing],
+    });
+  }
+  const fixOf = async (user: string, locationId: string) =>
+    LocationDetailSchema.parse(await (await call(user, "GET", `/locations/${locationId}`)).json())
+      .details_fix;
+  /** A location with a website, which is what its own citations are told by. */
+  async function seedWithSite() {
+    const scene = await seed();
+    for (const location of db.locations) location.website = "https://joes.example";
+    return scene;
+  }
+
+  it("is nothing until the on-page check has found the details missing", async () => {
+    const { location, query } = await seedWithSite();
+    expect(await fixOf(alice, location.id)).toBeNull();
+    await scanOnce(location.id, query.id, 0, true);
+    expect(await fixOf(alice, location.id)).toBeNull();
+  });
+
+  it("stands unmarked once they are found missing, with nothing yet to compare", async () => {
+    const { location, query } = await seedWithSite();
+    await scanOnce(location.id, query.id, 0);
+    expect(await fixOf(alice, location.id)).toEqual({
+      id: db.recommendations[0]?.id,
+      acted_at: null,
+      checked_since: false,
+      before: null,
+      since: null,
+    });
+  });
+
+  it("lets a member mark it done, and sets the answers before beside the answers since", async () => {
+    const { location, query } = await seedWithSite();
+    await scanOnce(location.id, query.id, 0);
+    await scanOnce(location.id, query.id, 1);
+    const fix = await fixOf(alice, location.id);
+    if (!fix) throw new Error("no fix");
+
+    expect((await call(bob, "PATCH", `/recommendations/${fix.id}`, { acted: true })).status).toBe(
+      404,
+    );
+    expect((await call(alice, "PATCH", `/recommendations/${fix.id}`, { acted: true })).status).toBe(
+      200,
+    );
+    // Four answers before the mark, one of which cited the website. No scan has looked since.
+    expect(await fixOf(alice, location.id)).toMatchObject({
+      id: fix.id,
+      checked_since: false,
+      before: { answers: 4, cited: 1 },
+      since: { answers: 0, cited: 0 },
+    });
+
+    // A scan since that still finds no details on the page: it has looked, and says so.
+    await scanOnce(location.id, query.id, 2);
+    expect(await fixOf(alice, location.id)).toMatchObject({
+      checked_since: true,
+      before: { answers: 4, cited: 1 },
+      since: { answers: 2, cited: 2 },
+    });
+
+    // Then one that finds them. The mark and the counts stay where they were put.
+    await scanOnce(location.id, query.id, 1, true);
+    const after = await fixOf(alice, location.id);
+    expect(after).toMatchObject({
+      id: fix.id,
+      checked_since: true,
+      before: { answers: 4, cited: 1 },
+      since: { answers: 4, cited: 3 },
+    });
+    expect(after?.acted_at).not.toBeNull();
+  });
+
+  it("lets the mark be taken back, and compares nothing without one", async () => {
+    const { location, query } = await seedWithSite();
+    await scanOnce(location.id, query.id, 1);
+    const fix = await fixOf(alice, location.id);
+    await call(alice, "PATCH", `/recommendations/${fix?.id}`, { acted: true });
+    await call(alice, "PATCH", `/recommendations/${fix?.id}`, { acted: false });
+    expect(await fixOf(alice, location.id)).toMatchObject({
+      acted_at: null,
+      checked_since: false,
+      before: null,
+      since: null,
+    });
+  });
+
+  it("is shown to the operator reading through, who cannot mark it", async () => {
+    const { location, query } = await seedWithSite();
+    await scanOnce(location.id, query.id, 0);
+    db.operators.add(bob);
+    const fix = await fixOf(bob, location.id);
+    expect(fix).toMatchObject({ acted_at: null });
+    expect((await call(bob, "PATCH", `/recommendations/${fix?.id}`, { acted: true })).status).toBe(
+      404,
+    );
+  });
+});
+
 describe("tasks", () => {
   const yelp = { rule: "source:yelp.com", title: "Check your listing", detail: "Detail" };
 

@@ -1,6 +1,11 @@
-import { type BlockLocation, SITE_CHECKS, type SiteCheck } from "@nearcited/shared";
+import {
+  type BlockLocation,
+  type DetailsFix,
+  SITE_CHECKS,
+  type SiteCheck,
+} from "@nearcited/shared";
 import { sourceLabel } from "../lib/format";
-import { BusinessBlock } from "./BusinessBlock";
+import { BusinessBlock, DetailsProof } from "./BusinessBlock";
 
 interface SiteChecklistProps {
   site: SiteCheck;
@@ -11,13 +16,23 @@ interface SiteChecklistProps {
   location?: BlockLocation;
   /** Opens the location's settings. Left out for a reader who cannot edit them. */
   onOpenSettings?: () => void;
+  /** Where the fix for missing details stands, once the check has found them missing. */
+  fix?: DetailsFix | null;
+  /** Called once the fix's mark has changed. Left out for a reader who cannot mark it. */
+  onMarked?: () => unknown;
 }
 
 /**
  * What the on-page check found on the business's own home page, one line per check. A page with
  * no structured business details is offered the block that fixes it.
  */
-export function SiteChecklist({ site, location, onOpenSettings }: SiteChecklistProps) {
+export function SiteChecklist({
+  site,
+  location,
+  onOpenSettings,
+  fix,
+  onMarked,
+}: SiteChecklistProps) {
   const host = sourceLabel(site.url);
   // No checks means the page could not be loaded in a way that proves nothing about the site.
   if (site.checks.length === 0) {
@@ -54,7 +69,16 @@ export function SiteChecklist({ site, location, onOpenSettings }: SiteChecklistP
                 </p>
               )}
               {location && !check.passed && check.id === "structured_data" && (
-                <BusinessBlock location={location} onOpenSettings={onOpenSettings} />
+                <BusinessBlock
+                  location={location}
+                  onOpenSettings={onOpenSettings}
+                  fix={fix}
+                  onMarked={onMarked}
+                />
+              )}
+              {/* Once the page has them, what the answers did before the fix and since stays. */}
+              {check.passed && check.id === "structured_data" && fix && (
+                <DetailsProof fix={fix} missing={false} />
               )}
             </div>
           </li>
