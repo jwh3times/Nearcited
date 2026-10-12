@@ -278,6 +278,22 @@ export function createSupabaseStore(db: SupabaseClient): Store {
       return z.array(ActionSchema).parse(data ?? []);
     },
 
+    async isLocationHeld(locationId) {
+      const { data, error } = await db.rpc("location_held", { location: locationId });
+      if (error) fail("Ask whether a location's organization is held", error);
+      return data === true;
+    },
+
+    async listUntoldActions() {
+      const { data, error } = await db
+        .from("actions")
+        .select("location_id, done_at")
+        .eq("status", "done")
+        .is("told_at", null);
+      if (error) fail("List untold actions", error);
+      return z.array(z.object({ location_id: z.uuid(), done_at: z.string() })).parse(data ?? []);
+    },
+
     async countWaitingActions(organizationId) {
       // By the organization named, not by what the caller can read: the operator reads them all.
       const { data, error } = await db
@@ -532,6 +548,41 @@ export function createSupabaseStore(db: SupabaseClient): Store {
         why: why ?? null,
       });
       if (error) fail("Finish an action", error);
+      return data === true;
+    },
+
+    async listActionsToTell() {
+      const { data, error } = await db
+        .from("actions")
+        .select(`${ACTION_COLUMNS}, location:locations!inner(name, organization_id)`)
+        .or("and(status.eq.done,told_at.is.null),and(status.eq.proposed,waiting_told_at.is.null)")
+        .order("proposed_at");
+      if (error) fail("List actions to tell owners of", error);
+      const where = z.object({
+        location: z.object({ name: z.string(), organization_id: z.uuid() }),
+      });
+      return (data ?? []).map((row) => {
+        const { location } = where.parse(row);
+        return {
+          action: ActionSchema.parse(row),
+          location_name: location.name,
+          organization_id: location.organization_id,
+        };
+      });
+    },
+
+    async markActionsTold(ids, which, at) {
+      if (ids.length === 0) return;
+      const { error } = await db
+        .from("actions")
+        .update(which === "done" ? { told_at: at } : { waiting_told_at: at })
+        .in("id", ids);
+      if (error) fail("Keep that owners were told of actions", error);
+    },
+
+    async isOrganizationHeld(organizationId) {
+      const { data, error } = await db.rpc("organization_held", { org: organizationId });
+      if (error) fail("Ask whether an organization is held", error);
       return data === true;
     },
 

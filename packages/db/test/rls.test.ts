@@ -4041,6 +4041,57 @@ describe("the operator", () => {
       expect(await propose("opening-line:f", "first")).toHaveLength(1);
     });
 
+    it("are held for an organization whose owners have gone 36 hours untold of one", async () => {
+      const held = (role: Role, user: string | null) =>
+        as(role, user, () =>
+          rows<{ held: boolean }>("select public.location_held($1) as held", [main]),
+        );
+      const organizationHeld = () =>
+        as("service_role", null, () =>
+          rows<{ held: boolean }>("select public.organization_held($1) as held", [theirs]),
+        );
+      const [waiting] = await propose("opening-line:g", "first");
+      await as("authenticated", alice, () => db.query(approve, [waiting?.id, null]));
+      expect(await organizationHeld()).toEqual([{ held: false }]);
+
+      // Something was done 37 hours ago and nobody has been told.
+      const [done] = await rows<{ id: string }>(
+        "select id from public.actions where subject = 'opening-line:c'",
+      );
+      await db.query(
+        "update public.actions set done_at = now() - interval '37 hours' where id = $1",
+        [done?.id],
+      );
+      expect(await organizationHeld()).toEqual([{ held: true }]);
+      expect(await held("authenticated", alice)).toEqual([{ held: true }]);
+      expect(await held("authenticated", member)).toEqual([{ held: true }]);
+      expect(await held("authenticated", operator)).toEqual([{ held: true }]);
+      // A stranger is told nothing, and the worker's own question is not theirs to ask.
+      expect(await held("authenticated", bob)).toEqual([{ held: false }]);
+      await expect(held("anon", null)).rejects.toThrow(/permission denied/);
+      for (const user of [alice, operator]) {
+        await expect(
+          as("authenticated", user, () =>
+            db.query("select public.organization_held($1)", [theirs]),
+          ),
+          user,
+        ).rejects.toThrow(/permission denied/);
+      }
+      // Nothing more is carried out meanwhile.
+      expect(await claim(waiting?.id ?? "")).toEqual([{ try: 0 }]);
+
+      // A test organization is never held: the record on its page is the notice.
+      await db.query("update public.organizations set is_test = true where id = $1", [theirs]);
+      expect(await organizationHeld()).toEqual([{ held: false }]);
+      await db.query("update public.organizations set is_test = false where id = $1", [theirs]);
+
+      // Told, it goes ahead.
+      await db.query("update public.actions set told_at = now() where id = $1", [done?.id]);
+      expect(await organizationHeld()).toEqual([{ held: false }]);
+      expect(await claim(waiting?.id ?? "")).toEqual([{ try: 1 }]);
+      await finish(waiting?.id ?? "", "done");
+    });
+
     it("go with their location", async () => {
       const [gone] = await rows<{ id: string }>(
         "insert into public.locations (organization_id, name, city) values ($1, 'Closing', 'Raleigh') returning id",

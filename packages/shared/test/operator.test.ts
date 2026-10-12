@@ -75,8 +75,40 @@ const healthy = (): Facts => ({
   activePrompts: { l1: 3 },
   scans: [scan("l1", 2)],
   audits: [],
+  untoldActions: [],
 });
 const kinds = (facts: Facts) => buildOperatorOverview(facts).attention.map((item) => item.kind);
+
+describe("an action whose owners have not been told", () => {
+  it("is listed once for its organization when it is past 36 hours, with the oldest", () => {
+    const facts = healthy();
+    facts.locations.push(location("l2", "a"));
+    facts.activePrompts.l2 = 3;
+    facts.scans.push(scan("l2", 2));
+    facts.untoldActions.push(
+      { location_id: "l1", done_at: ago(40) },
+      { location_id: "l2", done_at: ago(50) },
+      { location_id: "l1", done_at: ago(2) },
+    );
+    const items = buildOperatorOverview(facts).attention.filter(
+      (item) => item.kind === "action_untold",
+    );
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ organization_id: "a", location_id: null, at: ago(50) });
+    expect(items[0]?.detail).toContain("36 hours");
+  });
+
+  it("is not listed inside the 36 hours, or for a test organization", () => {
+    const fresh = healthy();
+    fresh.untoldActions.push({ location_id: "l1", done_at: ago(35) });
+    expect(kinds(fresh)).not.toContain("action_untold");
+
+    const test = healthy();
+    test.organizations = [org("a", { is_test: true })];
+    test.untoldActions.push({ location_id: "l1", done_at: ago(60) });
+    expect(kinds(test)).not.toContain("action_untold");
+  });
+});
 
 describe("needs attention", () => {
   it("is empty when nothing is wrong", () => {

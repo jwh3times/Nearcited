@@ -13,6 +13,7 @@ import {
   ScanMessageSchema,
 } from "@nearcited/shared";
 import { carryOutAction, proposeAfterSync, requeueStalledActions } from "./actions";
+import { sendActionNotices } from "./actions/notice";
 import { createApp } from "./app";
 import { runAuditPart } from "./audits/runner";
 import { authenticateWithSupabase } from "./auth";
@@ -86,6 +87,15 @@ export default {
     if (syncs > 0) console.log(`Queued ${syncs} syncs of connections`);
     const lapsed = await store.lapseActions();
     if (lapsed > 0) console.log(`Lapsed ${lapsed} actions that waited fourteen days`);
+    // The day's message to each organization's owners: what was done, and what is waiting.
+    const noticed = await sendActionNotices({
+      store,
+      send: env.RESEND_API_KEY
+        ? (to: string[], email: Email) => sendEmail(env, to, email)
+        : undefined,
+      appUrl: env.APP_URL,
+    });
+    if (noticed > 0) console.log(`Told the owners of ${noticed} organizations what was done`);
     const expired = await expirePausedConnections(store, env.SCAN_QUEUE);
     if (expired > 0) console.log(`Began removing ${expired} connections paused for thirty days`);
     const telling = {

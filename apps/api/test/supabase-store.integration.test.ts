@@ -495,6 +495,29 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
       decline_reason: "Not this one",
     });
     expect(await worker.lapseActions()).toBe(0);
+    // Telling the owners, and holding back while they have not been told, are the worker's.
+    await expect(aliceStore.listActionsToTell()).rejects.toMatchObject({ kind: "forbidden" });
+    const untold = (await worker.listActionsToTell()).filter(
+      (row) => row.organization_id === organization.id,
+    );
+    expect(untold.map((row) => [row.action.id, row.location_name])).toEqual([
+      [again.id, location.name],
+    ]);
+    expect(await aliceStore.listUntoldActions()).toEqual([
+      { location_id: location.id, done_at: expect.any(String) },
+    ]);
+    expect(await bobStore.listUntoldActions()).toEqual([]);
+    expect(await worker.isOrganizationHeld(organization.id)).toBe(false);
+    await expect(aliceStore.isOrganizationHeld(organization.id)).rejects.toMatchObject({
+      kind: "forbidden",
+    });
+    expect(await aliceStore.isLocationHeld(location.id)).toBe(false);
+    expect(await bobStore.isLocationHeld(location.id)).toBe(false);
+    await worker.markActionsTold([again.id], "done", new Date().toISOString());
+    expect(
+      (await worker.listActionsToTell()).filter((row) => row.organization_id === organization.id),
+    ).toEqual([]);
+    expect(await aliceStore.listUntoldActions()).toEqual([]);
     await aliceStore.requestConnectionRemoval(account.id);
     expect(await worker.finishConnectionRemoval(account.id)).toBe(true);
     expect(await aliceStore.listLocationConnections(location.id)).toEqual([]);

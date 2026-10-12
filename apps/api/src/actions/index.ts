@@ -106,7 +106,14 @@ export async function proposeAfterSync(
 /** How many times an action is tried before it is marked failed. */
 const MOST_ATTEMPTS = 3;
 
-export type CarriedOut = "done" | "failed" | "out_of_date" | "again" | "not_approved" | "busy";
+export type CarriedOut =
+  | "done"
+  | "failed"
+  | "out_of_date"
+  | "again"
+  | "not_approved"
+  | "busy"
+  | "held";
 
 /** The text an action puts there: what was approved, which is the proposal unless it was changed. */
 export const actionText = (action: Pick<Action, "approved_text" | "proposed_text">) =>
@@ -121,7 +128,8 @@ export const actionText = (action: Pick<Action, "approved_text" | "proposed_text
  * as out of date, since a yes to one change is not a yes to another.
  *
  * A try that does not work is tried again, up to three times, and then the action is failed
- * with the reason. `again` asks whoever called to have it delivered again later.
+ * with the reason. `again` asks whoever called to have it delivered again later. `held` is an
+ * action left approved because its organization's owners are still to be told of an earlier one.
  */
 export async function carryOutAction(
   actionId: string,
@@ -129,6 +137,10 @@ export async function carryOutAction(
 ): Promise<CarriedOut> {
   const action = await store.getAction(actionId);
   if (action?.status !== "approved") return "not_approved";
+  // Nothing more is carried out for an organization whose owners have gone 36 hours untold of
+  // something that was. The action stays approved, and the schedule asks again.
+  const location = await store.getLocation(action.location_id);
+  if (location && (await store.isOrganizationHeld(location.organization_id))) return "held";
   const attempt = await store.claimAction(actionId);
   if (attempt === 0) return "busy";
 

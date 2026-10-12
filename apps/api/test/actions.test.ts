@@ -5,6 +5,7 @@ import {
   ConnectionSchema,
   LocationActionsSchema,
   LocationSchema,
+  OperatorOverviewSchema,
   OrganizationSchema,
   WaitingActionsSchema,
 } from "@nearcited/shared";
@@ -15,9 +16,11 @@ import {
   requeueStalledActions,
   sampleOpeningLine,
 } from "../src/actions";
+import { sendActionNotices } from "../src/actions/notice";
 import { createApp } from "../src/app";
 import { syncConnection } from "../src/connections";
 import { sealingKey } from "../src/connections/seal";
+import type { Email } from "../src/email/report";
 import type { Env } from "../src/env";
 import { createMemoryDb, type MemoryDb, memoryStore } from "./memory-store";
 
@@ -507,5 +510,172 @@ describe("a proposal nobody answers", () => {
     });
     expect(await store.lapseActions()).toBe(0);
     expect(await proposeAfterSync(connection.id, await worker())).toBe(1);
+  });
+});
+
+describe("telling the owners", () => {
+  const HOUR = 3_600_000;
+  let sent: { to: string[]; email: Email }[];
+  const notices = (now = Date.now(), send = true) =>
+    sendActionNotices({
+      store: memoryStore(db, null),
+      send: send
+        ? async (to, email) => {
+            sent.push({ to, email });
+          }
+        : undefined,
+      appUrl: "https://app.example/",
+      now: new Date(now),
+    });
+  /** Approves the waiting action as `user` and has the worker carry it out at `at`. */
+  async function carriedOut(user: string, at = Date.now()) {
+    const id = db.actions.find((action) => action.status === "proposed")?.id ?? "";
+    await approve(user, id);
+    db.now = new Date(at).toISOString();
+    expect(await carryOutAction(id, await worker())).toBe("done");
+    return id;
+  }
+
+  beforeEach(() => {
+    sent = [];
+  });
+
+  it("puts what is newly waiting in one message to the owners, once", async () => {
+    await matched();
+    expect(await notices()).toBe(1);
+    expect(sent).toHaveLength(1);
+    // The owner, and not the member.
+    expect(sent[0]?.to).toEqual(["alice@example.com"]);
+    expect(sent[0]?.email.subject).toBe("Waiting for your yes at Raleigh Pizza Group");
+    expect(sent[0]?.email.text).toContain(
+      "- Joe's Pizza: Set the opening line of Sample listing: Riverside.",
+    );
+    expect(sent[0]?.email.text).toContain("Nothing waiting is done until someone");
+    expect(sent[0]?.email.text).toContain("https://app.example");
+    // Mentioned once: the next day's run has nothing to say.
+    expect(await notices()).toBe(0);
+    expect(sent).toHaveLength(1);
+  });
+
+  it("says what was done and who approved it, an owner's own approvals included", async () => {
+    const { connection, location } = await matched();
+    await notices();
+    sent = [];
+    await carriedOut(alice);
+    // Something else comes up to be answered on the same day.
+    const kept = db.locations.find((candidate) => candidate.id === location.id);
+    if (kept) kept.name = "Joe's Pizza and Subs";
+    await proposeAfterSync(connection.id, await worker());
+
+    expect(await notices()).toBe(1);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.email.subject).toBe("What Nearcited did for Raleigh Pizza Group");
+    expect(sent[0]?.email.text).toContain("Approved by alice@example.com, and done on");
+    expect(sent[0]?.email.text).toContain("1 thing is also waiting for a yes:");
+    expect(await notices()).toBe(0);
+  });
+
+  it("says when a member changed the text before approving", async () => {
+    await matched();
+    const id = db.actions[0]?.id ?? "";
+    await approve(bob, id, { text: "Open late on Fridays." });
+    await carryOutAction(id, await worker());
+    await notices();
+    expect(sent[0]?.email.text).toContain(
+      "Approved by bob@example.com, who changed the text first",
+    );
+  });
+
+  it("never writes to a test organization, whose record on the page is the notice", async () => {
+    db.testAccounts.add(alice);
+    await matched();
+    await carriedOut(alice);
+    expect(await notices()).toBe(0);
+    expect(sent).toEqual([]);
+    // Marked told all the same, so nothing waits on an email that will never go.
+    expect(await memoryStore(db, null).listActionsToTell()).toEqual([]);
+  });
+
+  it("leaves them untold where it cannot send, has nobody to send to, or the send fails", async () => {
+    await matched();
+    await carriedOut(alice);
+    expect(await notices(Date.now(), false)).toBe(0);
+    expect(await memoryStore(db, null).listActionsToTell()).toHaveLength(1);
+
+    db.emails.delete(alice);
+    expect(await notices()).toBe(0);
+    db.emails.set(alice, "alice@example.com");
+    expect(
+      await sendActionNotices({
+        store: memoryStore(db, null),
+        send: async () => {
+          throw new Error("The mail service is down.");
+        },
+        appUrl: "https://app.example/",
+      }),
+    ).toBe(0);
+    expect(await memoryStore(db, null).listActionsToTell()).toHaveLength(1);
+    // The next run tells them.
+    expect(await notices()).toBe(1);
+    expect(await memoryStore(db, null).listActionsToTell()).toEqual([]);
+  });
+
+  it("holds everything for an organization whose owners have gone 36 hours untold", async () => {
+    const { connection, location } = await matched();
+    // It was done 37 hours before now, as the clock on the wall has it: the operator's view
+    // reads that clock, and the store's is moved to match.
+    const start = Date.now() - 37 * HOUR;
+    await carriedOut(alice, start);
+    // Nobody could be told. A day and a half later something else is approved.
+    const kept = db.locations.find((candidate) => candidate.id === location.id);
+    if (kept) kept.name = "Joe's Pizza and Subs";
+    await proposeAfterSync(connection.id, await worker());
+    const next = db.actions.find((action) => action.status === "proposed")?.id ?? "";
+    db.now = new Date(start + 35 * HOUR).toISOString();
+    expect((await actionsOf(bob, location.id)).held).toBe(false);
+
+    db.now = new Date(start + 37 * HOUR).toISOString();
+    await approve(bob, next);
+    expect(await carryOutAction(next, await worker())).toBe("held");
+    expect(db.actions.find((action) => action.id === next)?.status).toBe("approved");
+    expect(await memoryStore(db, null).claimAction(next)).toBe(0);
+    expect((await actionsOf(bob, location.id)).held).toBe(true);
+    // A stranger is told nothing about it.
+    expect(await memoryStore(db, carol).isLocationHeld(location.id)).toBe(false);
+
+    // The operator is shown it.
+    db.operators.add(carol);
+    const overview = OperatorOverviewSchema.parse(
+      await (await call(carol, "GET", "/operator/overview")).json(),
+    );
+    expect(overview.attention.map((item) => item.kind)).toContain("action_untold");
+
+    // Once the owners have been told, it goes ahead.
+    expect(await notices(start + 37 * HOUR)).toBe(1);
+    expect((await actionsOf(bob, location.id)).held).toBe(false);
+    expect(await carryOutAction(next, await worker())).toBe("done");
+  });
+
+  it("cannot be approved where no notice could be sent, except on sample data", async () => {
+    await matched();
+    const id = db.actions[0]?.id ?? "";
+    // Real data, no outgoing email: the yes is refused before it is recorded.
+    env = { ...env, PROVIDER_MODE: "live" } as Env;
+    const refused = await approve(alice, id);
+    expect(refused.status).toBe(503);
+    expect(await errorCode(refused)).toBe("actions_unavailable");
+    expect(db.actions[0]?.status).toBe("proposed");
+    // A stranger learns nothing from the refusal.
+    expect((await approve(carol, id)).status).toBe(404);
+
+    env = { ...env, RESEND_API_KEY: "re_test" } as Env;
+    expect((await approve(alice, id)).status).toBe(200);
+  });
+
+  it("lets a test organization answer without email, since it is never written to", async () => {
+    db.testAccounts.add(alice);
+    await matched();
+    env = { ...env, PROVIDER_MODE: "live" } as Env;
+    expect((await approve(alice, db.actions[0]?.id ?? "")).status).toBe(200);
   });
 });

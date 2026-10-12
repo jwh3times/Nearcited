@@ -288,6 +288,8 @@ export const ATTENTION_KINDS = [
   "site_unloaded",
   "site_blocked",
   "audit_failed",
+  // An action carried out more than 36 hours ago whose owners have not been told.
+  "action_untold",
   "no_prompts",
   // A location with every prompt its plan allows. Having every location allowed is not listed.
 ] as const;
@@ -1130,10 +1132,21 @@ export const ActionSchema = z.object({
 });
 export type Action = z.infer<typeof ActionSchema>;
 
+/**
+ * How long an action may go without its owners being told before nothing more is carried out
+ * for the organization. The owners are told within 48 hours; this leaves twelve to do it by hand.
+ */
+export const NOTICE_HOLD_HOURS = 36;
+
 /** A location's actions: what is waiting for a yes, and the record of the rest, newest first. */
 export const LocationActionsSchema = z.object({
   waiting: z.array(ActionSchema),
   record: z.array(ActionSchema),
+  /**
+   * True while nothing more is carried out for the organization: something was done more than
+   * 36 hours ago and its owners have not been told yet.
+   */
+  held: z.boolean(),
 });
 export type LocationActions = z.infer<typeof LocationActionsSchema>;
 

@@ -27,6 +27,7 @@ const KIND_LABELS: Record<AttentionKind, string> = {
   site_unloaded: "Website not loaded",
   site_blocked: "Website shuts assistants out",
   audit_failed: "Audit failed",
+  action_untold: "Owners not told of an action",
   no_prompts: "Nothing to scan",
 };
 

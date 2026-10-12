@@ -1,4 +1,4 @@
-import type { Action, LocationActions } from "@nearcited/shared";
+import { type Action, type LocationActions, NOTICE_HOLD_HOURS } from "@nearcited/shared";
 import { useMutation } from "@tanstack/react-query";
 import { useState } from "react";
 import { actionState, actionText, writtenBy } from "../lib/actions";
@@ -20,6 +20,13 @@ interface ActionsProps {
 export function Actions({ actions, onChanged, readOnly }: ActionsProps) {
   return (
     <div className="stack">
+      {actions.held && (
+        <p className="error" role="alert">
+          Nothing more is being carried out for your organization for now. Something was done more
+          than {NOTICE_HOLD_HOURS} hours ago and its owners have not been told of it yet. What you
+          have approved is kept, and is carried out once they have been.
+        </p>
+      )}
       <section className="stack" aria-label="Waiting for your yes">
         <div className="section-head">
           <h2>Waiting for your yes</h2>

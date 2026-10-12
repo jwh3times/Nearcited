@@ -19,7 +19,13 @@ import type {
   TrackedQuery,
   UsageByMonth,
 } from "@nearcited/shared";
-import { ALLOWANCE_KINDS, allowanceErrors, allowedEachMonth, reductions } from "@nearcited/shared";
+import {
+  ALLOWANCE_KINDS,
+  allowanceErrors,
+  allowedEachMonth,
+  NOTICE_HOLD_HOURS,
+  reductions,
+} from "@nearcited/shared";
 import {
   type NewAction,
   type PriceVersion,
@@ -77,6 +83,8 @@ export interface MemoryDb {
     basis: string;
     attempts: number;
     carrying_since: string | null;
+    told_at: string | null;
+    waiting_told_at: string | null;
   })[];
   /** The sample account's made-up listings, keyed `connection:external`. */
   sampleLines: Map<string, string>;
@@ -213,8 +221,26 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
     basis: _basis,
     attempts: _attempts,
     carrying_since: _since,
+    told_at: _told,
+    waiting_told_at: _waitingTold,
     ...action
   }: MemoryDb["actions"][number]): Action => action;
+  /** Mirrors organization_held(): an action done 36 hours ago and its owners still not told. */
+  const organizationHeld = (organizationId: string) => {
+    const organization = db.organizations.find((o) => o.id === organizationId);
+    if (!organization || organization.is_test) return false;
+    const before = new Date(
+      Date.parse(db.now ?? new Date().toISOString()) - NOTICE_HOLD_HOURS * 3_600_000,
+    ).toISOString();
+    return db.actions.some(
+      (action) =>
+        action.status === "done" &&
+        action.told_at === null &&
+        action.done_at !== null &&
+        action.done_at < before &&
+        db.locations.find((l) => l.id === action.location_id)?.organization_id === organizationId,
+    );
+  };
   /** Whether one for the same thing is waiting or on its way, as the unique index has it. */
   const openFor = (locationId: string, kind: string, subject: string) =>
     db.actions.some(
@@ -256,6 +282,8 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
     retry_of: null,
     attempts: 0,
     carrying_since: null,
+    told_at: null,
+    waiting_told_at: null,
   });
   /** Mirrors the due and sync rules: working, or broken only by failing, which is still tried. */
   const syncs = (connection: Connection) =>
@@ -536,7 +564,10 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
           candidate.status === "approved" &&
           (candidate.carrying_since === null || candidate.carrying_since < stale),
       );
-      if (!action) return 0;
+      const organizationId = db.locations.find(
+        (l) => l.id === action?.location_id,
+      )?.organization_id;
+      if (!action || (organizationId && organizationHeld(organizationId))) return 0;
       action.carrying_since = now;
       action.attempts += 1;
       return action.attempts;
@@ -560,6 +591,60 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
       }
       if (outcome === "again") action.failure = why ?? null;
       return true;
+    },
+
+    async listActionsToTell() {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      return db.actions
+        .filter(
+          (action) =>
+            (action.status === "done" && action.told_at === null) ||
+            (action.status === "proposed" && action.waiting_told_at === null),
+        )
+        .sort((a, b) => a.proposed_at.localeCompare(b.proposed_at))
+        .flatMap((action) => {
+          const location = db.locations.find((l) => l.id === action.location_id);
+          return location
+            ? [
+                {
+                  action: sentAction(action),
+                  location_name: location.name,
+                  organization_id: location.organization_id,
+                },
+              ]
+            : [];
+        });
+    },
+
+    async markActionsTold(ids, which, at) {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      for (const action of db.actions) {
+        if (!ids.includes(action.id)) continue;
+        if (which === "done") action.told_at = at;
+        else action.waiting_told_at = at;
+      }
+    },
+
+    async isOrganizationHeld(organizationId) {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      return organizationHeld(organizationId);
+    },
+
+    async isLocationHeld(locationId) {
+      const location = readableLocation(locationId);
+      return location ? organizationHeld(location.organization_id) : false;
+    },
+
+    async listUntoldActions() {
+      return db.actions
+        .filter(
+          (action) =>
+            action.status === "done" &&
+            action.told_at === null &&
+            action.done_at !== null &&
+            readsLocation(action.location_id),
+        )
+        .map((action) => ({ location_id: action.location_id, done_at: action.done_at ?? "" }));
     },
 
     async lapseActions() {
