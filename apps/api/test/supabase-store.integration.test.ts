@@ -705,8 +705,10 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
     // Alerts: kept with the scan that raised them, read by the location's members, and
     // dismissed by one of them. A dismissed alert is still current, which the worker is told.
     const raised = await aliceStore.listAlerts(location.id, false);
-    const alert = raised.find((candidate) => candidate.surface === "chatgpt");
-    const dismissed = raised.find((candidate) => candidate.surface === "gemini");
+    const on = (surface: string) =>
+      raised.find((candidate) => candidate.kind === "drop" && candidate.surface === surface);
+    const alert = on("chatgpt");
+    const dismissed = on("gemini");
     if (!alert || !dismissed) throw new Error("alert missing");
     expect(raised).toHaveLength(2);
     expect(alert).toMatchObject({
@@ -845,22 +847,85 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
       recommendations: [],
       site: check,
       // The scan that finishes is also what clears an alert.
+      // and what raises the other kinds, which are about no one prompt.
       alerts: {
         clear: [alert.id, dismissed.id].map((id) => ({ id, reason: "named_again" as const })),
+        raise: [
+          {
+            kind: "competitor",
+            subject: "oak and ember",
+            facts: {
+              name: "Oak & Ember",
+              answers: 3,
+              scans: 2,
+              of_scans: 3,
+              places: [{ prompt: query.text, surfaces: ["chatgpt"] }],
+              prompts: 1,
+            },
+            since: "2026-10-05T09:00:00Z",
+          },
+          {
+            kind: "site",
+            subject: "raleighfood.example",
+            facts: {
+              host: "raleighfood.example",
+              answers: 3,
+              scans: 2,
+              of_scans: 3,
+              named: 0,
+              own: false,
+              url: "https://raleighfood.example/best-pizza",
+            },
+            since: "2026-10-05T09:00:00Z",
+          },
+        ],
+      },
+    });
+    const sightings = await aliceStore.listAlerts(location.id, false);
+    expect(sightings.map((sighting) => [sighting.kind, sighting.facts]).sort()).toEqual([
+      ["competitor", expect.objectContaining({ name: "Oak & Ember", prompts: 1 })],
+      ["site", expect.objectContaining({ host: "raleighfood.example", own: false })],
+    ]);
+    // The owners were told of one of the two drops, so they are told once that it ended.
+    const ended = await worker.listAlertsToTell(location.id, false);
+    expect(ended.raised.map((sighting) => sighting.kind).sort()).toEqual(["competitor", "site"]);
+    expect(ended.named_again).toMatchObject([{ id: alert.id, clear_reason: "named_again" }]);
+    await worker.markAlertsTold(
+      { raised: sightings.map((sighting) => sighting.id), named_again: [alert.id] },
+      new Date().toISOString(),
+    );
+    expect(await worker.listAlertsToTell(location.id, false)).toEqual({
+      raised: [],
+      named_again: [],
+    });
+    // A first sighting is news, and is cleared as old news by a later scan.
+    await worker.completeScan(scan.id, {
+      score: 80,
+      results,
+      recommendations: [],
+      site: check,
+      alerts: {
+        clear: sightings.map((sighting) => ({ id: sighting.id, reason: "old_news" as const })),
         raise: [],
       },
     });
     expect(await aliceStore.listAlerts(location.id, false)).toEqual([]);
-    // The owners were told of one of the two, so they are told once that it ended.
-    const ended = await worker.listAlertsToTell(location.id, false);
-    expect(ended).toMatchObject({
-      raised: [],
-      named_again: [{ id: alert.id, clear_reason: "named_again" }],
+    // "For the first time" is said of the whole record, which only the worker reads: what the
+    // written answers of every scan but the newest few named and cited, as it was written.
+    expect(await worker.listSeenBefore(location.id, false, 0)).toEqual({
+      competitors: ["Tony's Slice House"],
+      origins: ["https://joes.example"],
     });
-    await worker.markAlertsTold({ raised: [], named_again: [alert.id] }, new Date().toISOString());
-    expect(await worker.listAlertsToTell(location.id, false)).toEqual({
-      raised: [],
-      named_again: [],
+    expect(await worker.listSeenBefore(location.id, false, 1)).toEqual({
+      competitors: [],
+      origins: [],
+    });
+    expect(await worker.listSeenBefore(location.id, true, 0)).toEqual({
+      competitors: [],
+      origins: [],
+    });
+    await expect(aliceStore.listSeenBefore(location.id, false, 0)).rejects.toMatchObject({
+      kind: "forbidden",
     });
     expect(await aliceStore.getSiteCheck(location.id)).toEqual(check);
     expect(await worker.getSiteCheck(location.id)).toEqual(check);

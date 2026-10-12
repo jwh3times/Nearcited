@@ -4,8 +4,9 @@ status: accepted
 
 # An alert is kept, not worked out again from the window
 
-Issue #136 tells an owner when something measured gets worse. The first kind is a drop: a prompt
-on one surface that named the business and has stopped.
+Issue #136 tells an owner when something measured gets worse. There are three kinds: a drop, a
+prompt on one surface that named the business and has stopped; a business the answers name for
+the first time; and a site they cite for the first time.
 
 **An alert is a row, raised and cleared by the worker when a scan finishes.** A recommendation is
 worked out again from the scan window at every scan, and one whose rule no longer fires is
@@ -28,6 +29,24 @@ days. Two misses was the alternative, and was turned down for crying wolf.
 made after the alert was raised, is enough. It also clears when its prompt is retired or its
 surface is no longer checked. An alert that expired would say the problem had ended when it had
 not.
+
+**A first sighting is said of the whole record, not of the window.** A business is named for
+the first time, or a site read for the first time, when the written answers of the latest three
+scans name or cite it in at least three answers across at least two of those scans, and no
+written answer of any earlier scan on record did. Seven scans cannot say "first", so the worker
+reads what every earlier scan's answers named and cited, and compares names and sites itself by
+the rules it uses everywhere else. That read is the location's whole record. It is made only
+when the latest scans hold something the rest of the window does not, which is rare: the
+businesses and sites the answers name week after week are ruled out by the window in hand.
+
+**Only written answers count toward one, and a location's first seven scans raise none.** A
+results list names ten businesses every time and its tail changes daily. A location's first
+scans name everyone for the first time, so nothing is new until there is a full window to be new
+against. A competitor's own website is not said as a site: naming the competitor says it.
+
+**A first sighting is news, not a state.** Nothing ends it, so it is cleared as old news once
+seven more scans have passed, when the scan that raised it leaves the window. It is said once
+for a business or a site: from then on the record holds it.
 
 **A dismissed alert is still current.** A member may dismiss an alert, which takes it off the
 page. The rule goes on firing at the next scan, so the dismissed row stays in the way of a second
@@ -66,13 +85,22 @@ leaves it for the next. A test organization is sent nothing.
   prompt named half the time reads five of seven or better in more than one window in five, and
   two of seven or worse as often, with nothing having changed.
 
+- **Calling it new when the window has not seen it.** Rejected. A business the answers name for
+  a month every season would be new every season.
+- **Keeping a list of everything a location's answers have named, added to at each scan.**
+  Rejected. It is a second copy of the record to keep right, and filling it for the scans already
+  made would mean matching names in SQL by rules that live in the shared package.
 - **An email of its own for each alert.** Rejected. It would land beside the report every time,
   and a surface that stops naming the business would send one for every prompt.
 
 ## Consequences
 
 - A drop is not raised until its prompt has seven checks on its surface, so a new location, and
-  a new prompt, are quiet for their first seven scans.
+  a new prompt, are quiet for their first seven scans. A first sighting waits for the same seven.
+- Names are matched as they are everywhere else, loosely: a longer name that contains a known
+  one is the same business. A new branch of a known business is therefore not said.
+- Reading the record costs more as a location's history grows. It is one query over that
+  location's results, made on the few scans that need it.
 - A prompt that was named about half the time and then stops is often not raised at all: its
   four checks before the misses may not hold three that named the business. The grid still
   shows it.

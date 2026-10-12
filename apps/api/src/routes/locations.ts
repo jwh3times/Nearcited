@@ -49,7 +49,7 @@ locationRoutes.get("/locations/:id", async (c) => {
     store.getSiteCheck(location.id),
     store.listAlerts(location.id, sample),
   ]);
-  // An alert about a prompt retired since the last scan has nothing left to say. The next scan
+  // A drop on a prompt retired since the last scan has nothing left to say. The next scan
   // clears it; until then it is not shown.
   const asked = new Set(queries.filter((query) => query.is_active).map((query) => query.id));
 
@@ -121,7 +121,8 @@ locationRoutes.get("/locations/:id", async (c) => {
       evidence,
     }),
     alerts: alerts.filter(
-      (alert) => alert.dismissed_at === null && asked.has(alert.tracked_query_id),
+      (alert) =>
+        alert.dismissed_at === null && (alert.kind !== "drop" || asked.has(alert.tracked_query_id)),
     ),
   };
   return c.json(detail);

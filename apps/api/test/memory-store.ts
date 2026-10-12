@@ -24,6 +24,7 @@ import {
   ALLOWANCE_KINDS,
   allowanceErrors,
   allowedEachMonth,
+  CITING_SURFACES,
   NOTICE_HOLD_HOURS,
   reductions,
 } from "@nearcited/shared";
@@ -542,6 +543,37 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         )
         .sort((a, b) => b.raised_at.localeCompare(a.raised_at))
         .map(sentAlert);
+    },
+
+    // Mirrors seen_before(): what the written answers of every scan but the newest few named
+    // and cited, as it was written.
+    async listSeenBefore(locationId, sampleData, skip) {
+      if (userId !== null) throw new StoreError("forbidden", "permission denied for function");
+      const earlier = db.scans
+        .filter(
+          (scan) =>
+            scan.location_id === locationId &&
+            scan.status === "succeeded" &&
+            scan.sample_data === sampleData,
+        )
+        .reverse()
+        .slice(Math.max(0, skip))
+        .map((scan) => scan.id);
+      const answers = db.results.filter(
+        (result) => earlier.includes(result.scan_id) && CITING_SURFACES.includes(result.surface),
+      );
+      return {
+        competitors: [...new Set(answers.flatMap((answer) => answer.competitors))],
+        origins: [
+          ...new Set(
+            answers.flatMap((answer) =>
+              answer.cited_urls.map(
+                (url) => /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\/[^/?#]+/.exec(url)?.[0] ?? url,
+              ),
+            ),
+          ),
+        ],
+      };
     },
 
     async listAlertsToTell(locationId, sampleData) {

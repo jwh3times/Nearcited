@@ -258,7 +258,7 @@ export function LocationDetail() {
                   alerts={alerts}
                   onChanged={refresh}
                   readOnly={readOnly}
-                  onOpenPrompts={() => openTab("prompts")}
+                  onOpenTab={openTab}
                 />
                 {steps.length > 0 ? (
                   <>

@@ -35,6 +35,7 @@ import type {
   Scan,
   ScanResult,
   ScanTrigger,
+  SeenBefore,
   SiteCheck,
   StoredAudit,
   SubscriptionFact,
@@ -630,6 +631,13 @@ export interface Store {
    * Returns how many. `olderThan` is an ISO timestamp.
    */
   failStaleScans(olderThan: string, error: string): Promise<number>;
+  /**
+   * What the written answers of a location's scans named and cited before its latest ones:
+   * every business as it was written, and every page's address up to its path. `skip` is how
+   * many of the newest finished scans to leave out. It reads the whole record, so it is asked
+   * for only when a scan holds something that might be a first sighting. Worker only.
+   */
+  listSeenBefore(locationId: string, sampleData: boolean, skip: number): Promise<SeenBefore>;
   /**
    * What a location's owners have not been told of yet, for the report a scheduled scan sends:
    * alerts raised, still open and not dismissed, and drops they were told of that ended because

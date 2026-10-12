@@ -35,16 +35,18 @@ function alertLines(report: ScanReport): string[] {
       if (group.alerts.length === 1 && only) {
         lines.push(`  ${alertDetail(only, day)}`);
       } else {
+        // Only drops are shown several as one, each under the prompt it is about.
         for (const alert of group.alerts) {
-          lines.push(`  "${alert.facts.prompt}": ${alertDetail(alert, day)}`);
+          const prompt = alert.kind === "drop" ? `"${alert.facts.prompt}": ` : "";
+          lines.push(`  ${prompt}${alertDetail(alert, day)}`);
         }
       }
       lines.push("");
     }
   }
-  if (ended.length > 0) {
-    lines.push(...ended.map((alert) => alertEnded(alert, day)), "");
-  }
+  // Only a drop ends by the business being named again.
+  const again = ended.flatMap((alert) => (alert.kind === "drop" ? [alertEnded(alert, day)] : []));
+  if (again.length > 0) lines.push(...again, "");
   return lines;
 }
 

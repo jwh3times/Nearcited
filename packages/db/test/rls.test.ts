@@ -4464,7 +4464,11 @@ describe("the operator", () => {
 
     /** A scan of the location, finished by the worker with what its rules cleared and raised. */
     async function finish(
-      alerts: { clear?: { id: string; reason: string }[]; raise?: string[] } | null,
+      alerts: {
+        clear?: { id: string; reason: string }[];
+        /** A drop's subject, or a whole alert of another kind. */
+        raise?: (string | Record<string, unknown>)[];
+      } | null,
       options: { location?: string; sample?: boolean } = {},
     ) {
       const [scan] = await rows<{ id: string }>(
@@ -4474,14 +4478,18 @@ describe("the operator", () => {
       made.push(scan?.id ?? "");
       const changes = alerts && {
         clear: alerts.clear ?? [],
-        raise: (alerts.raise ?? []).map((subject) => ({
-          kind: "drop",
-          subject,
-          tracked_query_id: prompt,
-          surface: "chatgpt",
-          facts,
-          since: "2026-10-05T09:00:00Z",
-        })),
+        raise: (alerts.raise ?? []).map((raised) =>
+          typeof raised === "string"
+            ? {
+                kind: "drop",
+                subject: raised,
+                tracked_query_id: prompt,
+                surface: "chatgpt",
+                facts,
+                since: "2026-10-05T09:00:00Z",
+              }
+            : { since: "2026-10-05T09:00:00Z", ...raised },
+        ),
       };
       await as("service_role", null, () =>
         changes
@@ -4663,6 +4671,120 @@ describe("the operator", () => {
           "update public.alerts set cleared_at = now(), clear_reason = 'bored' where cleared_at is null",
         ),
       ).rejects.toThrow(/check constraint/);
+    });
+
+    it("are also of a business or a site seen for the first time, about no one prompt", async () => {
+      await finish({
+        raise: [
+          { kind: "competitor", subject: "oak and ember", facts: { name: "Oak & Ember" } },
+          { kind: "site", subject: "raleighfood.example", facts: { host: "raleighfood.example" } },
+        ],
+      });
+      const sightings = await rows<{ id: string; kind: string }>(
+        "select id, kind, tracked_query_id, surface from public.alerts where kind <> 'drop' order by kind",
+      );
+      expect(sightings).toEqual([
+        { id: expect.any(String), kind: "competitor", tracked_query_id: null, surface: null },
+        { id: expect.any(String), kind: "site", tracked_query_id: null, surface: null },
+      ]);
+      // One at a time for a business, as for anything else.
+      await finish({
+        raise: [{ kind: "competitor", subject: "oak and ember", facts: { name: "Oak and Ember" } }],
+      });
+      expect(await rows("select 1 from public.alerts where kind = 'competitor'")).toHaveLength(1);
+
+      // It is news and nothing ends it, so it is cleared as old news.
+      await finish({ clear: sightings.map(({ id }) => ({ id, reason: "old_news" })) });
+      expect(
+        await rows("select clear_reason from public.alerts where kind <> 'drop' order by kind"),
+      ).toEqual([{ clear_reason: "old_news" }, { clear_reason: "old_news" }]);
+    });
+
+    it("rest on a record only the worker reads: what earlier scans' answers named and cited", async () => {
+      const [place] = await rows<{ id: string }>(
+        "insert into public.locations (organization_id, name, city) values ($1, 'Long record', 'Raleigh') returning id",
+        [theirs],
+      );
+      const [asked] = await rows<{ id: string }>(
+        "insert into public.tracked_queries (location_id, kind, text) values ($1, 'ai_prompt', 'y') returning id",
+        [place?.id],
+      );
+      /** A scan `days` old with one result on a surface. */
+      const scanned = async (
+        days: number,
+        surface: string,
+        names: string[],
+        urls: string[],
+        options: { status?: string; sample?: boolean } = {},
+      ) => {
+        const [scan] = await rows<{ id: string }>(
+          "insert into public.scans (location_id, trigger, status, sample_data, created_at) values ($1, 'scheduled', $2, $3, now() - make_interval(days => $4)) returning id",
+          [place?.id, options.status ?? "succeeded", options.sample ?? false, days],
+        );
+        await db.query(
+          "insert into public.scan_results (scan_id, tracked_query_id, surface, mentioned, competitors, cited_urls) values ($1, $2, $3, false, $4::jsonb, $5::jsonb)",
+          [scan?.id, asked?.id, surface, JSON.stringify(names), JSON.stringify(urls)],
+        );
+      };
+      await scanned(
+        9,
+        "chatgpt",
+        ["Old Timer"],
+        ["https://www.yelp.com/biz/a", "https://www.yelp.com/biz/b?x=1"],
+      );
+      await scanned(
+        8,
+        "gemini",
+        ["Old Timer", "Second"],
+        ["http://Example.org:8080/page#part", "not an address"],
+      );
+      // A list of results is not a written answer.
+      await scanned(7, "google_local_pack", ["Listed Only"], ["https://listed.example/"]);
+      await scanned(6, "chatgpt", ["Sample Only"], ["https://sample.example/"], { sample: true });
+      await scanned(5, "chatgpt", ["Never Finished"], ["https://failed.example/"], {
+        status: "failed",
+      });
+      await scanned(2, "chatgpt", ["Recent"], ["https://recent.example/x"]);
+      await scanned(1, "chatgpt", ["Newest"], ["https://newest.example/x"]);
+
+      const seen = async (sample: boolean, skip: number) => {
+        const [found] = await as("service_role", null, () =>
+          rows<{ seen: { competitors: string[]; origins: string[] } }>(
+            "select public.seen_before($1, $2, $3, '{chatgpt,gemini}') as seen",
+            [place?.id, sample, skip],
+          ),
+        );
+        return {
+          competitors: [...(found?.seen.competitors ?? [])].sort(),
+          origins: [...(found?.seen.origins ?? [])].sort(),
+        };
+      };
+      // Leaving out the two newest finished scans: each business once, as it was written, and
+      // each page's address up to its path.
+      expect(await seen(false, 2)).toEqual({
+        competitors: ["Old Timer", "Second"],
+        origins: ["http://Example.org:8080", "https://www.yelp.com", "not an address"],
+      });
+      expect((await seen(false, 0)).competitors).toEqual([
+        "Newest",
+        "Old Timer",
+        "Recent",
+        "Second",
+      ]);
+      expect(await seen(false, 20)).toEqual({ competitors: [], origins: [] });
+      expect(await seen(true, 0)).toEqual({
+        competitors: ["Sample Only"],
+        origins: ["https://sample.example"],
+      });
+
+      for (const user of [alice, operator]) {
+        await expect(
+          as("authenticated", user, () =>
+            db.query("select public.seen_before($1, false, 0, '{chatgpt}')", [place?.id]),
+          ),
+        ).rejects.toThrow(/permission denied/);
+      }
+      await db.query("delete from public.locations where id = $1", [place?.id]);
     });
 
     it("keep whether the owners were told, which only the worker writes", async () => {

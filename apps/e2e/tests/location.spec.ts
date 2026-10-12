@@ -6,6 +6,7 @@ import {
   onPlan,
   signIn,
   withDrop,
+  withNewBusiness,
   withScannedLocation,
   withUnnamedSource,
 } from "../support/account";
@@ -156,6 +157,24 @@ test("shows a drop on the Overview and in the list, and takes it off when dismis
   await page.reload();
   await expect(panel.getByRole("heading", { name: "What to do next" })).toBeVisible();
   await expect(panel.getByRole("heading", { name: "Alerts" })).toHaveCount(0);
+});
+
+test("shows a business named for the first time, and leads to the answers that named it", async ({
+  page,
+}) => {
+  await withNewBusiness(locationPath.replace("/locations/", ""), "Corner Slice Co");
+  await signIn(page, account, locationPath);
+  const panel = page.getByRole("tabpanel");
+  const alert = panel
+    .getByRole("listitem")
+    .filter({ hasText: "Corner Slice Co is named for the first time" });
+  await expect(alert).toContainText(
+    'Named in 4 answers across 2 of the last 3 scans, and in no answer before. It was named for "Who makes the best pizza in Raleigh?" on ChatGPT and Claude.',
+  );
+
+  await alert.getByRole("button", { name: /Read the answers/ }).click();
+  await expect(page).toHaveURL(/tab=answers/);
+  await expect(panel.getByRole("heading", { name: "What the answers said" })).toBeVisible();
 });
 
 test("opens the menu on a phone, and stacks the tables @phone", async ({ page }) => {

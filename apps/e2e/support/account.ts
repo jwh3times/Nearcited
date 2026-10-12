@@ -156,6 +156,28 @@ export async function withDrop(account: Account, locationId: string): Promise<st
   return query.text;
 }
 
+/**
+ * Gives a location a business its answers named for the first time, as a scan's rule would once
+ * the location had a record to be new against. Local stack only.
+ */
+export async function withNewBusiness(locationId: string, name: string): Promise<void> {
+  await asWorker("alerts", {
+    location_id: locationId,
+    kind: "competitor",
+    subject: name.toLowerCase(),
+    facts: {
+      name,
+      answers: 4,
+      scans: 2,
+      of_scans: 3,
+      places: [{ prompt: "Who makes the best pizza in Raleigh?", surfaces: ["chatgpt", "claude"] }],
+      prompts: 1,
+    },
+    since: new Date(Date.now() - 2 * 86_400_000).toISOString(),
+    sample_data: true,
+  });
+}
+
 /** Writes a row with the secret key. Never against a deployment: its data is not a test's. */
 async function asWorker(table: string, row: unknown): Promise<void> {
   if (process.env.E2E_APP_URL) throw new Error("Tests do not write to a deployment's database.");

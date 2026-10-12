@@ -4,6 +4,7 @@ import {
   AllowanceClaimSchema,
   AllowanceUseSchema,
   AuditJobSchema,
+  CITING_SURFACES,
   ConnectionMatchSchema,
   ConnectionSchema,
   LimitChangeSchema,
@@ -351,6 +352,19 @@ export function createSupabaseStore(db: SupabaseClient): Store {
         .limit(200);
       if (error) fail("List alerts", error);
       return z.array(AlertSchema).parse(data ?? []);
+    },
+
+    async listSeenBefore(locationId, sampleData, skip) {
+      const { data, error } = await db.rpc("seen_before", {
+        location: locationId,
+        sample: sampleData,
+        skip,
+        on_surfaces: CITING_SURFACES,
+      });
+      if (error) fail("Read what was named and cited before", error);
+      return z
+        .object({ competitors: z.array(z.string()), origins: z.array(z.string()) })
+        .parse(data);
     },
 
     async listAlertsToTell(locationId, sampleData) {

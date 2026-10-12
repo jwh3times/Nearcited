@@ -1072,6 +1072,177 @@ describe("alerts", () => {
     });
   });
 
+  describe("a first sighting", () => {
+    /** Both assistants name the businesses given and cite the pages given. */
+    const answering = (names: string[], urls: string[] = []): ProviderRegistry =>
+      Object.fromEntries(
+        (["chatgpt", "gemini"] as const).map((surface) => [
+          surface,
+          {
+            surface,
+            observe: async (): Promise<Observation> => ({
+              kind: "answer",
+              text: `Try ${names.join(" or ")}.`,
+              businesses: names,
+              cited_urls: urls,
+            }),
+          },
+        ]),
+      );
+    const usual = answering(["Tony's Slice House"], ["https://www.yelp.com/biz/tonys"]);
+    const withOak = answering(
+      ["Tony's Slice House", "Oak & Ember"],
+      ["https://www.yelp.com/biz/tonys", "https://raleighfood.example/best-pizza"],
+    );
+    const kinds = () => db.alerts.map((alert) => alert.kind).sort();
+
+    it("is raised for a business and a site the answers begin to name and cite", async () => {
+      await scans(usual, 6);
+      await scans(withOak, 1);
+      // Two answers in one scan: not yet.
+      expect(db.alerts).toEqual([]);
+
+      await scans(withOak, 1);
+      expect(kinds()).toEqual(["competitor", "site"]);
+      const firstSeen = db.results.find((result) => result.scan_id === db.scans[6]?.id);
+      expect(db.alerts.find((alert) => alert.kind === "competitor")).toMatchObject({
+        subject: "oak and ember",
+        facts: {
+          name: "Oak & Ember",
+          answers: 4,
+          scans: 2,
+          of_scans: 3,
+          places: [{ prompt: "best pizza in Raleigh", surfaces: ["chatgpt", "gemini"] }],
+          prompts: 1,
+        },
+        since: firstSeen?.sampled_at,
+        scan_id: db.scans[7]?.id,
+      });
+      expect(db.alerts.find((alert) => alert.kind === "site")).toMatchObject({
+        subject: "raleighfood.example",
+        facts: {
+          host: "raleighfood.example",
+          answers: 4,
+          named: 0,
+          own: false,
+          url: "https://raleighfood.example/best-pizza",
+        },
+      });
+
+      // The answers go on naming it. It is said once.
+      await scans(withOak, 3);
+      expect(db.alerts).toHaveLength(2);
+    });
+
+    it("is not raised for what the record already holds, however long ago", async () => {
+      await scans(withOak, 1);
+      await scans(usual, 9);
+      // Named and cited again, and by now out of the window: only the record remembers.
+      await scans(withOak, 3);
+      expect(db.alerts).toEqual([]);
+    });
+
+    it("is not raised in a location's first scans, which name everyone for the first time", async () => {
+      await scans(withOak, 9);
+      expect(db.alerts).toEqual([]);
+    });
+
+    it("reads the record only when a scan holds something that might be new", async () => {
+      const read = vi.fn(worker.listSeenBefore);
+      const store = { ...worker, listSeenBefore: read };
+      const run = async (registry: ProviderRegistry, count: number) => {
+        for (let i = 0; i < count; i++) {
+          await runScan((await queueScan()).id, { store, providers: registry });
+        }
+      };
+      await run(usual, 8);
+      expect(read).not.toHaveBeenCalled();
+
+      await run(withOak, 2);
+      // The second scan with a newcomer is the first where it was named often enough.
+      expect(read).toHaveBeenCalledTimes(1);
+      expect(read).toHaveBeenCalledWith(locationId, false, 2);
+    });
+
+    it("is cleared as old news once seven more scans have passed, and never said again", async () => {
+      await scans(usual, 6);
+      await scans(withOak, 2);
+      await scans(withOak, 6);
+      expect(db.alerts.map((alert) => alert.cleared_at)).toEqual([null, null]);
+
+      await scans(usual, 1);
+      expect(db.alerts.map((alert) => alert.clear_reason)).toEqual(["old_news", "old_news"]);
+      await scans(withOak, 4);
+      expect(db.alerts).toHaveLength(2);
+    });
+
+    it("stays where a member dismissed it until it is old news", async () => {
+      await scans(usual, 6);
+      await scans(withOak, 2);
+      for (const alert of db.alerts) await memoryStore(db, owner).dismissAlert(alert.id);
+
+      await scans(withOak, 2);
+      expect(db.alerts).toHaveLength(2);
+      expect(db.alerts.every((alert) => alert.dismissed_at && !alert.cleared_at)).toBe(true);
+    });
+
+    it("says the business's own website apart, as the good news it is", async () => {
+      const cited = answering(["Tony's Slice House"], ["https://joes.example/menu"]);
+      await scans(usual, 6);
+      await scans(cited, 2);
+      expect(db.alerts).toHaveLength(1);
+      expect(db.alerts[0]).toMatchObject({
+        kind: "site",
+        facts: { host: "joes.example", own: true, answers: 4, named: 4 },
+      });
+    });
+
+    it("leads the report, in its subject and in its first lines", async () => {
+      await scans(usual, 6);
+      await scans(withOak, 1);
+      const queued = await queueScan("scheduled");
+      let report: ScanReport | undefined;
+      await runScan(queued.id, {
+        store: worker,
+        providers: withOak,
+        notify: async (given) => {
+          report = given;
+          return true;
+        },
+      });
+      if (!report) throw new Error("no report");
+      const email = buildScanReportEmail(report, "https://app.example");
+
+      expect(email.subject).toBe("Joe's Pizza: 2 new alerts");
+      expect(email.text).toContain("Oak & Ember is named for the first time\n  Since October");
+      expect(email.text).toContain(
+        'and in no answer before. It was named for "best pizza in Raleigh" on ChatGPT and Gemini.',
+      );
+      expect(email.text).toContain("raleighfood.example is read for the first time\n  Since");
+      expect(email.text).toContain("None of those answers named the business.");
+      expect(db.alerts.every((alert) => alert.told_at !== null)).toBe(true);
+    });
+
+    it("is said in the subject by name when it is the only news", async () => {
+      await scans(usual, 6);
+      await scans(answering(["Tony's Slice House", "Oak & Ember"], ["https://www.yelp.com/x"]), 1);
+      const queued = await queueScan("scheduled");
+      let report: ScanReport | undefined;
+      await runScan(queued.id, {
+        store: worker,
+        providers: answering(["Tony's Slice House", "Oak & Ember"], ["https://www.yelp.com/x"]),
+        notify: async (given) => {
+          report = given;
+          return true;
+        },
+      });
+      if (!report) throw new Error("no report");
+      expect(buildScanReportEmail(report, "https://app.example").subject).toBe(
+        "Joe's Pizza: Oak & Ember is named for the first time",
+      );
+    });
+  });
+
   it("changes no alert when the scan fails", async () => {
     await scans(providers, 4);
     await scans(silent, 2);
