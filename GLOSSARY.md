@@ -48,6 +48,8 @@ system works; this file only settles vocabulary.
 - **Action**: one thing the product does outside itself for a business: a fact corrected, a
   review answered, a post or a page published, a review request sent. Not a step of the action
   plan, which only states an observation.
+- **Proposal**: an action waiting for a member's answer. The worker makes it from what it read, and
+  it lapses if nobody answers in fourteen days.
 - **Approval**: a member's yes to one action, before it is carried out.
 - **Standing permission**: an owner's or admin's yes in advance to every action of one kind, so
   the product acts first and tells the owners afterwards. It can be taken back.

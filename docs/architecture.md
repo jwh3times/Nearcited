@@ -10,11 +10,13 @@
 - **`scheduled`**: two Cron Triggers. Every 15 minutes it fails scans that have been queued or
   running for more than 30 minutes, so an abandoned scan cannot block its location for long. It
   also fails audits still `queued` after 30 minutes (see "Shareable audits"), and queues again
-  the removal of any connection asked for more than 15 minutes ago and not finished, and the first
-  sync of any connection made in the last day that still has none (see "Connections").
+  the removal of any connection asked for more than 15 minutes ago and not finished, the first
+  sync of any connection made in the last day that still has none (see "Connections"), and any
+  approved action nobody is carrying out (`requeueStalledActions`; see "Actions").
   Once a day it also asks Postgres which locations are due (`locations_due_for_scan`), creates a
   `scheduled` scan row for each, and puts the scan IDs on the queue. It also queues a sync for each
-  connection that is due (`enqueueDueSyncs`). It also starts the removal of each connection that
+  connection that is due (`enqueueDueSyncs`). It also lapses the proposals that waited fourteen
+  days (`lapse_actions()`; see "Actions"). It also starts the removal of each connection that
   has been paused for thirty days (`expirePausedConnections`) and reminds, once, the owners and
   admins of each they were told a week ago had broken and that still is
   (`remindBrokenConnections`), and tells those of any broken one nobody could be told of at the
@@ -28,7 +30,9 @@
   `{ price_change_id, organization_id, step }` is one step of a price change for one organization
   (see "Price changes"). A message shaped `{ limit_change_id, organization_id, step }` is one step of
   a reduction for one organization (see "Reductions in limits"). A message shaped
-  `{ connection_id, step }` is one step for a connection, `remove` or `sync` (see "Connections").
+  `{ connection_id, step }` is one step for a connection, `remove` or `sync` (see "Connections");
+  after a sync that read the account it also proposes actions. A message shaped
+  `{ action_id, step }` carries out one approved action (see "Actions").
 
 ## How a scan runs
 
@@ -342,8 +346,8 @@ from counts the product holds; nothing a model wrote is in one.
 - A dismissed recommendation has no task. Ticks on action-plan steps are still kept in the browser
   only. The operator's read-only view hides the buttons.
 - Not built: anything a model drafts, a direct review link, a printable code or request text, page
-  copy as a task, and anything the product does outside itself: approvals and actions. A connection
-  can be made (see "Connections") and nothing acts through it.
+  copy as a task, and anything the product does outside itself for real. Approvals and actions
+  exist (see "Actions") but the only kind is a sample one, and no action marks a task done.
 
 ## Shareable audits
 
@@ -409,9 +413,10 @@ A connection is an organization's standing sign-in to an outside account (`conne
 is in `GLOSSARY.md`, the decision in `docs/adr/0013-a-sign-in-is-sealed-by-the-worker.md`). What
 exists is making one, listing them, reading what one reaches, saying which of those is each
 location's, breaking one that stops working, pausing one the plan stops including, and removing
-one. The only kind is `sample`. Nothing yet reads anything else from an account or acts through
-one. The `sample` kind never fails and needs no allowance, so until a real kind exists nothing
-breaks or pauses in practice, though the rules for both are built and tested.
+one. The only kind is `sample`. Nothing yet reads anything else from an account, and the only
+thing done through one is the `sample` kind's action (see "Actions"). The `sample` kind never fails
+and needs no allowance, so until a real kind exists nothing breaks or pauses in practice, though
+the rules for both are built and tested.
 
 - **Only an owner or admin connects or removes.** `create_connection()` and
   `request_connection_removal()` are security-definer functions that return no row to anyone else,
@@ -510,7 +515,9 @@ breaks or pauses in practice, though the rules for both are built and tested.
   of the same kind (two would leave no saying which acts), and a connection that is not `working`
   (a broken one, a paused one and one being removed each say why).
   Matching again replaces the earlier match. A match keeps its choice through later syncs and takes
-  the name the choice has then.
+  the name the choice has then. A match also queues a sync, so the worker can propose actions for
+  the location without waiting for the daily run; if the send fails, the request still succeeds and
+  logs it.
 - **Matches are read with the location.** `connection_locations` has a `select` policy for whoever
   can read the location (`can_access_location`) and one for the operator, and no API role writes
   it. `GET /api/organizations/:organizationId/connections` carries each connection's `choices` and
@@ -536,14 +543,89 @@ account says why, a paused one says until when its sign-in is kept, and a remove
 somebody removed it or its plan had not included it for thirty days. While a removal is waiting, or
 a new account has not been read yet, the page asks again every couple of seconds.
 
+## Actions
+
+An action is one thing the product does outside itself for a location, once a member says yes
+(`actions`; the terms are in `GLOSSARY.md`, the decision in
+`docs/adr/0014-only-the-worker-carries-out-an-action.md`). It is `proposed`, then `approved` and
+`done` or `failed`; a proposed one can instead be `declined` or `lapsed`. The only kind is
+`sample`: it sets the opening line of one of the sample account's listings, rows in
+`sample_listings` that stand in for an outside service, so nothing leaves the product. There is no
+real kind. What ADR 0014 decides and is not built is under "Known gaps".
+
+- **Only the worker proposes.** After a sync that read a connection (`syncConnection` answers
+  `synced`), the queue consumer calls `proposeAfterSync`. For each location matched to a working
+  `sample` connection it composes an opening line by rule from the location's name and city
+  (`sampleOpeningLine`) and, when the listing does not already say that, calls `propose_action()`,
+  which only the worker may call. The proposal keeps what the listing said (`seen`), the text, and
+  that a rule wrote it. Matching a location queues a sync (see "Connections"), so a proposal
+  appears without waiting for the daily run. No request proposes.
+- **One open action for a thing, and a no is remembered.** `subject` (what it is about) and `basis`
+  (what the proposal rests on; here, the proposed text) are the worker's bookkeeping, and no route
+  sends them. A partial unique index allows one `proposed` or `approved` action for a location, kind
+  and subject. `propose_action()` makes none, and returns no row, while one is open, or while a
+  declined one rests on the same `basis`. A lapsed one does not stop a new proposal.
+- **A request records the answer.** `approve_action()`, `decline_action()` and `retry_action()` are
+  security-definer functions that return a row only to a member of the location's organization
+  (`can_access_location`), so their routes answer 404 to anyone else, the operator included. An
+  action that is no longer waiting raises `NC013`, a `limit`, so 409 `limit_reached` with the
+  reason. A member may change the text while approving: `approved_text` then keeps it beside
+  `proposed_text`, and stays null when the text sent is what was proposed. Who answered is kept as
+  the address they had then. Approving and asking again queue `{ action_id, step: "carry_out" }`; if
+  the send fails, the request still succeeds and logs it.
+- **Asking again is a new action.** `retry_action()` takes a `failed` action and makes another,
+  already `approved` by whoever asked, with `retry_of` pointing at the one that failed, so the
+  record keeps who approved each try. It refuses an action that did not fail, and one that has
+  another waiting or on its way (`NC013`).
+- **It is carried out once, and only by the worker.** `carryOutAction` first calls
+  `claim_action()`, which counts the try. It answers zero, and the worker goes no further, unless
+  the action is approved and no worker has had it in the last ten minutes. The worker then finds
+  the connection, the location's match and the opened sign-in; if the connection is not working,
+  the match is gone or the sign-in will not open, the action fails with that reason. Then it reads
+  what is there. If that is already the text to put there (what was approved, which is the proposal
+  unless a member changed it), the action is `done` and nothing is written: that is what makes a
+  message delivered twice harmless. If it is not what the member was shown, nothing is written and
+  the action lapses with `lapse_reason` `out_of_date`, since a yes to one change is not a yes to
+  another; the queue consumer then queues a sync of the connection, which proposes a fresh action
+  against what is there now. Otherwise it writes the text and records `done`.
+  `finish_action()` records each end, and only the worker may call it.
+- **A try that does not work is made again, three times in all.** A try that throws is let go with
+  `finish_action()` saying `again`, keeping why, and the queue consumer asks for the message to be
+  delivered again in ten minutes. The third try that throws fails the action with the reason, and
+  so does any try the account refuses (`SignInRefused`), since it would be refused again. Nothing
+  retries a failed action by itself; a member asks again.
+- **A lost message is asked for again.** Every run of the schedule calls `requeueStalledActions`:
+  each action approved more than 15 minutes ago that no worker has (`carrying_since` is null), or
+  that a worker took more than 15 minutes ago, goes on the queue again, at most 100 a run. That
+  covers a message that was lost, an action the worker let go of to be tried again, and one whose
+  worker died: a worker's hold lasts ten minutes, so the next can take it.
+- **A proposal nobody answers lapses.** `lapses_at` is fourteen days after it was proposed. The
+  daily run calls `lapse_actions()`, which only the worker may call, and `approve_action()` refuses
+  one past its day before then. The record says whether it lapsed because nobody answered or
+  because it was out of date.
+- **Who reads and writes.** `actions` has a `select` policy for whoever can read the location and
+  one for the operator, and no write grant for any API role: every change goes through the
+  functions above. `sample_listings` has row-level security on, no policy and no grant for any API
+  role, the operator included; only the Worker's secret key reaches it (`getSampleLine`,
+  `setSampleLine`).
+
+The Actions tab of the location page (`?tab=actions`) is there once the location has an action,
+and carries the count of those waiting. It lists what is waiting, each with what is there now, the
+text it would put there and who wrote it (editable; the button then reads "Approve as changed"),
+"Approve" and "Decline" with a reason of up to 200 characters, and below it the record, newest first
+(at most 100 actions in all), with "Try again" on a failed one. While an action is approved the
+page asks again every couple of seconds. The sidebar says how many are waiting at each location
+(`GET /api/organizations/:organizationId/actions/waiting`, asked every 30 seconds). The operator
+reading through an account sees the tab and has no buttons.
+
 ## Tenancy
 
 Every row belongs to an organization, and a user reaches a row only through a membership. The
 exceptions are `audits`, described above, and `provider_usage`, which keeps its rows after the
 organization, scan or audit they describe is deleted. No API role can write either table, and
-the only account that can read them is the operator's; the Worker's secret key writes them. Two
-more, `connection_secrets` and `connection_kind_allowances`, no API role can read or write at all
-(see "Connections").
+the only account that can read them is the operator's; the Worker's secret key writes them. Three
+more, `connection_secrets`, `connection_kind_allowances` and `sample_listings`, no API role can read
+or write at all (see "Connections" and "Actions").
 
 The API does not check ownership in application code. For each request it builds a Supabase
 client that carries the caller's own access token (`createUserClient`), so Postgres evaluates the
@@ -685,7 +767,7 @@ Organizations are created only through `create_organization()`, which makes the 
 
 **The operator reads every row, through policies.** `is_operator()` is true for an account with the
 `operator` platform role, and each table, including `audits` and `provider_usage`, has a `select`
-policy that answers it, except `connection_secrets` and `connection_kind_allowances`, which no policy opens to anyone. Only `select` policies exist, so the operator cannot change another
+policy that answers it, except `connection_secrets`, `connection_kind_allowances` and `sample_listings`, which no policy opens to anyone. Only `select` policies exist, so the operator cannot change another
 organization's rows by writing to them: the routes answer 404 for an update or delete and 403 for an insert. The one change the operator can make goes through
 `operator_set_limits()`, below. Because
 "every organization I can read" now means all of them for the operator, `listOrganizations` asks
@@ -839,8 +921,15 @@ drop it.
   "Connections").
 - A match whose choice a later sync no longer finds is kept as it was: the account may have lost
   the thing, or its access to it. The Connections page names it "no longer found" so its owner can
-  choose again. Nothing acts through a match yet; what does will have to check that the choice is
-  still there.
+  choose again. Only the sample kind of action acts through a match, and it does not check that
+  the choice is still there; a real kind will have to.
+- ADR 0014 decides more than is built. Not built: the daily notice to the owners of what was
+  carried out and what is newly waiting, the hold on an organization whose notice is more than 36
+  hours late and the operator's attention item for it, the refusal to approve a real action where
+  email is not set up, dropping what an action replaced once a platform's limit on holding it is
+  reached, an action marking a task done, and an action taking from the month's allowance and
+  giving it back. Nothing emails anyone about an action; the Actions tab is the only record.
+  There is no real kind of action yet (see "Actions").
 
 ## Open product questions
 

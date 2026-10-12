@@ -47,6 +47,13 @@ Nearcited is multi-tenant, and tenant isolation is enforced by Postgres row-leve
   `finish_connection_removal()`, which deletes a sign-in, `expire_paused_connections()`, which
   starts removing them, or `record_connection_sync()`, `record_connection_failure()` or
   `connections_due_for_sync()`, as anyone but the worker.
+- Answering an action as anyone but a member of its location's organization: calling
+  `approve_action()`, `decline_action()` or `retry_action()` for a location the caller is not a
+  member of, the operator included, or writing `actions` directly.
+- Proposing or carrying out an action as anyone but the worker: calling `propose_action()`,
+  `claim_action()`, `finish_action()` or `lapse_actions()`, or getting a request to propose one,
+  carry one out or write through a connection. Also reading or writing `sample_listings`, which no
+  API role reaches.
 - Getting `choose_assistants()` or `activate_location()` to act on an organization the caller
   does not belong to.
 - Getting a second organization on one account, or deleting or moving an organization.

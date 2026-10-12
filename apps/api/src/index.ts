@@ -1,4 +1,6 @@
 import {
+  type ActionMessage,
+  ActionMessageSchema,
   type AuditMessage,
   AuditMessageSchema,
   type ConnectionMessage,
@@ -10,6 +12,7 @@ import {
   type ScanMessage,
   ScanMessageSchema,
 } from "@nearcited/shared";
+import { carryOutAction, proposeAfterSync, requeueStalledActions } from "./actions";
 import { createApp } from "./app";
 import { runAuditPart } from "./audits/runner";
 import { authenticateWithSupabase } from "./auth";
@@ -58,9 +61,10 @@ export default {
 
   /**
    * Cron. Every run clears abandoned scans and unfinished audits, and asks again for any
-   * connection's removal or first sync that has not been finished; the daily run also queues a
-   * scan for every location that is due and a sync for every connection that is. The two
-   * schedules are in wrangler.jsonc.
+   * connection's removal or first sync that has not been finished and any approved action nobody
+   * is carrying out; the daily run also queues a scan for every location that is due and a sync
+   * for every connection that is, and lapses the proposals nobody answered. The two schedules are
+   * in wrangler.jsonc.
    */
   async scheduled(controller, env) {
     const store = createSupabaseStore(createAdminClient(env));
@@ -72,12 +76,16 @@ export default {
     if (stalled > 0) console.log(`Queued ${stalled} stalled removals of connections again`);
     const firstSyncs = await requeueFirstSyncs(store, env.SCAN_QUEUE);
     if (firstSyncs > 0) console.log(`Queued ${firstSyncs} first syncs of connections again`);
+    const stalledActions = await requeueStalledActions(store, env.SCAN_QUEUE);
+    if (stalledActions > 0) console.log(`Queued ${stalledActions} approved actions again`);
     if (controller.cron === SWEEP_ONLY_CRON) return;
 
     const queued = await enqueueDueScans(store, env.SCAN_QUEUE);
     console.log(`Queued ${queued} scheduled scans`);
     const syncs = await enqueueDueSyncs(store, env.SCAN_QUEUE);
     if (syncs > 0) console.log(`Queued ${syncs} syncs of connections`);
+    const lapsed = await store.lapseActions();
+    if (lapsed > 0) console.log(`Lapsed ${lapsed} actions that waited fourteen days`);
     const expired = await expirePausedConnections(store, env.SCAN_QUEUE);
     if (expired > 0) console.log(`Began removing ${expired} connections paused for thirty days`);
     const telling = {
@@ -199,7 +207,39 @@ export default {
               ? await removeConnection(connection_id, deps)
               : await syncConnection(connection_id, deps);
           console.log(`${what}: ${outcome}`);
+          // What a sync read may show something to do. Proposing is the worker's alone.
+          if (outcome === "synced") {
+            const proposed = await proposeAfterSync(connection_id, deps);
+            if (proposed > 0) console.log(`${what}: proposed ${proposed} actions`);
+          }
           message.ack();
+        } catch (error) {
+          console.error(`${what} failed, will retry`, error);
+          message.retry();
+        }
+        continue;
+      }
+
+      const action = ActionMessageSchema.safeParse(message.body);
+      if (action.success) {
+        const what = `Action ${action.data.action_id}`;
+        try {
+          const outcome = await carryOutAction(action.data.action_id, {
+            store,
+            key: await sealingKey(env.CONNECTIONS_KEY),
+          });
+          console.log(`${what}: ${outcome}`);
+          // The thing had changed since the member was shown it. Reading the account again now
+          // proposes a fresh action against what is there, without waiting for the daily run.
+          if (outcome === "out_of_date") {
+            const kept = await store.getAction(action.data.action_id);
+            if (kept?.connection_id) {
+              await env.SCAN_QUEUE.send({ connection_id: kept.connection_id, step: "sync" });
+            }
+          }
+          // A try that did not work is made again in ten minutes, three times in all.
+          if (outcome === "again") message.retry({ delaySeconds: 600 });
+          else message.ack();
         } catch (error) {
           console.error(`${what} failed, will retry`, error);
           message.retry();
@@ -241,5 +281,10 @@ export default {
   },
 } satisfies ExportedHandler<
   Env,
-  ScanMessage | AuditMessage | PriceChangeMessage | LimitChangeMessage | ConnectionMessage
+  | ScanMessage
+  | AuditMessage
+  | PriceChangeMessage
+  | LimitChangeMessage
+  | ConnectionMessage
+  | ActionMessage
 >;

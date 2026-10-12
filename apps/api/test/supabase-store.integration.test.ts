@@ -427,6 +427,74 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
     expect(await bobStore.unmatchConnectionLocation(account.id, location.id)).toBe(false);
     expect(await aliceStore.unmatchConnectionLocation(account.id, location.id)).toBe(true);
     await aliceStore.matchConnectionLocation(account.id, location.id, "listing-a");
+
+    // Actions: proposed and carried out by the worker, answered by a member of the organization.
+    const proposal = {
+      location_id: location.id,
+      kind: "sample" as const,
+      connection_id: account.id,
+      subject: "opening-line:listing-a",
+      basis: "first",
+      summary: "Set the opening line",
+      seen: { text: null },
+      proposed_text: "New line",
+      written_by: "rule" as const,
+    };
+    await expect(aliceStore.proposeAction(proposal)).rejects.toMatchObject({ kind: "forbidden" });
+    const proposed = await worker.proposeAction(proposal);
+    if (!proposed) throw new Error("nothing was proposed");
+    expect(proposed).toMatchObject({ status: "proposed", proposed_text: "New line" });
+    // One open proposal for a thing.
+    expect(await worker.proposeAction(proposal)).toBeNull();
+    expect(await aliceStore.listLocationActions(location.id)).toEqual([proposed]);
+    expect(await bobStore.listLocationActions(location.id)).toEqual([]);
+    expect(await aliceStore.countWaitingActions(organization.id)).toEqual({ [location.id]: 1 });
+    expect(await bobStore.countWaitingActions(organization.id)).toEqual({});
+    expect(await aliceStore.getAction(proposed.id)).toEqual(proposed);
+    expect(await bobStore.getAction(proposed.id)).toBeNull();
+    // Nothing is carried out that nobody approved, and a stranger approves nothing.
+    expect(await worker.claimAction(proposed.id)).toBe(0);
+    expect(await bobStore.approveAction(proposed.id)).toBeNull();
+    expect(await aliceStore.approveAction(proposed.id, "Changed line")).toMatchObject({
+      status: "approved",
+      approved_text: "Changed line",
+    });
+    await expect(aliceStore.declineAction(proposed.id)).rejects.toMatchObject({ kind: "limit" });
+    await expect(aliceStore.claimAction(proposed.id)).rejects.toMatchObject({
+      kind: "forbidden",
+    });
+    const inAMinute = new Date(Date.now() + 60_000).toISOString();
+    expect(await worker.listStalledActions(inAMinute)).toContain(proposed.id);
+    expect(await worker.claimAction(proposed.id)).toBe(1);
+    // Taken a moment ago, it is not stalled yet. Left for longer than a hold lasts, it is.
+    const aMinuteAgo = new Date(Date.now() - 60_000).toISOString();
+    expect(await worker.listStalledActions(aMinuteAgo)).not.toContain(proposed.id);
+    expect(await worker.listStalledActions(inAMinute)).toContain(proposed.id);
+    // The sample account's listings are the worker's alone.
+    expect(await worker.getSampleLine(account.id, "listing-a")).toBeNull();
+    await worker.setSampleLine(account.id, "listing-a", "Changed line");
+    expect(await worker.getSampleLine(account.id, "listing-a")).toBe("Changed line");
+    await expect(aliceStore.getSampleLine(account.id, "listing-a")).rejects.toMatchObject({
+      kind: "forbidden",
+    });
+    expect(await worker.finishAction(proposed.id, "failed", "It could not be done.")).toBe(true);
+    expect(await aliceStore.getAction(proposed.id)).toMatchObject({
+      status: "failed",
+      failure: "It could not be done.",
+    });
+    // Asked for again, it is a new action that points at the one that failed.
+    expect(await bobStore.retryAction(proposed.id)).toBeNull();
+    const again = await aliceStore.retryAction(proposed.id);
+    if (!again) throw new Error("nothing was asked for again");
+    expect(again).toMatchObject({ status: "approved", retry_of: proposed.id });
+    expect(await worker.claimAction(again.id)).toBe(1);
+    expect(await worker.finishAction(again.id, "done")).toBe(true);
+    const other = await worker.proposeAction({ ...proposal, subject: "opening-line:other" });
+    expect(await aliceStore.declineAction(other?.id ?? "", "Not this one")).toMatchObject({
+      status: "declined",
+      decline_reason: "Not this one",
+    });
+    expect(await worker.lapseActions()).toBe(0);
     await aliceStore.requestConnectionRemoval(account.id);
     expect(await worker.finishConnectionRemoval(account.id)).toBe(true);
     expect(await aliceStore.listLocationConnections(location.id)).toEqual([]);

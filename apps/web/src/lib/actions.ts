@@ -1,0 +1,57 @@
+import type { Action, LocationActions } from "@nearcited/shared";
+import { api } from "./api";
+
+/** How often the page asks again while the worker is carrying something out. */
+const WAITING_MS = 2000;
+
+/**
+ * A location's actions. While one is approved and not yet carried out it is asked for again
+ * every couple of seconds, since the worker does that on its own time.
+ */
+export const actionsQuery = (locationId: string) => ({
+  queryKey: ["actions", locationId],
+  queryFn: () => api.locationActions(locationId),
+  refetchInterval: (query: { state: { data?: LocationActions } }) =>
+    query.state.data?.record.some((action) => action.status === "approved") ? WAITING_MS : false,
+});
+
+/** Whether a location has anything to show on its Actions tab: waiting, or done before. */
+export const hasActions = (found: LocationActions | undefined): boolean =>
+  found !== undefined && found.waiting.length + found.record.length > 0;
+
+/** The text an action puts there: what was approved, which is the proposal unless it was changed. */
+export const actionText = (action: Action): string | null =>
+  action.approved_text ?? action.proposed_text;
+
+/** Who wrote what an action would say, as the page says it. */
+export const writtenBy = (action: Action): string =>
+  action.written_by === "model"
+    ? "Written by a model"
+    : "Composed by rule from this location's details";
+
+/**
+ * Where an action stands, in a sentence for the record: what became of it, who answered, and
+ * when. `day` writes a date the way the page does.
+ */
+export function actionState(action: Action, day: (iso: string) => string): string {
+  const approver = action.approved_by_email ?? "someone who has left";
+  const approved = `Approved by ${approver}${action.approved_text ? ", who changed the text" : ""}.`;
+  switch (action.status) {
+    case "proposed":
+      return `Waiting for a yes until ${day(action.lapses_at)}.`;
+    case "approved":
+      return `${approved} Being carried out.`;
+    case "done":
+      return `Done${action.done_at ? ` on ${day(action.done_at)}` : ""}. ${approved}`;
+    case "failed":
+      return `Failed${action.failed_at ? ` on ${day(action.failed_at)}` : ""}: ${action.failure ?? "it could not be done"} ${approved}`;
+    case "declined":
+      return `Declined by ${action.declined_by_email ?? "someone who has left"}${
+        action.declined_at ? ` on ${day(action.declined_at)}` : ""
+      }${action.decline_reason ? `: ${action.decline_reason}` : "."}`;
+    case "lapsed":
+      return action.lapse_reason === "out_of_date"
+        ? `Not done: what it would have replaced had changed since it was proposed. ${approved}`
+        : `Lapsed${action.lapsed_at ? ` on ${day(action.lapsed_at)}` : ""}: nobody answered in fourteen days.`;
+  }
+}
