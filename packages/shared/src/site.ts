@@ -1,4 +1,4 @@
-import { containsTokenRun, normalizeName } from "./analysis";
+import { containsTokenRun, namesMatch, normalizeName } from "./analysis";
 import type { SiteCheck, SiteCheckId } from "./schemas";
 
 /**
@@ -98,7 +98,7 @@ export const SITE_CHECKS: Record<SiteCheckId, CheckText> = {
   structured_data: {
     label: "The page describes the business in structured data",
     title: "Your home page has no structured business details",
-    fix: "The page has no schema.org block giving the business's name and address. Adding one (LocalBusiness, or the closest type) states the details in a form machines read without guessing.",
+    fix: "The page has no schema.org block that names the business as it is on file and gives an address. One that does states the details in a form machines read without guessing.",
   },
 };
 
@@ -207,13 +207,20 @@ function hasNoindexMeta(metas: readonly string[]): boolean {
   });
 }
 
-/** Whether any JSON-LD block on the page gives something a name and an address. */
-function hasBusinessData(blocks: readonly string[]): boolean {
+/**
+ * Whether any JSON-LD block on the page names this business and gives it an address. The name
+ * is matched the way answers are matched, so a block for somebody else on the page, such as the
+ * agency that built the site, does not count. What the block says beyond that is not compared
+ * with what is on file.
+ */
+function hasBusinessData(blocks: readonly string[], name: string): boolean {
   const describesBusiness = (node: unknown, depth = 0): boolean => {
     if (depth > 6 || node === null || typeof node !== "object") return false;
     if (Array.isArray(node)) return node.some((item) => describesBusiness(item, depth + 1));
     const record = node as Record<string, unknown>;
-    if (typeof record.name === "string" && record.name.trim() && record.address) return true;
+    if (typeof record.name === "string" && namesMatch(record.name, name) && record.address) {
+      return true;
+    }
     return Object.values(record).some((value) => describesBusiness(value, depth + 1));
   };
   return blocks.some((body) => {
@@ -305,7 +312,7 @@ export function analyzeSite(snapshot: SiteSnapshot, business: SiteBusiness): Sit
     { id: "names_business", passed: says(business.name) },
     // Without a city on file there is nothing to look for, so the check is left out.
     ...(business.city ? [{ id: "names_city" as const, passed: says(business.city) }] : []),
-    { id: "structured_data", passed: hasBusinessData(page.jsonLd) },
+    { id: "structured_data", passed: hasBusinessData(page.jsonLd, business.name) },
   ];
   return { ...base, blocked_crawlers: blocked, words, checks };
 }

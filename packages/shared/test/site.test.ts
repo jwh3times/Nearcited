@@ -184,6 +184,39 @@ describe("analyzeSite", () => {
       ),
     ).toEqual(["structured_data"]);
   });
+
+  it("wants the structured data to name this business, as answers are matched to it", () => {
+    const page = (block: string) =>
+      `<html><body><p>Joe's Pizza Raleigh ${filler}</p>${block}</body></html>`;
+    const withBlock = (name: unknown, address: unknown = { addressLocality: "Raleigh" }) =>
+      failed(
+        analyzeSite(
+          snapshot({ html: page(jsonLd({ "@type": "LocalBusiness", name, address })) }),
+          joes,
+        ),
+      );
+
+    // However the name is written, so long as it is the business's.
+    expect(withBlock("Joe's Pizza")).toEqual([]);
+    expect(withBlock("JOES PIZZA, LLC")).toEqual([]);
+    expect(withBlock("Joe's Pizza & Pasta - Raleigh")).toEqual([]);
+    // A block for somebody else on the page, such as whoever built the site, is not the business's.
+    expect(withBlock("Bright Pixel Web Design")).toEqual(["structured_data"]);
+    expect(withBlock("Tony's Slice House")).toEqual(["structured_data"]);
+    // Nor is one that names the business and says nothing of where it is, or names nothing.
+    expect(withBlock("Joe's Pizza", null)).toEqual(["structured_data"]);
+    expect(withBlock(["Joe's Pizza"])).toEqual(["structured_data"]);
+    expect(withBlock("   ")).toEqual(["structured_data"]);
+  });
+
+  it("finds the business's block among others on the page", () => {
+    const page = `<html><body><p>Joe's Pizza Raleigh ${filler}</p>${jsonLd({
+      "@type": "Organization",
+      name: "Bright Pixel Web Design",
+      address: "9 Elm St",
+    })}${jsonLd({ "@type": "LocalBusiness", name: "Joe's Pizza", address: "1 Main St" })}</body></html>`;
+    expect(failed(analyzeSite(snapshot({ html: page }), joes))).toEqual([]);
+  });
 });
 
 describe("recommendations from the site check", () => {
