@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { listingView } from "../src/lib/listings";
 
-const asked = { listing: { site: "bbb.org", url: null } };
-const kept = { listing: { site: "bbb.org", url: "https://www.bbb.org/profile/joes" } };
+const asked = { listing: { site: "bbb.org", url: null, review_url: null } };
+const kept = {
+  listing: { site: "bbb.org", url: "https://www.bbb.org/profile/joes", review_url: null },
+};
 
 describe("what a task shows of the business's listing", () => {
   it("is nothing for a task that asks for none", () => {

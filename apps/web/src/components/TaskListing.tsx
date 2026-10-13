@@ -16,9 +16,11 @@ interface TaskListingProps {
 }
 
 /**
- * The business's own page on a task's site, which is where a customer is sent. The page an
+ * The business's own page on a task's site, and the link a customer is sent. The page an
  * assistant read is often a list, or somebody else's page, so the owner pastes the address of
  * their own once and it is kept for the location. Nothing looks for it and nothing opens it.
+ * Where the site's review form has a known address the link goes straight to it, and everywhere
+ * else it is the listing, from which a customer finds the form.
  */
 export function TaskListing({ task, locationId, readOnly, onChanged }: TaskListingProps) {
   if (!task.listing || listingView(task, readOnly) === "nothing") return null;
@@ -38,6 +40,8 @@ interface ListingProps extends Omit<TaskListingProps, "task"> {
 
 function Listing({ listing, locationId, readOnly, onChanged }: ListingProps) {
   const { site, url } = listing;
+  // What a customer is sent: the review form where its address is known, or else the listing.
+  const sent = listing.review_url ?? url;
   const { copied, copy } = useCopy();
   // Open while one that is kept is being replaced. With none kept the field is always there.
   const [changing, setChanging] = useState(false);
@@ -70,20 +74,29 @@ function Listing({ listing, locationId, readOnly, onChanged }: ListingProps) {
     setChanging(true);
   }
 
-  if (url !== null && !changing) {
+  if (url !== null && sent !== null && !changing) {
     return (
       <div className="paste-block">
         <p>
-          Your listing on {site}. Send customers this link, and they can write a review from that
-          page.
+          {listing.review_url
+            ? `Where your customers write a review on ${site}. Send them this link.`
+            : `Your listing on ${site}. Send customers this link, and they can write a review from that page.`}
         </p>
         <p className="listing-link">
-          <a href={url} target="_blank" rel="noopener noreferrer nofollow">
-            {url}
+          <a href={sent} target="_blank" rel="noopener noreferrer nofollow">
+            {sent}
           </a>
         </p>
+        {listing.review_url && (
+          <p className="listing-link">
+            Made from your listing:{" "}
+            <a href={url} target="_blank" rel="noopener noreferrer nofollow">
+              {url}
+            </a>
+          </p>
+        )}
         <div className="paste-actions">
-          <button type="button" className="secondary" onClick={() => copy(url)}>
+          <button type="button" className="secondary" onClick={() => copy(sent)}>
             {copied === "yes" ? "Copied" : "Copy the link"}
           </button>
           {!readOnly && (

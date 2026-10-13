@@ -425,9 +425,9 @@ from counts the product holds; nothing a model wrote is in one.
   location and the site, not for the task (`listings`, one row for each; the term is in
   `GLOSSARY.md`), so a task that comes back finds it, and a task marked done still carries it.
   `listingSite` (`packages/shared/src/listings.ts`) names the sites that have one: those on the
-  `reviews` list except google.com, whose review form is reached by the place ID a location already
-  holds. A site that forbids asking, a directory, a page somebody wrote or a site nobody knows has
-  none, and the route answers 404 for it. `taskListing` puts `{ site, url }` on a task as `listing`,
+  `reviews` list except google.com, which is to be reached by the place ID a location already
+  holds and has nothing built for it. A site that forbids asking, a directory, a page somebody wrote or a site nobody knows has
+  none, and the route answers 404 for it. `taskListing` puts `{ site, url, review_url }` on a task as `listing`,
   with `url` null until a member gives it, and null for every other task. `GET /api/locations/:id`
   reads the location's listings for it. `currentTasks`, which a draft is asked for and written
   against, carries none: a draft is written from nothing a listing holds.
@@ -445,12 +445,25 @@ from counts the product holds; nothing a model wrote is in one.
   `set_listing()` and `remove_listing()`, security-definer functions that answer a member of the
   location's organization and no one else, the operator and the worker included (no row for a
   set, false for a removal). Setting one a second time replaces the first, keeping the row.
-- **The task asks for the listing and shows it.** `TaskListing`
+- **A link straight to the review form, only where the site showed its address.** `reviewForm`
+  (`packages/shared/src/listings.ts`) makes the address of a site's review form from a listing's
+  address, and the task carries it as `review_url`. `REVIEW_FORMS` has an entry for a site only
+  when its own pages showed the address, with what was read and the day: a guessed address would
+  send a business's customers to a page that is not there. Today that is bbb.org (a profile's
+  address with `/leave-a-review` after it) and trustpilot.com (`/evaluate/<name>` for the company
+  at `/review/<name>`), both read on 2026-10-13. A listing whose address is not of the shape that
+  was read gets none, and so does every other site: the task then gives the listing, from which a
+  customer finds the form. google.com is left out on purpose. The address in common use for its
+  form answered by asking for a sign-in, and no page of Google's that could be read says it is
+  the form's address, so nothing is built from a place ID.
+- **The task asks for the listing and shows the link.** `TaskListing`
   (`apps/web/src/components/TaskListing.tsx`) puts a field on a task that has a `listing` with no
-  `url`, checks what is pasted with `readListing` before anything is sent, and once one is kept
-  shows it as the link to send customers, to copy, change or remove. The operator, reading a
-  customer's account, is shown a listing that is kept and asked for none (`listingView`).
-- Not built: a direct review link made from a listing, anything for Google's review form, a
+  `url`, and checks what is pasted with `readListing` before anything is sent. Once one is kept it
+  shows the link to send customers, to copy: `review_url` where there is one, with the listing it
+  was made from beside it, and the listing where there is not. The listing can be changed or
+  removed. The operator, reading a customer's account, is shown a listing that is kept and asked
+  for none (`listingView`).
+- Not built: a review-form link on any site but those two, anything for Google's review form, a
   printable code or request text (issue
   [#128](https://github.com/jwh3times/Nearcited/issues/128)), page copy as a task (and so a draft of
   it), and anything the product does outside itself for real. Approvals and actions exist (see "Actions") but the only kind is a
@@ -1441,8 +1454,9 @@ drop it.
   reads characters and not meaning.
 - A listing is kept as a member gave it, and only its form is checked: an address on the right
   site that leads to no page, or to another business's, is kept, because nothing opens it (see
-  "Tasks"). The link a task shows is the listing itself: no link to a site's review form is built
-  from it yet.
+  "Tasks"). A review-form link is made from the listing's address by a shape read once on the
+  site's pages. If a site changes how its form is addressed the link breaks, and nothing notices
+  until somebody reads the site again.
 - Nothing seals the sign-ins again under a new `CONNECTIONS_KEY`. Changing or losing the key makes
   every sign-in kept unreadable and its owner has to connect again; a sync of one changes nothing,
   and a removal still finishes but cannot take the access back at the outside service (see
