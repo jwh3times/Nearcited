@@ -14,6 +14,8 @@ const FORM = `${PAGE}/leave-a-review`;
 const OTHER_FORM = `${OTHER}/leave-a-review`;
 /** A site that lets a business ask and whose form address is not known. */
 const ELSEWHERE = "https://www.angi.com/companylist/us/nc/raleigh/joes-pizza-reviews-1234.htm";
+/** The link Google gives a business to ask for reviews with. It is not on google.com. */
+const FROM_GOOGLE = "https://g.page/r/CZx1AbCdEfGhEAE/review";
 
 let account: Account;
 let locationPath: string;
@@ -22,9 +24,10 @@ test.beforeEach(async () => {
   account = await createAccount();
   const { location } = await withScannedLocation(account);
   locationPath = `/locations/${location.id}`;
-  // Two review sites that let a business ask its customers, and one that forbids it.
+  // Three review sites that let a business ask its customers, and one that forbids it.
   await withUnnamedSource(location.id, "bbb.org");
   await withUnnamedSource(location.id, "angi.com");
+  await withUnnamedSource(location.id, "google.com");
   await withUnnamedSource(location.id, "yelp.com");
 });
 
@@ -85,6 +88,48 @@ test("gives the listing itself where the site's review form has no known address
   await task.getByRole("button", { name: "Copy the link" }).click();
   await expect(task.getByRole("button", { name: "Copied" })).toBeVisible();
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(ELSEWHERE);
+});
+
+test("asks for the review link Google gives, and says where an owner finds it", async ({
+  page,
+  context,
+}) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await signIn(page, account, locationPath);
+  const task = taskFor(page, "Ask your customers for reviews on google.com");
+  const field = task.getByLabel("Your review link from Google");
+
+  // The steps are Google's own, for an owner who does not know the link exists.
+  await expect(task.getByText("Google gives every business a link")).toBeVisible();
+  await expect(task.getByRole("listitem").filter({ hasText: "business.google.com" })).toBeVisible();
+  await expect(
+    task.getByRole("listitem").filter({ hasText: "choose Read Reviews, then Get more reviews" }),
+  ).toBeVisible();
+  await expect(task.getByRole("link", { name: "Google's own steps" })).toHaveAttribute(
+    "href",
+    "https://support.google.com/business/answer/16816815",
+  );
+
+  // What the top of the browser holds while a profile is managed is not the link.
+  await field.fill("https://www.google.com/search?q=Joe%27s+Pizza+Raleigh");
+  await task.getByRole("button", { name: "Save the link" }).click();
+  await expect(task.getByRole("alert")).toContainText(
+    "That does not look like the review link Google gives you.",
+  );
+
+  await field.fill(FROM_GOOGLE);
+  await task.getByRole("button", { name: "Save the link" }).click();
+  await expect(
+    task.getByText("Your review link from Google. Send customers this link."),
+  ).toBeVisible();
+  await expect(task.getByRole("link", { name: FROM_GOOGLE })).toHaveAttribute("href", FROM_GOOGLE);
+  await expect(task.getByText("Made from your listing")).toHaveCount(0);
+  await task.getByRole("button", { name: "Copy the link" }).click();
+  await expect(task.getByRole("button", { name: "Copied" })).toBeVisible();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(FROM_GOOGLE);
+
+  await page.reload();
+  await expect(task.getByRole("link", { name: FROM_GOOGLE })).toBeVisible();
 });
 
 test("lets a listing be changed for another, and taken away", async ({ page }) => {

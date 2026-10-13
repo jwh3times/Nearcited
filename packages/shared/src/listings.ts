@@ -10,16 +10,49 @@ import { listedSite, sourceKind } from "./source-kinds";
  *
  * The product never looks for a listing and never opens one. All that is checked of an address
  * is its shape: that it is a link over https, to that site, and to a page of it.
+ *
+ * Google is asked for a different thing. See `asksForReviewLink`.
  */
 
 /** The most a listing's address may run to. The database holds to the same number. */
 export const LISTING_URL_MAX = 500;
 
 /**
- * No listing is kept for Google: its review form is to be reached from the place ID a location
- * already holds. Nothing builds that yet. See `REVIEW_FORMS`.
+ * Google gives a business the link to its own review form, so that link is what a member is
+ * asked for there, in place of the address of a page. It is kept as a listing is, nothing is
+ * made from it, and it is what a customer is sent.
+ *
+ * Google's help says where a business copies it, and those are the steps an owner is shown
+ * (support.google.com/business/answer/16816815, read on 2026-10-13): go to the Business Profile,
+ * select Read Reviews and then Get more reviews, and select Copy. The address is not built from
+ * the place ID a location holds: see `REVIEW_FORMS`.
  */
-const BY_PLACE_ID = "google.com";
+const GIVES_ITS_LINK = "google.com";
+
+/** True when what `site` is asked for is the link it gives a business to ask for reviews with. */
+export function asksForReviewLink(site: string): boolean {
+  return site === GIVES_ITS_LINK;
+}
+
+/** What is said of an address on Google that is not that link. It says where the link is. */
+const NOT_THE_LINK =
+  "That does not look like the review link Google gives you. On your Business Profile, choose Read Reviews, then Get more reviews, and copy the link shown there.";
+
+/**
+ * Whether an address on Google's names is one a customer could be sent.
+ *
+ * Google's help does not show what the link looks like. Every account of it that could be found
+ * puts it on g.page, so that name is taken as well as google.com. Two addresses are turned
+ * away, because they are what an owner who copies the top of the browser is holding, and a
+ * customer can do nothing with either: the search a profile is managed from, and the pages only
+ * its owner can open.
+ */
+function fromGoogle(address: URL): boolean {
+  const on = (name: string) => address.hostname === name || address.hostname.endsWith(`.${name}`);
+  if (on("g.page")) return true;
+  if (!on("google.com") || on("business.google.com")) return false;
+  return !/^\/search\/?$/.test(address.pathname);
+}
 
 /**
  * The site a task for `host` asks for a listing on, as the list of known sites names it, or null
@@ -28,19 +61,24 @@ const BY_PLACE_ID = "google.com";
  */
 export function listingSite(host: string): string | null {
   const site = listedSite(host);
-  if (site === null || site === BY_PLACE_ID) return null;
-  return sourceKind(site) === "reviews" ? site : null;
+  return site !== null && sourceKind(site) === "reviews" ? site : null;
 }
 
 /** An address as it is kept, or the sentence that says why it was not taken. */
 export type ReadListing = { url: string } | { problem: string };
 
 /**
- * Reads what a member pasted as the business's listing on `site`. It is kept as the address a
- * browser would follow, without the part after `#`, which names a place on the page.
+ * Reads what a member pasted as the business's listing on `site`, or on Google as the review
+ * link it gave. It is kept as the address a browser would follow, without the part after `#`,
+ * which names a place on the page.
  */
 export function readListing(site: string, pasted: string): ReadListing {
-  const whole = { problem: "Paste the whole address of your listing, starting with https://." };
+  const link = asksForReviewLink(site);
+  const whole = {
+    problem: link
+      ? "Paste the whole link, starting with https://."
+      : "Paste the whole address of your listing, starting with https://.",
+  };
   const text = pasted.trim();
   let address: URL;
   try {
@@ -53,10 +91,12 @@ export function readListing(site: string, pasted: string): ReadListing {
   if (address.protocol !== "https:" || address.username !== "" || address.password !== "") {
     return whole;
   }
-  if (address.hostname !== site && !address.hostname.endsWith(`.${site}`)) {
+  const front = address.pathname.replace(/\/+$/, "") === "" && address.search === "";
+  if (link) {
+    if (front || !fromGoogle(address)) return { problem: NOT_THE_LINK };
+  } else if (address.hostname !== site && !address.hostname.endsWith(`.${site}`)) {
     return { problem: `That address is not on ${site}. Paste the address of your own page there.` };
-  }
-  if (address.pathname.replace(/\/+$/, "") === "" && address.search === "") {
+  } else if (front) {
     return {
       problem: `That is the front page of ${site}. Paste the address of your own page there.`,
     };
@@ -78,7 +118,9 @@ export function readListing(site: string, pasted: string): ReadListing {
  * entry says what was read and when. A listing whose address is not of the shape that was read
  * gets none either.
  *
- * google.com is left out on purpose. The address in common use for its form,
+ * google.com is left out on purpose: what a member gives there is already the link to the form
+ * (`asksForReviewLink`), so there is nothing to make. Nor is one built from the place ID a
+ * location holds. The address in common use for that,
  * search.google.com/local/writereview?placeid=<place ID>, answered on 2026-10-13 by asking for a
  * sign-in, and no page of Google's that could be read says it is the form's address: its help
  * says to copy the link from the Business Profile.

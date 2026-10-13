@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { LISTING_URL_MAX, listingSite, readListing, reviewForm } from "../src/listings";
+import {
+  asksForReviewLink,
+  LISTING_URL_MAX,
+  listingSite,
+  readListing,
+  reviewForm,
+} from "../src/listings";
 import { listedSite } from "../src/source-kinds";
 
 describe("the name a site goes by on the list", () => {
@@ -28,9 +34,18 @@ describe("which sites a task asks for a listing on", () => {
     }
   });
 
-  it("is not Google, which is to be reached by the place ID a location holds", () => {
-    expect(listingSite("google.com")).toBeNull();
-    expect(listingSite("maps.google.com")).toBeNull();
+  it("is Google too, under its one name", () => {
+    expect(listingSite("google.com")).toBe("google.com");
+    expect(listingSite("maps.google.com")).toBe("google.com");
+  });
+});
+
+describe("which sites are asked for the link they give, not for a page", () => {
+  it("is Google and no other", () => {
+    expect(asksForReviewLink("google.com")).toBe(true);
+    for (const site of ["bbb.org", "trustpilot.com", "g.page", "www.google.com", "yelp.com"]) {
+      expect(asksForReviewLink(site), site).toBe(false);
+    }
   });
 });
 
@@ -112,6 +127,72 @@ describe("reading a pasted listing", () => {
   });
 });
 
+describe("reading the review link Google gives a business", () => {
+  const LINK = "https://g.page/r/CZx1AbCdEfGhEAE/review";
+  const NOT_THE_LINK =
+    "That does not look like the review link Google gives you. On your Business Profile, choose Read Reviews, then Get more reviews, and copy the link shown there.";
+
+  it("keeps the link, which is not on the name Google is listed by", () => {
+    expect(readListing("google.com", LINK)).toEqual({ url: LINK });
+    expect(readListing("google.com", `  ${LINK.replace("https://", "")}\n`)).toEqual({ url: LINK });
+    expect(readListing("google.com", LINK.replace("https://", "http://"))).toEqual({ url: LINK });
+  });
+
+  it("keeps another address of Google's that a customer can open", () => {
+    for (const pasted of [
+      "https://search.google.com/local/writereview?placeid=ChIJN1t_tDeuEmsRUsoyG83frY4",
+      "https://www.google.com/maps/place/Joes+Pizza/@35.77,-78.63,17z",
+      "https://maps.google.com/?cid=1234567890",
+    ]) {
+      expect(readListing("google.com", pasted), pasted).toEqual({ url: pasted });
+    }
+  });
+
+  it("refuses what an owner copies from the top of the browser while managing the profile", () => {
+    for (const pasted of [
+      // The search a profile is managed from.
+      "https://www.google.com/search?q=Joe%27s+Pizza+Raleigh&authuser=0",
+      "google.com/search?q=joes+pizza",
+      "https://www.google.com/search/?q=joes+pizza",
+      // The pages only its owner can open.
+      "https://business.google.com/dashboard/l/01234567890123456789",
+      "https://business.google.com/reviews",
+    ]) {
+      expect(readListing("google.com", pasted), pasted).toEqual({ problem: NOT_THE_LINK });
+    }
+  });
+
+  it("refuses a front page and an address that is not Google's, and says where the link is", () => {
+    for (const pasted of [
+      "https://www.google.com",
+      "google.com/",
+      "https://g.page",
+      "https://www.yelp.com/biz/joes-pizza",
+      "https://g.page.example.com/r/CZx1AbCdEfGhEAE/review",
+      "https://notg.page/r/CZx1AbCdEfGhEAE/review",
+      "https://google.com.example.com/maps/place/joes",
+      "https://example.com/g.page/r/CZx1AbCdEfGhEAE/review",
+      // A site that asks for a page takes a page on itself: bbb.org is not Google.
+      "https://www.bbb.org/us/nc/raleigh/profile/pizza/joes-pizza-0593-1234",
+    ]) {
+      expect(readListing("google.com", pasted), pasted).toEqual({ problem: NOT_THE_LINK });
+    }
+  });
+
+  it("refuses what is not an address a browser would follow over https", () => {
+    for (const pasted of ["", "my review link", "javascript:alert(1)//g.page/r/x/review"]) {
+      expect(readListing("google.com", pasted), pasted).toEqual({
+        problem: "Paste the whole link, starting with https://.",
+      });
+    }
+  });
+
+  it("is taken on Google only: g.page is no other site's", () => {
+    expect("problem" in readListing("bbb.org", LINK)).toBe(true);
+    expect("problem" in readListing("trustpilot.com", LINK)).toBe(true);
+  });
+});
+
 describe("where a customer writes a review", () => {
   const PROFILE = "https://www.bbb.org/us/nc/raleigh/profile/pizza/joes-pizza-0593-1234";
 
@@ -166,8 +247,9 @@ describe("where a customer writes a review", () => {
       "thumbtack.com",
       "tripadvisor.com",
       "zillow.com",
-      // Not sites a listing is kept for at all.
+      // Already the link Google gave, so nothing is made from it.
       "google.com",
+      // Not sites a listing is kept for at all.
       "yelp.com",
       "somewhere.example",
       // Not names a careless lookup should find.

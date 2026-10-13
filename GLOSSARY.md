@@ -33,6 +33,10 @@ system works; this file only settles vocabulary.
   find the business there. One for a location on a site, kept for the location and not for the
   task that asked for it. Not the page an assistant cited, which is often a list or somebody
   else's page. The product does not look for a listing and does not open one.
+- **Review link**: the link Google gives a business to ask its customers for reviews with, which
+  its owner copies from the business's Google profile. It is what an owner gives for Google in
+  place of a listing, and what a customer is sent, since it opens where a review is written. Not
+  made from anything a location holds: the owner gives it.
 - **Alert**: a statement that something measured has changed at a location in a way its owner
   would want to know, composed by rule from what the scans recorded and saying what was counted.
   It is shown from the scan that raised it until a later scan clears it or a member dismisses
