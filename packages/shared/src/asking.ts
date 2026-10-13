@@ -1,9 +1,10 @@
 /**
  * What an owner is handed to ask their customers for a review with (issue #128).
  *
- * A task for a review site holds the link a customer is sent. From it a short request is made
- * for the owner to send themselves, from their own address or phone. It is composed by rule,
- * from the business's name, the site's name and the link, and no model writes it. Nothing here
+ * A task for a review site holds the link a customer is sent. Two things are made from it for the
+ * owner to use themselves: a short request to send from their own address or phone, and the same
+ * link as a code to print, which the web app draws. The words of both are composed by rule, from
+ * the business's name, the site's name and the link, and no model writes either. Nothing here
  * sends anything, and nothing about a business's customers is held.
  *
  * The request asks every customer alike and offers nothing in return, which is what a site that
@@ -38,7 +39,7 @@ export function siteName(site: string): string {
   return name ?? site;
 }
 
-/** What a request is made from. */
+/** What a request, or a card, is made from. */
 export interface Asking {
   /** The business's name, as its location holds it. */
   business: string;
@@ -68,4 +69,27 @@ function closed(sentence: string): string {
 export function requestToSend({ business, site, link }: Asking): string {
   const thanks = closed(`Thank you for choosing ${tidied(business)}`);
   return `${thanks} Would you leave a review on ${siteName(site)}? Say what you honestly thought, good or bad: it helps other people decide.\n${link}`;
+}
+
+/** What a card says round its code. */
+export interface CardWords {
+  /** The business's name, which heads the card. */
+  heading: string;
+  /** What a customer is asked. */
+  ask: string;
+  /** What to do with a code, for a customer who has not used one. */
+  how: string;
+}
+
+/**
+ * The words on the card an owner prints, round the code that opens the link. Whoever is handed a
+ * card reads the same one, so like the request it asks every customer alike, for whatever they
+ * thought, and offers nothing.
+ */
+export function cardWords({ business, site }: Pick<Asking, "business" | "site">): CardWords {
+  return {
+    heading: tidied(business),
+    ask: `How did we do? Leave a review on ${siteName(site)}.`,
+    how: "Point your phone's camera at the code.",
+  };
 }

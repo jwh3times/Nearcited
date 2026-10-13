@@ -1510,6 +1510,34 @@ details.as-table td {
   font-size: 0.8125rem;
 }
 
+/* The way to another page, in a row of buttons and drawn as one of them. */
+.paste-actions a.secondary {
+  display: inline-flex;
+  align-items: center;
+  height: 2.25rem;
+  padding: 0 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: var(--surface);
+  color: var(--ink);
+  font-weight: 500;
+  white-space: nowrap;
+  text-decoration: none;
+}
+
+.paste-actions a.secondary:hover {
+  opacity: 1;
+  border-color: var(--muted);
+}
+
+/* The link as a QR code. Black on white in either theme, with the clear space drawn in. */
+.review-code {
+  display: block;
+  width: 9rem;
+  height: 9rem;
+  border-radius: 0.375rem;
+}
+
 .paste-summary {
   cursor: pointer;
   font-size: 0.8125rem;
@@ -2245,6 +2273,7 @@ mark {
 @media (prefers-reduced-motion: no-preference) {
   .nav-row,
   button,
+  .paste-actions a.secondary,
   a.gtable-row {
     transition:
       background-color 0.12s,
@@ -2485,6 +2514,75 @@ mark {
   }
 }
 
+/*
+ * The card to print. It is sized in inches and points, not in rem, because it is a thing on
+ * paper: the size the page shows is the size it prints, whatever the window or the reader's own
+ * text size. On a screen narrower than the card it shrinks to fit and keeps its shape. It is
+ * black on white in either theme, since paper is.
+ */
+.card-page {
+  gap: 1.5rem;
+}
+
+.card-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-width: 38rem;
+}
+
+/* The page's own buttons, at their full size: it has no card of small ones to sit in. */
+.card-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+
+.review-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.2in;
+  width: min(4in, 100%);
+  aspect-ratio: 2 / 3;
+  padding: 0.35in;
+  /* The line to cut along. */
+  border: 1px dashed #8a8a8a;
+  background: #ffffff;
+  color: #000000;
+  text-align: center;
+}
+
+.review-card h2 {
+  font-size: 22pt;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+}
+
+.review-card .card-ask {
+  font-size: 13pt;
+  line-height: 1.3;
+  /* Two lines of a like length, and never the site's name on a line by itself. */
+  text-wrap: balance;
+}
+
+.review-card .review-code {
+  width: min(2.75in, 100%);
+  height: auto;
+  aspect-ratio: 1;
+  border-radius: 0;
+}
+
+.review-card .card-how {
+  font-size: 10pt;
+  line-height: 1.3;
+}
+
 /* Paper: nothing scrolls and nothing is clicked, so the page is the content at its full width. */
 
 @media print {
@@ -2530,6 +2628,24 @@ mark {
   h2,
   .section-head {
     break-after: avoid;
+  }
+
+  /* The card page prints the card and nothing else: no bars above it and none of its controls. */
+  .main:has(.card-page) > :not(.card-page),
+  .card-controls {
+    display: none;
+  }
+
+  /* Clear of the sheet's edge even where the browser is told to print with no margins. */
+  .card-page {
+    max-width: none;
+    margin: 0;
+    padding: 0.25in;
+  }
+
+  .review-card {
+    width: 4in;
+    break-inside: avoid;
   }
 }
 
