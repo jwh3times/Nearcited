@@ -1719,6 +1719,7 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
       }
       const location: Location = {
         ...input,
+        what_we_do: input.what_we_do ?? null,
         id: crypto.randomUUID(),
         organization_id: organizationId,
         paused_by_plan: false,
@@ -1736,7 +1737,9 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
     async updateLocation(id, input) {
       const location = visibleLocation(id);
       if (!location) return null;
-      return Object.assign(location, input);
+      // As the database does: a detail the input leaves out is not written.
+      const { what_we_do, ...rest } = input;
+      return Object.assign(location, rest, what_we_do === undefined ? {} : { what_we_do });
     },
 
     async deleteLocation(id) {

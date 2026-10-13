@@ -15,6 +15,7 @@ const location: Location = {
   country_code: "US",
   google_place_id: null,
   primary_category: "Pizza restaurant",
+  what_we_do: null,
   paused_by_plan: false,
   last_scanned_at: "2026-10-07T09:00:00.000Z",
   created_at: "2026-10-04T00:00:00.000Z",
@@ -33,6 +34,7 @@ describe("locationFormValues", () => {
       country_code: "US",
       google_place_id: "",
       primary_category: "Pizza restaurant",
+      what_we_do: "",
     });
   });
 
@@ -40,6 +42,12 @@ describe("locationFormValues", () => {
     const withPhone = { ...location, phone: "+19195550100" };
     expect(locationFormValues(withPhone).phone).toBe("(919) 555-0100");
     expect(LocationInputSchema.parse(locationFormValues(withPhone)).phone).toBe("+19195550100");
+  });
+
+  it("carries what the business says it does, so saving the form keeps it", () => {
+    const said = { ...location, what_we_do: "Wood-fired pizza, family-run since 1998." };
+    expect(locationFormValues(said).what_we_do).toBe(said.what_we_do);
+    expect(LocationInputSchema.parse(locationFormValues(said)).what_we_do).toBe(said.what_we_do);
   });
 
   it("saves back unchanged as the location it was read from", () => {

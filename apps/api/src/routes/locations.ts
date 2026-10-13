@@ -136,6 +136,7 @@ locationRoutes.get("/locations/:id", async (c) => {
 });
 
 // The body is a whole location, as on create: a field left out goes back to blank or its default.
+// The one exception is `what_we_do`, which stays as it is when left out.
 locationRoutes.patch("/locations/:id", async (c) => {
   const id = uuidParam(c, "id", "Location");
   const input = await parseJson(c, LocationInputSchema);

@@ -174,6 +174,8 @@ export const LocationSchema = z.object({
   country_code: z.string(),
   google_place_id: z.string().nullable(),
   primary_category: z.string().nullable(),
+  /** What the business does, in its owner's words. A draft states nothing about it but this. */
+  what_we_do: z.string().nullable(),
   /**
    * True while the organization has more locations than its plan covers and this is one of those
    * not being scanned. Everything measured so far stays readable.
@@ -711,6 +713,9 @@ const CountryCode = z
   .refine(isCountry, "Use a two-letter country code, like US")
   .default("US");
 
+/** How much an owner may say about what the business does: a few sentences. */
+export const WHAT_WE_DO_MAX = 600;
+
 export const LocationInputSchema = z
   .object({
     name: named(120, "Name is required", "Enter the business's name"),
@@ -726,6 +731,18 @@ export const LocationInputSchema = z
       "Paste the place ID as Google gives it: letters, digits, - and _",
     ),
     primary_category: optionalText(120),
+    /**
+     * Blank is none, as for the other details. Left out is different here: what is on file stays.
+     * A page opened before this field existed sends the whole form without it, and so do the forms
+     * that add a location, and none of them should wipe what an owner wrote.
+     */
+    what_we_do: z
+      .string()
+      .trim()
+      .max(WHAT_WE_DO_MAX, `Use at most ${WHAT_WE_DO_MAX} characters`)
+      .nullable()
+      .transform((value) => value || null)
+      .optional(),
   })
   // The phone number and the postal code are read in the location's own country. These run even
   // when another field is wrong, so a form can show every problem at once.

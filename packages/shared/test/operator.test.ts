@@ -38,6 +38,7 @@ const location = (
   country_code: "US",
   google_place_id: null,
   primary_category: null,
+  what_we_do: null,
   paused_by_plan: false,
   last_scanned_at: ago(2),
   created_at: ago(24 * 20),

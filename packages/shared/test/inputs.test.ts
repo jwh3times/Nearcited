@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { fieldErrors, formatPhone } from "../src/inputs";
-import { LocationInputSchema, TrackedQueryInputSchema } from "../src/schemas";
+import { LocationInputSchema, TrackedQueryInputSchema, WHAT_WE_DO_MAX } from "../src/schemas";
 
 const joes = { name: "Joe's Pizza", city: "Raleigh" };
 const errors = (change: Record<string, unknown>) =>
@@ -104,6 +104,31 @@ describe("a location's address fields", () => {
   it("needs a name and a city with a letter in them", () => {
     expect(errors({ name: "   " }).name).toBe("Name is required");
     expect(errors({ city: "12345" }).city).toBe("Enter the city's name");
+  });
+});
+
+describe("what a business says it does", () => {
+  const said = (what_we_do: unknown) => LocationInputSchema.parse({ ...joes, what_we_do });
+
+  it("is kept as written, trimmed, and blank is none", () => {
+    expect(said("  Wood-fired pizza, family-run since 1998.\n").what_we_do).toBe(
+      "Wood-fired pizza, family-run since 1998.",
+    );
+    expect(said("   ").what_we_do).toBeNull();
+    expect(said(null).what_we_do).toBeNull();
+  });
+
+  it("is left alone when a form does not send it", () => {
+    // Blank says "none". Left out says nothing, so what is on file stays.
+    expect("what_we_do" in LocationInputSchema.parse(joes)).toBe(false);
+    expect("what_we_do" in said("")).toBe(true);
+  });
+
+  it("is a few sentences and no more", () => {
+    expect(errors({ what_we_do: "a".repeat(WHAT_WE_DO_MAX) })).toEqual({});
+    expect(errors({ what_we_do: "a".repeat(WHAT_WE_DO_MAX + 1) }).what_we_do).toBe(
+      `Use at most ${WHAT_WE_DO_MAX} characters`,
+    );
   });
 });
 
