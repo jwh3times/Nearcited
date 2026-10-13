@@ -207,7 +207,8 @@ invoices and cancelling only), a warning while a payment is being retried or aft
 ended, and a thank-you on return from checkout that waits for the plan to move, and, for a subscriber not yet
 moved, the new amount and from when after an announced price change. A new user is walked through four steps (organization, location, prompts, first scan), and nothing is created until the
 last. The prompts step says how many the free plan tracks and takes them from the suggestions or in the owner's own words. The privacy policy (`/privacy`), the terms of service (`/terms`), a page describing the
-crawler (`/bot`) and the plans (`/pricing`) are readable without signing in. A visitor who
+crawler (`/bot`) and the plans (`/pricing`) are readable without signing in, and so is the
+licence file for the packages the web app includes ([License](#license)). A visitor who
 chooses a plan signs in and is brought back to `/pricing?plan=<key>`; an owner with no
 subscription goes on to Stripe's checkout from there, a subscriber gets a location stepper
 and a "Switch" button on every paid plan ("Update locations" on their own) and a confirm step that
@@ -397,7 +398,7 @@ templates.
 | `pnpm lint` / `pnpm format` | Biome check / fix |
 | `pnpm typecheck` | `tsc` in every package |
 | `pnpm test` | Every unit test, including the row-level security tests |
-| `pnpm build` | Build the web app |
+| `pnpm build` | Build the web app, which also writes `apps/web/dist/third-party-licenses.md` ([License](#license)) |
 | `pnpm e2e` | End-to-end tests in a browser (needs `supabase start` and the env files; `pnpm check` does not run them) |
 | `pnpm smoke` | Smoke test against a deployment (`E2E_APP_URL`, `E2E_SUPABASE_URL`, `E2E_SUPABASE_PUBLISHABLE_KEY`, `TEST_ACCOUNT_EMAIL`, `TEST_ACCOUNT_PASSWORD`) |
 | `pnpm test-account:create` | Make the deployment's test account and grant it the `test` platform role; safe to run again (needs `SUPABASE_SECRET_KEY`, `TEST_ACCOUNT_EMAIL`, `TEST_ACCOUNT_PASSWORD`) |
@@ -563,8 +564,10 @@ reader gets one audit only by its token, through the `get_audit()` function.
   the Connections page and its sidebar link show, what the Actions tab says of each action, what a task says when an action did it, what a task's card offers for its draft and what the page says of the month's drafts and of who wrote one, what a task shows of the business's listing and the words it asks for one in, Google's steps to its review link included, what a task hands its owner to ask customers with (nothing for a task that asks for no listing or has none kept, else the review form where its address is known and otherwise the listing) and the words round the request, how the code to print is drawn (black on white with clear space round it), where the card for a site is (inside the account being read), what the card is made from (nothing for a site with no link kept) and the name the picture is saved under, and what the structured details' card says before a scan has looked and after.
 - **`apps/e2e`**: `pnpm e2e` drives the real web app and Worker in Chromium against the local
   Supabase stack, in mock mode: sign-in by the emailed link, onboarding through the first scan, the
-  location page, account settings, connecting a sample account, matching a location to it and removing it, approving a proposed action with its text changed and declining another, a drop shown on the Overview and in the locations table and then dismissed, a business named for the first time shown with a link to the answers, a listing pasted on a review task, refused when it is on another site, then copied, changed and removed, Google's review link asked for with the steps to it, refused when it is a search address, then kept and copied, a request to send handed over once the link is kept, copied whole and ending on the link, on the site the task is for and with its review form where that is known, taken away with the listing, offered for no site that forbids asking and none whose kind is unknown, and shown to the operator with nothing to change, the link drawn as a code that a QR reader (jsQR, which had no part in drawing it) reads back as that link, from the task, from the picture saved and from the card as it prints, and for the longest address a listing may have, the card page being the card alone on paper and offering none for a site with no link kept, the code and the card shown to the operator inside the account being read, saving a code marking nothing done, a phone number the answers give shown and dismissed as the business's own, the structured business details offered where a page has none, copied, marked done, kept with the location and taken back, a draft asked for once the business has said what it does, written, copied and written again, a listing's description written, and none offered on the free plan, which says so and links to the plans that list drafts, or for a task whose work is asking customers for reviews, one offered with the month's number for the locations covered on a plan that includes them, the operator's view and reading through an account, the public pages and one phone-sized run. It starts the Worker
-  and web app itself, or reuses them if `pnpm dev` is up. `pnpm smoke` is a separate run against a
+  location page, account settings, connecting a sample account, matching a location to it and removing it, approving a proposed action with its text changed and declining another, a drop shown on the Overview and in the locations table and then dismissed, a business named for the first time shown with a link to the answers, a listing pasted on a review task, refused when it is on another site, then copied, changed and removed, Google's review link asked for with the steps to it, refused when it is a search address, then kept and copied, a request to send handed over once the link is kept, copied whole and ending on the link, on the site the task is for and with its review form where that is known, taken away with the listing, offered for no site that forbids asking and none whose kind is unknown, and shown to the operator with nothing to change, the link drawn as a code that a QR reader (jsQR, which had no part in drawing it) reads back as that link, from the task, from the picture saved and from the card as it prints, and for the longest address a listing may have, the card page being the card alone on paper and offering none for a site with no link kept, the code and the card shown to the operator inside the account being read, saving a code marking nothing done, a phone number the answers give shown and dismissed as the business's own, the structured business details offered where a page has none, copied, marked done, kept with the location and taken back, a draft asked for once the business has said what it does, written, copied and written again, a listing's description written, and none offered on the free plan, which says so and links to the plans that list drafts, or for a task whose work is asking customers for reviews, one offered with the month's number for the locations covered on a plan that includes them, the operator's view and reading through an account, the public pages, the licence file served beside the app and one phone-sized run. It starts the Worker
+  and web app itself, or reuses them if `pnpm dev` is up. The licence file is read from the Worker,
+  which serves the web app as it was last built, so run `pnpm build` first if the Worker was
+  already running. `pnpm smoke` is a separate run against a
   real deployment: it signs in as the test account, refuses to go on unless that account's
   organization is a test one, then adds a location and a prompt, runs a scan (generated data), reads
   the results and deletes the location.
@@ -788,3 +791,15 @@ Nearcited is free software: you may use, modify and share it under the terms of 
 [GNU Affero General Public License, version 3](LICENSE). If you let other people use a modified
 version over a network, that license requires you to offer them its source. It comes with no
 warranty.
+
+The packages the web app is built from keep their own licences, which ask that their notice go
+wherever a copy does. So the web build writes `third-party-licenses.md` into `apps/web/dist`, with
+one section for each package the bundle includes: its name, version, licence identifier and the
+licence's text. The Worker serves it with the rest of the build, at `/third-party-licenses.md` and
+without signing in, and a comment in the app's `index.html` says where it is. The build also keeps,
+in the bundled JavaScript, the short licence notices those packages carry in their own code, which
+a minified build would otherwise drop; some name code inside a package that its licence file does
+not. Both cover the web app's bundle, which is what a browser is sent, and not the Worker's own
+packages, which run on the server.
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) covers the files kept in this repository under
+their own licence.

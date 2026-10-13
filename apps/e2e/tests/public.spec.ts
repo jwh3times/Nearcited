@@ -1,4 +1,7 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { expect, test } from "@playwright/test";
+import { BUILT_URL } from "../support/stack";
 
 for (const [path, heading] of [
   ["/privacy", "Privacy policy"],
@@ -42,4 +45,42 @@ test("shows the price list to a visitor, and takes them to sign in when they cho
 
   await page.getByRole("button", { name: "Choose Starter" }).click();
   await expect(page.getByLabel("Work email")).toBeVisible();
+});
+
+test("serves the licence of every package the app includes, beside the app", async ({
+  request,
+}) => {
+  const response = await request.get(`${BUILT_URL}/third-party-licenses.md`);
+  const text = await response.text();
+  // An address with no file behind it is answered with the app's own page, so the file is
+  // known by what it says. It is written when the web app is built.
+  expect(text, "Build the web app: pnpm --filter @nearcited/web build").toMatch(/^# Licenses/);
+
+  // Every package the web app depends on is in it, under its own name, with its licence.
+  const { dependencies } = JSON.parse(
+    readFileSync(join(import.meta.dirname, "../../web/package.json"), "utf8"),
+  ) as { dependencies: Record<string, string> };
+  const bundled = Object.keys(dependencies).filter((name) => !name.startsWith("@nearcited/"));
+  expect(bundled.length).toBeGreaterThan(0);
+  const headings = text.split("\n").filter((line) => line.startsWith("## "));
+  for (const name of bundled) {
+    expect(
+      headings.filter((heading) => heading.startsWith(`## ${name} - `)),
+      name,
+    ).toHaveLength(1);
+  }
+  // Each heading names the licence, and the words of one are there to read.
+  for (const heading of headings) expect(heading).toMatch(/ - \S+ \(.+\)$/);
+  expect(text).toContain("Permission is hereby granted");
+
+  // And the app's own page says where the file is.
+  const page = await (await request.get(`${BUILT_URL}/`)).text();
+  expect(page).toContain("/third-party-licenses.md");
+
+  // The script the page loads still carries the short notices its packages' own code came with.
+  const script = /<script[^>]+src="([^"]+\.js)"/.exec(page)?.[1];
+  expect(script, "the built page loads a script").toBeTruthy();
+  const code = await (await request.get(`${BUILT_URL}${script}`)).text();
+  expect(code).toMatch(/@license React/);
+  expect(code.match(/@license/g)?.length).toBeGreaterThan(5);
 });

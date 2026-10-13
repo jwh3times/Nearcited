@@ -7,6 +7,10 @@
 - **`fetch`**: the HTTP API, a Hono app mounted at `/api`. Only `/api/*` reaches the Worker.
   Every other path is served from the web app's build output, with unknown paths falling back to
   `index.html` so client-side routes work. That routing lives in `wrangler.jsonc` under `assets`.
+  The build output includes `third-party-licenses.md`, the licences of the packages the web app
+  bundles, which is therefore public at `/third-party-licenses.md` with no sign-in. It is a static
+  asset and no route, and a missing one would be answered with `index.html` like any unknown path
+  (see the README's "License").
 - **`scheduled`**: two Cron Triggers. Every 15 minutes it fails scans that have been queued or
   running for more than 30 minutes, so an abandoned scan cannot block its location for long. It
   also fails audits still `queued` after 30 minutes (see "Shareable audits"), and queues again
