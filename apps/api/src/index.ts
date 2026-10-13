@@ -34,6 +34,7 @@ import {
 } from "./connections";
 import { sealingKey } from "./connections/seal";
 import { requeueStalledDrafts, writeDraft } from "./drafts";
+import { createLiveDraftWriter, liveDraftKinds } from "./drafts/claude";
 import { buildScanReportEmail, type Email, sendEmail } from "./email/report";
 import type { Env } from "./env";
 import { createProviders, liveScansUnavailable, usesSampleData } from "./providers";
@@ -52,6 +53,7 @@ const app = createApp({
       claude: activeTuning.tuning.claude.model,
     },
     rates: activeTuning.tuning.rates,
+    draft_kinds: liveDraftKinds(activeTuning),
   },
 });
 
@@ -273,6 +275,8 @@ export default {
           const outcome = await writeDraft(draft.data.draft_id, {
             store,
             sampleData: usesSampleData(env),
+            // A deployment on sample data asks no model, whatever keys it holds.
+            writer: usesSampleData(env) ? undefined : createLiveDraftWriter(env, activeTuning),
           });
           console.log(`${what}: ${outcome}`);
           // A try that something got in the way of is made again in a minute, three times in all.

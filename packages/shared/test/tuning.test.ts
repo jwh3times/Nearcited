@@ -71,6 +71,34 @@ describe("TuningSchema", () => {
   });
 });
 
+describe("the tuning for drafts", () => {
+  const { drafts } = defaultTuning;
+  const withDrafts = (change: Record<string, unknown>) =>
+    TuningSchema.safeParse({ ...defaultTuning, drafts: { ...drafts, ...change } }).success;
+
+  it("may be left out, so a file from before drafts existed still loads and writes none", () => {
+    const { drafts: _drafts, ...before } = defaultTuning;
+    expect(TuningSchema.parse(before).drafts).toBeUndefined();
+    const active = resolveTuning({ source: "private", tuning: before });
+    expect(active.tuning.drafts).toBeUndefined();
+  });
+
+  it("takes instructions for some kinds and not others, and none that say nothing", () => {
+    expect(withDrafts({ instructions: {} })).toBe(true);
+    expect(withDrafts({ instructions: { note: "Write a note." } })).toBe(true);
+    expect(withDrafts({ instructions: { note: "   " } })).toBe(false);
+    expect(withDrafts({ instructions: { essay: "Write an essay." } })).toBe(false);
+  });
+
+  it("requires a model, a known effort and a sensible length", () => {
+    expect(withDrafts({ model: "" })).toBe(false);
+    expect(withDrafts({ effort: "extreme" })).toBe(false);
+    expect(withDrafts({ max_tokens: 50 })).toBe(false);
+    expect(withDrafts({ max_tokens: 100_000 })).toBe(false);
+    expect(withDrafts({ max_tokens: 1200.5 })).toBe(false);
+  });
+});
+
 describe("rates", () => {
   const rate = {
     input_per_million: 2,

@@ -63,8 +63,8 @@ export function Privacy() {
       <h2>What we use it for</h2>
       <ul>
         <li>
-          To run the service: ask the assistants your prompts, read your website, and show you the
-          results.
+          To run the service: ask the assistants your prompts, read your website, show you the
+          results, and write the drafts you ask for.
         </li>
         <li>To sign you in and send the emails you have asked for.</li>
         <li>To keep the service secure and working, and to fix it when it is not.</li>
@@ -83,7 +83,9 @@ export function Privacy() {
         </li>
         <li>
           <strong>OpenAI and Anthropic</strong> answer the prompts. Each prompt is sent with the
-          city and region it is asked about. Your email address is not sent to them.
+          city and region it is asked about. When you ask for a draft, Anthropic writes it, and is
+          sent the business's name, city, region, category and website, what you say the business
+          does, and the page the draft is about. Your email address is not sent to them.
         </li>
         <li>
           <strong>Resend</strong> delivers our emails, so it receives your email address and the

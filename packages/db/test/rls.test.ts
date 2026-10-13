@@ -5123,6 +5123,55 @@ describe("the operator", () => {
       ]);
     });
 
+    it("have what they used recorded by the worker, for no surface, where the operator's spend counts it", async () => {
+      const [draft] = await drafts();
+      const insert = `insert into public.provider_usage
+           (organization_id, draft_id, model, calls, input_tokens, cached_input_tokens, output_tokens, searches)
+         values ('${theirs}', '${draft?.id}', 'draft-model', 1, 400, 0, 150, 0)`;
+      for (const user of [alice, operator]) {
+        await expect(
+          as("authenticated", user, () => db.query(insert)),
+          user,
+        ).rejects.toThrow(/permission denied/);
+      }
+      await as("service_role", null, () => db.query(insert));
+
+      const byMonth =
+        "select organization_id, is_audit, calls::int, input_tokens::int, output_tokens::int from public.usage_by_month(now() - interval '1 day') where model = 'draft-model'";
+      expect(await as("authenticated", operator, () => rows(byMonth))).toEqual([
+        {
+          organization_id: theirs,
+          is_audit: false,
+          calls: 1,
+          input_tokens: 400,
+          output_tokens: 150,
+        },
+      ]);
+      // What a customer's drafts cost is the operator's business, not a member's.
+      expect(await as("authenticated", alice, () => rows(byMonth))).toEqual([]);
+    });
+
+    it("leave what they used on record when they go, because the money was still spent", async () => {
+      await db.query("delete from public.recommendations where id = $1", [task]);
+      expect(await drafts()).toEqual([]);
+      expect(
+        await rows(
+          "select organization_id, draft_id, surface, calls from public.provider_usage where model = 'draft-model'",
+        ),
+      ).toEqual([{ organization_id: theirs, draft_id: null, surface: null, calls: 1 }]);
+      await db.query("delete from public.provider_usage where model = 'draft-model'");
+      // The task is put back for what follows.
+      const [recommendation] = await rows<{ id: string }>(
+        "insert into public.recommendations (location_id, rule, title, detail) values ($1, 'source:usnews.com', 't', 'd') returning id",
+        [main],
+      );
+      task = recommendation?.id ?? "";
+      await db.query("insert into public.drafts (location_id, recommendation_id) values ($1, $2)", [
+        main,
+        task,
+      ]);
+    });
+
     it("go with their task, and with their location", async () => {
       await db.query("update public.organizations set max_locations = 2 where id = $1", [theirs]);
       const [gone] = await rows<{ id: string }>(

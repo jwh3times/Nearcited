@@ -2,16 +2,19 @@ import type { ProviderUsage, Surface } from "@nearcited/shared";
 import type { CallUsage } from "./types";
 
 /**
- * Adds up what a scan's calls used, one total per surface and model. A scan makes many calls at
- * once, and a model can change between them when a provider falls back to another.
+ * Adds up what a piece of work's calls used, one total per surface and model. A scan makes many
+ * calls at once, and a model can change between them when a provider falls back to another.
  */
 export function usageTally() {
   const totals = new Map<string, ProviderUsage>();
   return {
-    /** A callback for one surface's checks, to hand to its provider as `onUsage`. */
-    on(surface: Surface) {
+    /**
+     * A callback for one surface's checks, to hand to its provider as `onUsage`. Null is for
+     * calls that are not a check of any surface, as a draft's are.
+     */
+    on(surface: Surface | null) {
       return (call: CallUsage) => {
-        const key = `${surface}|${call.model}`;
+        const key = `${surface ?? ""}|${call.model}`;
         const total = totals.get(key) ?? {
           surface,
           model: call.model,
