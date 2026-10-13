@@ -146,8 +146,12 @@ pass `pnpm check` and run in mock mode without it.
   decides what a draft is written from. That is `DraftGiven` (`packages/shared/src/drafts.ts`) and
   nothing else: do not give a writer anything from the answers, or anything about the business a
   location does not hold. Every draft passes `factsNobodyGave` before it is kept, whatever wrote
-  it, and one that fails twice is not kept. A writer only writes: it returns text, and decides
-  nothing. `claim_draft()` takes from the month and `finish_draft()` gives it back when nothing
+  it, and one that fails twice is not kept. A writer only writes: it returns text, reports what
+  each call used, and decides nothing. It is given no tools. A real draft is written only where
+  the private tuning has instructions for its kind (`liveDraftKinds`, `apps/api/src/drafts/claude.ts`):
+  the default tuning's are a placeholder, as its prompts are, so keep that too. What the writing
+  used is recorded after every write (`recordUsage`, for the organization and no surface), kept
+  or not. `claim_draft()` takes from the month and `finish_draft()` gives it back when nothing
   was written: count a draft nowhere else. Sample text is kept as `sample_data`, names no model
   and is never called a model's. Nothing on a request path writes `drafts`, and a draft is not
   written by opening a page.

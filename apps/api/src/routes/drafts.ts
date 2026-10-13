@@ -1,7 +1,7 @@
 import { type Draft, draftRequest, NO_DRAFT } from "@nearcited/shared";
 import { Hono } from "hono";
 import type { AppEnv } from "../app";
-import { writerFor } from "../drafts";
+import { writesRealDrafts } from "../drafts";
 import { ApiError, notFound } from "../errors";
 import { usesSampleData } from "../providers";
 import { currentTasks } from "../tasks";
@@ -26,8 +26,8 @@ async function queueWrite(queue: AppEnv["Bindings"]["SCAN_QUEUE"], draft: Draft)
  * records the ask. The worker writes the draft, because that takes from the month's allowance.
  *
  * What is refused here is refused before anything is counted: a task with no draft to write, a
- * location that has not said what the business does, a deployment with nothing to write a real
- * draft with, and a month with no room.
+ * location that has not said what the business does, a build with no instructions or no key to
+ * write a real draft with, and a month with no room.
  */
 draftRoutes.post("/locations/:locationId/tasks/:taskId/draft", async (c) => {
   const store = c.get("store");
@@ -47,7 +47,7 @@ draftRoutes.post("/locations/:locationId/tasks/:taskId/draft", async (c) => {
   if (!task) throw notFound("Task");
   const request = draftRequest(location, task);
   if (typeof request === "string") throw new ApiError(409, request, NO_DRAFT[request]);
-  if (!writerFor(sample, undefined)) {
+  if (!sample && !writesRealDrafts(c.env, c.get("deployment").draft_kinds, request.kind)) {
     throw new ApiError(503, "drafts_unavailable", "Drafts cannot be written here yet.");
   }
 

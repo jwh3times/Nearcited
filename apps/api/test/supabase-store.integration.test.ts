@@ -870,6 +870,24 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
       { status: "failed", text: "Hello.", failure: "It failed." },
     ]);
     expect(await aliceStore.getAllowanceUse(organization.id)).toEqual({ drafts: 1 });
+    // What a draft used is recorded for its organization, and for no surface.
+    const wrote = {
+      surface: null,
+      model: "draft-model",
+      calls: 1,
+      input_tokens: 400,
+      cached_input_tokens: 0,
+      output_tokens: 150,
+      searches: 0,
+    };
+    const forDraft = { organization_id: organization.id, draft_id: draft.id };
+    await worker.recordUsage(forDraft, [wrote]);
+    await expect(aliceStore.recordUsage(forDraft, [wrote])).rejects.toBeInstanceOf(StoreError);
+    expect(
+      (await worker.listUsageByMonth(new Date(Date.now() - 86_400_000).toISOString())).filter(
+        (month) => month.model === "draft-model",
+      ),
+    ).toMatchObject([{ organization_id: organization.id, is_audit: false, calls: 1 }]);
     await service
       .from("organizations")
       .update({ allowances: {}, max_locations: organization.max_locations })

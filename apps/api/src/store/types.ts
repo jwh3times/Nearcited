@@ -53,8 +53,11 @@ export type OperatorScan = OperatorFacts["scans"][number];
 /** An audit as it is listed for the operator, before its token is turned into a link. */
 export type ListedAudit = Omit<OperatorAudit, "link"> & { token: string };
 
-/** What a set of usage is for: a scan of an organization's location, or an audit. */
-export type UsageSource = { organization_id: string; scan_id: string } | { audit_id: string };
+/** What a set of usage is for: a scan of an organization's location, an audit, or a draft. */
+export type UsageSource =
+  | { organization_id: string; scan_id: string }
+  | { audit_id: string }
+  | { organization_id: string; draft_id: string };
 
 /** What became of writing a draft, as the worker reports it. */
 export type DraftOutcome =

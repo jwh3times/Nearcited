@@ -61,6 +61,22 @@ worker writes generated text from the same inputs, through the same check and th
 and calls no model. It is kept marked as sample text and labelled as that wherever it is read,
 never as a model's.
 
+**A real draft is written only with the private instructions.** Which model writes, how hard it
+works and what it is told are tuning ([0001](0001-private-tuning-as-data.md)). The default tuning
+carries placeholder instructions so the code runs, and a build that has only those writes no
+draft on real data, for the reason it runs no live scan: what it wrote would be shown as the
+product's own work. A tuning file with no instructions for a kind of draft writes none of that
+kind. Nothing falls back to the placeholder.
+
+**The model is given the details set out by the code, and looks nothing up.** The instructions
+are private; what follows them is not. Each detail goes on a line with its name, the same way
+every time, and one that is not on file is said to be not on file. The request has no tools, so
+the model cannot search for the business and bring back what it finds.
+
+**What the writing used is recorded after every write.** A draft that was thrown away, or cut
+short, or refused was still paid for. Its use goes to the operator's spend against the
+organization, as a scan's does, though the month is given back.
+
 **A draft is copied, not edited here.** It is shown with a button that copies it. Where it goes
 is an email, a form on somebody else's site or a field in a listing, and that is where it is
 changed.
@@ -88,6 +104,7 @@ changed.
 - A draft takes a moment to arrive: the queue's wait, then the writing.
 - The check will throw away some drafts a reader would have found fine, such as one that says
   "one of 3 pizzerias" where nobody gave a 3. That costs a second write and, rarely, a draft.
-- What a model is told to write is tuning, and its real wording is private
-  ([0001](0001-private-tuning-as-data.md)). The check is not: it is a rule in the shared package,
-  and it runs on whatever was written, by whatever wrote it.
+- The instructions are private and the check is not: it is a rule in the shared package, and it
+  runs on whatever was written, by whatever wrote it.
+- A draft costs money that a month given back does not return. A writer that keeps failing the
+  check is paid for twice an ask and shows only in the operator's spend.

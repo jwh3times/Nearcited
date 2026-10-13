@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { ProviderUsage } from "./schemas";
+import { DraftKindSchema, type ProviderUsage } from "./schemas";
 
 /**
  * The values that decide what the product measures and how it scores: prompt wording and score
@@ -68,6 +68,25 @@ export type ModelRate = z.infer<typeof ModelRateSchema>;
 export const RatesSchema = z.record(z.string().trim().min(1), ModelRateSchema);
 export type Rates = z.infer<typeof RatesSchema>;
 
+/**
+ * What writes a draft, and what it is told. The details a draft is written from are set out for
+ * the model by the code, the same way every time; the instructions here are what it is told to
+ * make of them.
+ */
+export const DraftsTuningSchema = z.object({
+  model: z.string().trim().min(1),
+  /** How hard the model works on a draft. */
+  effort: z.enum(["low", "medium", "high", "xhigh", "max"]),
+  /** The most a draft may run to. A draft is short: this stops one that does not end. */
+  max_tokens: z.number().int().min(200).max(8000),
+  /**
+   * What the model is told, for each kind of draft. A kind with no instructions here is not
+   * written on real data: nothing falls back to a placeholder.
+   */
+  instructions: z.partialRecord(DraftKindSchema, z.string().trim().min(1)),
+});
+export type DraftsTuning = z.infer<typeof DraftsTuningSchema>;
+
 export const TuningSchema = z.object({
   score: ScoreWeightsSchema,
   prompts: PromptsSchema,
@@ -93,6 +112,11 @@ export const TuningSchema = z.object({
    * no entry here has no known cost: it is never priced as another model.
    */
   rates: RatesSchema,
+  /**
+   * Request settings and instructions for drafts. Left out, no draft is written on real data: a
+   * tuning file from before drafts existed still loads, and writes none.
+   */
+  drafts: DraftsTuningSchema.optional(),
 });
 export type Tuning = z.infer<typeof TuningSchema>;
 
@@ -115,6 +139,14 @@ export const defaultTuning: Tuning = {
   chatgpt: { model: "gpt-6.1-sol", effort: "medium" },
   claude: { model: "claude-sonnet-5-5", effort: "low", max_searches: 1 },
   rates: {},
+  drafts: {
+    model: "claude-sonnet-5-5",
+    effort: "low",
+    max_tokens: 1000,
+    instructions: {
+      note: "Write a short note from the owner of the business to the author of the page, asking to be considered for it. Use only the details given.",
+    },
+  },
 };
 
 export type TuningSource = "private" | "default";

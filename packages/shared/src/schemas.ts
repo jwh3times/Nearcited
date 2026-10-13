@@ -258,7 +258,8 @@ export type Recommendation = z.infer<typeof RecommendationSchema>;
  * only on the server, from rates kept outside this repository.
  */
 export const ProviderUsageSchema = z.object({
-  surface: SurfaceSchema,
+  /** The surface a check was of. Null for use that was not a check: a draft. */
+  surface: SurfaceSchema.nullable(),
   /** The model that answered. */
   model: z.string(),
   /** How many calls the counts below are added up over. */

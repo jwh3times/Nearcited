@@ -1,4 +1,12 @@
-import { type DraftMessage, draftRequest, factsNobodyGave, NO_DRAFT } from "@nearcited/shared";
+import {
+  type DraftKind,
+  type DraftMessage,
+  draftRequest,
+  factsNobodyGave,
+  NO_DRAFT,
+} from "@nearcited/shared";
+import type { Env } from "../env";
+import { usageTally } from "../providers/usage";
 import type { Store } from "../store/types";
 import { currentTasks } from "../tasks";
 import { type DraftWriter, sampleWriter } from "./sample";
@@ -25,9 +33,30 @@ const MOST_WRITES = 2;
 
 export type Wrote = "written" | "failed" | "again" | "busy";
 
-/** What a task's draft is written with: sample text for sample data, else whatever writes a real one. */
-export function writerFor(sample: boolean, writer: DraftWriter | undefined): DraftWriter | null {
-  return sample ? sampleWriter : (writer ?? null);
+/**
+ * What a draft of `kind` is written with: sample text for sample data, else whatever writes a
+ * real one of that kind here. Null where nothing does.
+ */
+export function writerFor(
+  sample: boolean,
+  writer: DraftWriter | undefined,
+  kind: DraftKind,
+): DraftWriter | null {
+  const chosen = sample ? sampleWriter : writer;
+  return chosen?.kinds.includes(kind) ? chosen : null;
+}
+
+/**
+ * Whether a real draft of `kind` can be written here: the build has instructions for it, which
+ * come only with the private tuning, and a key to ask with. What the route refuses on, so nobody
+ * waits for a draft that cannot come.
+ */
+export function writesRealDrafts(
+  env: Pick<Env, "ANTHROPIC_API_KEY">,
+  kinds: readonly DraftKind[] | undefined,
+  kind: DraftKind,
+): boolean {
+  return Boolean(env.ANTHROPIC_API_KEY) && (kinds?.includes(kind) ?? false);
 }
 
 /**
@@ -60,16 +89,34 @@ export async function writeDraft(draftId: string, deps: DraftDeps): Promise<Wrot
     );
     const request = draftRequest(location, task);
     if (typeof request === "string") return fail(NO_DRAFT[request]);
-    const writer = writerFor(sample, deps.writer);
+    const writer = writerFor(sample, deps.writer, request.kind);
     if (!writer) return fail("Drafts cannot be written here yet.");
+
+    // What the writing used is kept whether the draft is or not: a draft that was thrown away
+    // was still paid for.
+    const used = usageTally();
+    const keepUsage = async () => {
+      try {
+        await store.recordUsage(
+          { organization_id: organization.id, draft_id: draftId },
+          used.take(),
+        );
+      } catch (error) {
+        // Losing the record must not change what happens to the draft.
+        console.error(`Draft ${draftId} could not record what it used`, error);
+      }
+    };
 
     for (let write = 1; write <= MOST_WRITES; write += 1) {
       let text: string;
       try {
-        text = (await writer.write(request)).trim();
+        text = (await writer.write(request, used.on(null))).trim();
       } catch (error) {
         console.error(`Draft ${draftId}: it could not be written`, error);
         return fail("It could not be written. Nothing was counted.");
+      } finally {
+        // After each write, so one that failed is recorded as much as one that did not.
+        await keepUsage();
       }
       const unknown = text === "" ? ["nothing"] : factsNobodyGave(text, request.given);
       if (unknown.length === 0) {

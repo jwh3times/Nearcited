@@ -1,8 +1,10 @@
 import {
+  DRAFT_KINDS,
   type DraftMessage,
   DraftSchema,
   LocationDetailSchema,
   LocationSchema,
+  OperatorSpendSchema,
   OrganizationSchema,
   TrackedQuerySchema,
 } from "@nearcited/shared";
@@ -38,6 +40,30 @@ const app = createApp({
   },
   publicStore: () => memoryStore(db, "nobody"),
 });
+
+/** The same app as a build with the private tuning: it prices a model and can write a note. */
+const priced = createApp({
+  authenticate: async (request) => {
+    const userId = request.headers.get("Authorization")?.replace("Bearer ", "");
+    return userId
+      ? { user: { id: userId, email: `${userId}@example.com` }, store: memoryStore(db, userId) }
+      : null;
+  },
+  publicStore: () => memoryStore(db, "nobody"),
+  deployment: {
+    models: {},
+    rates: {
+      "test-model": {
+        input_per_million: 5,
+        cached_input_per_million: 0.5,
+        output_per_million: 20,
+        per_thousand_searches: 10,
+      },
+    },
+    draft_kinds: ["note"],
+  },
+});
+const bearer = (user: string) => ({ headers: { Authorization: `Bearer ${user}` } });
 
 function call(user: string | null, method: string, path: string, body?: unknown) {
   return app.request(
@@ -150,7 +176,31 @@ const writing = (...texts: string[]): DraftWriter & { write: ReturnType<typeof v
   let next = 0;
   return {
     model: "test-model",
+    kinds: DRAFT_KINDS,
     write: vi.fn(async () => texts[Math.min(next++, texts.length - 1)] ?? ""),
+  };
+};
+
+const CALL = {
+  model: "test-model-2026-10-01",
+  input_tokens: 400,
+  cached_input_tokens: 0,
+  output_tokens: 150,
+  searches: 0,
+};
+
+/** A writer that is charged for every call, as a model is, and hands back each text in turn. */
+const charged = (...texts: (string | Error)[]): DraftWriter => {
+  let next = 0;
+  return {
+    model: "test-model",
+    kinds: DRAFT_KINDS,
+    write: async (_request, onUsage) => {
+      const text = texts[Math.min(next++, texts.length - 1)] ?? "";
+      onUsage?.(CALL);
+      if (text instanceof Error) throw text;
+      return text;
+    },
   };
 };
 
@@ -324,19 +374,22 @@ describe("writing a draft", () => {
     });
 
     await writeDraft(draft.id, { store: worker(), sampleData: false, writer });
-    expect(writer.write).toHaveBeenCalledWith({
-      kind: "note",
-      given: {
-        name: "Joe's Pizza",
-        city: "Raleigh",
-        region: "NC",
-        category: null,
-        website: "https://joespizza.example",
-        what_we_do: SAID,
-        host: "travel.usnews.com",
-        url: GUIDE,
+    expect(writer.write).toHaveBeenCalledWith(
+      {
+        kind: "note",
+        given: {
+          name: "Joe's Pizza",
+          city: "Raleigh",
+          region: "NC",
+          category: null,
+          website: "https://joespizza.example",
+          what_we_do: SAID,
+          host: "travel.usnews.com",
+          url: GUIDE,
+        },
       },
-    });
+      expect.any(Function),
+    );
   });
 
   it("writes it again when asked, in place of the first, and counts one more", async () => {
@@ -449,6 +502,7 @@ describe("a draft that could not be written", () => {
     const draft = await asked(alice, location.id, note.id);
     const writer: DraftWriter = {
       model: "test-model",
+      kinds: DRAFT_KINDS,
       write: async () => {
         throw new Error("The model is down.");
       },
@@ -546,6 +600,157 @@ describe("a draft that could not be written", () => {
     expect(await writeDraft(crypto.randomUUID(), { store: worker(), sampleData: true })).toBe(
       "busy",
     );
+  });
+});
+
+describe("what a draft used", () => {
+  const MADE_UP = "Call Joe's Pizza on 919-555-0100.";
+  const CLEAN = "Joe's Pizza has made wood-fired pizza since 1998.";
+
+  async function askedOnRealData() {
+    const made = await withTasks();
+    db.scans.forEach((scan) => {
+      scan.sample_data = false;
+    });
+    return { ...made, draft: await asked(alice, made.location.id, made.note.id) };
+  }
+  const row = (organizationId: string, draftId: string) => ({
+    organization_id: organizationId,
+    draft_id: draftId,
+    surface: null,
+    calls: 1,
+    ...CALL,
+    created_at: expect.any(String),
+  });
+
+  it("is recorded for its organization, as the model that answered reported it", async () => {
+    const { organization, draft } = await askedOnRealData();
+    await writeDraft(draft.id, { store: worker(), sampleData: false, writer: charged(CLEAN) });
+    expect(db.usage).toEqual([row(organization.id, draft.id)]);
+  });
+
+  it("is recorded for a draft that was thrown away, since it was still paid for", async () => {
+    const { organization, draft } = await askedOnRealData();
+    const writer = charged(MADE_UP);
+    expect(await writeDraft(draft.id, { store: worker(), sampleData: false, writer })).toBe(
+      "failed",
+    );
+    // Two writes, neither kept, both charged. The month was given back; the money was not.
+    expect(db.usage).toEqual([row(organization.id, draft.id), row(organization.id, draft.id)]);
+    expect(await used(organization.id)).toEqual({ drafts: 0 });
+  });
+
+  it("is recorded for a call that was charged and then failed", async () => {
+    const { organization, draft } = await askedOnRealData();
+    const writer = charged(new Error("Claude did not finish the draft."));
+    expect(await writeDraft(draft.id, { store: worker(), sampleData: false, writer })).toBe(
+      "failed",
+    );
+    expect(db.usage).toEqual([row(organization.id, draft.id)]);
+  });
+
+  it("is nothing for sample text", async () => {
+    const { location, note } = await withTasks();
+    const draft = await asked(alice, location.id, note.id);
+    await writeDraft(draft.id, { store: worker(), sampleData: true, writer: charged(CLEAN) });
+    expect(db.usage).toEqual([]);
+  });
+
+  it("does not stop the draft being kept when the record cannot be", async () => {
+    const { location, note, draft } = await askedOnRealData();
+    const store: Store = {
+      ...worker(),
+      recordUsage: async () => {
+        throw new Error("The database is down.");
+      },
+    };
+    expect(await writeDraft(draft.id, { store, sampleData: false, writer: charged(CLEAN) })).toBe(
+      "written",
+    );
+    expect(await draftOf(location.id, note.id)).toMatchObject({ status: "written", text: CLEAN });
+  });
+
+  it("shows in the operator's spend, in its organization's month", async () => {
+    const { organization, draft } = await askedOnRealData();
+    await writeDraft(draft.id, { store: worker(), sampleData: false, writer: charged(CLEAN) });
+    db.operators.add(carol);
+
+    const spend = OperatorSpendSchema.parse(
+      await (await priced.request("/api/operator/spend", bearer(carol), env)).json(),
+    );
+    // 400 input tokens at $5 a million and 150 output at $20: $0.002 and $0.003.
+    expect(spend.months[0]?.organizations).toEqual([
+      {
+        organization_id: organization.id,
+        name: "Raleigh Pizza Group",
+        is_yours: false,
+        cost: 0.005,
+      },
+    ]);
+    expect(spend.months[0]?.unpriced).toEqual([]);
+  });
+});
+
+describe("a real draft", () => {
+  /** A build with the private tuning: it has instructions for a note. */
+  const live = () => {
+    env.PROVIDER_MODE = "live";
+    return (user: string, locationId: string, taskId: string) =>
+      priced.request(
+        `/api/locations/${locationId}/tasks/${taskId}/draft`,
+        { ...bearer(user), method: "POST" },
+        env,
+      );
+  };
+
+  it("can be asked for where the build has instructions for its kind and a key to ask with", async () => {
+    const askLive = live();
+    env.ANTHROPIC_API_KEY = "test-key";
+    const { location, note } = await withTasks();
+    const response = await askLive(alice, location.id, note.id);
+    expect(response.status).toBe(202);
+    expect(queued).toHaveLength(1);
+  });
+
+  it("is refused where there is no key, or no instructions for its kind", async () => {
+    const askLive = live();
+    const { location, note } = await withTasks();
+    const noKey = await askLive(alice, location.id, note.id);
+    expect(noKey.status).toBe(503);
+    expect(await errorCode(noKey)).toBe("drafts_unavailable");
+
+    // A key, and a build without the private tuning: the placeholder is never written with.
+    env.ANTHROPIC_API_KEY = "test-key";
+    const noWording = await ask(alice, location.id, note.id);
+    expect(noWording.status).toBe(503);
+    expect(db.drafts).toEqual([]);
+  });
+
+  it("is failed by the worker where its writer has no instructions for the kind", async () => {
+    const { organization, location, note } = await withTasks();
+    db.scans.forEach((scan) => {
+      scan.sample_data = false;
+    });
+    const draft = await asked(alice, location.id, note.id);
+    const writer: DraftWriter = { ...charged("Hello."), kinds: [] };
+
+    expect(await writeDraft(draft.id, { store: worker(), sampleData: false, writer })).toBe(
+      "failed",
+    );
+    expect((await draftOf(location.id, note.id))?.failure).toBe(
+      "Drafts cannot be written here yet.",
+    );
+    expect(db.usage).toEqual([]);
+    expect(await used(organization.id)).toEqual({ drafts: 0 });
+  });
+
+  it("is never asked of a model on sample data, whatever writer is to hand", async () => {
+    const { location, note } = await withTasks();
+    const draft = await asked(alice, location.id, note.id);
+    const writer = writing("A model wrote this.");
+    await writeDraft(draft.id, { store: worker(), sampleData: true, writer });
+    expect(writer.write).not.toHaveBeenCalled();
+    expect(await draftOf(location.id, note.id)).toMatchObject({ sample_data: true });
   });
 });
 

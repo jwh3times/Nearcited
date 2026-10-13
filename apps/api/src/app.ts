@@ -1,4 +1,4 @@
-import { type Rates, toPublicAudit } from "@nearcited/shared";
+import { type DraftKind, type Rates, toPublicAudit } from "@nearcited/shared";
 import { Hono } from "hono";
 import { type AuthedUser, type Authenticate, authenticateWithSupabase } from "./auth";
 import { thankForSubscription } from "./billing/started";
@@ -59,6 +59,11 @@ export interface Deployment {
    * to anyone: only the dollars worked out from it are.
    */
   rates?: Rates;
+  /**
+   * The kinds of draft this build has instructions to write on real data. None without the
+   * private tuning.
+   */
+  draft_kinds?: readonly DraftKind[];
 }
 
 /** The token in an audit's link: 64 hex characters. Anything else is not worth a query. */

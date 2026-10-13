@@ -45,7 +45,11 @@ export interface Env {
   EMAIL_REPLY_TO?: string;
   /** Optional secret. With it, live scans check ChatGPT; without it that surface is skipped. */
   OPENAI_API_KEY?: string;
-  /** Optional secret. With it, live scans check Claude; without it that surface is skipped. */
+  /**
+   * Optional secret. With it, live scans check Claude, and a draft is written on real data where
+   * the tuning has instructions for its kind. Without it that surface is skipped and no real
+   * draft is written.
+   */
   ANTHROPIC_API_KEY?: string;
   /** Optional. Without it, scheduled scans finish without sending a report. */
   RESEND_API_KEY?: string;

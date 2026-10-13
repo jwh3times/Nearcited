@@ -83,8 +83,9 @@ network access. The same goes for which phone numbers a written answer gave for 
 result keeps only an excerpt of an answer, 280 characters, so those numbers are read while the
 whole answer is in hand and kept with the result as `scan_results.phones` (see "Alerts"). A
 provider also reports what each call it is charged for used (`onUsage`); the scan and audit
-runners add those up and store them in `provider_usage`. A failure to store them is logged and
-does not change the outcome. What a row cost is `usageCost` in `packages/shared`,
+runners add those up and store them in `provider_usage`, and so does the worker that writes a
+draft (see "Drafts"), whose rows name the draft and no surface. A failure to store them is logged
+and does not change the outcome. What a row cost is `usageCost` in `packages/shared`,
 from the tuning's `rates`: one entry per model, which a public clone leaves empty, so a model
 without an entry has no cost and is never priced as another.
 
@@ -92,13 +93,15 @@ The operator's spend figures (`GET /api/operator/spend`) are the only reader. Th
 the rows up by calendar month in UTC (`usage_by_month()`, which runs as the caller, so it counts
 everything for the operator and nothing for a member), and `buildSpend` prices the sums when they
 are read: per organization, audits on their own line, and what deleted organizations had spent. A
-rate corrected later therefore corrects past months too. A test organization is never counted, and
+draft's use is in its organization's line, since its rows carry the organization and the sum is by
+month, organization and model. A rate corrected later therefore corrects past months too. A test organization is never counted, and
 usage on a model with no rate is named and left out of the total, not guessed at. Only dollars
 leave the server; the rates do not.
 
 ## Tuning
 
-Prompt wording and score weights are values, defined by `TuningSchema` in
+Prompt wording, score weights and what writes a draft (its model, effort, length and the
+instructions for each kind of draft) are values, defined by `TuningSchema` in
 `packages/shared/src/tuning.ts` with placeholder defaults. The values a deployment really uses
 live in the private companion repository as `private/tuning.json`
 ([ADR 0001](adr/0001-private-tuning-as-data.md)).
@@ -113,10 +116,19 @@ apps/api/.tuning/tuning.json    gitignored: { source: "private", tuning } or { s
 apps/api/src/tuning.ts          resolveTuning() at startup; an invalid private file throws
         |
 queue consumer -> runScan({ weights, unavailable })
+                  writeDraft({ writer })           (the writer holds the draft settings)
+fetch handler  -> Deployment.draft_kinds            (what the draft route refuses on)
 ```
 
 `runScan` and the scoring functions take the tuning as arguments, so they are tested without the
 bundled file. Only `apps/api/src/index.ts` imports the resolved tuning.
+
+The draft settings, `drafts`, are optional: a private file from before drafts existed still loads,
+and a build whose file has none writes no draft on real data. `liveDraftKinds`
+(`apps/api/src/drafts/claude.ts`) is the kinds of draft a build can write there: those the private
+file has instructions for, and none on the default tuning, whose `drafts` is a placeholder that
+lets the code run and is never used on real data, for the reason live scans refuse the default
+tuning. A kind with no instructions is not written, and nothing falls back to a placeholder.
 
 ## Live providers
 
@@ -425,7 +437,7 @@ from counts the product holds; nothing a model wrote is in one.
 - A task about a page somebody wrote (`editorial`) can have a draft: the note to its author. The
   route returns `draft_kind` for a task that is still to do and `draft` once one has been asked
   for (see "Drafts"). The task's own wording is unchanged, and still composed by rule.
-- Not built: a draft written by a model (only sample text is written, see "Drafts"), a direct
+- Not built: any draft but the note (see "Drafts"), a direct
   review link, a printable code or request text, page copy as a task, and anything the product
   does outside itself for real. Approvals and actions exist (see "Actions") but the only kind is a
   sample one, which does no task's work, so no action has marked a task.
@@ -933,8 +945,8 @@ A draft is wording written for one of an owner's tasks, so that the owner has le
 the note to the author of a page, for a task about a site of the `editorial` kind (`drafts`; the
 terms are in `GLOSSARY.md`, the decision in `docs/adr/0016-the-worker-writes-a-draft.md`). It is
 `asked`, then `written` or `failed`. The product sends nothing: the owner copies it and changes it
-wherever it is going. Only sample text is written. Nothing calls a model, so there is no real draft
-yet (see "Known gaps").
+wherever it is going. On sample data the text is generated; on real data Claude writes it, from the
+instructions the private tuning holds for its kind.
 
 - **Which tasks have one.** `draftKindFor` (`packages/shared/src/drafts.ts`) names the kind of
   draft for a kind of site: `note` for `editorial`, nothing for the others. `buildTasks` puts it on
@@ -947,8 +959,10 @@ yet (see "Known gaps").
   and refuses what it can before anything is recorded (`draftRequest`): 409 `no_draft` for a task
   that is gone or has no wording to write, and 409 `what_we_do_missing` until the location has said
   what the business does (`locations.what_we_do`), because without it a draft would be a name and a
-  city and whatever a writer made up. It answers 503 `drafts_unavailable` where nothing can write a
-  real draft. Before any of those it asks whose organization the location is (`listOrganizations`,
+  city and whatever a writer made up. On real data it answers 503 `drafts_unavailable` where the
+  build has no instructions for the draft's kind (`Deployment.draft_kinds`, from `liveDraftKinds`)
+  or the deployment has no `ANTHROPIC_API_KEY` (`writesRealDrafts`); sample data is not refused
+  for either. Before any of those it asks whose organization the location is (`listOrganizations`,
   which goes by membership and not by what the caller can read) and answers 404 to anyone who is
   not a member, the operator included, so a task that would be refused tells them no more than a
   stranger is told. Then `ask_draft()` records the ask. It is a security-definer function that
@@ -967,14 +981,18 @@ yet (see "Known gaps").
   works out again what the draft is written from, so nothing a request said decides it. If the task
   is gone, or no longer has wording to write (it was done, or the business's description was taken
   away) in the meantime, the ask is failed with the reason and what it took from the month is given
-  back. Sample data is a deployment in mock mode, or a test organization. The queue consumer hands the
-  worker no writer, so on real data an ask that gets this far is failed with "Drafts cannot be
-  written here yet."
+  back. Sample data is a deployment in mock mode, or a test organization. A deployment in mock mode
+  hands the worker no model, whatever keys it holds; any other is handed `createLiveDraftWriter`'s,
+  which is nothing without `ANTHROPIC_API_KEY` or without instructions for any kind. `writerFor`
+  chooses `sampleWriter` for sample data and otherwise that writer, and only for a kind it has
+  instructions for; where there is none (the key or the instructions went between the ask and the
+  write) the ask is failed with "Drafts cannot be written here yet." and the month given back.
 - **A draft is written from what is held, and nothing from the answers.** `DraftGiven` is the
   location's name, city, region, category and website, `what_we_do`, the site the task is about and
   the page of it the answers cited most. A detail not on file is null and is not filled in. What an
   assistant said about the business is the thing measured and is not given. A writer
-  (`DraftWriter`) only writes: it returns text, and whether the text may be kept is decided here.
+  (`DraftWriter`) only writes: it names the kinds it writes, returns text, and reports what each
+  call used (`onUsage`). Whether the text may be kept is decided here.
 - **A rule checks every draft before it is kept.** `factsNobodyGave` lists the numbers, web
   addresses and email addresses in the text that are not in `DraftGiven`; a web address passes as one
   that was given or as the site of one, so a made-up page of the business's own site does not. A
@@ -987,6 +1005,28 @@ yet (see "Known gaps").
   generates the note from `DraftGiven` and calls nothing. It goes through the same check and the
   same count, and is kept with `sample_data` true and no `model`. The page labels it as sample text
   that no model wrote, and a real draft as a model's.
+- **A real draft is written by Claude, with no tools.** `createClaudeDraftWriter`
+  (`apps/api/src/drafts/claude.ts`) calls Anthropic's Messages API through its SDK, with no web
+  search and no other tool, so it cannot look up the business and bring back what it finds. The
+  system prompt is the instructions for the draft's kind, from `drafts.instructions` in the
+  tuning; the user message is `setOut(given)`: `DraftGiven` one detail to a line, each with its
+  name, and "not on file" for one that is null, the same way every time. The model, its effort and
+  the longest a draft may run (`max_tokens`) are the tuning's too. It makes one call per write,
+  with a 60-second timeout and no retries, since a draft that fails is not counted and its reader
+  asks again. It joins the text blocks of the answer and throws on a refusal or an answer that did
+  not end (stopped at `max_tokens`), which fails the ask like any writer that throws. The
+  instructions are the private part and the check is not: `factsNobodyGave` runs on whatever
+  comes back. It needs `ANTHROPIC_API_KEY`, the one variable Claude scans use.
+- **What the writing used is recorded after every write, kept or not.** `writeDraft` adds up what
+  the writer reports (`usageTally`, with no surface) and, after each write, calls
+  `recordUsage({ organization_id, draft_id }, rows)`. A draft the check threw away, and a call whose
+  answer was refused or cut short, are recorded as much as a draft that was kept, because they were
+  paid for even though the month is given back; a request that got no answer reports nothing.
+  Sample text reports nothing and records nothing. Failing to record is logged and changes
+  nothing about the draft. A row has a null `surface` and a `draft_id` that is set null if the
+  draft goes with its task, so the row outlives it. `usage_by_month()` is unchanged, so the
+  operator's spend counts a draft's use in its organization's month, priced by the tuning's rates
+  like a scan's (see "How a scan runs").
 - **A try that something gets in the way of is made again, three times in all.** A writer that throws
   fails the ask at once ("Nothing was counted."). Any other error, such as a failed read, lets go of
   the draft with `finish_draft()` saying `again`, and the queue consumer asks for the message again in
@@ -1024,7 +1064,7 @@ and has no buttons.
 
 Every row belongs to an organization, and a user reaches a row only through a membership. The
 exceptions are `audits`, described above, and `provider_usage`, which keeps its rows after the
-organization, scan or audit they describe is deleted. No API role can write either table, and
+organization, scan, audit or draft they describe is deleted. No API role can write either table, and
 the only account that can read them is the operator's; the Worker's secret key writes them. Four
 more, `connection_secrets`, `connection_kind_allowances`, `sample_listings` and `action_kind_terms`,
 no API role can read or write at all (see "Connections" and "Actions").
@@ -1326,13 +1366,13 @@ drop it.
   announcement, but no work would stop at it or be counted against it. What an allowance can stop is
   a kind of connection that needs it (see "Connections"), a kind of action that takes from it (see
   "Actions") and a draft (see "Drafts"), and only the last exists ([#133](https://github.com/jwh3times/Nearcited/issues/133)).
-- No draft is written by a model. `writeDraft` is given a writer only for sample text, and the
-  queue consumer gives it none, so on real data asking is refused (503 `drafts_unavailable`) and an
-  ask that got through is failed. There is no tuning yet for what a model would be told, and no
-  spend is recorded for a draft, since `provider_usage` is for scans and audits, so what a draft
-  costs is a count of asks against the month and not a price. The only kind of draft is the note to
-  the author of a page; a description for a listing is not built. The check on what a draft states
-  reads characters and not meaning (see "Drafts").
+- A real draft is written only where the private tuning has instructions for its kind, and it
+  needs them before a deployment writes one (see "Tuning" and "Drafts"). What a draft costs has not
+  been measured: a draft's use is recorded, so the figure can be read from `provider_usage` once
+  real drafts are written, and a month given back does not return what a failed write cost, so a
+  writer that keeps failing the check is paid for twice an ask and shows only in the operator's
+  spend. The only kind of draft is the note to the author of a page; a description for a listing is
+  not built. The check on what a draft states reads characters and not meaning.
 - Nothing seals the sign-ins again under a new `CONNECTIONS_KEY`. Changing or losing the key makes
   every sign-in kept unreadable and its owner has to connect again; a sync of one changes nothing,
   and a removal still finishes but cannot take the access back at the outside service (see

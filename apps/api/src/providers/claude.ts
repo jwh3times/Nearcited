@@ -102,11 +102,23 @@ export interface ClaudeOptions {
   fetch?: typeof fetch;
 }
 
+/** The part of a response that says what it used, whichever version of the API answered. */
+interface Reported {
+  model: string;
+  usage: {
+    input_tokens?: number | null;
+    cache_creation_input_tokens?: number | null;
+    cache_read_input_tokens?: number | null;
+    output_tokens?: number | null;
+    server_tool_use?: { web_search_requests?: number | null } | null;
+  };
+}
+
 /**
  * What a response says it used. Anthropic reports cached tokens beside `input_tokens`, not inside
  * it; tokens written to the cache are charged like input, so they are counted as input.
  */
-export function claudeUsage(response: Pick<Message, "model" | "usage">): CallUsage {
+export function claudeUsage(response: Reported): CallUsage {
   const usage = response.usage;
   return {
     model: response.model,
