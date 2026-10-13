@@ -8,6 +8,7 @@ import type {
   Draft,
   LimitChange,
   LimitChangeNotice,
+  Listing,
   Location,
   Organization,
   Plan,
@@ -102,6 +103,8 @@ export interface MemoryDb {
     allowance_month: string | null;
     model: string | null;
   })[];
+  /** Every listing: one for a location on a site. */
+  listings: Listing[];
   /** Every alert, with what keeps one thing from being raised twice beside what is sent. */
   alerts: (Alert & {
     subject: string;
@@ -190,6 +193,7 @@ export function createMemoryDb(): MemoryDb {
     allowanceUse: new Map(),
     actions: [],
     drafts: [],
+    listings: [],
     alerts: [],
     actionKindTerms: new Map([["sample", { allowance: null, keeps_seen_days: 30 }]]),
     sampleLines: new Map(),
@@ -290,6 +294,7 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
   };
   const NO_ROOM = "Your plan has no more of these this month.";
   const NO_DRAFTS = "Your plan has no more drafts this month.";
+  const MOST_LISTINGS = 50;
   const sentDraft = ({
     attempts: _attempts,
     writing_since: _since,
@@ -693,6 +698,45 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
       };
       db.drafts.push(draft);
       return sentDraft(draft);
+    },
+
+    async listListings(locationId) {
+      if (!readsLocation(locationId)) return [];
+      return db.listings
+        .filter((listing) => listing.location_id === locationId)
+        .sort((a, b) => a.site.localeCompare(b.site))
+        .map((listing) => ({ ...listing }));
+    },
+
+    // Mirrors set_listing(): a member of the location's organization, one for a site, and a
+    // bounded number of sites.
+    async setListing(locationId, site, url) {
+      if (userId === null || !visibleLocation(locationId)) return null;
+      const held = db.listings.filter((listing) => listing.location_id === locationId);
+      const kept = held.find((listing) => listing.site === site);
+      if (!kept && held.length >= MOST_LISTINGS) {
+        throw new StoreError("limit", "A location holds a listing on at most 50 sites.");
+      }
+      const set = {
+        url,
+        set_by_email: db.emails.get(userId) ?? null,
+        set_at: db.now ?? timestamp(),
+      };
+      if (kept) return { ...Object.assign(kept, set) };
+      const listing = { location_id: locationId, site, ...set };
+      db.listings.push(listing);
+      return { ...listing };
+    },
+
+    // Mirrors remove_listing().
+    async removeListing(locationId, site) {
+      if (userId === null || !visibleLocation(locationId)) return false;
+      const at = db.listings.findIndex(
+        (listing) => listing.location_id === locationId && listing.site === site,
+      );
+      if (at < 0) return false;
+      db.listings.splice(at, 1);
+      return true;
     },
 
     async countWaitingActions(organizationId) {

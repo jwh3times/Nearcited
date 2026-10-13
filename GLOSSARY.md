@@ -29,6 +29,10 @@ system works; this file only settles vocabulary.
   minutes when the owner does it themselves, and marked done by the owner or by the action that
   did it. A step of the action plan states an observation; a task is the work that follows from
   it. See `docs/adr/0011-the-product-does-the-work-and-the-owner-approves.md`.
+- **Listing**: a business's own page on a site, as its owner gave it: where a customer is sent to
+  find the business there. One for a location on a site, kept for the location and not for the
+  task that asked for it. Not the page an assistant cited, which is often a list or somebody
+  else's page. The product does not look for a listing and does not open one.
 - **Alert**: a statement that something measured has changed at a location in a way its owner
   would want to know, composed by rule from what the scans recorded and saying what was counted.
   It is shown from the scan that raised it until a later scan clears it or a member dismisses

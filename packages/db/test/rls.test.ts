@@ -5195,6 +5195,177 @@ describe("the operator", () => {
     });
   });
 
+  describe("listings", () => {
+    let main: string;
+    const PAGE = "https://www.bbb.org/us/nc/raleigh/profile/pizza/joes-pizza-0593-1234";
+    const OTHER = "https://www.bbb.org/us/nc/raleigh/profile/pizza/joes-pizza-0593-5678";
+
+    const set = "select site, url, set_by_email from public.set_listing($1, $2, $3)";
+    const remove = "select public.remove_listing($1, $2) as removed";
+    const listings = () =>
+      rows<{ site: string; url: string; set_by_email: string | null }>(
+        "select site, url, set_by_email from public.listings where location_id = $1 order by site",
+        [main],
+      );
+
+    beforeAll(async () => {
+      const [location] = await rows<{ id: string }>(
+        "select id from public.locations where organization_id = $1 order by created_at limit 1",
+        [theirs],
+      );
+      main = location?.id ?? "";
+    });
+    afterAll(async () => {
+      await db.query("delete from public.listings");
+    });
+
+    it("are given by a member of the organization, and by nobody else", async () => {
+      for (const user of [bob, operator]) {
+        expect(
+          await as("authenticated", user, () => rows(set, [main, "bbb.org", PAGE])),
+          user,
+        ).toEqual([]);
+      }
+      // The worker is nobody's member either.
+      expect(await as("service_role", null, () => rows(set, [main, "bbb.org", PAGE]))).toEqual([]);
+      await expect(as("anon", null, () => db.query(set, [main, "bbb.org", PAGE]))).rejects.toThrow(
+        /permission denied/,
+      );
+      expect(await listings()).toEqual([]);
+
+      expect(await as("authenticated", alice, () => rows(set, [main, "bbb.org", PAGE]))).toEqual([
+        { site: "bbb.org", url: PAGE, set_by_email: "alice@example.com" },
+      ]);
+    });
+
+    it("are one for a location on a site: a second takes the place of the first", async () => {
+      const [before] = await rows<{ id: string; set_at: string }>(
+        "select id, set_at from public.listings where location_id = $1",
+        [main],
+      );
+      await db.query("update public.listings set set_at = now() - interval '1 day'");
+      expect(await as("authenticated", alice, () => rows(set, [main, "bbb.org", OTHER]))).toEqual([
+        { site: "bbb.org", url: OTHER, set_by_email: "alice@example.com" },
+      ]);
+      const [after] = await rows<{ id: string; fresh: boolean; set_by: string }>(
+        "select id, set_at > now() - interval '1 hour' as fresh, set_by from public.listings where location_id = $1",
+        [main],
+      );
+      // The same row, with the time the database gives it.
+      expect(after).toEqual({ id: before?.id, fresh: true, set_by: alice });
+      expect(await listings()).toHaveLength(1);
+    });
+
+    it("are read by the members and the operator, and written by neither but through the function", async () => {
+      const read = "select site from public.listings where location_id = $1";
+      for (const user of [alice, operator]) {
+        expect(await as("authenticated", user, () => rows(read, [main])), user).toEqual([
+          { site: "bbb.org" },
+        ]);
+      }
+      expect(await as("authenticated", bob, () => rows(read, [main]))).toEqual([]);
+      await expect(as("anon", null, () => db.query(read, [main]))).rejects.toThrow(
+        /permission denied/,
+      );
+      for (const sql of [
+        `insert into public.listings (location_id, site, url) values ('${main}', 'angi.com', 'https://www.angi.com/planted')`,
+        "update public.listings set url = 'https://www.bbb.org/planted'",
+        "delete from public.listings",
+      ]) {
+        for (const user of [alice, operator]) {
+          await expect(
+            as("authenticated", user, () => db.query(sql)),
+            sql,
+          ).rejects.toThrow(/permission denied/);
+        }
+      }
+      expect(await listings()).toEqual([
+        { site: "bbb.org", url: OTHER, set_by_email: "alice@example.com" },
+      ]);
+    });
+
+    it("hold only an address to follow over https, under a site's name in small letters", async () => {
+      for (const [site, url] of [
+        ["angi.com", "javascript:alert(1)"],
+        ["angi.com", "http://www.angi.com/joes"],
+        ["angi.com", `https://www.angi.com/${"a".repeat(500)}`],
+        ["Angi.com", "https://www.angi.com/joes"],
+        ["", "https://www.angi.com/joes"],
+      ] as const) {
+        await expect(
+          as("authenticated", alice, () => db.query(set, [main, site, url])),
+          `${site} ${url.slice(0, 30)}`,
+        ).rejects.toThrow(/violates check constraint/);
+      }
+      expect(await listings()).toHaveLength(1);
+    });
+
+    it("are bounded for a location, whatever a member names as a site", async () => {
+      await db.query(
+        `insert into public.listings (location_id, site, url)
+         select $1, 'site-' || n || '.example', 'https://x.example/a' from generate_series(1, 49) as n`,
+        [main],
+      );
+      await expect(
+        as("authenticated", alice, () =>
+          db.query(set, [main, "one-more.example", "https://x.example/a"]),
+        ),
+      ).rejects.toThrow(/at most 50 sites/);
+      // One already held can still be changed.
+      expect(
+        await as("authenticated", alice, () => rows(set, [main, "bbb.org", PAGE])),
+      ).toHaveLength(1);
+      expect(await listings()).toHaveLength(50);
+      await db.query("delete from public.listings where site like 'site-%'");
+    });
+
+    it("are taken away by a member, and by nobody else", async () => {
+      for (const user of [bob, operator]) {
+        expect(
+          await as("authenticated", user, () => rows(remove, [main, "bbb.org"])),
+          user,
+        ).toEqual([{ removed: false }]);
+      }
+      expect(await as("service_role", null, () => rows(remove, [main, "bbb.org"]))).toEqual([
+        { removed: false },
+      ]);
+      await expect(as("anon", null, () => db.query(remove, [main, "bbb.org"]))).rejects.toThrow(
+        /permission denied/,
+      );
+      expect(await listings()).toHaveLength(1);
+
+      expect(await as("authenticated", alice, () => rows(remove, [main, "bbb.org"]))).toEqual([
+        { removed: true },
+      ]);
+      expect(await listings()).toEqual([]);
+      // There is none to take away now.
+      expect(await as("authenticated", alice, () => rows(remove, [main, "bbb.org"]))).toEqual([
+        { removed: false },
+      ]);
+    });
+
+    it("go with their location", async () => {
+      const [limits] = await rows<{ max_locations: number }>(
+        "select max_locations from public.organizations where id = $1",
+        [theirs],
+      );
+      await db.query("update public.organizations set max_locations = 2 where id = $1", [theirs]);
+      const [gone] = await rows<{ id: string }>(
+        "insert into public.locations (organization_id, name, city) values ($1, 'Closing', 'Raleigh') returning id",
+        [theirs],
+      );
+      await as("authenticated", alice, () => rows(set, [gone?.id, "bbb.org", PAGE]));
+      expect(await rows("select 1 from public.listings")).toHaveLength(1);
+
+      await db.query("delete from public.locations where id = $1", [gone?.id]);
+      expect(await rows("select 1 from public.listings")).toEqual([]);
+      await db.query("update public.organizations set max_locations = $1 where id = $2", [
+        limits?.max_locations ?? 1,
+        theirs,
+      ]);
+    });
+  });
+
   describe("making an audit", () => {
     const create =
       "select id, token, business_name, website, region, country_code, prompts, samples, status from public.operator_create_audit('Joe''s Pizza', 'https://joes.example/', 'Raleigh', null, 'US', array['best pizza', 'late night food'], 2)";

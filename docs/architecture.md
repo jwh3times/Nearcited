@@ -418,8 +418,37 @@ from counts the product holds; nothing a model wrote is in one.
   route returns `draft_kind` for a task that is still to do and whose draft can be written here, and
   `draft` once one has been asked for (see "Drafts"). The task's own wording is unchanged, and still
   composed by rule.
-- Not built: a direct review link, a printable code or request text, page copy as a task (and so
-  a draft of it), and anything the product does outside itself for real. Approvals and actions exist (see "Actions") but the only kind is a
+- **A task about asking for reviews carries the business's listing.** Such a task hands over the page
+  an assistant read, which is often a list or somebody else's page, and sending a customer to where a
+  review is written takes the business's own page on the site. A member gives its address once
+  (`PUT /api/locations/:locationId/listings/:site`, and `DELETE` takes it away) and it is kept for the
+  location and the site, not for the task (`listings`, one row for each; the term is in
+  `GLOSSARY.md`), so a task that comes back finds it, and a task marked done still carries it.
+  `listingSite` (`packages/shared/src/listings.ts`) names the sites that have one: those on the
+  `reviews` list except google.com, whose review form is reached by the place ID a location already
+  holds. A site that forbids asking, a directory, a page somebody wrote or a site nobody knows has
+  none, and the route answers 404 for it. `taskListing` puts `{ site, url }` on a task as `listing`,
+  with `url` null until a member gives it, and null for every other task. `GET /api/locations/:id`
+  reads the location's listings for it. `currentTasks`, which a draft is asked for and written
+  against, carries none: a draft is written from nothing a listing holds.
+- **Only the form of an address is checked, and nothing is opened.** `readListing` takes it as a
+  browser would: `http://` becomes https, an address pasted without its start is given one, and what
+  follows `#` is dropped. It refuses an address that is not on the site (the site or a subdomain of
+  it), the site's front page, an address with a user name or password in it, and one longer than 500
+  characters; the route answers 422 `validation_failed` with the sentence it returns. The table
+  holds to the same form (https, 500 characters, a site name in lower case) and to at most 50
+  listings for a location (`NC015`, a `limit` error, so 409 `limit_reached`), since the site is
+  whatever the caller names. The product never looks for a listing, so a member who gives a wrong
+  address is believed.
+- **Who reads and writes.** `listings` has a `select` policy for whoever can read the location and
+  one for the operator, and no write grant for any API role. A request writes only through
+  `set_listing()` and `remove_listing()`, security-definer functions that answer a member of the
+  location's organization and no one else, the operator and the worker included (no row for a
+  set, false for a removal). Setting one a second time replaces the first, keeping the row.
+- Not built: anything that shows or asks for a listing (the web app does neither), a direct review
+  link made from one, a printable code or request text (issue
+  [#128](https://github.com/jwh3times/Nearcited/issues/128)), page copy as a task (and so a draft of
+  it), and anything the product does outside itself for real. Approvals and actions exist (see "Actions") but the only kind is a
   sample one, which does no task's work, so no action has marked a task.
 
 ## Alerts
@@ -1216,8 +1245,9 @@ copy, edit and lower a plan.
 
 Users can insert exactly one kind of scan row: a queued, manual scan in their own name for a
 location they can see. Results, scores, recommendations and alerts are written only by the worker;
-a member can dismiss an alert and nothing more (see "Alerts"), and can ask for a draft and nothing
-more (see "Drafts").
+a member can dismiss an alert and nothing more (see "Alerts"), can ask for a draft and nothing
+more (see "Drafts"), and can give a location's listing on a site and take it away, and nothing more
+of one (see "Tasks").
 Organizations are created only through `create_organization()`, which makes the caller the owner.
 
 **The operator reads every row, through policies.** `is_operator()` is true for an account with the
@@ -1404,6 +1434,10 @@ drop it.
   spend. Two kinds of draft exist, the note to the author of a page and the description for a
   listing; copy for a page on the business's own site is not built. The check on what a draft states
   reads characters and not meaning.
+- A listing is kept as a member gave it, and only its form is checked: an address on the right
+  site that leads to no page, or to another business's, is kept, because nothing opens it (see
+  "Tasks"). Nothing yet shows a listing or uses one: the web app neither asks for it nor displays
+  it, and no link to a review form is built from it.
 - Nothing seals the sign-ins again under a new `CONNECTIONS_KEY`. Changing or losing the key makes
   every sign-in kept unreadable and its owner has to connect again; a sync of one changes nothing,
   and a removal still finishes but cannot take the access back at the outside service (see

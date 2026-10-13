@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Draft, Recommendation, SourceSummary } from "../src/schemas";
+import type { Draft, Listing, Recommendation, SourceSummary } from "../src/schemas";
 import { sourceKind } from "../src/source-kinds";
 import { belongsTo, unnamedSources } from "../src/sources";
 import { buildTasks, namedCount, sourceOfRule } from "../src/tasks";
@@ -99,7 +99,17 @@ describe("tasks", () => {
     sources: SourceSummary[] = [],
     evidence = new Map(),
     drafts: Draft[] = [],
-  ) => buildTasks({ name: "Tony's", recommendations, sources, answers: 10, evidence, drafts });
+    listings: Listing[] = [],
+  ) =>
+    buildTasks({
+      name: "Tony's",
+      recommendations,
+      sources,
+      answers: 10,
+      evidence,
+      drafts,
+      listings,
+    });
 
   const draftFor = (recommendation_id: string, fields: Partial<Draft> = {}): Draft => ({
     id: "d0000000-0000-4000-8000-000000000001",
@@ -233,6 +243,7 @@ describe("tasks", () => {
       answers: 10,
       evidence: new Map(),
       drafts: [],
+      listings: [],
     };
     const kinds = (writes?: (kind: string) => boolean) =>
       buildTasks({ ...input, writes }).map((task) => task.draft_kind);
@@ -261,6 +272,55 @@ describe("tasks", () => {
       ["money.usnews.com", "written"],
     ]);
     expect(tasks[2]?.draft?.text).toBe("Kept.");
+  });
+
+  it("carries the business's listing where the work is asking for reviews, and nowhere else", () => {
+    const kept: Listing = {
+      location_id: "00000000-0000-4000-8000-0000000000aa",
+      site: "tripadvisor.com",
+      url: "https://www.tripadvisor.com/Restaurant_Review-g1-d2-Tonys.html",
+      set_by_email: "tony@example.com",
+      set_at: "2026-10-13T00:00:00.000Z",
+    };
+    const rules = [
+      // A subdomain is the same site, so it finds the same listing.
+      recommendation("source:m.tripadvisor.com"),
+      recommendation("source:bbb.org"),
+      recommendation("source:yelp.com"),
+      recommendation("source:yellowpages.com"),
+      recommendation("source:usnews.com"),
+      recommendation("source:somewhere.example"),
+    ];
+    const listings = (given: Listing[]) =>
+      Object.fromEntries(
+        build(rules, [], new Map(), [], given).map((task) => [task.host, task.listing]),
+      );
+    expect(listings([kept])).toEqual({
+      "m.tripadvisor.com": { site: "tripadvisor.com", url: kept.url },
+      "bbb.org": { site: "bbb.org", url: null },
+      "yelp.com": null,
+      "yellowpages.com": null,
+      "usnews.com": null,
+      "somewhere.example": null,
+    });
+    // One kept for a site that asks for none is not shown.
+    expect(listings([{ ...kept, site: "yelp.com" }])["yelp.com"]).toBeNull();
+  });
+
+  it("keeps the listing on a task that was marked done, for the customers still to ask", () => {
+    const [task] = build(
+      [
+        recommendation("source:bbb.org", {
+          status: "done",
+          acted_at: "2026-10-01T00:00:00.000Z",
+        }),
+      ],
+      [],
+      new Map(),
+      [],
+      [],
+    );
+    expect(task?.listing).toEqual({ site: "bbb.org", url: null });
   });
 
   it("leaves out a dismissed one, and one that cleared without anyone marking it", () => {

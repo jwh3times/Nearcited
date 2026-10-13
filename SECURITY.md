@@ -66,6 +66,10 @@ Nearcited is multi-tenant, and tenant isolation is enforced by Postgres row-leve
   operator included, writing `drafts` directly, or calling `claim_draft()` or `finish_draft()` as
   anyone but the worker. Also getting a request to write a draft, or to decide what one is written
   from.
+- Giving a location's listing on a site, or taking it away, as anyone but a member of the
+  location's organization: calling `set_listing()` or `remove_listing()` for a location the caller
+  is not a member of, the operator included, or writing `listings` directly. Also getting one kept
+  that is not an address over https, or getting the product to open one.
 - Taking back what an action did, or keeping what it replaced past its day: clearing a task an
   action marked done, or writing `recommendations.acted_by_action`, as a signed-in user; or finding
   a copy of what an action replaced anywhere but `seen`, which `drop_expired_seen()` clears once

@@ -1,7 +1,9 @@
 import { draftKindFor } from "./drafts";
+import { taskListing } from "./listings";
 import type {
   Draft,
   DraftKind,
+  Listing,
   NamedCount,
   Recommendation,
   SourceKind,
@@ -46,6 +48,8 @@ export interface TaskInput {
   evidence: ReadonlyMap<string, TaskEvidence>;
   /** The location's drafts, each for one recommendation. */
   drafts: readonly Draft[];
+  /** The location's listings, each on one site. */
+  listings: readonly Listing[];
   /**
    * Whether a draft of a kind can be written where this is asked. Left out, every kind can. A
    * task is offered no draft that would only be refused.
@@ -149,6 +153,7 @@ export function buildTasks(input: TaskInput): Task[] {
       // A draft is asked for while the work is still to do. One already written stays to be read.
       draft_kind: open ? writable(draftKindFor(kind), input.writes) : null,
       draft: input.drafts.find((draft) => draft.recommendation_id === recommendation.id) ?? null,
+      listing: taskListing(host, input.listings),
     });
   }
 

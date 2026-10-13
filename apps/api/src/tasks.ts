@@ -26,7 +26,8 @@ export function citedIn(
 /**
  * A location's tasks as they stand now, without the counts either side of a mark: what a draft
  * is asked for against, and what the worker writes one from. `sample` says which scans to read,
- * since generated and real results never share a window.
+ * since generated and real results never share a window. They carry no listing: a draft is
+ * written from nothing a listing holds.
  */
 export async function currentTasks(
   store: Store,
@@ -46,5 +47,6 @@ export async function currentTasks(
     answers: answers.length,
     evidence: new Map(),
     drafts,
+    listings: [],
   });
 }

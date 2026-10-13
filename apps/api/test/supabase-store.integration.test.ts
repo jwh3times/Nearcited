@@ -900,6 +900,39 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
       .update({ allowances: organization.allowances, max_locations: organization.max_locations })
       .eq("id", organization.id)
       .throwOnError();
+
+    // A listing is given by a member, kept one for a site, and read by whoever reads the location.
+    const page = "https://www.bbb.org/us/nc/raleigh/profile/pizza/joes-pizza-0593-1234";
+    expect(await aliceStore.listListings(location.id)).toEqual([]);
+    expect(await bobStore.setListing(location.id, "bbb.org", page)).toBeNull();
+    expect(await worker.setListing(location.id, "bbb.org", page)).toBeNull();
+    const listing = await aliceStore.setListing(location.id, "bbb.org", page);
+    expect(listing).toEqual({
+      location_id: location.id,
+      site: "bbb.org",
+      url: page,
+      set_by_email: "alice@example.com",
+      set_at: expect.any(String),
+    });
+    expect(await aliceStore.setListing(location.id, "bbb.org", `${page}-2`)).toMatchObject({
+      url: `${page}-2`,
+    });
+    await aliceStore.setListing(location.id, "angi.com", "https://www.angi.com/joes");
+    expect((await aliceStore.listListings(location.id)).map((kept) => kept.site)).toEqual([
+      "angi.com",
+      "bbb.org",
+    ]);
+    expect(await bobStore.listListings(location.id)).toEqual([]);
+    // What is not an address to follow over https is refused by the table itself.
+    await expect(
+      aliceStore.setListing(location.id, "houzz.com", "javascript:alert(1)"),
+    ).rejects.toBeInstanceOf(StoreError);
+    expect(await bobStore.removeListing(location.id, "bbb.org")).toBe(false);
+    expect(await aliceStore.removeListing(location.id, "bbb.org")).toBe(true);
+    expect(await aliceStore.removeListing(location.id, "bbb.org")).toBe(false);
+    expect(await aliceStore.removeListing(location.id, "angi.com")).toBe(true);
+    expect(await aliceStore.listListings(location.id)).toEqual([]);
+
     // An action that does the work marks it when it is carried out, and that mark is not a
     // member's to take back.
     const forTask = await worker.proposeAction({
