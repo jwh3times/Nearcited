@@ -7,6 +7,7 @@ import { formatDate } from "../lib/format";
 import { KIND_LABELS, markedDone, proof } from "../lib/tasks";
 import { ErrorNote } from "./ErrorNote";
 import { TaskDraft } from "./TaskDraft";
+import { TaskListing } from "./TaskListing";
 
 interface TasksProps {
   tasks: Task[];
@@ -74,6 +75,12 @@ export function Tasks({ tasks, location, drafts, onChanged, readOnly }: TasksPro
                     </a>
                   </p>
                 )}
+                <TaskListing
+                  task={task}
+                  locationId={location.id}
+                  readOnly={readOnly}
+                  onChanged={onChanged}
+                />
                 <TaskDraft
                   task={task}
                   location={location}

@@ -11,6 +11,7 @@ import {
   ConnectionSchema,
   DraftSchema,
   LimitChangeSchema,
+  ListingSchema,
   LocationActionsSchema,
   type LocationDetail,
   LocationDetailSchema,
@@ -205,4 +206,9 @@ export const api = {
   /** Asks for a draft of one task, the first or another. The worker writes it on its own time. */
   askDraft: (locationId: string, taskId: string) =>
     json(DraftSchema, "POST", `/locations/${locationId}/tasks/${taskId}/draft`),
+  /** Gives the address of a location's own page on a site, the first time or in place of another. */
+  setListing: (locationId: string, site: string, url: string) =>
+    json(ListingSchema, "PUT", `/locations/${locationId}/listings/${site}`, { url }),
+  removeListing: (locationId: string, site: string) =>
+    send("DELETE", `/locations/${locationId}/listings/${site}`).then(() => undefined),
 };

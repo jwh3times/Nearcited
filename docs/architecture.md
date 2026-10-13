@@ -445,8 +445,13 @@ from counts the product holds; nothing a model wrote is in one.
   `set_listing()` and `remove_listing()`, security-definer functions that answer a member of the
   location's organization and no one else, the operator and the worker included (no row for a
   set, false for a removal). Setting one a second time replaces the first, keeping the row.
-- Not built: anything that shows or asks for a listing (the web app does neither), a direct review
-  link made from one, a printable code or request text (issue
+- **The task asks for the listing and shows it.** `TaskListing`
+  (`apps/web/src/components/TaskListing.tsx`) puts a field on a task that has a `listing` with no
+  `url`, checks what is pasted with `readListing` before anything is sent, and once one is kept
+  shows it as the link to send customers, to copy, change or remove. The operator, reading a
+  customer's account, is shown a listing that is kept and asked for none (`listingView`).
+- Not built: a direct review link made from a listing, anything for Google's review form, a
+  printable code or request text (issue
   [#128](https://github.com/jwh3times/Nearcited/issues/128)), page copy as a task (and so a draft of
   it), and anything the product does outside itself for real. Approvals and actions exist (see "Actions") but the only kind is a
   sample one, which does no task's work, so no action has marked a task.
@@ -1436,8 +1441,8 @@ drop it.
   reads characters and not meaning.
 - A listing is kept as a member gave it, and only its form is checked: an address on the right
   site that leads to no page, or to another business's, is kept, because nothing opens it (see
-  "Tasks"). Nothing yet shows a listing or uses one: the web app neither asks for it nor displays
-  it, and no link to a review form is built from it.
+  "Tasks"). The link a task shows is the listing itself: no link to a site's review form is built
+  from it yet.
 - Nothing seals the sign-ins again under a new `CONNECTIONS_KEY`. Changing or losing the key makes
   every sign-in kept unreadable and its owner has to connect again; a sync of one changes nothing,
   and a removal still finishes but cannot take the access back at the outside service (see
