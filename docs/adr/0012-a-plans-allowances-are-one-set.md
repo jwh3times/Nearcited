@@ -64,8 +64,8 @@ drop it.
   and whether a kind is counted is fixed when the kind is made.
 - The list of kinds is kept twice: in the database, for what is accepted, and in the shared
   package, for the words. A test holds the two equal.
-- No kind exists yet. The first arrives with the work that needs it, which is also the first thing
-  to call `claim_allowance()`.
+- No kind existed when this was decided. The first arrived with the work that needed it: drafts
+  ([0016](0016-the-worker-writes-a-draft.md)), counted, and taken from when the worker writes one.
 - A claim is made before the work and is not given back if the work then fails. Whether a kind of
   work gives it back is decided with that kind. An action does
   ([0014](0014-only-the-worker-carries-out-an-action.md)).

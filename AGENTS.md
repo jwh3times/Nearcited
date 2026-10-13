@@ -31,9 +31,13 @@ maintainers. A public clone does not have it, and everything in this repository 
 pass `pnpm check` and run in mock mode without it.
 
 - **What lives there:** provider prompt text, sampling and score weights; pricing, vendor quotes
-  and measured costs by vendor; anything naming a real customer or prospect; security review
-  findings; deployment runbooks. `private/README.md` is its index and says what each file owns.
-  Read it before working there.
+  and what anything the product does was measured to cost; anything naming a real customer or
+  prospect; security review findings; deployment runbooks. `private/README.md` is its index and
+  says what each file owns. Read it before working there.
+- **A provider's published rate is public; what was measured is not.** A document here may quote
+  what a vendor charges for a model or a search. It never says what a check, a draft or any other
+  piece of work was measured to use or to cost, or how models and settings compared on cost, and
+  a recorded response in a test carries made-up usage numbers, not the call's own.
 - **Nothing from `private/` is copied into this repository**, including into issues, pull
   requests, commit messages and docs. A public document may say a private one exists.
 - **This repository never names the private one.** Its locator lives in 1Password and
@@ -138,11 +142,36 @@ pass `pnpm check` and run in mock mode without it.
   alert is told to the owners once, in the report a scheduled scan emails, and marked told
   (`markAlertsTold`) only when the report went to someone: one that failed, or had nobody to go
   to, leaves it for the next. Nothing on a request path writes `told_at` or `cleared_told_at`.
+- **Only the worker writes a draft, and a draft states nothing nobody gave.** A request records a
+  member's ask (`ask_draft()`, which answers a member of the location's organization and no one
+  else, the operator included) and queues the worker
+  (`docs/adr/0016-the-worker-writes-a-draft.md`). `writeDraft` (`apps/api/src/drafts/index.ts`)
+  reads the task, the page and the location off what is on file, so nothing a request said
+  decides what a draft is written from. That is `DraftGiven` (`packages/shared/src/drafts.ts`) and
+  nothing else: do not give a writer anything from the answers, or anything about the business a
+  location does not hold. Every draft passes `factsNobodyGave` before it is kept, whatever wrote
+  it, and one that fails twice is not kept. A writer only writes: it returns text, reports what
+  each call used, and decides nothing. It is given no tools. A real draft is written only where
+  the private tuning has instructions for its kind (`liveDraftKinds`, `apps/api/src/drafts/claude.ts`):
+  the default tuning's are a placeholder, as its prompts are, so keep that too. What the writing
+  used is recorded after every write (`recordUsage`, for the organization and no surface), kept
+  or not. `claim_draft()` takes from the month and `finish_draft()` gives it back when nothing
+  was written: count a draft nowhere else. Sample text is kept as `sample_data`, names no model
+  and is never called a model's. Nothing on a request path writes `drafts`, and a draft is not
+  written by opening a page.
 - **`packages/shared/src/schemas.ts` defines every wire type.** Change the schema first, then the
   API and the client. Field names stay snake_case end to end.
 - **All database access goes through the `Store` interface** (`apps/api/src/store/types.ts`). A
   new method needs the Supabase implementation, the in-memory one in `apps/api/test`, and a line in
   the integration test.
+- **A list that reaches across organizations is read a page at a time.** The database's API
+  answers a request with at most 1,000 rows and says nothing when it leaves the rest out, so a
+  list read in one request is right until it is long and then short without an error. In the
+  Supabase store such a read goes through `every` (`readEvery`, `apps/api/src/store/paging.ts`),
+  asked for in an order no two rows share, and oldest first where the rows have a time they were
+  made, so a row made meanwhile lands past the end. A list that belongs to one organization
+  or one location is bounded by its plan and needs none. A work list the schedule reads again at
+  its next run, and takes only the first of, may stay as it is.
 - **Providers only fetch.** They return an `Observation`; `analyzeObservation` in the shared
   package decides what it means. Do not put matching logic in a provider.
 - **Structured details carry only what a location holds.** A detail not on file is left out, never

@@ -2,6 +2,7 @@ import type {
   ActionMessage,
   AuditMessage,
   ConnectionMessage,
+  DraftMessage,
   LimitChangeMessage,
   PriceChangeMessage,
   ScanMessage,
@@ -12,8 +13,8 @@ export interface Env {
   ASSETS: Fetcher;
   /**
    * Carries scans, the prompts of shareable audits, the steps of a price change or of a
-   * reduction in what a plan allows, what the worker is asked to do for a connection, and the
-   * approved actions it is asked to carry out.
+   * reduction in what a plan allows, what the worker is asked to do for a connection, the
+   * approved actions it is asked to carry out, and the drafts it is asked to write.
    */
   SCAN_QUEUE: Queue<
     | ScanMessage
@@ -22,6 +23,7 @@ export interface Env {
     | LimitChangeMessage
     | ConnectionMessage
     | ActionMessage
+    | DraftMessage
   >;
 
   SUPABASE_URL: string;
@@ -43,7 +45,11 @@ export interface Env {
   EMAIL_REPLY_TO?: string;
   /** Optional secret. With it, live scans check ChatGPT; without it that surface is skipped. */
   OPENAI_API_KEY?: string;
-  /** Optional secret. With it, live scans check Claude; without it that surface is skipped. */
+  /**
+   * Optional secret. With it, live scans check Claude, and a draft is written on real data where
+   * the tuning has instructions for its kind. Without it that surface is skipped and no real
+   * draft is written.
+   */
   ANTHROPIC_API_KEY?: string;
   /** Optional. Without it, scheduled scans finish without sending a report. */
   RESEND_API_KEY?: string;

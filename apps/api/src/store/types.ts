@@ -15,6 +15,8 @@ import type {
   ConnectionKind,
   ConnectionMatch,
   DerivedRecommendation,
+  Draft,
+  DraftKind,
   LimitChange,
   LimitChangeNotice,
   Location,
@@ -51,8 +53,23 @@ export type OperatorScan = OperatorFacts["scans"][number];
 /** An audit as it is listed for the operator, before its token is turned into a link. */
 export type ListedAudit = Omit<OperatorAudit, "link"> & { token: string };
 
-/** What a set of usage is for: a scan of an organization's location, or an audit. */
-export type UsageSource = { organization_id: string; scan_id: string } | { audit_id: string };
+/** What a set of usage is for: a scan of an organization's location, an audit, or a draft. */
+export type UsageSource =
+  | { organization_id: string; scan_id: string }
+  | { audit_id: string }
+  | { organization_id: string; draft_id: string };
+
+/** What became of writing a draft, as the worker reports it. */
+export type DraftOutcome =
+  | {
+      outcome: "written";
+      text: string;
+      kind: DraftKind;
+      /** The model that wrote it. Null for generated sample text. */
+      model: string | null;
+      sample_data: boolean;
+    }
+  | { outcome: "failed" | "again"; why: string };
 
 /** What the payment provider knows about an organization, as its owner's checkout needs it. */
 export interface BillingState {
@@ -221,6 +238,14 @@ export interface Store {
    * organization. One already dismissed, or already cleared, comes back as it was.
    */
   dismissAlert(id: string): Promise<Alert | null>;
+  /** A location's drafts, one for each task that has had one asked for, for whoever can read it. */
+  listDrafts(locationId: string): Promise<Draft[]>;
+  /**
+   * A member's ask for a draft of one task, the first or another. Null for anyone who is not a
+   * member of the location's organization. Asking while one is being written is the same ask.
+   * Throws a limit when the month has no room.
+   */
+  askDraft(recommendationId: string): Promise<Draft | null>;
   /** An organization's connections, removed ones included, newest first. */
   listConnections(organizationId: string): Promise<Connection[]>;
   /** Whether the caller may connect and remove for the organization: its owner or an admin. */
@@ -491,6 +516,26 @@ export interface Store {
    * only.
    */
   listStalledActions(before: string): Promise<string[]>;
+  /** One draft, whoever it belongs to. Worker only. */
+  getDraft(id: string): Promise<Draft | null>;
+  /**
+   * Takes a draft to write, and with it one from the month's allowance unless this ask holds one
+   * already. Says which try this is, counting from one, or zero when there is nothing to write:
+   * nobody is asking, a worker is already on it, or the month had no room, in which case the ask
+   * is now failed. Worker only.
+   */
+  claimDraft(id: string): Promise<number>;
+  /**
+   * Keeps what became of writing a draft. `written` keeps the text. `failed` leaves the text from
+   * before and gives back what the ask took from the month. `again` lets go of it for another
+   * try. False when nobody was asking. Worker only.
+   */
+  finishDraft(id: string, outcome: DraftOutcome): Promise<boolean>;
+  /**
+   * The drafts asked for before `before` that nobody is writing: their message was lost, or the
+   * worker that took one has been on it since before then and is taken to have died. Worker only.
+   */
+  listStalledDrafts(before: string): Promise<string[]>;
   /** What one of the sample account's listings says. Worker only. */
   getSampleLine(connectionId: string, externalId: string): Promise<string | null>;
   setSampleLine(connectionId: string, externalId: string, line: string): Promise<void>;

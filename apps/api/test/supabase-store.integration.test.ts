@@ -100,7 +100,8 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
       max_queries_per_location: 10,
       max_manual_scans_per_month: 10,
       emails_report: true,
-      allowances: {},
+      // What the plan includes comes with it.
+      allowances: { drafts: 30 },
       surfaces: ["chatgpt", "claude"],
     });
     // Billing: only the owner is told where the organization stands, and only the worker
@@ -555,6 +556,19 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
       await aliceStore.updateLocation(location.id, { ...fields, phone: "919-555-0100" }),
     ).toEqual({ ...location, phone: "919-555-0100" });
     expect(await aliceStore.updateLocation(location.id, fields)).toEqual(location);
+    // What the business says it does is written when given and left alone when left out.
+    const { what_we_do: _said, ...unsaid } = fields;
+    expect(
+      await aliceStore.updateLocation(location.id, { ...unsaid, what_we_do: "Wood-fired pizza." }),
+    ).toEqual({ ...location, what_we_do: "Wood-fired pizza." });
+    expect(await aliceStore.updateLocation(location.id, unsaid)).toEqual({
+      ...location,
+      what_we_do: "Wood-fired pizza.",
+    });
+    expect(await aliceStore.updateLocation(location.id, fields)).toEqual(location);
+    await expect(
+      aliceStore.updateLocation(location.id, { ...unsaid, what_we_do: "a".repeat(601) }),
+    ).rejects.toThrow();
     await expect(
       bobStore.createLocation(organization.id, { ...location, name: "Planted" }),
     ).rejects.toMatchObject({ kind: "forbidden" });
@@ -780,6 +794,112 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
       acted_at: null,
       acted_by_action: null,
     });
+
+    // Drafts: a member asks, the worker writes, and the month counts what was written.
+    expect(await aliceStore.listDrafts(location.id)).toEqual([]);
+    const service = client(await token({ role: "service_role" }));
+    // On a plan with none, as the free plan is, there is nothing to ask for.
+    await service
+      .from("organizations")
+      .update({ allowances: {} })
+      .eq("id", organization.id)
+      .throwOnError();
+    await expect(aliceStore.askDraft(recommendation.id)).rejects.toMatchObject({ kind: "limit" });
+    await service
+      .from("organizations")
+      .update({ allowances: { drafts: 1 }, max_locations: 1 })
+      .eq("id", organization.id)
+      .throwOnError();
+    expect(await bobStore.askDraft(recommendation.id)).toBeNull();
+    expect(await worker.askDraft(recommendation.id)).toBeNull();
+    const draft = await aliceStore.askDraft(recommendation.id);
+    expect(draft).toMatchObject({
+      location_id: location.id,
+      recommendation_id: recommendation.id,
+      status: "asked",
+      asked_by_email: "alice@example.com",
+      text: null,
+      kind: null,
+      sample_data: false,
+    });
+    if (!draft) throw new Error("draft missing");
+    expect((await aliceStore.askDraft(recommendation.id))?.id).toBe(draft.id);
+    expect(await aliceStore.listDrafts(location.id)).toEqual([draft]);
+    expect(await bobStore.listDrafts(location.id)).toEqual([]);
+    expect(await worker.getDraft(draft.id)).toEqual(draft);
+    expect(await worker.getDraft(crypto.randomUUID())).toBeNull();
+    await expect(aliceStore.claimDraft(draft.id)).rejects.toMatchObject({ kind: "forbidden" });
+    await expect(
+      aliceStore.finishDraft(draft.id, { outcome: "failed", why: "No." }),
+    ).rejects.toMatchObject({ kind: "forbidden" });
+
+    // Not stalled until it has waited, and then it is.
+    const afterTheAsk = new Date(Date.now() + 60_000).toISOString();
+    expect(await worker.listStalledDrafts(draft.asked_at)).not.toContain(draft.id);
+    expect(await worker.listStalledDrafts(afterTheAsk)).toContain(draft.id);
+
+    expect(await worker.claimDraft(draft.id)).toBe(1);
+    expect(await worker.claimDraft(draft.id)).toBe(0);
+    expect(await aliceStore.getAllowanceUse(organization.id)).toEqual({ drafts: 1 });
+    expect(await worker.finishDraft(draft.id, { outcome: "again", why: "Not yet." })).toBe(true);
+    expect(await worker.claimDraft(draft.id)).toBe(2);
+    expect(
+      await worker.finishDraft(draft.id, {
+        outcome: "written",
+        text: "Hello.",
+        kind: "note",
+        model: null,
+        sample_data: true,
+      }),
+    ).toBe(true);
+    expect(await aliceStore.listDrafts(location.id)).toMatchObject([
+      { status: "written", text: "Hello.", kind: "note", sample_data: true, failure: null },
+    ]);
+    expect(await worker.listStalledDrafts(afterTheAsk)).not.toContain(draft.id);
+    // The month is used. What was written stays.
+    await expect(aliceStore.askDraft(recommendation.id)).rejects.toMatchObject({
+      kind: "limit",
+      message: expect.stringContaining("no more drafts"),
+    });
+    await service
+      .from("organizations")
+      .update({ allowances: { drafts: 2 } })
+      .eq("id", organization.id)
+      .throwOnError();
+    expect(await aliceStore.askDraft(recommendation.id)).toMatchObject({
+      status: "asked",
+      text: "Hello.",
+    });
+    await worker.claimDraft(draft.id);
+    expect(await aliceStore.getAllowanceUse(organization.id)).toEqual({ drafts: 2 });
+    expect(await worker.finishDraft(draft.id, { outcome: "failed", why: "It failed." })).toBe(true);
+    expect(await aliceStore.listDrafts(location.id)).toMatchObject([
+      { status: "failed", text: "Hello.", failure: "It failed." },
+    ]);
+    expect(await aliceStore.getAllowanceUse(organization.id)).toEqual({ drafts: 1 });
+    // What a draft used is recorded for its organization, and for no surface.
+    const wrote = {
+      surface: null,
+      model: "draft-model",
+      calls: 1,
+      input_tokens: 400,
+      cached_input_tokens: 0,
+      output_tokens: 150,
+      searches: 0,
+    };
+    const forDraft = { organization_id: organization.id, draft_id: draft.id };
+    await worker.recordUsage(forDraft, [wrote]);
+    await expect(aliceStore.recordUsage(forDraft, [wrote])).rejects.toBeInstanceOf(StoreError);
+    expect(
+      (await worker.listUsageByMonth(new Date(Date.now() - 86_400_000).toISOString())).filter(
+        (month) => month.model === "draft-model",
+      ),
+    ).toMatchObject([{ organization_id: organization.id, is_audit: false, calls: 1 }]);
+    await service
+      .from("organizations")
+      .update({ allowances: organization.allowances, max_locations: organization.max_locations })
+      .eq("id", organization.id)
+      .throwOnError();
     // An action that does the work marks it when it is carried out, and that mark is not a
     // member's to take back.
     const forTask = await worker.proposeAction({
@@ -1060,5 +1180,112 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
       ).error,
     ).toBeNull();
     expect(await visitor.getAuditByToken(audit.token)).toBeNull();
+  });
+
+  it("reads a list that reaches across organizations a page at a time, and gets the same list", async () => {
+    // Bob becomes the operator, so the lists only the operator reads have rows to page through.
+    const admin = client(await token({ role: "service_role" }));
+    await admin.from("platform_roles").insert({ user_id: bob, role: "operator" }).throwOnError();
+
+    let requests = 0;
+    const counting = async (jwt: Promise<string>, pageSize?: number) =>
+      createSupabaseStore(
+        createClient(url ?? "", await jwt, {
+          auth: { persistSession: false, autoRefreshToken: false },
+          global: {
+            fetch: (input, init) => {
+              requests += 1;
+              return fetch(String(input).replace("/rest/v1", ""), init);
+            },
+          },
+        }),
+        pageSize === undefined ? {} : { pageSize },
+      );
+    const asOperator = token({ role: "authenticated", sub: bob });
+    const asWorker = token({ role: "service_role" });
+    const whole = { operator: await counting(asOperator), worker: await counting(asWorker) };
+    // One row to a page: every list of two rows or more takes more than one request.
+    const paged = { operator: await counting(asOperator, 1), worker: await counting(asWorker, 1) };
+
+    // Something to page through: two locations, each with two prompts and a scan.
+    const [organization] = await whole.operator.listEveryOrganization();
+    if (!organization) throw new Error("no organization to read");
+    await admin
+      .from("organizations")
+      .update({ max_locations: 3, max_queries_per_location: 5 })
+      .eq("id", organization.id)
+      .throwOnError();
+    const aliceStore = await storeFor(alice);
+    for (const name of ["Paged One", "Paged Two"]) {
+      const location = await aliceStore.createLocation(organization.id, {
+        name,
+        website: null,
+        phone: null,
+        address_line: null,
+        city: "Raleigh",
+        region: "NC",
+        postal_code: null,
+        country_code: "US",
+        google_place_id: null,
+        primary_category: null,
+      });
+      for (const text of ["best pizza", "late night pizza"]) {
+        await aliceStore.createQuery(location.id, { kind: "ai_prompt", text });
+      }
+      await whole.worker.createScan(location.id, "scheduled", null);
+    }
+
+    const since = "2000-01-01T00:00:00.000Z";
+    const [plan] = (await whole.operator.listPlans()).filter((each) => each.key === "standard");
+    const reads: [
+      string,
+      "operator" | "worker",
+      (store: typeof whole.operator) => Promise<unknown>,
+    ][] = [
+      ["organizations", "operator", (store) => store.listEveryOrganization()],
+      ["locations", "operator", (store) => store.listEveryLocation()],
+      ["active prompts", "operator", (store) => store.countActiveQueries()],
+      ["scans", "operator", (store) => store.listScansSince(since)],
+      ["usage by month", "operator", (store) => store.listUsageByMonth(since)],
+      ["audits", "operator", (store) => store.listEveryAudit()],
+      ["accounts", "operator", (store) => store.listAccounts()],
+      ["memberships", "operator", (store) => store.listEveryMembership()],
+      ["platform roles", "operator", (store) => store.listPlatformRoles()],
+      ["subscriptions", "operator", (store) => store.listEverySubscription()],
+      ["untold actions", "operator", (store) => store.listUntoldActions()],
+      ["a plan's subscribers", "worker", (store) => store.listPlanSubscribers(plan?.key ?? "")],
+      ["a plan's organizations", "worker", (store) => store.listPlanOrganizations("starter")],
+      ["actions to tell of", "worker", (store) => store.listActionsToTell()],
+    ];
+    for (const [what, who, read] of reads) {
+      requests = 0;
+      const all = await read(whole[who]);
+      const one = requests;
+      requests = 0;
+      expect(await read(paged[who]), what).toEqual(all);
+      // A list of several rows was really read in several requests.
+      const rows = Array.isArray(all) ? all.length : Object.keys(all as object).length;
+      if (Array.isArray(all) && rows > 1) expect(requests, what).toBeGreaterThan(one);
+    }
+
+    // The lists this test is here for have more than a page of rows in them at one to a page.
+    expect((await whole.operator.listAccounts()).length).toBeGreaterThan(1);
+    expect((await whole.operator.listEveryLocation()).length).toBeGreaterThan(1);
+    expect((await whole.operator.listScansSince(since)).length).toBeGreaterThan(1);
+    // Four prompts, a row each, counted two to a location whichever way they were read.
+    expect(Object.values(await paged.operator.countActiveQueries())).toEqual([2, 2]);
+    // Newest first, as before, whichever way the pages were read.
+    const scans = await paged.operator.listScansSince(since);
+    expect(scans.map((scan) => scan.created_at)).toEqual(
+      scans.map((scan) => scan.created_at).sort((a, b) => b.localeCompare(a)),
+    );
+    const accounts = await paged.operator.listAccounts();
+    expect(accounts.map((account) => account.created_at)).toEqual(
+      accounts.map((account) => account.created_at).sort((a, b) => b.localeCompare(a)),
+    );
+
+    // The notices of an announcement are kept one to an organization, and read the same way.
+    expect(await paged.worker.listPriceChangeNotices(crypto.randomUUID())).toEqual([]);
+    expect(await paged.worker.listLimitChangeNotices(crypto.randomUUID())).toEqual([]);
   });
 });

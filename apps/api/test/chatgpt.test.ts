@@ -11,14 +11,14 @@ import { createLiveProviders } from "../src/providers/live";
 /**
  * A response in the shape the Responses API really returns for the web_search tool with a strict
  * JSON schema format, checked against live calls on 2026-10-06 (model gpt-6.1-sol). The
- * structure and field names are real; the content is invented.
+ * structure and field names are real; the content and the usage numbers are invented.
  */
 const usage = {
-  input_tokens: 20977,
+  input_tokens: 1000,
   input_tokens_details: { cached_tokens: 0 },
-  output_tokens: 638,
-  output_tokens_details: { reasoning_tokens: 187 },
-  total_tokens: 21615,
+  output_tokens: 100,
+  output_tokens_details: { reasoning_tokens: 40 },
+  total_tokens: 1100,
 };
 const tool_usage = { web_search: { num_requests: 2 } };
 
@@ -95,6 +95,7 @@ const location: Location = {
   country_code: "US",
   google_place_id: null,
   primary_category: null,
+  what_we_do: null,
   paused_by_plan: false,
   last_scanned_at: null,
   created_at: "2026-10-01T00:00:00Z",
@@ -255,9 +256,9 @@ describe("createChatGptProvider", () => {
     await provider(respondWith(apiResponse(goodAnswer))).observe({ ...input, onUsage: used });
     expect(used).toHaveBeenCalledExactlyOnceWith({
       model: "gpt-6.1-sol",
-      input_tokens: 20977,
+      input_tokens: 1000,
       cached_input_tokens: 0,
-      output_tokens: 638,
+      output_tokens: 100,
       searches: 2,
     });
   });

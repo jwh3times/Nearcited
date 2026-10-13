@@ -93,12 +93,16 @@ test("checks a location's details beside each field, and saves them tidied", asy
   await expect(phone).toHaveValue("(919) 555-0100");
   await page.getByLabel("Postal code").fill("27601");
   await page.getByLabel("Website").fill("joespizza.example");
+  await page.getByLabel("What we do").fill("  Wood-fired pizza, family-run since 1998.  ");
   await page.getByRole("button", { name: "Save changes" }).click();
   await expect(page.getByText("Saved.")).toBeVisible();
 
   await page.reload();
   await expect(phone).toHaveValue("(919) 555-0100");
   await expect(page.getByLabel("Website")).toHaveValue("https://joespizza.example");
+  await expect(page.getByLabel("What we do")).toHaveValue(
+    "Wood-fired pizza, family-run since 1998.",
+  );
   // How often it is scanned is the plan's to say: the page states it and offers no setting.
   await expect(page.getByRole("group", { name: "Scheduled scans" })).toHaveCount(0);
 });

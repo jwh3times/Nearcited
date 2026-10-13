@@ -102,11 +102,23 @@ export interface ClaudeOptions {
   fetch?: typeof fetch;
 }
 
+/** The part of a response that says what it used, whichever version of the API answered. */
+interface Reported {
+  model: string;
+  usage: {
+    input_tokens?: number | null;
+    cache_creation_input_tokens?: number | null;
+    cache_read_input_tokens?: number | null;
+    output_tokens?: number | null;
+    server_tool_use?: { web_search_requests?: number | null } | null;
+  };
+}
+
 /**
  * What a response says it used. Anthropic reports cached tokens beside `input_tokens`, not inside
  * it; tokens written to the cache are charged like input, so they are counted as input.
  */
-export function claudeUsage(response: Pick<Message, "model" | "usage">): CallUsage {
+export function claudeUsage(response: Reported): CallUsage {
   const usage = response.usage;
   return {
     model: response.model,
@@ -158,7 +170,7 @@ export function createClaudeProvider(options: ClaudeOptions): SurfaceProvider {
                 // Each search adds its results to the input tokens billed, so cap them.
                 max_uses: options.tuning.claude.max_searches,
                 // Plain searches. The default on this tool version filters results through code
-                // execution, which took twice the time and tokens for the same answer.
+                // execution, which took more time and tokens for the same answer.
                 allowed_callers: ["direct"],
                 // Searches as someone in the business's own town would.
                 user_location: {

@@ -5,8 +5,8 @@ import {
   type DetailsFix,
 } from "@nearcited/shared";
 import { useMutation } from "@tanstack/react-query";
-import { useState } from "react";
 import { api } from "../lib/api";
+import { useCopy } from "../lib/copy";
 import { detailsProof, detailsStatus } from "../lib/details";
 import { formatDate, listOf, sourceLabel } from "../lib/format";
 import { ErrorNote } from "./ErrorNote";
@@ -51,23 +51,13 @@ export function DetailsProof({ fix, missing }: { fix: DetailsFix; missing: boole
  */
 export function BusinessBlock({ location, onOpenSettings, fix, onMarked }: BusinessBlockProps) {
   const block = buildBusinessBlock(location);
-  const [copied, setCopied] = useState<"yes" | "no" | null>(null);
+  const { copied, copy } = useCopy();
   const mark = useMutation({
     mutationFn: (acted: boolean) => api.setRecommendationActed(fix?.id ?? "", acted),
     onSuccess: onMarked,
   });
   const page = (location.website && sourceLabel(location.website)) ?? "your page";
   const missing = block.missing.map((extra) => BLOCK_EXTRA_LABELS[extra]);
-
-  async function copy() {
-    try {
-      await navigator.clipboard.writeText(block.html);
-      setCopied("yes");
-    } catch {
-      // A browser may refuse the clipboard. The block is opened below to be copied by hand.
-      setCopied("no");
-    }
-  }
 
   return (
     <div className="paste-block">
@@ -77,13 +67,14 @@ export function BusinessBlock({ location, onOpenSettings, fix, onMarked }: Busin
         assistant answers is not known, so the next scans are what will show it.
       </p>
       <div className="paste-actions">
-        <button type="button" className="secondary" onClick={copy}>
+        <button type="button" className="secondary" onClick={() => copy(block.html)}>
           {copied === "yes" ? "Copied" : "Copy the block"}
         </button>
         <span role="status">
           {copied === "no" && "It could not be copied for you. Select it below and copy it."}
         </span>
       </div>
+      {/* A browser may refuse the clipboard. The block is opened to be copied by hand. */}
       <details open={copied === "no" || undefined}>
         <summary className="paste-summary">See the block</summary>
         <pre>

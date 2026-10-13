@@ -40,8 +40,17 @@ system works; this file only settles vocabulary.
 - **First sighting**: the alert that the written answers have begun to name a business, or to
   cite a site, that no written answer of any earlier scan on record named or cited. Said once,
   and of the whole record, not of the scan window.
-- **Draft**: text a model wrote, labelled as such. The owner sends or publishes it themselves, or
-  approves an action that does. Never a measurement, a step or a recommendation.
+- **Draft**: wording written for one of an owner's tasks: the note to a page's author, or the
+  description for a listing. A member asks for it, a model writes it, and it is labelled as a
+  model's. It states nothing about
+  the business beyond what the location holds and what its owner said it does. There is one for
+  a task, and writing it again replaces it. The owner sends or publishes it themselves, or
+  approves an action that does. Never a measurement, a step or a recommendation. See
+  `docs/adr/0016-the-worker-writes-a-draft.md`.
+- **What we do**: a few sentences in an owner's own words on what the business does. The one
+  thing a draft may state about the business that the location's other details do not hold.
+- **Sample text**: what stands where a draft goes on sample data and for a test organization.
+  Generated from the same details, written by no model, and labelled as that.
 - **Connection**: an owner's standing sign-in to an outside account where a business's work
   happens: its Google profile, its website, its visitor statistics, a customer source. Made once
   and synced from on a schedule.

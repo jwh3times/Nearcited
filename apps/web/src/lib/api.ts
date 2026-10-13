@@ -9,6 +9,7 @@ import {
   type ConnectionKind,
   ConnectionMatchSchema,
   ConnectionSchema,
+  DraftSchema,
   LimitChangeSchema,
   LocationActionsSchema,
   type LocationDetail,
@@ -183,7 +184,7 @@ export const api = {
     json(LocationSchema, "POST", `/organizations/${organizationId}/locations`, input),
   getLocation: (id: string): Promise<LocationDetail> =>
     json(LocationDetailSchema, "GET", `/locations/${id}`),
-  /** The whole form goes back: the API replaces every field a user may set. */
+  /** The whole form goes back: the API replaces every field a user may set that it is sent. */
   updateLocation: (id: string, input: LocationFormValues) =>
     json(LocationSchema, "PATCH", `/locations/${id}`, input),
   deleteLocation: (id: string) => send("DELETE", `/locations/${id}`),
@@ -201,4 +202,7 @@ export const api = {
     json(RecommendationSchema, "PATCH", `/recommendations/${id}`, { status }),
   setRecommendationActed: (id: string, acted: boolean) =>
     json(RecommendationSchema, "PATCH", `/recommendations/${id}`, { acted }),
+  /** Asks for a draft of one task, the first or another. The worker writes it on its own time. */
+  askDraft: (locationId: string, taskId: string) =>
+    json(DraftSchema, "POST", `/locations/${locationId}/tasks/${taskId}/draft`),
 };

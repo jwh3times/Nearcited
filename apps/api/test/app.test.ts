@@ -947,6 +947,42 @@ describe("organizations and locations", () => {
     expect(db.locations[0]?.name).toBe(location.name);
   });
 
+  it("keeps what the business says it does unless an edit says otherwise", async () => {
+    const { location } = await seed();
+    expect(location.what_we_do).toBeNull();
+    const whole = { name: location.name, city: location.city };
+    const edit = async (body: Record<string, unknown>) => {
+      const response = await call(alice, "PATCH", `/locations/${location.id}`, {
+        ...whole,
+        ...body,
+      });
+      return LocationSchema.parse(await response.json()).what_we_do;
+    };
+
+    expect(await edit({ what_we_do: "  Wood-fired pizza, family-run since 1998. " })).toBe(
+      "Wood-fired pizza, family-run since 1998.",
+    );
+    // A page opened before the field existed sends the whole form without it.
+    expect(await edit({ website: "joespizza.example" })).toBe(
+      "Wood-fired pizza, family-run since 1998.",
+    );
+    expect(await edit({ what_we_do: "" })).toBeNull();
+
+    const long = await call(alice, "PATCH", `/locations/${location.id}`, {
+      ...whole,
+      what_we_do: "a".repeat(601),
+    });
+    expect(long.status).toBe(422);
+    // A stranger finds no location, and changes nothing.
+    await edit({ what_we_do: "Pizza." });
+    const strangers = await call(bob, "PATCH", `/locations/${location.id}`, {
+      ...whole,
+      what_we_do: "Defaced.",
+    });
+    expect(strangers.status).toBe(404);
+    expect(db.locations[0]?.what_we_do).toBe("Pizza.");
+  });
+
   it("deletes a location", async () => {
     const { location } = await seed();
     expect((await call(alice, "DELETE", `/locations/${location.id}`)).status).toBe(204);

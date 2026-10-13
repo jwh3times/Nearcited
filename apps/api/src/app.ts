@@ -1,4 +1,4 @@
-import { type Rates, toPublicAudit } from "@nearcited/shared";
+import { type DraftKind, type Rates, toPublicAudit } from "@nearcited/shared";
 import { Hono } from "hono";
 import { type AuthedUser, type Authenticate, authenticateWithSupabase } from "./auth";
 import { thankForSubscription } from "./billing/started";
@@ -12,6 +12,7 @@ import { actionRoutes } from "./routes/actions";
 import { alertRoutes } from "./routes/alerts";
 import { billingRoutes } from "./routes/billing";
 import { connectionRoutes } from "./routes/connections";
+import { draftRoutes } from "./routes/drafts";
 import { locationRoutes } from "./routes/locations";
 import { operatorRoutes } from "./routes/operator";
 import { organizationRoutes } from "./routes/organizations";
@@ -58,6 +59,11 @@ export interface Deployment {
    * to anyone: only the dollars worked out from it are.
    */
   rates?: Rates;
+  /**
+   * The kinds of draft this build has instructions to write on real data. None without the
+   * private tuning.
+   */
+  draft_kinds?: readonly DraftKind[];
 }
 
 /** The token in an audit's link: 64 hex characters. Anything else is not worth a query. */
@@ -168,6 +174,7 @@ export function createApp(deps: AppDeps = { authenticate: authenticateWithSupaba
   app.route("/", connectionRoutes);
   app.route("/", actionRoutes);
   app.route("/", alertRoutes);
+  app.route("/", draftRoutes);
 
   app.notFound((c) => c.json({ error: { code: "not_found", message: "No such route" } }, 404));
 

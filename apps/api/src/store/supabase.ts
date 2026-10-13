@@ -7,6 +7,7 @@ import {
   CITING_SURFACES,
   ConnectionMatchSchema,
   ConnectionSchema,
+  DraftSchema,
   LimitChangeSchema,
   LocationConnectionSchema,
   LocationSchema,
@@ -27,6 +28,7 @@ import {
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import type { Env } from "../env";
+import { PAGE_SIZE, type ReadPage, readEvery } from "./paging";
 import { type Store, StoreError, type StoreErrorKind } from "./types";
 
 const clientOptions = {
@@ -76,6 +78,7 @@ const ERROR_KINDS: Record<string, StoreErrorKind> = {
   NC011: "limit", // an allowance of a kind that does not exist, or a value its kind does not take
   NC012: "limit", // a match a connection cannot take: not reached, already taken, or not working
   NC013: "limit", // an action that is no longer waiting or cannot be asked for, or a task one did
+  NC014: "limit", // a draft asked for when the month has no more
 };
 
 function fail(action: string, error: DbError): never {
@@ -188,6 +191,9 @@ const ORGANIZATION_COLUMNS =
 const ACTION_COLUMNS =
   "id, location_id, kind, connection_id, summary, seen, seen_dropped_at, proposed_text, written_by, status, proposed_at, lapses_at, approved_by_email, approved_at, approved_text, declined_by_email, declined_at, decline_reason, done_at, failed_at, failure, lapsed_at, lapse_reason, retry_of";
 
+const DRAFT_COLUMNS =
+  "id, location_id, recommendation_id, status, asked_by_email, asked_at, failure, kind, text, written_at, sample_data";
+
 const ALERT_COLUMNS =
   "id, location_id, kind, tracked_query_id, surface, facts, since, scan_id, raised_at, cleared_at, clear_reason, dismissed_at, dismissed_by_email";
 
@@ -197,7 +203,7 @@ const CONNECTION_COLUMNS =
 const CONNECTION_MATCH_COLUMNS = "location_id, external_id, external_label, matched_at";
 
 const LOCATION_COLUMNS =
-  "id, organization_id, name, website, phone, address_line, city, region, postal_code, country_code, google_place_id, primary_category, paused_by_plan, last_scanned_at, created_at";
+  "id, organization_id, name, website, phone, address_line, city, region, postal_code, country_code, google_place_id, primary_category, what_we_do, paused_by_plan, last_scanned_at, created_at";
 const SCAN_COLUMNS =
   "id, location_id, status, trigger, visibility_score, error, sample_data, created_at, started_at, finished_at";
 
@@ -207,7 +213,23 @@ const RECOMMENDATION_COLUMNS =
 const RESULT_COLUMNS =
   "id, scan_id, tracked_query_id, surface, mentioned, position, competitors, cited_urls, answer_excerpt, phones, sampled_at";
 
-export function createSupabaseStore(db: SupabaseClient): Store {
+export function createSupabaseStore(
+  db: SupabaseClient,
+  /** How many rows a list is asked for at a time. Smaller in tests, to read more than a page. */
+  { pageSize = PAGE_SIZE } = {},
+): Store {
+  /**
+   * Every row of a list that reaches across organizations, and so may be longer than one answer
+   * carries (`readEvery`). `page` asks for one page of it, in an order no two rows share.
+   */
+  async function every(what: string, page: ReadPage<unknown, DbError>): Promise<unknown[]> {
+    const { rows, error } = await readEvery(page, pageSize);
+    if (error) fail(what, error);
+    return rows;
+  }
+  /** The first page is the one asked how many rows there are in all. */
+  const counted = (first: boolean) => (first ? ({ count: "exact" } as const) : {});
+
   /** The addresses of an organization's members with one of these roles. Worker only. */
   async function emailsOf(organizationId: string, roles: string[]): Promise<string[]> {
     const { data, error } = await db
@@ -290,13 +312,17 @@ export function createSupabaseStore(db: SupabaseClient): Store {
     },
 
     async listUntoldActions() {
-      const { data, error } = await db
-        .from("actions")
-        .select("location_id, done_at")
-        .eq("status", "done")
-        .is("told_at", null);
-      if (error) fail("List untold actions", error);
-      return z.array(z.object({ location_id: z.uuid(), done_at: z.string() })).parse(data ?? []);
+      const data = await every("List untold actions", (from, to, first) =>
+        db
+          .from("actions")
+          .select("location_id, done_at", counted(first))
+          .eq("status", "done")
+          .is("told_at", null)
+          .order("done_at")
+          .order("id")
+          .range(from, to),
+      );
+      return z.array(z.object({ location_id: z.uuid(), done_at: z.string() })).parse(data);
     },
 
     async countWaitingActions(organizationId) {
@@ -407,6 +433,24 @@ export function createSupabaseStore(db: SupabaseClient): Store {
         .maybeSingle();
       if (error) fail("Dismiss an alert", error);
       return data ? AlertSchema.parse(data) : null;
+    },
+
+    async listDrafts(locationId) {
+      const { data, error } = await db
+        .from("drafts")
+        .select(DRAFT_COLUMNS)
+        .eq("location_id", locationId);
+      if (error) fail("List drafts", error);
+      return DraftSchema.array().parse(data);
+    },
+
+    async askDraft(recommendationId) {
+      const { data, error } = await db
+        .rpc("ask_draft", { recommendation: recommendationId })
+        .select(DRAFT_COLUMNS)
+        .maybeSingle();
+      if (error) fail("Ask for a draft", error);
+      return data ? DraftSchema.parse(data) : null;
     },
 
     async listConnections(organizationId) {
@@ -626,16 +670,22 @@ export function createSupabaseStore(db: SupabaseClient): Store {
     },
 
     async listActionsToTell() {
-      const { data, error } = await db
-        .from("actions")
-        .select(`${ACTION_COLUMNS}, location:locations!inner(name, organization_id)`)
-        .or("and(status.eq.done,told_at.is.null),and(status.eq.proposed,waiting_told_at.is.null)")
-        .order("proposed_at");
-      if (error) fail("List actions to tell owners of", error);
+      const data = await every("List actions to tell owners of", (from, to, first) =>
+        db
+          .from("actions")
+          .select(
+            `${ACTION_COLUMNS}, location:locations!inner(name, organization_id)`,
+            counted(first),
+          )
+          .or("and(status.eq.done,told_at.is.null),and(status.eq.proposed,waiting_told_at.is.null)")
+          .order("proposed_at")
+          .order("id")
+          .range(from, to),
+      );
       const where = z.object({
         location: z.object({ name: z.string(), organization_id: z.uuid() }),
       });
-      return (data ?? []).map((row) => {
+      return data.map((row) => {
         const { location } = where.parse(row);
         return {
           action: ActionSchema.parse(row),
@@ -676,6 +726,59 @@ export function createSupabaseStore(db: SupabaseClient): Store {
         .number()
         .int()
         .parse(data ?? 0);
+    },
+
+    async getDraft(id) {
+      const { data, error } = await db
+        .from("drafts")
+        .select(DRAFT_COLUMNS)
+        .eq("id", id)
+        .maybeSingle();
+      if (error) fail("Get a draft", error);
+      return data ? DraftSchema.parse(data) : null;
+    },
+
+    async claimDraft(id) {
+      const { data, error } = await db.rpc("claim_draft", { draft: id });
+      if (error) fail("Claim a draft", error);
+      return z
+        .number()
+        .int()
+        .parse(data ?? 0);
+    },
+
+    async finishDraft(id, result) {
+      const { data, error } = await db.rpc(
+        "finish_draft",
+        result.outcome === "written"
+          ? {
+              draft: id,
+              outcome: result.outcome,
+              body: result.text,
+              of_kind: result.kind,
+              by_model: result.model,
+              sample: result.sample_data,
+            }
+          : { draft: id, outcome: result.outcome, why: result.why },
+      );
+      if (error) fail("Finish a draft", error);
+      return data === true;
+    },
+
+    async listStalledDrafts(before) {
+      const { data, error } = await db
+        .from("drafts")
+        .select("id")
+        .eq("status", "asked")
+        .lt("asked_at", before)
+        // Nobody is on it, or whoever was has been on it since before then and is taken to
+        // have died.
+        .or(`writing_since.is.null,writing_since.lt.${before}`);
+      if (error) fail("List stalled drafts", error);
+      return z
+        .array(z.object({ id: z.uuid() }))
+        .parse(data ?? [])
+        .map((row) => row.id);
     },
 
     async listStalledActions(before) {
@@ -881,15 +984,19 @@ export function createSupabaseStore(db: SupabaseClient): Store {
     },
 
     async listEverySubscription() {
-      const { data, error } = await db
-        .from("subscriptions")
-        .select("organization_id, stripe_subscription_id");
-      if (error) fail("List subscriptions", error);
+      const data = await every("List subscriptions", (from, to, first) =>
+        db
+          .from("subscriptions")
+          .select("organization_id, stripe_subscription_id", counted(first))
+          .order("created_at")
+          .order("organization_id")
+          .range(from, to),
+      );
       return z
         .array(
           z.object({ organization_id: z.uuid(), stripe_subscription_id: z.string().nullable() }),
         )
-        .parse(data ?? [])
+        .parse(data)
         .map((row) => ({
           organization_id: row.organization_id,
           subscribed: row.stripe_subscription_id !== null,
@@ -962,23 +1069,35 @@ export function createSupabaseStore(db: SupabaseClient): Store {
 
     async listPlanSubscribers(planKey) {
       const [organizations, subscriptions] = await Promise.all([
-        db.from("organizations").select("id").eq("plan_key", planKey).eq("is_test", false),
-        db
-          .from("subscriptions")
-          .select("organization_id")
-          .not("stripe_subscription_id", "is", null),
+        every("List a plan's organizations", (from, to, first) =>
+          db
+            .from("organizations")
+            .select("id", counted(first))
+            .eq("plan_key", planKey)
+            .eq("is_test", false)
+            .order("created_at")
+            .order("id")
+            .range(from, to),
+        ),
+        every("List subscriptions", (from, to, first) =>
+          db
+            .from("subscriptions")
+            .select("organization_id", counted(first))
+            .not("stripe_subscription_id", "is", null)
+            .order("created_at")
+            .order("organization_id")
+            .range(from, to),
+        ),
       ]);
-      if (organizations.error) fail("List a plan's organizations", organizations.error);
-      if (subscriptions.error) fail("List subscriptions", subscriptions.error);
       const subscribed = new Set(
         z
           .array(z.object({ organization_id: z.uuid() }))
-          .parse(subscriptions.data ?? [])
+          .parse(subscriptions)
           .map((row) => row.organization_id),
       );
       return z
         .array(z.object({ id: z.uuid() }))
-        .parse(organizations.data ?? [])
+        .parse(organizations)
         .map((row) => row.id)
         .filter((id) => subscribed.has(id));
     },
@@ -995,11 +1114,16 @@ export function createSupabaseStore(db: SupabaseClient): Store {
     },
 
     async listPriceChangeNotices(priceChangeId) {
-      const { data, error } = await db
-        .from("price_change_notices")
-        .select(NOTICE_COLUMNS)
-        .eq("price_change_id", priceChangeId);
-      if (error) fail("List price change notices", error);
+      // One to an organization, with no time it was made and never taken away: a notice made
+      // while the pages are read can at worst be read twice, never missed.
+      const data = await every("List price change notices", (from, to, first) =>
+        db
+          .from("price_change_notices")
+          .select(NOTICE_COLUMNS, counted(first))
+          .eq("price_change_id", priceChangeId)
+          .order("organization_id")
+          .range(from, to),
+      );
       return NoticeSchema.array().parse(data);
     },
 
@@ -1069,15 +1193,19 @@ export function createSupabaseStore(db: SupabaseClient): Store {
     },
 
     async listPlanOrganizations(planKey) {
-      const { data, error } = await db
-        .from("organizations")
-        .select("id")
-        .eq("plan_key", planKey)
-        .eq("is_test", false);
-      if (error) fail("List a plan's organizations", error);
+      const data = await every("List a plan's organizations", (from, to, first) =>
+        db
+          .from("organizations")
+          .select("id", counted(first))
+          .eq("plan_key", planKey)
+          .eq("is_test", false)
+          .order("created_at")
+          .order("id")
+          .range(from, to),
+      );
       return z
         .array(z.object({ id: z.uuid() }))
-        .parse(data ?? [])
+        .parse(data)
         .map((row) => row.id);
     },
 
@@ -1106,11 +1234,15 @@ export function createSupabaseStore(db: SupabaseClient): Store {
     },
 
     async listLimitChangeNotices(limitChangeId) {
-      const { data, error } = await db
-        .from("limit_change_notices")
-        .select(LIMIT_NOTICE_COLUMNS)
-        .eq("limit_change_id", limitChangeId);
-      if (error) fail("List limit change notices", error);
+      // One to an organization, as a price change's are, and read the same way.
+      const data = await every("List limit change notices", (from, to, first) =>
+        db
+          .from("limit_change_notices")
+          .select(LIMIT_NOTICE_COLUMNS, counted(first))
+          .eq("limit_change_id", limitChangeId)
+          .order("organization_id")
+          .range(from, to),
+      );
       return LimitNoticeSchema.array().parse(data);
     },
 
@@ -1154,57 +1286,89 @@ export function createSupabaseStore(db: SupabaseClient): Store {
     },
 
     async listEveryOrganization() {
-      const { data, error } = await db
-        .from("organizations")
-        .select(ORGANIZATION_COLUMNS)
-        .order("created_at");
-      if (error) fail("List every organization", error);
+      const data = await every("List every organization", (from, to, first) =>
+        db
+          .from("organizations")
+          .select(ORGANIZATION_COLUMNS, counted(first))
+          .order("created_at")
+          .order("id")
+          .range(from, to),
+      );
       return OrganizationSchema.array().parse(data);
     },
 
     async listEveryLocation() {
-      const { data, error } = await db.from("locations").select(LOCATION_COLUMNS).order("name");
-      if (error) fail("List every location", error);
+      const data = await every("List every location", (from, to, first) =>
+        db
+          .from("locations")
+          .select(LOCATION_COLUMNS, counted(first))
+          .order("created_at")
+          .order("id")
+          .range(from, to),
+      );
       return LocationSchema.array().parse(data);
     },
 
     async countActiveQueries() {
-      const { data, error } = await db
-        .from("tracked_queries")
-        .select("location_id")
-        .eq("is_active", true);
-      if (error) fail("Count active queries", error);
+      // One row for each active prompt everywhere: the first of these lists to outgrow a page.
+      const data = await every("Count active queries", (from, to, first) =>
+        db
+          .from("tracked_queries")
+          .select("location_id", counted(first))
+          .eq("is_active", true)
+          .order("created_at")
+          .order("id")
+          .range(from, to),
+      );
       const counts: Record<string, number> = {};
-      for (const row of data ?? []) {
-        const id = String(row.location_id);
-        counts[id] = (counts[id] ?? 0) + 1;
+      for (const row of z.array(z.object({ location_id: z.uuid() })).parse(data)) {
+        counts[row.location_id] = (counts[row.location_id] ?? 0) + 1;
       }
       return counts;
     },
 
     async listScansSince(since) {
-      const { data, error } = await db
-        .from("scans")
-        .select("id, location_id, status, trigger, error, sample_data, created_at, site_check")
-        .gte("created_at", since)
-        .order("created_at", { ascending: false });
-      if (error) fail("List recent scans", error);
-      return OperatorScanSchema.array().parse(data);
+      // Read oldest first, so a scan made meanwhile lands past the end, and handed back newest
+      // first as it is used.
+      const data = await every("List recent scans", (from, to, first) =>
+        db
+          .from("scans")
+          .select(
+            "id, location_id, status, trigger, error, sample_data, created_at, site_check",
+            counted(first),
+          )
+          .gte("created_at", since)
+          .order("created_at")
+          .order("id")
+          .range(from, to),
+      );
+      return OperatorScanSchema.array().parse(data).reverse();
     },
 
     async listUsageByMonth(since) {
-      const { data, error } = await db.rpc("usage_by_month", { since });
-      if (error) fail("List usage by month", error);
+      const data = await every("List usage by month", (from, to, first) =>
+        db
+          .rpc("usage_by_month", { since }, counted(first))
+          .order("month")
+          .order("organization_id")
+          .order("is_audit")
+          .order("model")
+          .range(from, to),
+      );
       return UsageByMonthSchema.array().parse(data);
     },
 
     async listEveryAudit() {
-      const { data, error } = await db
-        .from("audits")
-        .select(LISTED_AUDIT_COLUMNS)
-        .order("created_at", { ascending: false });
-      if (error) fail("List every audit", error);
-      return ListedAuditSchema.array().parse(data);
+      // Read oldest first and handed back newest first, as the scans are.
+      const data = await every("List every audit", (from, to, first) =>
+        db
+          .from("audits")
+          .select(LISTED_AUDIT_COLUMNS, counted(first))
+          .order("created_at")
+          .order("id")
+          .range(from, to),
+      );
+      return ListedAuditSchema.array().parse(data).reverse();
     },
 
     async createAudit(input) {
@@ -1225,25 +1389,45 @@ export function createSupabaseStore(db: SupabaseClient): Store {
     },
 
     async listAccounts() {
-      const { data, error } = await db.rpc("operator_accounts");
-      if (error) fail("List accounts", error);
-      return AccountRowSchema.array().parse(data);
+      // Read oldest first and handed back newest first, as the function itself orders them.
+      const data = await every("List accounts", (from, to, first) =>
+        db
+          .rpc("operator_accounts", undefined, counted(first))
+          .order("created_at")
+          .order("user_id")
+          .range(from, to),
+      );
+      return AccountRowSchema.array().parse(data).reverse();
     },
 
     async listEveryMembership() {
-      const { data, error } = await db
-        .from("memberships")
-        .select("user_id, organization_id")
-        .order("created_at");
-      if (error) fail("List every membership", error);
+      const data = await every("List every membership", (from, to, first) =>
+        db
+          .from("memberships")
+          .select("user_id, organization_id", counted(first))
+          .order("created_at")
+          .order("organization_id")
+          .order("user_id")
+          .range(from, to),
+      );
       return z.array(z.object({ user_id: z.uuid(), organization_id: z.uuid() })).parse(data);
     },
 
     async listPlatformRoles() {
-      const { data, error } = await db.from("platform_roles").select("user_id, role");
-      if (error) fail("List platform roles", error);
+      const data = await every("List platform roles", (from, to, first) =>
+        db
+          .from("platform_roles")
+          .select("user_id, role", counted(first))
+          .order("created_at")
+          .order("user_id")
+          .range(from, to),
+      );
       const roles: Record<string, PlatformRole> = {};
-      for (const row of data ?? []) roles[String(row.user_id)] = PlatformRoleSchema.parse(row.role);
+      for (const row of z
+        .array(z.object({ user_id: z.uuid(), role: PlatformRoleSchema }))
+        .parse(data)) {
+        roles[row.user_id] = row.role;
+      }
       return roles;
     },
 

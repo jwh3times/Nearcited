@@ -13,11 +13,11 @@ import { createLiveProviders } from "../src/providers/live";
  * Responses in the shape the Messages API really returns for the web_search tool called directly
  * with a JSON output format, checked against live calls on 2026-10-06 (claude-opus-5-5 and
  * claude-sonnet-5-5).
- * The structure and field names are real; the content is invented.
+ * The structure and field names are real; the content and the usage numbers are invented.
  */
 const usage = {
-  input_tokens: 22591,
-  output_tokens: 1566,
+  input_tokens: 1000,
+  output_tokens: 100,
   cache_creation_input_tokens: 0,
   cache_read_input_tokens: 0,
   server_tool_use: { web_search_requests: 2, web_fetch_requests: 0 },
@@ -95,6 +95,7 @@ const location: Location = {
   country_code: "US",
   google_place_id: null,
   primary_category: null,
+  what_we_do: null,
   paused_by_plan: false,
   last_scanned_at: null,
   created_at: "2026-10-01T00:00:00Z",
@@ -285,9 +286,9 @@ describe("createClaudeProvider", () => {
     await provider(fetchStub).observe({ ...input, onUsage: used });
     expect(used).toHaveBeenCalledExactlyOnceWith({
       model: "claude-sonnet-5-5",
-      input_tokens: 22591,
+      input_tokens: 1000,
       cached_input_tokens: 0,
-      output_tokens: 1566,
+      output_tokens: 100,
       searches: 2,
     });
   });

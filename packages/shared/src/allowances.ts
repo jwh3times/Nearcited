@@ -14,9 +14,12 @@ export interface AllowanceKind {
 /**
  * Every kind of work a plan can include, by key, in the order they are listed. The database
  * holds the same keys in `allowance_kinds` and refuses any other, so a kind is added to both in
- * one change. None exists yet: the first arrives with the work that needs it.
+ * one change.
  */
-export const ALLOWANCE_KINDS: Record<string, AllowanceKind> = {};
+export const ALLOWANCE_KINDS: Record<string, AllowanceKind> = {
+  // Wording written for a task (`drafts.ts`). `DRAFTS_ALLOWANCE` there is this key.
+  drafts: { counted: true, name: "Drafts written for you" },
+};
 
 /** The most a plan may give of a counted kind, for each location, in a month. */
 export const MOST_ALLOWED = 1_000_000;

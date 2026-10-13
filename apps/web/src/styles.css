@@ -174,6 +174,7 @@ code {
 
 input,
 select,
+textarea,
 button {
   font: inherit;
   color: inherit;
@@ -270,7 +271,23 @@ select {
   font-weight: 400;
 }
 
-input::placeholder {
+/* A few sentences: a field like any other, tall enough to read and change. */
+textarea {
+  width: 100%;
+  min-height: 5.5rem;
+  padding: 0.625rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 0.9375rem;
+  font-weight: 400;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+input::placeholder,
+textarea::placeholder {
   color: var(--muted);
   opacity: 0.7;
 }
@@ -281,7 +298,8 @@ input.tall {
   font-size: 1.0625rem;
 }
 
-input[aria-invalid="true"] {
+input[aria-invalid="true"],
+textarea[aria-invalid="true"] {
   border-color: var(--danger);
 }
 
@@ -290,6 +308,11 @@ input[aria-invalid="true"] {
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
+}
+
+/* A field of a few sentences takes the whole row of the grid it is in. */
+.field.wide {
+  grid-column: 1 / -1;
 }
 
 /* The line under a field. It keeps its height when empty, so a message never moves the form. */
@@ -1444,6 +1467,15 @@ details.as-table td {
   text-underline-offset: 0.18em;
 }
 
+/* A draft, as it was written: its line breaks kept, and read as text, not as a note about it. */
+.paste-block .draft-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 0.875rem;
+  line-height: 1.55;
+  color: var(--ink);
+}
+
 .paste-actions {
   display: flex;
   align-items: center;
@@ -1625,21 +1657,6 @@ mark {
 
 .action li span:last-child {
   overflow-wrap: anywhere;
-}
-
-/* The text an action would publish: a field like any other, tall enough to read and change. */
-.action textarea {
-  width: 100%;
-  min-height: 5.5rem;
-  padding: 0.625rem 0.75rem;
-  border: 1px solid var(--line);
-  border-radius: 0.5rem;
-  background: var(--surface);
-  color: var(--ink);
-  font: inherit;
-  font-size: 0.9375rem;
-  line-height: 1.5;
-  resize: vertical;
 }
 
 /* A connected account on the Connections page: what it is, who connected it, and the way out. */

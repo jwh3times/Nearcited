@@ -4871,6 +4871,330 @@ describe("the operator", () => {
     });
   });
 
+  describe("drafts", () => {
+    let main: string;
+    let task: string;
+    let before: { allowances: unknown; max_locations: number } | undefined;
+
+    const ask = "select id, status, asked_by_email, text from public.ask_draft($1)";
+    const claim = (id: string) =>
+      as("service_role", null, () =>
+        rows<{ try: number }>("select public.claim_draft($1) as try", [id]),
+      ).then(([row]) => row?.try);
+    const finish = (id: string, outcome: string, rest = "") =>
+      as("service_role", null, () =>
+        rows<{ done: boolean }>(`select public.finish_draft($1, $2${rest}) as done`, [id, outcome]),
+      ).then(([row]) => row?.done);
+    const written = (id: string, text: string) =>
+      finish(id, "written", `, body => '${text}', of_kind => 'note', by_model => 'test-model'`);
+    const drafts = () =>
+      rows<Record<string, unknown>>(
+        "select id, status, text, kind, model, sample_data, failure, attempts, writing_since is not null as writing, allowance_month is not null as holds from public.drafts order by created_at",
+      );
+    const used = async () =>
+      (
+        await rows<{ used: number }>(
+          "select used from public.allowance_use where organization_id = $1 and kind = 'drafts'",
+          [theirs],
+        )
+      )[0]?.used ?? 0;
+    const allow = (allowances: string) =>
+      db.query("update public.organizations set allowances = $1::jsonb where id = $2", [
+        allowances,
+        theirs,
+      ]);
+
+    beforeAll(async () => {
+      const [location] = await rows<{ id: string }>(
+        "select id from public.locations where organization_id = $1 order by created_at limit 1",
+        [theirs],
+      );
+      main = location?.id ?? "";
+      const [recommendation] = await rows<{ id: string }>(
+        "insert into public.recommendations (location_id, rule, title, detail) values ($1, 'source:usnews.com', 't', 'd') returning id",
+        [main],
+      );
+      task = recommendation?.id ?? "";
+      [before] = await rows<{ allowances: unknown; max_locations: number }>(
+        "select allowances, max_locations from public.organizations where id = $1",
+        [theirs],
+      );
+      // Two a month for the one location its plan covers.
+      await db.query("update public.organizations set max_locations = 1 where id = $1", [theirs]);
+      await allow('{"drafts": 2}');
+      await db.query("delete from public.allowance_use where organization_id = $1", [theirs]);
+    });
+    afterAll(async () => {
+      await db.query("delete from public.drafts");
+      await db.query("delete from public.recommendations where id = $1", [task]);
+      await db.query("delete from public.allowance_use where organization_id = $1", [theirs]);
+      await db.query(
+        "update public.organizations set allowances = $1::jsonb, max_locations = $2 where id = $3",
+        [JSON.stringify(before?.allowances ?? {}), before?.max_locations ?? 1, theirs],
+      );
+    });
+
+    it("are a kind of allowance a plan gives a number of, which a test organization has", async () => {
+      expect(await rows("select counted from public.allowance_kinds where key = 'drafts'")).toEqual(
+        [{ counted: true }],
+      );
+      expect(await rows("select public.test_allowances() -> 'drafts' as drafts")).toEqual([
+        { drafts: 1000 },
+      ]);
+    });
+
+    it("are asked for by a member of the organization, and by nobody else", async () => {
+      for (const user of [bob, operator]) {
+        expect(await as("authenticated", user, () => rows(ask, [task])), user).toEqual([]);
+      }
+      // The worker is nobody's member either.
+      expect(await as("service_role", null, () => rows(ask, [task]))).toEqual([]);
+      await expect(as("anon", null, () => db.query(ask, [task]))).rejects.toThrow(
+        /permission denied/,
+      );
+      expect(await drafts()).toEqual([]);
+
+      expect(await as("authenticated", alice, () => rows(ask, [task]))).toEqual([
+        {
+          id: expect.any(String),
+          status: "asked",
+          asked_by_email: "alice@example.com",
+          text: null,
+        },
+      ]);
+      // Asking takes nothing from the month. Writing does.
+      expect(await used()).toBe(0);
+    });
+
+    it("are one ask however often a member asks while it is being written", async () => {
+      const [first] = await drafts();
+      const [again] = await as("authenticated", alice, () => rows<{ id: string }>(ask, [task]));
+      expect(again?.id).toBe(first?.id);
+      expect(await drafts()).toHaveLength(1);
+    });
+
+    it("are read by the members and the operator, and written by neither", async () => {
+      const read = "select id from public.drafts where location_id = $1";
+      for (const user of [alice, operator]) {
+        expect(await as("authenticated", user, () => rows(read, [main])), user).toHaveLength(1);
+      }
+      expect(await as("authenticated", bob, () => rows(read, [main]))).toEqual([]);
+      await expect(as("anon", null, () => db.query(read, [main]))).rejects.toThrow(
+        /permission denied/,
+      );
+      const [draft] = await drafts();
+      for (const sql of [
+        `insert into public.drafts (location_id, recommendation_id) values ('${main}', '${task}')`,
+        "update public.drafts set status = 'written', text = 'planted', kind = 'note', written_at = now()",
+        "update public.drafts set allowance_month = null",
+        "delete from public.drafts",
+        `select public.claim_draft('${draft?.id}')`,
+        `select public.finish_draft('${draft?.id}', 'written', 'planted', 'note')`,
+        `select public.claim_allowance('${theirs}', 'drafts')`,
+      ]) {
+        for (const user of [alice, operator]) {
+          await expect(
+            as("authenticated", user, () => db.query(sql)),
+            sql,
+          ).rejects.toThrow(/permission denied/);
+        }
+      }
+    });
+
+    it("take one from the month when the worker takes them, and only one", async () => {
+      const [draft] = await drafts();
+      const id = String(draft?.id);
+      expect(await claim(id)).toBe(1);
+      expect(await used()).toBe(1);
+      expect(await drafts()).toMatchObject([{ status: "asked", writing: true, holds: true }]);
+      // A second worker leaves alone what the first is on.
+      expect(await claim(id)).toBe(0);
+      // Asking again while it is being written is the same ask: the worker keeps its hold, and
+      // what it took from the month is not forgotten.
+      await as("authenticated", alice, () => rows(ask, [task]));
+      expect(await drafts()).toMatchObject([{ attempts: 1, writing: true, holds: true }]);
+
+      // Let go of for another try, it is taken again without taking from the month again.
+      expect(await finish(id, "again", ", why => 'Not yet.'")).toBe(true);
+      expect(await claim(id)).toBe(2);
+      expect(await used()).toBe(1);
+    });
+
+    it("keep what was written, and what it took from the month", async () => {
+      const [draft] = await drafts();
+      expect(await written(String(draft?.id), "Hello.")).toBe(true);
+      expect(await drafts()).toMatchObject([
+        {
+          status: "written",
+          text: "Hello.",
+          kind: "note",
+          model: "test-model",
+          sample_data: false,
+          failure: null,
+          writing: false,
+        },
+      ]);
+      expect(await used()).toBe(1);
+      // There is nothing more to finish, and nothing to take.
+      expect(await written(String(draft?.id), "Again.")).toBe(false);
+      expect(await claim(String(draft?.id))).toBe(0);
+    });
+
+    it("keep the one that was written while another is asked for, and when that one fails", async () => {
+      const [asked] = await as("authenticated", bob, () => rows(ask, [task]));
+      expect(asked).toBeUndefined();
+      expect(await as("authenticated", alice, () => rows(ask, [task]))).toMatchObject([
+        { status: "asked", text: "Hello." },
+      ]);
+      const [draft] = await drafts();
+      expect(draft).toMatchObject({ attempts: 0, holds: false });
+
+      expect(await claim(String(draft?.id))).toBe(1);
+      expect(await used()).toBe(2);
+      expect(await finish(String(draft?.id), "failed", ", why => 'It could not be written.'")).toBe(
+        true,
+      );
+      expect(await drafts()).toMatchObject([
+        { status: "failed", text: "Hello.", failure: "It could not be written.", holds: false },
+      ]);
+      // What the failed one took is given back. What the written one took is not.
+      expect(await used()).toBe(1);
+    });
+
+    it("are refused once the month is used, and on a plan that includes none", async () => {
+      await db.query("update public.allowance_use set used = 2 where organization_id = $1", [
+        theirs,
+      ]);
+      await expect(as("authenticated", alice, () => rows(ask, [task]))).rejects.toMatchObject({
+        code: "NC014",
+        message: "Your plan has no more drafts this month.",
+      });
+      await allow("{}");
+      await expect(as("authenticated", alice, () => rows(ask, [task]))).rejects.toMatchObject({
+        code: "NC014",
+      });
+      // Refused, so what was there is as it was.
+      expect(await drafts()).toMatchObject([{ status: "failed", text: "Hello." }]);
+      await allow('{"drafts": 2}');
+      await db.query("update public.allowance_use set used = 1 where organization_id = $1", [
+        theirs,
+      ]);
+    });
+
+    it("are failed by the worker when the month ran out after the ask", async () => {
+      await as("authenticated", alice, () => rows(ask, [task]));
+      const [draft] = await drafts();
+      await db.query("update public.allowance_use set used = 2 where organization_id = $1", [
+        theirs,
+      ]);
+      expect(await claim(String(draft?.id))).toBe(0);
+      expect(await drafts()).toMatchObject([
+        {
+          status: "failed",
+          text: "Hello.",
+          failure: "Your plan has no more drafts this month.",
+          holds: false,
+        },
+      ]);
+      expect(await used()).toBe(2);
+      await db.query("update public.allowance_use set used = 0 where organization_id = $1", [
+        theirs,
+      ]);
+    });
+
+    it("are written only as a kind there is, and say when they are sample text", async () => {
+      await as("authenticated", alice, () => rows(ask, [task]));
+      const [draft] = await drafts();
+      const id = String(draft?.id);
+      await claim(id);
+      await expect(
+        finish(id, "written", ", body => 'An essay.', of_kind => 'essay'"),
+      ).rejects.toThrow(/check constraint/);
+      await expect(finish(id, "written", ", of_kind => 'note'")).rejects.toThrow(
+        /check constraint/,
+      );
+      await expect(finish(id, "lost")).rejects.toThrow(/written, failed or again/);
+
+      expect(
+        await finish(id, "written", ", body => 'Sample.', of_kind => 'listing', sample => true"),
+      ).toBe(true);
+      // The other kind there is: a listing's description.
+      expect(await drafts()).toMatchObject([
+        { status: "written", text: "Sample.", kind: "listing", model: null, sample_data: true },
+      ]);
+    });
+
+    it("have what they used recorded by the worker, for no surface, where the operator's spend counts it", async () => {
+      const [draft] = await drafts();
+      const insert = `insert into public.provider_usage
+           (organization_id, draft_id, model, calls, input_tokens, cached_input_tokens, output_tokens, searches)
+         values ('${theirs}', '${draft?.id}', 'draft-model', 1, 400, 0, 150, 0)`;
+      for (const user of [alice, operator]) {
+        await expect(
+          as("authenticated", user, () => db.query(insert)),
+          user,
+        ).rejects.toThrow(/permission denied/);
+      }
+      await as("service_role", null, () => db.query(insert));
+
+      const byMonth =
+        "select organization_id, is_audit, calls::int, input_tokens::int, output_tokens::int from public.usage_by_month(now() - interval '1 day') where model = 'draft-model'";
+      expect(await as("authenticated", operator, () => rows(byMonth))).toEqual([
+        {
+          organization_id: theirs,
+          is_audit: false,
+          calls: 1,
+          input_tokens: 400,
+          output_tokens: 150,
+        },
+      ]);
+      // What a customer's drafts cost is the operator's business, not a member's.
+      expect(await as("authenticated", alice, () => rows(byMonth))).toEqual([]);
+    });
+
+    it("leave what they used on record when they go, because the money was still spent", async () => {
+      await db.query("delete from public.recommendations where id = $1", [task]);
+      expect(await drafts()).toEqual([]);
+      expect(
+        await rows(
+          "select organization_id, draft_id, surface, calls from public.provider_usage where model = 'draft-model'",
+        ),
+      ).toEqual([{ organization_id: theirs, draft_id: null, surface: null, calls: 1 }]);
+      await db.query("delete from public.provider_usage where model = 'draft-model'");
+      // The task is put back for what follows.
+      const [recommendation] = await rows<{ id: string }>(
+        "insert into public.recommendations (location_id, rule, title, detail) values ($1, 'source:usnews.com', 't', 'd') returning id",
+        [main],
+      );
+      task = recommendation?.id ?? "";
+      await db.query("insert into public.drafts (location_id, recommendation_id) values ($1, $2)", [
+        main,
+        task,
+      ]);
+    });
+
+    it("go with their task, and with their location", async () => {
+      await db.query("update public.organizations set max_locations = 2 where id = $1", [theirs]);
+      const [gone] = await rows<{ id: string }>(
+        "insert into public.locations (organization_id, name, city) values ($1, 'Closing', 'Raleigh') returning id",
+        [theirs],
+      );
+      const [other] = await rows<{ id: string }>(
+        "insert into public.recommendations (location_id, rule, title, detail) values ($1, 'source:usnews.com', 't', 'd') returning id",
+        [gone?.id],
+      );
+      await db.query("insert into public.drafts (location_id, recommendation_id) values ($1, $2)", [
+        gone?.id,
+        other?.id,
+      ]);
+      await db.query("delete from public.locations where id = $1", [gone?.id]);
+      expect(await drafts()).toHaveLength(1);
+
+      await db.query("delete from public.recommendations where id = $1", [task]);
+      expect(await drafts()).toEqual([]);
+    });
+  });
+
   describe("making an audit", () => {
     const create =
       "select id, token, business_name, website, region, country_code, prompts, samples, status from public.operator_create_audit('Joe''s Pizza', 'https://joes.example/', 'Raleigh', null, 'US', array['best pizza', 'late night food'], 2)";

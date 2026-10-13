@@ -12,7 +12,8 @@
   also fails audits still `queued` after 30 minutes (see "Shareable audits"), and queues again
   the removal of any connection asked for more than 15 minutes ago and not finished, the first
   sync of any connection made in the last day that still has none (see "Connections"), and any
-  approved action nobody is carrying out (`requeueStalledActions`; see "Actions").
+  approved action nobody is carrying out (`requeueStalledActions`; see "Actions") and any draft
+  asked for that nobody is writing (`requeueStalledDrafts`; see "Drafts").
   Once a day it also asks Postgres which locations are due (`locations_due_for_scan`), creates a
   `scheduled` scan row for each, and puts the scan IDs on the queue. It also queues a sync for each
   connection that is due (`enqueueDueSyncs`). It also lapses the proposals that waited fourteen
@@ -35,7 +36,12 @@
   a reduction for one organization (see "Reductions in limits"). A message shaped
   `{ connection_id, step }` is one step for a connection, `remove` or `sync` (see "Connections");
   after a sync that read the account it also proposes actions. A message shaped
-  `{ action_id, step }` carries out one approved action (see "Actions").
+  `{ action_id, step }` carries out one approved action (see "Actions"). A message shaped
+  `{ draft_id, step }` writes one draft a member asked for (see "Drafts"). The consumer is handed
+  up to five messages at a time and works through them one after another. A lone message waits
+  at most a second for others to join it (`max_batch_timeout` in `wrangler.jsonc`), because
+  somebody is usually watching the page for it; a message that lands in a batch behind scans
+  still waits for those to finish.
 
 ## How a scan runs
 
@@ -81,8 +87,9 @@ network access. The same goes for which phone numbers a written answer gave for 
 result keeps only an excerpt of an answer, 280 characters, so those numbers are read while the
 whole answer is in hand and kept with the result as `scan_results.phones` (see "Alerts"). A
 provider also reports what each call it is charged for used (`onUsage`); the scan and audit
-runners add those up and store them in `provider_usage`. A failure to store them is logged and
-does not change the outcome. What a row cost is `usageCost` in `packages/shared`,
+runners add those up and store them in `provider_usage`, and so does the worker that writes a
+draft (see "Drafts"), whose rows name the draft and no surface. A failure to store them is logged
+and does not change the outcome. What a row cost is `usageCost` in `packages/shared`,
 from the tuning's `rates`: one entry per model, which a public clone leaves empty, so a model
 without an entry has no cost and is never priced as another.
 
@@ -90,13 +97,15 @@ The operator's spend figures (`GET /api/operator/spend`) are the only reader. Th
 the rows up by calendar month in UTC (`usage_by_month()`, which runs as the caller, so it counts
 everything for the operator and nothing for a member), and `buildSpend` prices the sums when they
 are read: per organization, audits on their own line, and what deleted organizations had spent. A
-rate corrected later therefore corrects past months too. A test organization is never counted, and
+draft's use is in its organization's line, since its rows carry the organization and the sum is by
+month, organization and model. A rate corrected later therefore corrects past months too. A test organization is never counted, and
 usage on a model with no rate is named and left out of the total, not guessed at. Only dollars
 leave the server; the rates do not.
 
 ## Tuning
 
-Prompt wording and score weights are values, defined by `TuningSchema` in
+Prompt wording, score weights and what writes a draft (its model, effort, length and the
+instructions for each kind of draft) are values, defined by `TuningSchema` in
 `packages/shared/src/tuning.ts` with placeholder defaults. The values a deployment really uses
 live in the private companion repository as `private/tuning.json`
 ([ADR 0001](adr/0001-private-tuning-as-data.md)).
@@ -111,10 +120,19 @@ apps/api/.tuning/tuning.json    gitignored: { source: "private", tuning } or { s
 apps/api/src/tuning.ts          resolveTuning() at startup; an invalid private file throws
         |
 queue consumer -> runScan({ weights, unavailable })
+                  writeDraft({ writer })           (the writer holds the draft settings)
+fetch handler  -> Deployment.draft_kinds            (what the draft route refuses on, and what a task is offered)
 ```
 
 `runScan` and the scoring functions take the tuning as arguments, so they are tested without the
 bundled file. Only `apps/api/src/index.ts` imports the resolved tuning.
+
+The draft settings, `drafts`, are optional: a private file from before drafts existed still loads,
+and a build whose file has none writes no draft on real data. `liveDraftKinds`
+(`apps/api/src/drafts/claude.ts`) is the kinds of draft a build can write there: those the private
+file has instructions for, and none on the default tuning, whose `drafts` is a placeholder that
+lets the code run and is never used on real data, for the reason live scans refuse the default
+tuning. A kind with no instructions is not written, and nothing falls back to a placeholder.
 
 ## Live providers
 
@@ -130,27 +148,14 @@ OpenAI requires citations to be visible and clickable wherever information from 
 shown, so the location page lists each answer's sources under its excerpt. Keep that list when
 changing how results are displayed.
 
-**Cost of one ChatGPT check: about 7 cents on `gpt-6.1-sol`**, the default model. This is from
-a single live call on 2026-10-06, so treat it as a first reading and not an average:
-
-| Part | Used | Rate | Cost |
-| --- | --- | --- | --- |
-| Input tokens | 20,977 | $2 per million | $0.042 |
-| Web searches | 2 | $10 per 1,000 | $0.02 |
-| Output and reasoning tokens | 638 | $10 per million | $0.006 |
-
-OpenAI bills the pages a search reads as input at the model's rate, so the model decides most of
-the cost. The same prompt was run once on two other models the same day:
-
-| Model | Cost | Compared with `gpt-6.1-sol` |
-| --- | --- | --- |
-| `gpt-6-astra` | $0.27 | The same three businesses in the same order |
-| `gpt-6-luna` | $0.033 | The same first two, a different third, and longer business names |
-
-Searches are a flat rate on every model, which puts a floor of 2 to 3 cents under any check. The
-model and how hard it reasons are tuning values (`chatgpt.model`, `chatgpt.effort`). The provider reports each call's usage as it makes it,
-and the runner stores it in `provider_usage` (see "How a scan runs"), so the average can be read
-from that table once real scans run.
+**What a ChatGPT check is billed for.** OpenAI bills the pages a search reads as input tokens at
+the model's rate, and each search at a flat rate that is the same on every model. So what a check
+costs follows the model's rate and how much its searches read, with a fee for each search on top.
+OpenAI's published rates for `gpt-6.1-sol`, the default model, were $2 per million input tokens,
+$10 per million output and reasoning tokens and $10 per 1,000 searches on 2026-10-06. The model
+and how hard it reasons are tuning values (`chatgpt.model`, `chatgpt.effort`). The provider
+reports each call's usage as it makes it, and the runner stores it in `provider_usage` (see "How
+a scan runs"), so what a deployment's checks cost can be read from that table.
 
 **Claude** (`apps/api/src/providers/claude.ts`) calls Anthropic's Messages API through its SDK
 with the `web_search` tool, located in the location's city, and asks for the answer, the
@@ -160,44 +165,30 @@ businesses it named and the pages it relied on as JSON. Three things about it ar
   attaches no citations to its text, so the provider asks for the URLs it relied on and keeps
   only those the search really returned.
 - **Searches are called directly and capped.** The tool's default filters results through code
-  execution; on the trial prompt that took twice the time and tokens for a similar answer. The
-  cap is a tuning value and is the main cost control.
+  execution, which a trial showed takes more time and tokens for a similar answer. The cap is a
+  tuning value and is the main cost control.
 - **A declined prompt is re-run on Anthropic's fallback model** (`fallbacks: "default"`), so a
   scan does not fail on a safety classifier. The usage rows record which model answered.
 
-**Cost of one Claude check: about 7 cents** on the default tuning: `claude-sonnet-5-5`, low
-effort, one search. This is from a single live call on 2026-10-06, so treat it as a first reading
-and not an average:
+**What a Claude check is billed for.** Anthropic bills search results as input tokens, with a
+flat fee for each search on top, and on a turn with several searches the earlier results are read
+again each time. So each further search costs more than the one before it, which is why the cap
+is the main cost control. Anthropic's published rates for `claude-sonnet-5-5`, the default model,
+were $2 per million input tokens, $10 per million output and thinking tokens and $10 per 1,000
+searches on 2026-10-06. The model, the effort and the cap are tuning values (`claude.model`,
+`claude.effort`, `claude.max_searches`). The provider reports each call's usage the same way,
+including a call whose answer was then refused or unusable.
 
-| Part | Used | Rate | Cost |
-| --- | --- | --- | --- |
-| Input tokens | 23,392 | $2 per million | $0.047 |
-| Output and thinking tokens | 1,029 | $10 per million | $0.010 |
-| Web searches | 1 | $10 per 1,000 | $0.01 |
-
-Anthropic bills search results as input tokens, and on a turn with several searches the earlier
-results are read again each time, so the number of searches drives the cost more than the model
-or the effort does. The same prompt run other ways the same day:
-
-| Model | Effort | Search cap | Cost | Searches run | Input tokens |
-| --- | --- | --- | --- | --- | --- |
-| `claude-sonnet-5-5` | low | 1 | $0.067 | 1 | 23,392 |
-| `claude-opus-5-5` | low | 1 | $0.089 | 1 | 13,676 |
-| `claude-opus-5-5` | medium | 3 | $0.14 | 2 | 22,591 |
-| `claude-sonnet-5-5` | low | 3 | $0.22 | 3 | 87,228 |
-| `claude-sonnet-5-5` | medium | 3 | $0.28 | 3 | 116,775 |
-| `claude-opus-5-5` | medium | 5, filtered search | $0.27 | 5 | 44,890 |
-
-Sonnet searches up to whatever cap it is given and reads more input per search than Opus, so it
-is only the cheaper model when the cap is one. All six runs named an overlapping set of
-businesses; one run each cannot show whether fewer searches give a worse answer. The model, the
-effort and the cap are tuning values (`claude.model`, `claude.effort`, `claude.max_searches`).
-The provider reports each call's usage the same way, including a call whose answer was then refused or unusable.
+**What a check was measured to cost is not recorded here.** A provider's published rates are
+public and this section may quote them. What a call really used and what it came to, and how
+models and settings compared on cost, is the owner's research and is kept in the private
+companion with the pricing (see "Private companion" in `AGENTS.md`). The rates a deployment
+turns recorded usage into spend with are the tuning's `rates`.
 
 **Gemini is not built on Google's API, on purpose.** Google's terms for Grounding with Google
 Search do not allow grounded results to be stored, analysed or collected into a database, and a
-scan does all three. One trial call on 2026-10-06 worked and cost about 3 cents, nearly all of it
-search queries; the result was not kept. Gemini results would have to come from a data vendor.
+scan does all three. One trial call on 2026-10-06 worked; the result was not kept. Gemini results
+would have to come from a data vendor.
 
 ## Rates over a window of scans
 
@@ -420,10 +411,16 @@ from counts the product holds; nothing a model wrote is in one.
   The mark on the structured details uses the same read (see "The on-page check").
 - A dismissed recommendation has no task. Ticks on action-plan steps are still kept in the browser
   only. The operator's read-only view hides the buttons.
-- Not built: anything a model drafts, a direct review link, a printable code or request text, page
-  copy as a task, and anything the product does outside itself for real. Approvals and actions
-  exist (see "Actions") but the only kind is a sample one, which does no task's work, so no action
-  has marked a task.
+- A task about a page somebody wrote (`editorial`) can have a draft, the note to its author, and
+  so can one about a directory or a review site that does not let a business ask for reviews
+  (`directory`, `reviews_unasked`), whose draft is the description its listing asks for. One about
+  asking customers for reviews (`reviews`) or about a site nobody knows (`unknown`) has none. The
+  route returns `draft_kind` for a task that is still to do and whose draft can be written here, and
+  `draft` once one has been asked for (see "Drafts"). The task's own wording is unchanged, and still
+  composed by rule.
+- Not built: a direct review link, a printable code or request text, page copy as a task (and so
+  a draft of it), and anything the product does outside itself for real. Approvals and actions exist (see "Actions") but the only kind is a
+  sample one, which does no task's work, so no action has marked a task.
 
 ## Alerts
 
@@ -789,7 +786,7 @@ An action is one thing the product does outside itself for a location, once a me
 `done` or `failed`; a proposed one can instead be `declined` or `lapsed`. The only kind is
 `sample`: it sets the opening line of one of the sample account's listings, rows in
 `sample_listings` that stand in for an outside service, so nothing leaves the product. There is no
-real kind, so nothing is counted against an allowance and no action marks a task yet (see "Known
+real kind, so no action is counted against an allowance and none marks a task yet (see "Known
 gaps").
 
 - **Only the worker proposes.** After a sync that read a connection (`syncConnection` answers
@@ -922,11 +919,152 @@ so. The sidebar says how many are waiting at each location
 (`GET /api/organizations/:organizationId/actions/waiting`, asked every 30 seconds). The operator
 reading through an account sees the tab and has no buttons.
 
+## Drafts
+
+A draft is wording written for one of an owner's tasks, so that the owner has less to write: the
+note to the author of a page, or the description a directory or review site asks a business for
+(`drafts`; the terms are in `GLOSSARY.md`, the decision in
+`docs/adr/0016-the-worker-writes-a-draft.md`). It is `asked`, then `written` or `failed`. The
+product sends nothing: the owner copies it and changes it wherever it is going. On sample data the text is generated; on real data Claude writes it, from the
+instructions the private tuning holds for its kind.
+
+- **Which tasks have one.** `draftKindFor` (`packages/shared/src/drafts.ts`) names the kind of
+  draft for a kind of site: `note` for `editorial`, and `listing` for `directory` and for
+  `reviews_unasked`, a review site that does not let a business ask for reviews, whose listing is
+  claimed and filled in. There is none for `reviews`, whose work is asking customers and which the
+  product writes nothing to, or for `unknown`. The two kinds are `DRAFT_KINDS`
+  (`packages/shared/src/schemas.ts`), and the check on `drafts.kind` takes both. A draft of either
+  kind is asked for, written, checked, kept and counted the same way, against the one monthly
+  number. `buildTasks` puts it on a task as `draft_kind` only while the task is still to do and only
+  where a draft of that kind can be written, and puts the task's own `draft` beside it, kept after
+  the task is marked done. There is one draft for a task (`recommendation_id` is unique).
+- **A task is offered a draft only where one can be written.** `buildTasks` takes an optional
+  `writes(kind)` (`packages/shared/src/tasks.ts`); left out, every kind can be written, and where it
+  says a kind cannot, that task's `draft_kind` is null, as if it had no draft, and the page shows it
+  no button. `GET /api/locations/:id` passes one that is true for every kind on sample data (a
+  deployment in mock mode or a test organization) and, on real data, true only for a kind
+  `writesRealDrafts` accepts, the test the draft route applies: instructions for the kind in the
+  private tuning, and `ANTHROPIC_API_KEY`. So a task is never offered a draft that asking could only
+  refuse with 503, and a build with neither offers none on real data. The plan is a separate matter:
+  a task keeps its `draft_kind` on a plan with no drafts, and the card offers nothing there because
+  the month's `allowed` is null (`draftsStanding`, below).
+- **A member asks, and a request records it.** `POST /api/locations/:locationId/tasks/:taskId/draft`
+  reads the location's tasks as they stand (`currentTasks`, `apps/api/src/tasks.ts`: the same pool
+  the rates use, without the counts either side of a mark, and for the kind of data the page shows)
+  and refuses what it can before anything is recorded (`draftRequest`): 409 `no_draft` for a task
+  that is gone or has no wording to write, and 409 `what_we_do_missing` until the location has said
+  what the business does (`locations.what_we_do`), because without it a draft would be a name and a
+  city and whatever a writer made up. On real data it answers 503 `drafts_unavailable` where the
+  build has no instructions for the draft's kind (`Deployment.draft_kinds`, from `liveDraftKinds`)
+  or the deployment has no `ANTHROPIC_API_KEY` (`writesRealDrafts`); sample data is not refused
+  for either. Before any of those it asks whose organization the location is (`listOrganizations`,
+  which goes by membership and not by what the caller can read) and answers 404 to anyone who is
+  not a member, the operator included, so a task that would be refused tells them no more than a
+  stranger is told. Then `ask_draft()` records the ask. It is a security-definer function that
+  returns a row only to a member of the location's organization (`can_access_location`), whoever
+  the route let through. It raises `NC014`, a `limit`, so 409
+  `limit_reached`, when the plan includes no drafts or the month's are used (`allowance_has_room()`).
+  It locks the task, so two asks arrive one after the other, and an ask made while a draft is
+  `asked` is that same ask. Asking after one has been written or has failed puts the row back to
+  `asked` and keeps the text. It takes nothing from the month. The route then queues
+  `{ draft_id, step: "write" }` and answers 202; if the send fails the request still succeeds and
+  logs it. A task is not offered a draft where the 503 would be the answer, so only a request made
+  by hand, or from a page loaded before a deploy, reaches it.
+- **Only the worker writes.** The queue consumer calls `writeDraft` (`apps/api/src/drafts/index.ts`).
+  `claim_draft()` takes the draft and counts the try, and answers zero, and the worker goes no further,
+  unless the draft is `asked` and no worker has had it in the last ten minutes. The worker then reads
+  the draft, the location and the organization, and the location's tasks, from what is on file, and
+  works out again what the draft is written from, so nothing a request said decides it. If the task
+  is gone, or no longer has wording to write (it was done, or the business's description was taken
+  away) in the meantime, the ask is failed with the reason and what it took from the month is given
+  back. Sample data is a deployment in mock mode, or a test organization. A deployment in mock mode
+  hands the worker no model, whatever keys it holds; any other is handed `createLiveDraftWriter`'s,
+  which is nothing without `ANTHROPIC_API_KEY` or without instructions for any kind. `writerFor`
+  chooses `sampleWriter` for sample data and otherwise that writer, and only for a kind it has
+  instructions for; where there is none (the key or the instructions went between the ask and the
+  write) the ask is failed with "Drafts cannot be written here yet." and the month given back.
+- **A draft is written from what is held, and nothing from the answers.** `DraftGiven` is the
+  location's name, city, region, category and website, `what_we_do`, the site the task is about and
+  the page of it the answers cited most. A detail not on file is null and is not filled in. What an
+  assistant said about the business is the thing measured and is not given. A writer
+  (`DraftWriter`) only writes: it names the kinds it writes, returns text, and reports what each
+  call used (`onUsage`). Whether the text may be kept is decided here.
+- **A rule checks every draft before it is kept.** `factsNobodyGave` lists the numbers, web
+  addresses and email addresses in the text that are not in `DraftGiven`; a web address passes as one
+  that was given or as the site of one, so a made-up page of the business's own site does not. A
+  draft that names any is thrown away and written once more (`MOST_WRITES`, two in all), and if the
+  second does too, or the text is empty, nothing is kept and the ask fails with that reason. What was
+  said is not logged, only how many things nobody gave. The rule reads characters, not meaning: it
+  catches an invented phone number, year, price, link or address to write to, and does not catch a
+  boast. It runs on whatever wrote the text.
+- **Sample text is nobody's writing.** For sample data, `sampleWriter` (`apps/api/src/drafts/sample.ts`)
+  generates the text for the kind from `DraftGiven` (a note, or one short paragraph for a listing)
+  and calls nothing. It goes through the same check and the same count, and is kept with
+  `sample_data` true and no `model`. The page labels it as sample text that no model wrote, and a
+  real draft as a model's.
+- **A real draft is written by Claude, with no tools.** `createClaudeDraftWriter`
+  (`apps/api/src/drafts/claude.ts`) calls Anthropic's Messages API through its SDK, with no web
+  search and no other tool, so it cannot look up the business and bring back what it finds. The
+  system prompt is the instructions for the draft's kind, from `drafts.instructions` in the
+  tuning, so a build writes a kind on real data only if its private tuning has instructions for that
+  kind (a build with them for a note and none for a listing writes notes and refuses to ask for
+  listings); the user message is `setOut(given)`: `DraftGiven` one detail to a line, each with its
+  name, and "not on file" for one that is null, the same way every time. The model, its effort and
+  the longest a draft may run (`max_tokens`) are the tuning's too. It makes one call per write,
+  with a 60-second timeout and no retries, since a draft that fails is not counted and its reader
+  asks again. It joins the text blocks of the answer and throws on a refusal or an answer that did
+  not end (stopped at `max_tokens`), which fails the ask like any writer that throws. The
+  instructions are the private part and the check is not: `factsNobodyGave` runs on whatever
+  comes back. It needs `ANTHROPIC_API_KEY`, the one variable Claude scans use.
+- **What the writing used is recorded after every write, kept or not.** `writeDraft` adds up what
+  the writer reports (`usageTally`, with no surface) and, after each write, calls
+  `recordUsage({ organization_id, draft_id }, rows)`. A draft the check threw away, and a call whose
+  answer was refused or cut short, are recorded as much as a draft that was kept, because they were
+  paid for even though the month is given back; a request that got no answer reports nothing.
+  Sample text reports nothing and records nothing. Failing to record is logged and changes
+  nothing about the draft. A row has a null `surface` and a `draft_id` that is set null if the
+  draft goes with its task, so the row outlives it. `usage_by_month()` is unchanged, so the
+  operator's spend counts a draft's use in its organization's month, priced by the tuning's rates
+  like a scan's (see "How a scan runs").
+- **A try that something gets in the way of is made again, three times in all.** A writer that throws
+  fails the ask at once ("Nothing was counted."). Any other error, such as a failed read, lets go of
+  the draft with `finish_draft()` saying `again`, and the queue consumer asks for the message again in
+  a minute (`MOST_ATTEMPTS`, 3); the third fails it. A failed ask keeps the text from before.
+- **The month is taken when the worker takes the draft, and given back when nothing was written.**
+  `claim_draft()` calls `claim_allowance()` for `drafts`, once for all of an ask's tries, and keeps
+  the month in `allowance_month`. When the month has no room (it ran out after the ask) the ask is
+  failed there. `finish_draft()` calls `release_allowance()`, into the month it came from, when the
+  ask ends `failed`, and keeps it when it ends `written` or `again`. Asking again takes one more.
+  `draftsStanding` puts where the month stands on `GET /api/locations/:id` as `drafts`: the plan's
+  number for each location the plan covers, how many are used, and the first of next month, when the
+  count starts again; `allowed` is null for a plan that includes none.
+- **A lost message is asked for again.** Every run of the schedule calls `requeueStalledDrafts`: each
+  draft asked more than 15 minutes ago that no worker has, or that a worker took more than 15 minutes
+  ago, goes on the queue again, at most 100 a run. That covers a message that was lost, a draft
+  the worker let go of to be tried again, and a worker that died, whose hold lasts ten minutes.
+- **Who reads and writes.** `drafts` has a `select` policy for whoever can read the location and one
+  for the operator, and no write grant for any API role. A request writes only through `ask_draft()`;
+  `claim_draft()` and `finish_draft()` answer the worker alone. `asked_by`, `writing_since`,
+  `attempts`, `allowance_month` and `model` are the worker's bookkeeping, and no route sends them. A
+  draft is deleted with its task and with its location.
+
+On the Overview tab each task card shows its draft (`TaskDraft`). "Write a draft" asks for one; if the
+location has not said what the business does, the card asks first, under "What we do", and saves
+it to the location (`PATCH /api/locations/:id`) before asking. While a draft is `asked` the card says one
+is being written and the location page asks again every two seconds. A written draft is shown with a
+label saying who wrote it and a button that copies it; "Write it again" replaces it, says it counts as
+one more, and leaves the first on the page until the second lands. A failed ask says why. When the
+month's drafts are used the card says on what day more come, and the organization's owner is
+pointed at the plans. Where the plan includes none, as the free plan does, no card offers a draft; a line
+above the tasks says so, and links the owner to the plans, only where some task has a `draft_kind`
+(so a build that writes none on real data shows neither a button nor the line) and some plan on
+sale includes drafts. The operator reading through an account sees a draft and has no buttons.
+
 ## Tenancy
 
 Every row belongs to an organization, and a user reaches a row only through a membership. The
 exceptions are `audits`, described above, and `provider_usage`, which keeps its rows after the
-organization, scan or audit they describe is deleted. No API role can write either table, and
+organization, scan, audit or draft they describe is deleted. No API role can write either table, and
 the only account that can read them is the operator's; the Worker's secret key writes them. Four
 more, `connection_secrets`, `connection_kind_allowances`, `sample_listings` and `action_kind_terms`,
 no API role can read or write at all (see "Connections" and "Actions").
@@ -1053,6 +1191,14 @@ copy, edit and lower a plan.
 - **An organization's set is copied from its plan** by `apply_plan()`, and a member cannot write it,
   as with the limits. `create_organization()` gives a test organization every kind, and a kind
   added later reaches the test organizations that exist.
+- **A plan includes a kind when its row says so.** Every paid plan includes `drafts`, a number a
+  month for each location it covers, and the free plan has none. The migration
+  `20261012180000_drafts_on_plans.sql` set the numbers the plans started with, and the operator can
+  change them like any other setting of a plan. The same migration gave an organization already on
+  one of those plans its plan's number, as if the operator had set it, since a plan gaining
+  something takes effect at once. It set only that one key, so the organization's other limits,
+  including any the operator had set for it alone, stayed, and it left a test organization the
+  number it was made with.
 - **Use of a counted kind is kept in `allowance_use`**, one row for an organization, a kind and a
   calendar month in UTC. Its members read their own organization's rows and the operator reads
   all of them; no API role writes it, since a count a member could write is a count a member could
@@ -1061,14 +1207,17 @@ copy, edit and lower a plan.
   room, locking the organization row so two claims at once cannot both take the last one. It says
   whether it claimed, what the month allows and how much of it is used. `release_allowance()`,
   also worker only, gives back what was claimed for a month, for work that was then not done. A kind
-  that is included without a number is not counted. Only the action functions call either, and no
-  kind of action is counted yet (see "Actions" and "Known gaps").
+  that is included without a number is not counted. Only the action functions and the draft
+  functions call either. `drafts` is the one kind that exists, and `claim_draft()` and
+  `finish_draft()` count it (see "Drafts"); no kind of action is counted yet (see "Actions" and
+  "Known gaps").
 - **A kind of connection can name the allowance it needs**, in `connection_kind_allowances`; see
   "Connections".
 
 Users can insert exactly one kind of scan row: a queued, manual scan in their own name for a
 location they can see. Results, scores, recommendations and alerts are written only by the worker;
-a member can dismiss an alert and nothing more (see "Alerts").
+a member can dismiss an alert and nothing more (see "Alerts"), and can ask for a draft and nothing
+more (see "Drafts").
 Organizations are created only through `create_organization()`, which makes the caller the owner.
 
 **The operator reads every row, through policies.** `is_operator()` is true for an account with the
@@ -1083,7 +1232,10 @@ organization's rows by writing to them: the routes answer 404 for an update or d
 The operator's view is `/operator` in the web app, served by `GET /api/operator/overview` and
 `GET /api/operator/organizations/:organizationId`, plus `GET /api/operator/accounts` and
 `GET /api/operator/audits`, all 404 to anyone who is not the operator. It
-reads through the request's store, never the secret key. `buildOperatorOverview` in
+reads through the request's store, never the secret key. A list it reads across every
+organization (the week's scans, say, or every location) is read a page at a time, because the
+database's API answers with at most 1,000 rows and says nothing about the rest (see "Limits to
+design around"). `buildOperatorOverview` in
 `packages/shared/src/operator.ts` decides what needs attention over the last seven days, and never
 counts a test organization. One of its items, `action_untold`, is a line for each organization held
 (see "Actions"). Reading through a customer's account (`/operator/o/:organizationId/...`)
@@ -1209,6 +1361,26 @@ drop it.
 - **The cron queues at most 100 locations per run** (one `sendBatch`). They sort oldest-first, so
   none starve, but a daily cron cannot keep up with more than 100 daily locations. Run it more
   often or page through the due list before that matters.
+- **The database's API answers a request with at most 1,000 rows and says nothing when it leaves
+  the rest out** (`max_rows` in `supabase/config.toml`, and the hosted default). A list read in one
+  request is right until it is long and then short, with no error. So every list in the Supabase
+  store that reaches across organizations and is used whole goes through `every` (`readEvery` in
+  `apps/api/src/store/paging.ts`). The first page asks for the exact count, each next page starts
+  after the rows that actually came, so a server that answers with fewer than a page loses nothing,
+  and it stops at the counted number or at an empty page. A page that fails fails the read: no part
+  of a list is handed back as if it were the list. Each list is asked for in an order no two rows
+  share, and oldest first wherever its rows have a time they were made, so a row made meanwhile
+  lands past the end. The scans, audits and accounts are handed back newest first, so they are
+  reversed after they are read. Two lists have no such time and are ordered by a key: the notices
+  of an announcement, by organization, and the usage added up by month. The pages are separate
+  requests, not one snapshot, so a row made meanwhile can be read twice there, and in any list a
+  row that leaves it meanwhile (an action told, say) moves the rows after it up one, so one of them
+  can be missed until the next read.
+  Each page is also a subrequest of the invocation that reads it (see the first limit above).
+  What is left in one request is a list of one organization or one location, which its plan
+  bounds, and the work lists the schedule reads again at its next run (the stalled actions and
+  drafts, the connections' lists): a cut there delays the rest to the next run, for as long as the
+  work done leaves the list.
 
 ## Known gaps
 
@@ -1217,11 +1389,21 @@ drop it.
   A signed-in user cannot update a scan, so the request that hit the failure cannot clear it.
 - On a Supabase project that still signs tokens with a legacy shared secret, `getClaims` asks the
   Auth server on every request. Use asymmetric signing keys.
-- Allowances limit almost nothing yet. No kind of allowance exists (`ALLOWANCE_KINDS` and
-  `allowance_kinds` are empty) and no kind of connection or of action names one, so a number would
-  be stored, shown and lowered by announcement, but no work would stop at it or be counted against
-  it. What an allowance can stop is a kind of connection that needs it (see "Connections") and a
-  kind of action that takes from it (see "Actions"), and none does ([#133](https://github.com/jwh3times/Nearcited/issues/133)).
+- Allowances limit little yet. One kind of allowance exists, `drafts` (`ALLOWANCE_KINDS` and
+  `allowance_kinds`), which every paid plan includes and the free plan does not. A test
+  organization is given every kind, so its drafts are counted. No kind of connection or of action
+  names an allowance, so a number for another kind would be stored, shown and lowered by
+  announcement, but no work would stop at it or be counted against it. What an allowance can stop is
+  a kind of connection that needs it (see "Connections"), a kind of action that takes from it (see
+  "Actions") and a draft (see "Drafts"), and only the last exists ([#133](https://github.com/jwh3times/Nearcited/issues/133)).
+- A real draft is written only where the private tuning has instructions for its kind, and it
+  needs them before a deployment writes one, or offers a task one (see "Tuning" and "Drafts"). What a real draft costs has
+  been measured only in a trial, whose readings are kept privately: a draft's use is recorded, so
+  the figure can be read from `provider_usage` once real drafts are written, and a month given back does not return what a failed write cost, so a
+  writer that keeps failing the check is paid for twice an ask and shows only in the operator's
+  spend. Two kinds of draft exist, the note to the author of a page and the description for a
+  listing; copy for a page on the business's own site is not built. The check on what a draft states
+  reads characters and not meaning.
 - Nothing seals the sign-ins again under a new `CONNECTIONS_KEY`. Changing or losing the key makes
   every sign-in kept unreadable and its owner has to connect again; a sync of one changes nothing,
   and a removal still finishes but cannot take the access back at the outside service (see

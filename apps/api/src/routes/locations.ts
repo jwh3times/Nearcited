@@ -5,10 +5,10 @@ import {
   buildTasks,
   CITING_SURFACES,
   type DetailsEvidence,
+  draftsStanding,
   type LocationDetail,
   LocationInputSchema,
   MAX_SCANS_SINCE,
-  poolWindow,
   RecommendationUpdateSchema,
   SCAN_WINDOW,
   SURFACES,
@@ -21,9 +21,11 @@ import {
 } from "@nearcited/shared";
 import { Hono } from "hono";
 import type { AppEnv } from "../app";
+import { writesRealDrafts } from "../drafts";
 import { notFound } from "../errors";
 import { checkedSurfaces, planSurfaces, usesSampleData } from "../providers";
 import type { Store } from "../store/types";
+import { citedIn } from "../tasks";
 import { parseJson, uuidParam } from "../validation";
 
 export const locationRoutes = new Hono<AppEnv>();
@@ -43,23 +45,22 @@ locationRoutes.get("/locations/:id", async (c) => {
   // Generated and real results never share a window, so which one to read is decided first. A
   // test organization's are generated even in a live deployment.
   const sample = usesSampleData(c.env) || organization?.is_test === true;
-  const [queries, [latest], recommendations, recent, site, alerts] = await Promise.all([
-    store.listQueries(location.id),
-    store.listScans(location.id, 1),
-    store.listRecommendations(location.id),
-    store.listRecentResults(location.id, SCAN_WINDOW, sample),
-    store.getSiteCheck(location.id),
-    store.listAlerts(location.id, sample),
-  ]);
+  const [queries, [latest], recommendations, recent, site, alerts, drafts, allowanceUse] =
+    await Promise.all([
+      store.listQueries(location.id),
+      store.listScans(location.id, 1),
+      store.listRecommendations(location.id),
+      store.listRecentResults(location.id, SCAN_WINDOW, sample),
+      store.getSiteCheck(location.id),
+      store.listAlerts(location.id, sample),
+      store.listDrafts(location.id),
+      store.getAllowanceUse(location.organization_id),
+    ]);
   // A drop on a prompt retired since the last scan has nothing left to say. The next scan
   // clears it; until then it is not shown.
   const asked = new Set(queries.filter((query) => query.is_active).map((query) => query.id));
 
-  // The same pool the rates are counted over, narrowed to the answers that list their sources.
-  const answers = poolWindow(recent).filter((result) => CITING_SURFACES.includes(result.surface));
-
-  // Every site, so the plan never calls the business's own site uncited because a list was cut.
-  const sources = summarizeSources(answers, location.website, Number.POSITIVE_INFINITY);
+  const { answers, sources } = citedIn(recent, location.website);
 
   // For each recommendation a member marked, the answers either side of the mark. They are
   // read separately from the window: the window moves on, and the mark stays where it was put.
@@ -125,7 +126,16 @@ locationRoutes.get("/locations/:id", async (c) => {
       sources,
       answers: answers.length,
       evidence,
+      drafts,
+      // No task is offered a draft this build could only refuse to write.
+      writes: (kind) => sample || writesRealDrafts(c.env, c.get("deployment").draft_kinds, kind),
     }),
+    drafts: draftsStanding(
+      organization?.allowances ?? {},
+      organization?.max_locations ?? 0,
+      allowanceUse,
+      new Date(),
+    ),
     details_fix: buildDetailsFix({ recommendations, website: location.website, evidence }),
     alerts: alerts.filter(
       (alert) =>
@@ -136,6 +146,7 @@ locationRoutes.get("/locations/:id", async (c) => {
 });
 
 // The body is a whole location, as on create: a field left out goes back to blank or its default.
+// The one exception is `what_we_do`, which stays as it is when left out.
 locationRoutes.patch("/locations/:id", async (c) => {
   const id = uuidParam(c, "id", "Location");
   const input = await parseJson(c, LocationInputSchema);
