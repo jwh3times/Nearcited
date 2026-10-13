@@ -1,11 +1,10 @@
 /**
  * What an owner is handed to ask their customers for a review with (issue #128).
  *
- * A task for a review site holds the link a customer is sent. Two things are made from it for the
- * owner to use themselves: a short request to send from their own address or phone, and the same
- * link as a code to print. Both are composed by rule, from the business's name, the site's name
- * and the link, and no model writes either. Nothing here sends anything, and nothing about a
- * business's customers is held.
+ * A task for a review site holds the link a customer is sent. From it a short request is made
+ * for the owner to send themselves, from their own address or phone. It is composed by rule,
+ * from the business's name, the site's name and the link, and no model writes it. Nothing here
+ * sends anything, and nothing about a business's customers is held.
  *
  * The request asks every customer alike and offers nothing in return, which is what a site that
  * lets a business ask for reviews lets it ask for
@@ -39,7 +38,7 @@ export function siteName(site: string): string {
   return name ?? site;
 }
 
-/** What a request, or a card, is made from. */
+/** What a request is made from. */
 export interface Asking {
   /** The business's name, as its location holds it. */
   business: string;
