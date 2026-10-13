@@ -1181,4 +1181,111 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
     ).toBeNull();
     expect(await visitor.getAuditByToken(audit.token)).toBeNull();
   });
+
+  it("reads a list that reaches across organizations a page at a time, and gets the same list", async () => {
+    // Bob becomes the operator, so the lists only the operator reads have rows to page through.
+    const admin = client(await token({ role: "service_role" }));
+    await admin.from("platform_roles").insert({ user_id: bob, role: "operator" }).throwOnError();
+
+    let requests = 0;
+    const counting = async (jwt: Promise<string>, pageSize?: number) =>
+      createSupabaseStore(
+        createClient(url ?? "", await jwt, {
+          auth: { persistSession: false, autoRefreshToken: false },
+          global: {
+            fetch: (input, init) => {
+              requests += 1;
+              return fetch(String(input).replace("/rest/v1", ""), init);
+            },
+          },
+        }),
+        pageSize === undefined ? {} : { pageSize },
+      );
+    const asOperator = token({ role: "authenticated", sub: bob });
+    const asWorker = token({ role: "service_role" });
+    const whole = { operator: await counting(asOperator), worker: await counting(asWorker) };
+    // One row to a page: every list of two rows or more takes more than one request.
+    const paged = { operator: await counting(asOperator, 1), worker: await counting(asWorker, 1) };
+
+    // Something to page through: two locations, each with two prompts and a scan.
+    const [organization] = await whole.operator.listEveryOrganization();
+    if (!organization) throw new Error("no organization to read");
+    await admin
+      .from("organizations")
+      .update({ max_locations: 3, max_queries_per_location: 5 })
+      .eq("id", organization.id)
+      .throwOnError();
+    const aliceStore = await storeFor(alice);
+    for (const name of ["Paged One", "Paged Two"]) {
+      const location = await aliceStore.createLocation(organization.id, {
+        name,
+        website: null,
+        phone: null,
+        address_line: null,
+        city: "Raleigh",
+        region: "NC",
+        postal_code: null,
+        country_code: "US",
+        google_place_id: null,
+        primary_category: null,
+      });
+      for (const text of ["best pizza", "late night pizza"]) {
+        await aliceStore.createQuery(location.id, { kind: "ai_prompt", text });
+      }
+      await whole.worker.createScan(location.id, "scheduled", null);
+    }
+
+    const since = "2000-01-01T00:00:00.000Z";
+    const [plan] = (await whole.operator.listPlans()).filter((each) => each.key === "standard");
+    const reads: [
+      string,
+      "operator" | "worker",
+      (store: typeof whole.operator) => Promise<unknown>,
+    ][] = [
+      ["organizations", "operator", (store) => store.listEveryOrganization()],
+      ["locations", "operator", (store) => store.listEveryLocation()],
+      ["active prompts", "operator", (store) => store.countActiveQueries()],
+      ["scans", "operator", (store) => store.listScansSince(since)],
+      ["usage by month", "operator", (store) => store.listUsageByMonth(since)],
+      ["audits", "operator", (store) => store.listEveryAudit()],
+      ["accounts", "operator", (store) => store.listAccounts()],
+      ["memberships", "operator", (store) => store.listEveryMembership()],
+      ["platform roles", "operator", (store) => store.listPlatformRoles()],
+      ["subscriptions", "operator", (store) => store.listEverySubscription()],
+      ["untold actions", "operator", (store) => store.listUntoldActions()],
+      ["a plan's subscribers", "worker", (store) => store.listPlanSubscribers(plan?.key ?? "")],
+      ["a plan's organizations", "worker", (store) => store.listPlanOrganizations("starter")],
+      ["actions to tell of", "worker", (store) => store.listActionsToTell()],
+    ];
+    for (const [what, who, read] of reads) {
+      requests = 0;
+      const all = await read(whole[who]);
+      const one = requests;
+      requests = 0;
+      expect(await read(paged[who]), what).toEqual(all);
+      // A list of several rows was really read in several requests.
+      const rows = Array.isArray(all) ? all.length : Object.keys(all as object).length;
+      if (Array.isArray(all) && rows > 1) expect(requests, what).toBeGreaterThan(one);
+    }
+
+    // The lists this test is here for have more than a page of rows in them at one to a page.
+    expect((await whole.operator.listAccounts()).length).toBeGreaterThan(1);
+    expect((await whole.operator.listEveryLocation()).length).toBeGreaterThan(1);
+    expect((await whole.operator.listScansSince(since)).length).toBeGreaterThan(1);
+    // Four prompts, a row each, counted two to a location whichever way they were read.
+    expect(Object.values(await paged.operator.countActiveQueries())).toEqual([2, 2]);
+    // Newest first, as before, whichever way the pages were read.
+    const scans = await paged.operator.listScansSince(since);
+    expect(scans.map((scan) => scan.created_at)).toEqual(
+      scans.map((scan) => scan.created_at).sort((a, b) => b.localeCompare(a)),
+    );
+    const accounts = await paged.operator.listAccounts();
+    expect(accounts.map((account) => account.created_at)).toEqual(
+      accounts.map((account) => account.created_at).sort((a, b) => b.localeCompare(a)),
+    );
+
+    // The notices of an announcement are kept one to an organization, and read the same way.
+    expect(await paged.worker.listPriceChangeNotices(crypto.randomUUID())).toEqual([]);
+    expect(await paged.worker.listLimitChangeNotices(crypto.randomUUID())).toEqual([]);
+  });
 });
