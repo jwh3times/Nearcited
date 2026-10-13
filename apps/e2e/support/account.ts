@@ -130,6 +130,18 @@ export async function withUnnamedSource(locationId: string, host: string): Promi
 }
 
 /**
+ * Gives an organization `each` drafts a month for the one location it is made to cover, as a
+ * plan that includes drafts would. Local stack only.
+ */
+export async function withDrafts(organizationId: string, each: number): Promise<void> {
+  await asWorker(
+    `organizations?id=eq.${organizationId}`,
+    { allowances: { drafts: each }, max_locations: 1 },
+    "PATCH",
+  );
+}
+
+/**
  * Gives a location a drop on one of its prompts, as a scan's rule would once the prompt had been
  * named and then missed three times running. One scan cannot show one. Returns the prompt.
  * Local stack only.

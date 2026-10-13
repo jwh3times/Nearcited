@@ -9,6 +9,7 @@ import {
   type ConnectionKind,
   ConnectionMatchSchema,
   ConnectionSchema,
+  DraftSchema,
   LimitChangeSchema,
   LocationActionsSchema,
   type LocationDetail,
@@ -201,4 +202,7 @@ export const api = {
     json(RecommendationSchema, "PATCH", `/recommendations/${id}`, { status }),
   setRecommendationActed: (id: string, acted: boolean) =>
     json(RecommendationSchema, "PATCH", `/recommendations/${id}`, { acted }),
+  /** Asks for a draft of one task, the first or another. The worker writes it on its own time. */
+  askDraft: (locationId: string, taskId: string) =>
+    json(DraftSchema, "POST", `/locations/${locationId}/tasks/${taskId}/draft`),
 };

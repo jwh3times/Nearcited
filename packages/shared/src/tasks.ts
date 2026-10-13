@@ -1,4 +1,5 @@
-import type { NamedCount, Recommendation, SourceKind, SourceSummary, Task } from "./schemas";
+import { draftKindFor } from "./drafts";
+import type { Draft, NamedCount, Recommendation, SourceKind, SourceSummary, Task } from "./schemas";
 import { sourceKind } from "./source-kinds";
 import { type SourcedAnswer, summarizeSources } from "./sources";
 
@@ -35,6 +36,8 @@ export interface TaskInput {
   answers: number;
   /** By recommendation ID, for each one a member has marked. */
   evidence: ReadonlyMap<string, TaskEvidence>;
+  /** The location's drafts, each for one recommendation. */
+  drafts: readonly Draft[];
 }
 
 /** The host a recommendation is about, or null when its rule is not about a source. */
@@ -122,6 +125,9 @@ export function buildTasks(input: TaskInput): Task[] {
       acted_by_action: recommendation.acted_by_action,
       before: evidence ? namedCount(evidence.before, host) : null,
       since: evidence ? namedCount(evidence.since, host) : null,
+      // A draft is asked for while the work is still to do. One already written stays to be read.
+      draft_kind: open ? draftKindFor(kind) : null,
+      draft: input.drafts.find((draft) => draft.recommendation_id === recommendation.id) ?? null,
     });
   }
 

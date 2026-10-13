@@ -793,6 +793,88 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
       acted_at: null,
       acted_by_action: null,
     });
+
+    // Drafts: a member asks, the worker writes, and the month counts what was written.
+    expect(await aliceStore.listDrafts(location.id)).toEqual([]);
+    await expect(aliceStore.askDraft(recommendation.id)).rejects.toMatchObject({ kind: "limit" });
+    const service = client(await token({ role: "service_role" }));
+    await service
+      .from("organizations")
+      .update({ allowances: { drafts: 1 }, max_locations: 1 })
+      .eq("id", organization.id)
+      .throwOnError();
+    expect(await bobStore.askDraft(recommendation.id)).toBeNull();
+    expect(await worker.askDraft(recommendation.id)).toBeNull();
+    const draft = await aliceStore.askDraft(recommendation.id);
+    expect(draft).toMatchObject({
+      location_id: location.id,
+      recommendation_id: recommendation.id,
+      status: "asked",
+      asked_by_email: "alice@example.com",
+      text: null,
+      kind: null,
+      sample_data: false,
+    });
+    if (!draft) throw new Error("draft missing");
+    expect((await aliceStore.askDraft(recommendation.id))?.id).toBe(draft.id);
+    expect(await aliceStore.listDrafts(location.id)).toEqual([draft]);
+    expect(await bobStore.listDrafts(location.id)).toEqual([]);
+    expect(await worker.getDraft(draft.id)).toEqual(draft);
+    expect(await worker.getDraft(crypto.randomUUID())).toBeNull();
+    await expect(aliceStore.claimDraft(draft.id)).rejects.toMatchObject({ kind: "forbidden" });
+    await expect(
+      aliceStore.finishDraft(draft.id, { outcome: "failed", why: "No." }),
+    ).rejects.toMatchObject({ kind: "forbidden" });
+
+    // Not stalled until it has waited, and then it is.
+    const afterTheAsk = new Date(Date.now() + 60_000).toISOString();
+    expect(await worker.listStalledDrafts(draft.asked_at)).not.toContain(draft.id);
+    expect(await worker.listStalledDrafts(afterTheAsk)).toContain(draft.id);
+
+    expect(await worker.claimDraft(draft.id)).toBe(1);
+    expect(await worker.claimDraft(draft.id)).toBe(0);
+    expect(await aliceStore.getAllowanceUse(organization.id)).toEqual({ drafts: 1 });
+    expect(await worker.finishDraft(draft.id, { outcome: "again", why: "Not yet." })).toBe(true);
+    expect(await worker.claimDraft(draft.id)).toBe(2);
+    expect(
+      await worker.finishDraft(draft.id, {
+        outcome: "written",
+        text: "Hello.",
+        kind: "note",
+        model: null,
+        sample_data: true,
+      }),
+    ).toBe(true);
+    expect(await aliceStore.listDrafts(location.id)).toMatchObject([
+      { status: "written", text: "Hello.", kind: "note", sample_data: true, failure: null },
+    ]);
+    expect(await worker.listStalledDrafts(afterTheAsk)).not.toContain(draft.id);
+    // The month is used. What was written stays.
+    await expect(aliceStore.askDraft(recommendation.id)).rejects.toMatchObject({
+      kind: "limit",
+      message: expect.stringContaining("no more drafts"),
+    });
+    await service
+      .from("organizations")
+      .update({ allowances: { drafts: 2 } })
+      .eq("id", organization.id)
+      .throwOnError();
+    expect(await aliceStore.askDraft(recommendation.id)).toMatchObject({
+      status: "asked",
+      text: "Hello.",
+    });
+    await worker.claimDraft(draft.id);
+    expect(await aliceStore.getAllowanceUse(organization.id)).toEqual({ drafts: 2 });
+    expect(await worker.finishDraft(draft.id, { outcome: "failed", why: "It failed." })).toBe(true);
+    expect(await aliceStore.listDrafts(location.id)).toMatchObject([
+      { status: "failed", text: "Hello.", failure: "It failed." },
+    ]);
+    expect(await aliceStore.getAllowanceUse(organization.id)).toEqual({ drafts: 1 });
+    await service
+      .from("organizations")
+      .update({ allowances: {}, max_locations: organization.max_locations })
+      .eq("id", organization.id)
+      .throwOnError();
     // An action that does the work marks it when it is carried out, and that mark is not a
     // member's to take back.
     const forTask = await worker.proposeAction({

@@ -28,6 +28,7 @@ import { SourceTable } from "../components/SourceTable";
 import { Tasks } from "../components/Tasks";
 import { actionsQuery, hasActions } from "../lib/actions";
 import { api } from "../lib/api";
+import { draftsBeingWritten, WRITING_MS } from "../lib/drafts";
 import { useFormErrors } from "../lib/form";
 import { cadence, formatDate, listOf } from "../lib/format";
 import { locationKey, placeOf, scansKey } from "../lib/locations";
@@ -65,8 +66,11 @@ export function LocationDetail() {
   const detail = useQuery({
     queryKey,
     queryFn: () => api.getLocation(id),
-    // Poll only while a scan is under way.
-    refetchInterval: (query) => (inFlight(query.state.data?.latest_scan ?? null) ? 2000 : false),
+    // Poll only while a scan is under way or a draft is being written.
+    refetchInterval: (query) =>
+      inFlight(query.state.data?.latest_scan ?? null) || draftsBeingWritten(query.state.data?.tasks)
+        ? WRITING_MS
+        : false,
   });
 
   const history = useQuery({ queryKey: historyKey, queryFn: () => api.listScans(id) });
@@ -123,6 +127,7 @@ export function LocationDetail() {
     connections,
     alerts,
     details_fix: detailsFix,
+    drafts,
   } = detail.data;
   const organization = readOnly
     ? theirs.data
@@ -300,7 +305,13 @@ export function LocationDetail() {
                   </>
                 )}
                 {tasks.length > 0 && (
-                  <Tasks tasks={tasks} onChanged={refresh} readOnly={readOnly} />
+                  <Tasks
+                    tasks={tasks}
+                    location={location}
+                    drafts={drafts}
+                    onChanged={refresh}
+                    readOnly={readOnly}
+                  />
                 )}
                 {open.length > 0 && (
                   <Recommendations items={open} onChanged={refresh} readOnly={readOnly} />

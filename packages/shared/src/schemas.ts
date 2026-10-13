@@ -1451,6 +1451,60 @@ export const NamedCountSchema = z.object({
 export type NamedCount = z.infer<typeof NamedCountSchema>;
 
 /** One piece of work for an owner, because of one source. Composed by rule, never by a model. */
+/**
+ * The kinds of draft: wording written for a task. `note` is a note to the author of a page. See
+ * `docs/adr/0016-the-worker-writes-a-draft.md`.
+ */
+export const DRAFT_KINDS = ["note"] as const;
+export const DraftKindSchema = z.enum(DRAFT_KINDS);
+export type DraftKind = z.infer<typeof DraftKindSchema>;
+
+/**
+ * `asked` while the worker has yet to write it, `written` once it has, `failed` when the last
+ * ask wrote nothing.
+ */
+export const DraftStatusSchema = z.enum(["asked", "written", "failed"]);
+export type DraftStatus = z.infer<typeof DraftStatusSchema>;
+
+/**
+ * The draft for one task. A member asks for it and the worker writes it. `text` is the draft
+ * that was last written: it stays while another is being written, and when that one fails.
+ */
+export const DraftSchema = z.object({
+  id: Id,
+  location_id: Id,
+  /** The task it is for. */
+  recommendation_id: Id,
+  status: DraftStatusSchema,
+  asked_by_email: z.string().nullable(),
+  asked_at: Timestamp,
+  /** Why the last ask wrote nothing, as a sentence for the page. */
+  failure: z.string().nullable(),
+  kind: DraftKindSchema.nullable(),
+  text: z.string().nullable(),
+  written_at: Timestamp.nullable(),
+  /** True for generated sample text, which no model wrote. */
+  sample_data: z.boolean(),
+});
+export type Draft = z.infer<typeof DraftSchema>;
+
+/** A message asking the worker to write one draft. */
+export const DraftMessageSchema = z.object({
+  draft_id: Id,
+  step: z.enum(["write"]),
+});
+export type DraftMessage = z.infer<typeof DraftMessageSchema>;
+
+/** Where an organization's month of drafts stands. */
+export const DraftsStandingSchema = z.object({
+  /** How many it may have this month, across its locations. Null when its plan includes none. */
+  allowed: z.number().int().nonnegative().nullable(),
+  used: z.number().int().nonnegative(),
+  /** The day the count starts again: the first of next month (UTC), as YYYY-MM-DD. */
+  resets_on: z.string(),
+});
+export type DraftsStanding = z.infer<typeof DraftsStandingSchema>;
+
 export const TaskSchema = z.object({
   /** The recommendation the task stands on, which is what marking it done updates. */
   id: Id,
@@ -1471,6 +1525,10 @@ export const TaskSchema = z.object({
   /** Counted over the scans before `acted_at` and over those since. Null until it is marked. */
   before: NamedCountSchema.nullable(),
   since: NamedCountSchema.nullable(),
+  /** The kind of draft that can be written for it now. Null when none can. */
+  draft_kind: DraftKindSchema.nullable(),
+  /** Its draft, once one has been asked for. */
+  draft: DraftSchema.nullable(),
 });
 export type Task = z.infer<typeof TaskSchema>;
 
@@ -1513,6 +1571,8 @@ export const LocationDetailSchema = z.object({
   action_plan: z.array(ActionPlanStepSchema),
   /** The work that follows from the sources, with whether it has been done and what moved. */
   tasks: z.array(TaskSchema),
+  /** Where the organization's month of drafts stands. */
+  drafts: DraftsStandingSchema,
   /** The connected accounts this location is matched to. */
   connections: z.array(LocationConnectionSchema),
   /** What got worse and has neither ended nor been dismissed, newest first. */

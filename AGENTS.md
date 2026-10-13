@@ -138,6 +138,19 @@ pass `pnpm check` and run in mock mode without it.
   alert is told to the owners once, in the report a scheduled scan emails, and marked told
   (`markAlertsTold`) only when the report went to someone: one that failed, or had nobody to go
   to, leaves it for the next. Nothing on a request path writes `told_at` or `cleared_told_at`.
+- **Only the worker writes a draft, and a draft states nothing nobody gave.** A request records a
+  member's ask (`ask_draft()`, which answers a member of the location's organization and no one
+  else, the operator included) and queues the worker
+  (`docs/adr/0016-the-worker-writes-a-draft.md`). `writeDraft` (`apps/api/src/drafts/index.ts`)
+  reads the task, the page and the location off what is on file, so nothing a request said
+  decides what a draft is written from. That is `DraftGiven` (`packages/shared/src/drafts.ts`) and
+  nothing else: do not give a writer anything from the answers, or anything about the business a
+  location does not hold. Every draft passes `factsNobodyGave` before it is kept, whatever wrote
+  it, and one that fails twice is not kept. A writer only writes: it returns text, and decides
+  nothing. `claim_draft()` takes from the month and `finish_draft()` gives it back when nothing
+  was written: count a draft nowhere else. Sample text is kept as `sample_data`, names no model
+  and is never called a model's. Nothing on a request path writes `drafts`, and a draft is not
+  written by opening a page.
 - **`packages/shared/src/schemas.ts` defines every wire type.** Change the schema first, then the
   API and the client. Field names stay snake_case end to end.
 - **All database access goes through the `Store` interface** (`apps/api/src/store/types.ts`). A
