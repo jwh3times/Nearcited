@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { askWords, keptWords, listingView } from "../src/lib/listings";
+import { askWords, keptWords, listingView, sentLink } from "../src/lib/listings";
 
 const asked = { listing: { site: "bbb.org", url: null, review_url: null } };
 const kept = {
@@ -23,6 +23,24 @@ describe("what a task shows of the business's listing", () => {
 
   it("asks nothing of the operator, who reads a customer's tasks and gives no listing", () => {
     expect(listingView(asked, true)).toBe("nothing");
+  });
+});
+
+describe("what a customer is sent", () => {
+  it("is the review form where one was made from the listing", () => {
+    expect(
+      sentLink({
+        url: "https://www.bbb.org/profile/joes",
+        review_url: "https://www.bbb.org/profile/joes/leave-a-review",
+      }),
+    ).toBe("https://www.bbb.org/profile/joes/leave-a-review");
+  });
+
+  it("is the listing where no form address is known, and nothing until one is kept", () => {
+    expect(sentLink({ url: "https://www.angi.com/joes", review_url: null })).toBe(
+      "https://www.angi.com/joes",
+    );
+    expect(sentLink({ url: null, review_url: null })).toBeNull();
   });
 });
 

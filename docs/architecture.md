@@ -414,7 +414,8 @@ from counts the product holds; nothing a model wrote is in one.
 - A task about a page somebody wrote (`editorial`) can have a draft, the note to its author, and
   so can one about a directory or a review site that does not let a business ask for reviews
   (`directory`, `reviews_unasked`), whose draft is the description its listing asks for. One about
-  asking customers for reviews (`reviews`) or about a site nobody knows (`unknown`) has none. The
+  asking customers for reviews (`reviews`) or about a site nobody knows (`unknown`) has none (the
+  request to send such a task hands over is not a draft; see below). The
   route returns `draft_kind` for a task that is still to do and whose draft can be written here, and
   `draft` once one has been asked for (see "Drafts"). The task's own wording is unchanged, and still
   composed by rule.
@@ -482,10 +483,40 @@ from counts the product holds; nothing a model wrote is in one.
   review link, with no listing beside it, since it was made from none. For every other site the field
   is still "Your listing on" and the site's name, and its hint says how to get the address: find the
   business on the site, open its page and copy the address from the top of the browser.
+- **A task that holds the link also hands over a request to send.** `TaskAsking`
+  (`apps/web/src/components/TaskAsking.tsx`) shows, under the link, a short message with a "Copy the
+  request" button, which the owner sends to their customers themselves, by text or by email, from
+  their own address or phone (the term is in `GLOSSARY.md`). `requestToSend`
+  (`packages/shared/src/asking.ts`) composes it by rule from three things: the location's `name`,
+  the site's name (`siteName`) and the link the task already shows (`sentLink`,
+  `apps/web/src/lib/listings.ts`: the review form where its address is known, else the listing, and
+  on Google the review link the owner pasted). No model writes it. It reads "Thank you for choosing
+  <business>. Would you leave a review on <site>? Say what you honestly thought, good or bad: it
+  helps other people decide." and then the link on a line of its own, so whatever it is sent with
+  makes it one to tap. The business's name is tidied (the spaces round it and between its words) and
+  the sentence is closed with a full stop unless the name brought its own. It asks every customer
+  alike for what they honestly thought and never for a good review, and offers nothing in return.
+  Beside it the owner is told the same of how to send it: to every customer and not only the happy
+  ones, and with nothing offered in return, which is what a site that lets a business ask lets it
+  ask for. `siteName` gives the name a customer knows each of the ten sites on the `reviews` list by
+  (Google, BBB, Trustpilot and so on), and a site with no name on that table goes by its address;
+  `sitesOfKind` (`packages/shared/src/source-kinds.ts`) lists the sites of a kind, and a test holds
+  the name table to the `reviews` list.
+- **The request is shown only where a link is kept, and is not a draft.** `asking`
+  (`apps/web/src/lib/asking.ts`) makes nothing until the task's `listing` has a link to send, so
+  there is none on a task for a site that forbids asking or whose kind is not known (those carry no
+  `listing`), and none until a member gives the listing; taking the listing away takes the request
+  with it. The operator, reading a customer's account, sees it too, beside a listing it cannot
+  change. Nothing is sent from the page and nothing is stored: no route, no wire type and no table
+  carry the request, it is worked out again from the task and the location each time the page is
+  drawn, and copying it does not mark the task done. It is not a draft (see "Drafts"): no worker
+  writes it, no allowance is taken from, nothing is recorded for it, and a task about asking
+  customers for reviews still has no `draft_kind`.
 - Not built: a review-form link on any site but those two (Google's is the link its owner pastes,
-  and none is made from a place ID), a printable code or request text (issue
-  [#128](https://github.com/jwh3times/Nearcited/issues/128)), page copy as a task (and so a draft of
-  it), and anything the product does outside itself for real. Approvals and actions exist (see
+  and none is made from a place ID), the code to print (a QR code of the link, the card to print it
+  on and its download; issue [#128](https://github.com/jwh3times/Nearcited/issues/128), whose
+  request to send is built), page copy as a task (and so a draft of it), and anything the product
+  does outside itself for real. Approvals and actions exist (see
   "Actions") but the only kind is a sample one, which does no task's work, so no action has marked a task.
 
 ## Alerts
@@ -998,7 +1029,8 @@ instructions the private tuning holds for its kind.
   draft for a kind of site: `note` for `editorial`, and `listing` for `directory` and for
   `reviews_unasked`, a review site that does not let a business ask for reviews, whose listing is
   claimed and filled in. There is none for `reviews`, whose work is asking customers and which the
-  product writes nothing to, or for `unknown`. The two kinds are `DRAFT_KINDS`
+  product writes nothing to (the request to send that task hands over is composed by rule, not
+  written; see "Tasks"), or for `unknown`. The two kinds are `DRAFT_KINDS`
   (`packages/shared/src/schemas.ts`), and the check on `drafts.kind` takes both. A draft of either
   kind is asked for, written, checked, kept and counted the same way, against the one monthly
   number. `buildTasks` puts it on a task as `draft_kind` only while the task is still to do and only

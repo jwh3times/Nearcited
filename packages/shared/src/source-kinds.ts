@@ -54,6 +54,11 @@ const BY_HOST = new Map<string, SourceKind>(
   ),
 );
 
+/** Every site listed as `kind`, each by the name it is listed under. None are `unknown`. */
+export function sitesOfKind(kind: SourceKind): readonly string[] {
+  return kind === "unknown" ? [] : KINDS[kind];
+}
+
 /**
  * The name on the list that `host` goes by: its own first, then each parent's. Null for a site
  * that is not on it.
