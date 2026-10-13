@@ -200,11 +200,9 @@ test("shows the operator who is on each plan, and changes what one allows for ev
   await api(operator, "POST", "/organizations", { name: "The operator's own" });
   await grantRole(operator, "operator");
   const [before] = (
-    await api<{ key: string; max_manual_scans_per_month: number }[]>(
-      operator,
-      "GET",
-      "/operator/plans",
-    )
+    await api<
+      { key: string; max_manual_scans_per_month: number; allowances: Record<string, unknown> }[]
+    >(operator, "GET", "/operator/plans")
   ).filter((plan) => plan.key === "enterprise");
 
   await signIn(page, operator, "/operator");
@@ -241,7 +239,8 @@ test("shows the operator who is on each plan, and changes what one allows for ev
       scan_every_days: 1,
       max_manual_scans_per_month: before?.max_manual_scans_per_month ?? 60,
       emails_report: true,
-      allowances: {},
+      // What the plan includes is put back as it was, not taken away.
+      allowances: before?.allowances ?? {},
     });
   }
 });

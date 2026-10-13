@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import {
   type Account,
   createAccount,
+  onPlan,
   signIn,
   withDrafts,
   withScannedLocation,
@@ -99,16 +100,27 @@ test("offers no draft on a plan that includes none, and none for a task with no 
   page,
 }) => {
   await withUnnamedSource(locationPath.replace("/locations/", ""), "tripadvisor.com");
+  // The free plan includes no drafts.
+  await onPlan(organizationId, "free");
   await signIn(page, account, locationPath);
   const note = page.getByRole("listitem").filter({ hasText: "Ask to be included on usnews.com" });
   await expect(note).toBeVisible();
-  // No plan here includes drafts, so nobody is offered one or pointed at a price list for one.
+  // Nobody is offered one. The plans that include them are a link away, for the owner.
   await expect(page.getByRole("button", { name: "Write a draft" })).toHaveCount(0);
-  await expect(page.getByText(/does not include drafts/)).toHaveCount(0);
+  await expect(page.getByText("Your plan does not include drafts written for you.")).toBeVisible();
+  await page.getByRole("link", { name: "See plans" }).click();
+  await expect(page).toHaveURL(/\/pricing/);
+  await expect(
+    page.getByText("Drafts written for you: 10 a month for each location"),
+  ).toBeVisible();
 
-  await withDrafts(organizationId, 1);
-  await page.reload();
+  // On a plan that includes them the task offers one, with what the plan gives: Standard's
+  // thirty a month for each of the three locations it covers.
+  await onPlan(organizationId, "standard");
+  await page.goto(locationPath);
+  await expect(page.getByText(/does not include drafts/)).toHaveCount(0);
   await expect(note.getByRole("button", { name: "Write a draft" })).toBeVisible();
+  await expect(note.getByText("90 of 90 left this month")).toBeVisible();
   // Asking customers for reviews is theirs to do: there is no wording to write for it.
   const asking = page
     .getByRole("listitem")

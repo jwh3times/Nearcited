@@ -124,7 +124,7 @@ export function LocationEditor({ location, onSaved, readOnly }: LocationEditorPr
           label="What we do"
           maxLength={WHAT_WE_DO_MAX}
           placeholder="Wood-fired pizza and fresh pasta in downtown Raleigh, family-run since 1998."
-          hint="A few sentences in your own words: what you do, who for, and what you are known for. Scans do not use this."
+          hint="A few sentences in your own words: what you do, who for, and what you are known for. Drafts are written from this and state nothing else about the business. Scans do not use it."
           {...field("what_we_do")}
         />
       </div>

@@ -74,7 +74,8 @@ works and what it is told are tuning ([0001](0001-private-tuning-as-data.md)). T
 carries placeholder instructions so the code runs, and a build that has only those writes no
 draft on real data, for the reason it runs no live scan: what it wrote would be shown as the
 product's own work. A tuning file with no instructions for a kind of draft writes none of that
-kind. Nothing falls back to the placeholder.
+kind. Nothing falls back to the placeholder. A task is offered a draft only where one of its
+kind can be written, so nobody is shown a button that could only be refused.
 
 **The model is given the details set out by the code, and looks nothing up.** The instructions
 are private; what follows them is not. Each detail goes on a line with its name, the same way
