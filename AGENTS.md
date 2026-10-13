@@ -31,9 +31,13 @@ maintainers. A public clone does not have it, and everything in this repository 
 pass `pnpm check` and run in mock mode without it.
 
 - **What lives there:** provider prompt text, sampling and score weights; pricing, vendor quotes
-  and measured costs by vendor; anything naming a real customer or prospect; security review
-  findings; deployment runbooks. `private/README.md` is its index and says what each file owns.
-  Read it before working there.
+  and what anything the product does was measured to cost; anything naming a real customer or
+  prospect; security review findings; deployment runbooks. `private/README.md` is its index and
+  says what each file owns. Read it before working there.
+- **A provider's published rate is public; what was measured is not.** A document here may quote
+  what a vendor charges for a model or a search. It never says what a check, a draft or any other
+  piece of work was measured to use or to cost, or how models and settings compared on cost, and
+  a recorded response in a test carries made-up usage numbers, not the call's own.
 - **Nothing from `private/` is copied into this repository**, including into issues, pull
   requests, commit messages and docs. A public document may say a private one exists.
 - **This repository never names the private one.** Its locator lives in 1Password and

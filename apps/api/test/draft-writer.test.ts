@@ -17,14 +17,14 @@ import type { CallUsage } from "../src/providers/types";
 /**
  * A response in the shape the Messages API really returns for a request with no tools, checked
  * against a live call on 2026-10-12 (claude-sonnet-5-5). The structure and field names are real;
- * the content is invented.
+ * the content and the usage numbers are invented.
  */
 const usage = {
-  input_tokens: 170,
+  input_tokens: 100,
   cache_creation_input_tokens: 0,
   cache_read_input_tokens: 0,
   cache_creation: { ephemeral_5m_input_tokens: 0, ephemeral_1h_input_tokens: 0 },
-  output_tokens: 303,
+  output_tokens: 50,
   output_tokens_details: { thinking_tokens: 0 },
   service_tier: "standard",
   inference_geo: "global",
@@ -185,9 +185,9 @@ describe("the Claude draft writer", () => {
     expect(used).toEqual([
       {
         model: "claude-sonnet-5-5-20261001",
-        input_tokens: 200,
+        input_tokens: 130,
         cached_input_tokens: 12,
-        output_tokens: 303,
+        output_tokens: 50,
         searches: 0,
       },
     ]);

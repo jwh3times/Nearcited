@@ -10,7 +10,8 @@ where a document says something the code no longer does, and fix it. Describe
 only what the code implements.
 
 The repository is public. Keys, a customer's or prospect's business name,
-pricing and vendor quotes stay out of every document.
+pricing, vendor quotes and what anything the product does was measured to cost
+stay out of every document. A provider's published rate is public.
 
 ## Private boundary
 
@@ -20,9 +21,10 @@ public clone. `AGENTS.md` ("Private companion") says what lives there.
 - Public documents may say a private document exists. They carry none of its
   content, and they never name the private repository.
 - When a public document states something that belongs there (a prompt, a
-  weight a provider really uses, a price, a vendor quote, a real business's
-  name), that is drift of the worst kind: report it first, in either mode, and
-  in fix mode remove it from the public document.
+  weight a provider really uses, a price, a vendor quote, what a check or any
+  other work was measured to use or to cost, a real business's name), that is
+  drift of the worst kind: report it first, in either mode, and in fix mode
+  remove it from the public document.
 - `private/README.md` is the private index. Update it only when the caller asks
   for private docs, and commit nothing there yourself.
 
@@ -49,7 +51,7 @@ replace the repeat with a pointer to the owner.
 | File                           | Reader                  | Owns                                                                                                                                              |
 | ------------------------------ | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `README.md`                    | Anyone arriving         | What the product is and its status, stack, layout, local setup, configuration, commands, API table, data model, tests, deploy, automation, what is not built |
-| `docs/architecture.md`         | Developers              | How a scan flows, failure handling, tenancy, Worker limits, known gaps, open product questions, and the cost of one check once a provider measures it |
+| `docs/architecture.md`         | Developers              | How a scan flows, failure handling, tenancy, Worker limits, known gaps, open product questions, and how each provider bills a check (never what one was measured to cost) |
 | `AGENTS.md`                    | Coding agents           | The rules every change follows, the commands agents run, the skill and agent setup                                                                |
 | `CLAUDE.md`                    | Claude Code             | The `@AGENTS.md` import and Claude-only mechanics. Project rules belong in `AGENTS.md`.                                                           |
 | `.agents/skills/ship/` and `end-session/` | Coding agents | The rules table, required checks, file paths, artifact paths and board fields those two skills name                                               |
@@ -117,8 +119,10 @@ the queue or cron settings in `wrangler.jsonc`)
 
 - `README.md`: the status line at the top, "What is not built", and the
   `PROVIDER_MODE` notes under Deploy.
-- `docs/architecture.md`: the cost of one check, when the change measured it. No
-  such figure exists yet; the first one goes under "Limits to design around".
+- `docs/architecture.md`: "Live providers", how the provider bills a check and
+  which tuning values move the cost. A vendor's published rate may be quoted.
+  What a check was measured to use or to cost goes in `private/`, never here;
+  the document says only that the record exists.
 
 **A usage limit or plan setting added or changed** (the limit and plan columns on
 `organizations`, their triggers, and `locations_due_for_scan`)

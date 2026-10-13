@@ -170,7 +170,7 @@ export function createClaudeProvider(options: ClaudeOptions): SurfaceProvider {
                 // Each search adds its results to the input tokens billed, so cap them.
                 max_uses: options.tuning.claude.max_searches,
                 // Plain searches. The default on this tool version filters results through code
-                // execution, which took twice the time and tokens for the same answer.
+                // execution, which took more time and tokens for the same answer.
                 allowed_callers: ["direct"],
                 // Searches as someone in the business's own town would.
                 user_location: {
