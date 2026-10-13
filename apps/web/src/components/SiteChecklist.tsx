@@ -1,8 +1,23 @@
-import { SITE_CHECKS, type SiteCheck } from "@nearcited/shared";
+import { type BlockLocation, SITE_CHECKS, type SiteCheck } from "@nearcited/shared";
 import { sourceLabel } from "../lib/format";
+import { BusinessBlock } from "./BusinessBlock";
 
-/** What the on-page check found on the business's own home page, one line per check. */
-export function SiteChecklist({ site }: { site: SiteCheck }) {
+interface SiteChecklistProps {
+  site: SiteCheck;
+  /**
+   * The location the page was read for: what the fix for missing details is built from. Left out
+   * where the page was read for no location, as in a shareable audit, and no fix is offered.
+   */
+  location?: BlockLocation;
+  /** Opens the location's settings. Left out for a reader who cannot edit them. */
+  onOpenSettings?: () => void;
+}
+
+/**
+ * What the on-page check found on the business's own home page, one line per check. A page with
+ * no structured business details is offered the block that fixes it.
+ */
+export function SiteChecklist({ site, location, onOpenSettings }: SiteChecklistProps) {
   const host = sourceLabel(site.url);
   // No checks means the page could not be loaded in a way that proves nothing about the site.
   if (site.checks.length === 0) {
@@ -37,6 +52,9 @@ export function SiteChecklist({ site }: { site: SiteCheck }) {
                     <> Blocked: {site.blocked_crawlers.join(", ")}.</>
                   )}
                 </p>
+              )}
+              {location && !check.passed && check.id === "structured_data" && (
+                <BusinessBlock location={location} onOpenSettings={onOpenSettings} />
               )}
             </div>
           </li>

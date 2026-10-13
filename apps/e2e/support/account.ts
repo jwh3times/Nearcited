@@ -202,13 +202,54 @@ export async function withOtherNumber(locationId: string): Promise<void> {
   });
 }
 
+/**
+ * Gives a location a website, and a check of it that found everything in order but structured
+ * business details, as a scan would on a live deployment. The local stack serves sample data,
+ * which reads no site. Local stack only.
+ */
+export async function withUncheckedDetails(account: Account, locationId: string): Promise<void> {
+  await api(account, "PATCH", `/locations/${locationId}`, {
+    name: "Joe's Pizza",
+    city: "Raleigh",
+    region: "NC",
+    website: "joespizza.example",
+  });
+  const detail = await api<{ latest_scan: { id: string } }>(
+    account,
+    "GET",
+    `/locations/${locationId}`,
+  );
+  const passed = (id: string) => ({ id, passed: id !== "structured_data" });
+  await asWorker(
+    `scans?id=eq.${detail.latest_scan.id}`,
+    {
+      site_check: {
+        url: "https://joespizza.example/",
+        status: 200,
+        checks: [
+          "reachable",
+          "crawlers_allowed",
+          "indexable",
+          "text_content",
+          "names_business",
+          "names_city",
+          "structured_data",
+        ].map(passed),
+        blocked_crawlers: [],
+        words: 240,
+      },
+    },
+    "PATCH",
+  );
+}
+
 /** Writes a row with the secret key. Never against a deployment: its data is not a test's. */
-async function asWorker(table: string, row: unknown): Promise<void> {
+async function asWorker(table: string, row: unknown, method = "POST"): Promise<void> {
   if (process.env.E2E_APP_URL) throw new Error("Tests do not write to a deployment's database.");
   const vars = readFileSync(join(import.meta.dirname, "../../api/.dev.vars"), "utf8");
   const secretKey = /^SUPABASE_SECRET_KEY=(.*)$/m.exec(vars)?.[1] ?? "";
   const response = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
-    method: "POST",
+    method,
     headers: {
       apikey: secretKey,
       Authorization: `Bearer ${secretKey}`,

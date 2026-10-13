@@ -9,6 +9,7 @@ import {
   withNewBusiness,
   withOtherNumber,
   withScannedLocation,
+  withUncheckedDetails,
   withUnnamedSource,
 } from "../support/account";
 
@@ -194,6 +195,52 @@ test("shows a phone number the answers give that is not on file, and lets a memb
   await page.reload();
   await expect(panel.getByRole("heading", { name: "What to do next" })).toBeVisible();
   await expect(panel.getByText("different phone number")).toHaveCount(0);
+});
+
+test("offers the structured details to paste where the page has none, and copies them", async ({
+  page,
+  context,
+}) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await withUncheckedDetails(account, locationPath.replace("/locations/", ""));
+  await signIn(page, account, `${locationPath}?tab=website`);
+  const panel = page.getByRole("tabpanel");
+  await expect(panel.getByText("Your home page has no structured business details")).toBeVisible();
+  // It says where it goes, and what is not on file to put in it.
+  await expect(panel.getByText(/Paste it into the HTML of joespizza\.example/)).toBeVisible();
+  await expect(
+    panel.getByText(
+      "Not on file, so not in the block: street address, postal code and phone number.",
+    ),
+  ).toBeVisible();
+
+  await panel.getByRole("button", { name: "Copy the block" }).click();
+  await expect(panel.getByRole("button", { name: "Copied" })).toBeVisible();
+  const copied = await page.evaluate(() => navigator.clipboard.readText());
+  expect(copied).toMatch(/^<script type="application\/ld\+json">/);
+  expect(JSON.parse(copied.slice(copied.indexOf("{"), copied.lastIndexOf("}") + 1))).toEqual({
+    "@context": "https://schema.org",
+    "@type": "LocalBusiness",
+    name: "Joe's Pizza",
+    url: "https://joespizza.example",
+    address: {
+      "@type": "PostalAddress",
+      addressLocality: "Raleigh",
+      addressRegion: "NC",
+      addressCountry: "US",
+    },
+  });
+
+  // The block can be read before it is copied, and the missing details lead to Settings.
+  await panel.getByText("See the block").click();
+  await expect(panel.locator("pre")).toContainText('"@type": "LocalBusiness"');
+  await panel.getByRole("button", { name: "Add them in Settings" }).click();
+  await expect(page).toHaveURL(/tab=settings/);
+
+  // The plan's website step offers the same block.
+  await page.getByRole("tab", { name: "Overview" }).click();
+  const step = panel.getByRole("listitem").filter({ hasText: "Your website is not being cited" });
+  await expect(step.getByRole("button", { name: "Copy the block" })).toBeVisible();
 });
 
 test("opens the menu on a phone, and stacks the tables @phone", async ({ page }) => {

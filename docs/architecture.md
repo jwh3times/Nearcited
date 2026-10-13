@@ -308,6 +308,24 @@ about the site and no site rule fires. A scan keeps its whole `SiteCheck` in
 `scans.site_check` (see "The action plan"), and an audit keeps it in its first prompt's part; both
 pages show it as a checklist.
 
+A page that fails `structured_data` is offered the block that would pass it. `buildBusinessBlock`
+(`packages/shared/src/structured-details.ts`) composes it by rule from the location's own details
+and nothing else: the name, the website, the phone number and the address, as schema.org JSON-LD
+inside a script element ready to paste. It is always typed `LocalBusiness`, because a location's
+category is typed freely and a narrower type guessed from it would state something nobody said. A
+detail not on file is left out, never filled in, and the block says which of street address, postal
+code and phone number are missing so the page can lead to Settings. Every `<` in a detail is
+written as `\u003c`, so no detail can close the script element. No model writes any of it.
+
+Nothing is stored. The web app builds the block from the location it already holds, so it always
+says what the details say now, and there is no route, table or wire type for it.
+`needsBusinessBlock` decides when it is offered: the page was read and `structured_data` failed,
+and not when the page could not be loaded, since nothing is known about it then. The Website tab
+shows it under the failed check and the action plan shows it on its website step. An operator
+reading through an account sees it without the link to Settings, and a shareable audit's checklist
+offers none, because an audit has no location to build it from. It promises nothing: whether it
+changes what an assistant answers is not known, and the card says so.
+
 The address is typed by a user, so the fetch treats it as hostile: `http` and `https` on default
 ports only, no IP addresses or internal names, every redirect checked the same way before it is
 followed (at most four), an eight second timeout, and the body cut off at 600 kB. It sends
@@ -340,6 +358,10 @@ A location's on-page check is kept in `scans.site_check`, written by the worker 
 completes the scan, so the page can show the whole checklist and the plan can give reasons. The
 recommendations a scan stores are unchanged; the location page leaves the ones the plan already
 covers (`source:*`, `site:*`, `own_site_uncited`) out of its list.
+
+The block from "The on-page check" is shown on the `fix_website` step while `structured_data`
+fails. The location page puts it there; `buildActionPlan` does not carry it, and an audit's plan
+shows none.
 
 ## Tasks
 
@@ -1185,6 +1207,10 @@ drop it.
   the thing, or its access to it. The Connections page names it "no longer found" so its owner can
   choose again. Only the sample kind of action acts through a match, and it does not check that
   the choice is still there; a real kind will have to.
+- The `structured_data` check passes for any JSON-LD block that gives a name and an address, so a
+  block for some other business passes it, and nothing marks that a block was added or compares the
+  answers from before and since. Opening hours are not held, so the block has none
+  ([#137](https://github.com/jwh3times/Nearcited/issues/137)).
 - There is no real kind of action yet (see "Actions"). So no action takes from an allowance, none
   does a task's work, and the only limit on keeping what one replaced is the sample kind's 30 days,
   which is there so that dropping can be seen. The only notices sent are about sample actions, by a

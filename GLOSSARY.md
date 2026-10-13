@@ -17,6 +17,9 @@ system works; this file only settles vocabulary.
 - **On-page check**: reading a business's own home page as an assistant's crawler would, without
   running scripts, and reporting a fixed list of pass or fail checks. See "The on-page check" in
   `docs/architecture.md`.
+- **Structured details** (or **the block**): a schema.org block stating who and where a business
+  is, composed by rule from what its location holds and nothing else, for the owner to paste into
+  the page the on-page check reads. Not a draft: no model writes it.
 - **Action plan**: the ordered steps shown as "What to do next", composed by rule from the sources
   and the on-page check. A step states an observation; it does not promise a result.
 - **Source kind**: what sort of site a source is, which decides what an owner can usefully do

@@ -55,7 +55,9 @@ Each scan also reads the business's own home page the way an assistant's crawler
 running scripts: does it load, does `robots.txt` let the assistants' search crawlers in, is it
 free of `noindex`, does it have text, does that text state the business name and city, and does
 it carry structured business details. Each failed check is a recommendation that clears when a
-later scan finds it fixed. The shareable audit shows the whole checklist. The fetch identifies
+later scan finds it fixed. Where a page has no structured business details, the location page
+offers a block of them to copy into the page, built from the details on file and nothing else.
+The shareable audit shows the whole checklist. The fetch identifies
 itself as `NearcitedBot`, with a link to the public `/bot` page, and is skipped while the deployment serves sample data.
 
 The operator has one more screen, `/operator`: what needs attention (a failed scan, a scan stuck or
@@ -221,8 +223,8 @@ packages/
   shared/       Zod schemas for every wire type, plus the logic that decides whether a business
                 was named and which phone numbers an answer gave for it, the visibility score,
                 the rule-based recommendations, the audit, cited-source and on-page check logic,
-                the action plan, the alert rules, and the checks on what a form accepts (phone,
-                website, postal code, country).
+                the action plan, the alert rules, the structured business details block, and the
+                checks on what a form accepts (phone, website, postal code, country).
   db/           Tests that run the migrations in in-process Postgres and attack the policies.
 supabase/
   migrations/   Schema, row-level security, and the SQL functions the Worker calls.
@@ -457,7 +459,7 @@ reader gets one audit only by its token, through the `get_audit()` function.
 
 - **`packages/shared`**: name matching, mention detection, scoring, recommendation rules, input
   validation, the tuning schema, its defaults and prompt rendering, audits, cited sources, the
-  on-page check, the action plan and the alert rules (when a drop, a first sighting or a phone number is raised and when it clears), and which phone numbers an answer gives for the business.
+  on-page check, the action plan, the structured business details block (what it states, what it leaves out, and that no detail can close its script element) and the alert rules (when a drop, a first sighting or a phone number is raised and when it clears), and which phone numbers an answer gives for the business.
 - **`packages/db`**: applies the real migrations to in-process Postgres (PGlite) and checks, as
   different users, that one organization cannot read or write another's rows, that users cannot
   forge scan results or grant themselves a platform role, that worker-only functions and the `audits`, `provider_usage`, `connection_secrets`, `connection_kind_allowances`, `sample_listings` and `action_kind_terms` tables are closed to them, that only an owner or admin can connect, match or remove an account, that a connection breaks and is paused as it should, that only a member of a location's organization can approve, decline or ask again for an action and only the worker can propose or carry one out, that an organization is held once its owners have gone 36 hours untold of an action, that what an action replaced is dropped on its day, that a task an action did stays marked, that an action of a counted kind takes from the month's allowance once and gives it back unless the thing is done, that only the worker can ask that of an organization and a stranger is told nothing of a location's, that only the worker raises or clears an alert, reads what a location's earlier scans named and cited, or keeps that its owners were told of an alert, and only a member of a location's organization can dismiss one, that a result sent without phone numbers is kept with none, and that the operator reads every organization and changes only an organization's limits or a plan's settings or prices, each through one function that records it (announcing and calling off a price change or a reduction included). No Docker needed. It
@@ -473,7 +475,7 @@ reader gets one audit only by its token, through the `get_audit()` function.
   the Connections page and its sidebar link show, what the Actions tab says of each action, and what a task says when an action did it.
 - **`apps/e2e`**: `pnpm e2e` drives the real web app and Worker in Chromium against the local
   Supabase stack, in mock mode: sign-in by the emailed link, onboarding through the first scan, the
-  location page, account settings, connecting a sample account, matching a location to it and removing it, approving a proposed action with its text changed and declining another, a drop shown on the Overview and in the locations table and then dismissed, a business named for the first time shown with a link to the answers, a phone number the answers give shown and dismissed as the business's own, the operator's view and reading through an account, the public pages and one phone-sized run. It starts the Worker
+  location page, account settings, connecting a sample account, matching a location to it and removing it, approving a proposed action with its text changed and declining another, a drop shown on the Overview and in the locations table and then dismissed, a business named for the first time shown with a link to the answers, a phone number the answers give shown and dismissed as the business's own, the structured business details offered where a page has none and copied, the operator's view and reading through an account, the public pages and one phone-sized run. It starts the Worker
   and web app itself, or reuses them if `pnpm dev` is up. `pnpm smoke` is a separate run against a
   real deployment: it signs in as the test account, refuses to go on unless that account's
   organization is a test one, then adds a location and a prompt, runs a scan (generated data), reads
@@ -648,6 +650,12 @@ pnpm sync:agents
   [ADR 0014](docs/adr/0014-only-the-worker-carries-out-an-action.md) decides is built, and no real
   kind uses it: the sample kind is given 30 days to keep what it replaced, so that dropping can be
   seen, it does no task's work, and it takes from no allowance, since no kind of allowance exists.
+- **A check that the structured details name this business.** Where the on-page check finds no
+  structured business details, the Website tab and the action plan offer a block to paste. The
+  check itself passes for any JSON-LD block with a name and an address, not only one naming this
+  business. Nothing marks that a block was added or compares the answers from before and since, and
+  opening hours are not held, so the block has none
+  ([#137](https://github.com/jwh3times/Nearcited/issues/137)).
 - **An alert about a wrong address.** A drop, a business named for the first time, a site read for
   the first time and a phone number the answers give that is not the location's are built, shown
   on the Overview tab, counted on the locations table and emailed to the owners in the scan
