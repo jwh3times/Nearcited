@@ -148,27 +148,14 @@ OpenAI requires citations to be visible and clickable wherever information from 
 shown, so the location page lists each answer's sources under its excerpt. Keep that list when
 changing how results are displayed.
 
-**Cost of one ChatGPT check: about 7 cents on `gpt-6.1-sol`**, the default model. This is from
-a single live call on 2026-10-06, so treat it as a first reading and not an average:
-
-| Part | Used | Rate | Cost |
-| --- | --- | --- | --- |
-| Input tokens | 20,977 | $2 per million | $0.042 |
-| Web searches | 2 | $10 per 1,000 | $0.02 |
-| Output and reasoning tokens | 638 | $10 per million | $0.006 |
-
-OpenAI bills the pages a search reads as input at the model's rate, so the model decides most of
-the cost. The same prompt was run once on two other models the same day:
-
-| Model | Cost | Compared with `gpt-6.1-sol` |
-| --- | --- | --- |
-| `gpt-6-astra` | $0.27 | The same three businesses in the same order |
-| `gpt-6-luna` | $0.033 | The same first two, a different third, and longer business names |
-
-Searches are a flat rate on every model, which puts a floor of 2 to 3 cents under any check. The
-model and how hard it reasons are tuning values (`chatgpt.model`, `chatgpt.effort`). The provider reports each call's usage as it makes it,
-and the runner stores it in `provider_usage` (see "How a scan runs"), so the average can be read
-from that table once real scans run.
+**What a ChatGPT check is billed for.** OpenAI bills the pages a search reads as input tokens at
+the model's rate, and each search at a flat rate that is the same on every model. So what a check
+costs follows the model's rate and how much its searches read, with a fee for each search on top.
+OpenAI's published rates for `gpt-6.1-sol`, the default model, were $2 per million input tokens,
+$10 per million output and reasoning tokens and $10 per 1,000 searches on 2026-10-06. The model
+and how hard it reasons are tuning values (`chatgpt.model`, `chatgpt.effort`). The provider
+reports each call's usage as it makes it, and the runner stores it in `provider_usage` (see "How
+a scan runs"), so what a deployment's checks cost can be read from that table.
 
 **Claude** (`apps/api/src/providers/claude.ts`) calls Anthropic's Messages API through its SDK
 with the `web_search` tool, located in the location's city, and asks for the answer, the
@@ -178,44 +165,30 @@ businesses it named and the pages it relied on as JSON. Three things about it ar
   attaches no citations to its text, so the provider asks for the URLs it relied on and keeps
   only those the search really returned.
 - **Searches are called directly and capped.** The tool's default filters results through code
-  execution; on the trial prompt that took twice the time and tokens for a similar answer. The
-  cap is a tuning value and is the main cost control.
+  execution, which a trial showed takes more time and tokens for a similar answer. The cap is a
+  tuning value and is the main cost control.
 - **A declined prompt is re-run on Anthropic's fallback model** (`fallbacks: "default"`), so a
   scan does not fail on a safety classifier. The usage rows record which model answered.
 
-**Cost of one Claude check: about 7 cents** on the default tuning: `claude-sonnet-5-5`, low
-effort, one search. This is from a single live call on 2026-10-06, so treat it as a first reading
-and not an average:
+**What a Claude check is billed for.** Anthropic bills search results as input tokens, with a
+flat fee for each search on top, and on a turn with several searches the earlier results are read
+again each time. So each further search costs more than the one before it, which is why the cap
+is the main cost control. Anthropic's published rates for `claude-sonnet-5-5`, the default model,
+were $2 per million input tokens, $10 per million output and thinking tokens and $10 per 1,000
+searches on 2026-10-06. The model, the effort and the cap are tuning values (`claude.model`,
+`claude.effort`, `claude.max_searches`). The provider reports each call's usage the same way,
+including a call whose answer was then refused or unusable.
 
-| Part | Used | Rate | Cost |
-| --- | --- | --- | --- |
-| Input tokens | 23,392 | $2 per million | $0.047 |
-| Output and thinking tokens | 1,029 | $10 per million | $0.010 |
-| Web searches | 1 | $10 per 1,000 | $0.01 |
-
-Anthropic bills search results as input tokens, and on a turn with several searches the earlier
-results are read again each time, so the number of searches drives the cost more than the model
-or the effort does. The same prompt run other ways the same day:
-
-| Model | Effort | Search cap | Cost | Searches run | Input tokens |
-| --- | --- | --- | --- | --- | --- |
-| `claude-sonnet-5-5` | low | 1 | $0.067 | 1 | 23,392 |
-| `claude-opus-5-5` | low | 1 | $0.089 | 1 | 13,676 |
-| `claude-opus-5-5` | medium | 3 | $0.14 | 2 | 22,591 |
-| `claude-sonnet-5-5` | low | 3 | $0.22 | 3 | 87,228 |
-| `claude-sonnet-5-5` | medium | 3 | $0.28 | 3 | 116,775 |
-| `claude-opus-5-5` | medium | 5, filtered search | $0.27 | 5 | 44,890 |
-
-Sonnet searches up to whatever cap it is given and reads more input per search than Opus, so it
-is only the cheaper model when the cap is one. All six runs named an overlapping set of
-businesses; one run each cannot show whether fewer searches give a worse answer. The model, the
-effort and the cap are tuning values (`claude.model`, `claude.effort`, `claude.max_searches`).
-The provider reports each call's usage the same way, including a call whose answer was then refused or unusable.
+**What a check was measured to cost is not recorded here.** A provider's published rates are
+public and this section may quote them. What a call really used and what it came to, and how
+models and settings compared on cost, is the owner's research and is kept in the private
+companion with the pricing (see "Private companion" in `AGENTS.md`). The rates a deployment
+turns recorded usage into spend with are the tuning's `rates`.
 
 **Gemini is not built on Google's API, on purpose.** Google's terms for Grounding with Google
 Search do not allow grounded results to be stored, analysed or collected into a database, and a
-scan does all three. One trial call on 2026-10-06 worked and cost about 3 cents, nearly all of it
-search queries; the result was not kept. Gemini results would have to come from a data vendor.
+scan does all three. One trial call on 2026-10-06 worked; the result was not kept. Gemini results
+would have to come from a data vendor.
 
 ## Rates over a window of scans
 
@@ -1424,9 +1397,9 @@ drop it.
   a kind of connection that needs it (see "Connections"), a kind of action that takes from it (see
   "Actions") and a draft (see "Drafts"), and only the last exists ([#133](https://github.com/jwh3times/Nearcited/issues/133)).
 - A real draft is written only where the private tuning has instructions for its kind, and it
-  needs them before a deployment writes one, or offers a task one (see "Tuning" and "Drafts"). What a draft costs has not
-  been measured: a draft's use is recorded, so the figure can be read from `provider_usage` once
-  real drafts are written, and a month given back does not return what a failed write cost, so a
+  needs them before a deployment writes one, or offers a task one (see "Tuning" and "Drafts"). What a real draft costs has
+  been measured only in a trial, whose readings are kept privately: a draft's use is recorded, so
+  the figure can be read from `provider_usage` once real drafts are written, and a month given back does not return what a failed write cost, so a
   writer that keeps failing the check is paid for twice an ask and shows only in the operator's
   spend. Two kinds of draft exist, the note to the author of a page and the description for a
   listing; copy for a page on the business's own site is not built. The check on what a draft states

@@ -46,7 +46,7 @@ copy of it somewhere.
 | A repository setting or a decision only the owner can make                  | A checkbox in [#17](https://github.com/jwh3times/Nearcited/issues/17), or its own issue labelled `ready-for-human` if it is large |
 | An answer to an open product question                                       | A comment on the issue that asks it (#14 for what a recommendation working means)                                                 |
 | Implemented behaviour, setup steps, a known gap closed or found, a new rule | Public docs, through the `docs-updater` agent (step 4)                                                                            |
-| A prompt, weight, price, vendor quote, measured cost by vendor, or anything naming a real business | `private/`, indexed in `private/README.md` (step 3)                                              |
+| A prompt, weight, price, vendor quote, what anything was measured to cost, or anything naming a real business | `private/`, indexed in `private/README.md` (step 3)                                              |
 | Confidential work someone should pick up                                    | An issue in the private tracker (step 3)                                                                                          |
 | A settled domain term or a durable architecture decision                    | `GLOSSARY.md` or `docs/adr/`, through `/domain-modeling`                                                                          |
 
@@ -54,7 +54,7 @@ Whatever the repository already records (code, git history, a merged PR) is
 already recorded. Skip it.
 
 This repository is public. A customer's or prospect's business name, pricing,
-vendor quotes, prompts and weights go to `private/` or the private tracker, and
+vendor quotes, measured costs, prompts and weights go to `private/` or the private tracker, and
 the public issue gets only the conclusion that is safe to publish. Keys go in
 neither repository; they live in 1Password. When `private/` is absent, ask the
 user to run `npm run bootstrap:private`, and if they decline, list in the report
