@@ -7,8 +7,12 @@
  * goes through here instead: it asks a page at a time until it has the whole list.
  *
  * The list has to be asked for in an order no two rows share, or a row can fall between two
- * pages. Ask in the order rows are made, oldest first, so one made while the pages are being
- * read lands past the end and moves nothing that was already read.
+ * pages. Where the rows have a time they were made, ask oldest first, so one made while the
+ * pages are being read lands past the end and moves nothing that was already read.
+ *
+ * The pages are separate requests, not one look at the table. A row that leaves the list while
+ * it is being read moves the later rows up one, and the row that crosses a page's edge is then
+ * not read this time. Nothing here is read only once: the next read has it.
  */
 
 /** How many rows a page asks for. The server may still answer with fewer. */

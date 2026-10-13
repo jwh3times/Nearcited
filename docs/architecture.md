@@ -1255,7 +1255,10 @@ organization's rows by writing to them: the routes answer 404 for an update or d
 The operator's view is `/operator` in the web app, served by `GET /api/operator/overview` and
 `GET /api/operator/organizations/:organizationId`, plus `GET /api/operator/accounts` and
 `GET /api/operator/audits`, all 404 to anyone who is not the operator. It
-reads through the request's store, never the secret key. `buildOperatorOverview` in
+reads through the request's store, never the secret key. A list it reads across every
+organization (the week's scans, say, or every location) is read a page at a time, because the
+database's API answers with at most 1,000 rows and says nothing about the rest (see "Limits to
+design around"). `buildOperatorOverview` in
 `packages/shared/src/operator.ts` decides what needs attention over the last seven days, and never
 counts a test organization. One of its items, `action_untold`, is a line for each organization held
 (see "Actions"). Reading through a customer's account (`/operator/o/:organizationId/...`)
@@ -1381,6 +1384,26 @@ drop it.
 - **The cron queues at most 100 locations per run** (one `sendBatch`). They sort oldest-first, so
   none starve, but a daily cron cannot keep up with more than 100 daily locations. Run it more
   often or page through the due list before that matters.
+- **The database's API answers a request with at most 1,000 rows and says nothing when it leaves
+  the rest out** (`max_rows` in `supabase/config.toml`, and the hosted default). A list read in one
+  request is right until it is long and then short, with no error. So every list in the Supabase
+  store that reaches across organizations and is used whole goes through `every` (`readEvery` in
+  `apps/api/src/store/paging.ts`). The first page asks for the exact count, each next page starts
+  after the rows that actually came, so a server that answers with fewer than a page loses nothing,
+  and it stops at the counted number or at an empty page. A page that fails fails the read: no part
+  of a list is handed back as if it were the list. Each list is asked for in an order no two rows
+  share, and oldest first wherever its rows have a time they were made, so a row made meanwhile
+  lands past the end. The scans, audits and accounts are handed back newest first, so they are
+  reversed after they are read. Two lists have no such time and are ordered by a key: the notices
+  of an announcement, by organization, and the usage added up by month. The pages are separate
+  requests, not one snapshot, so a row made meanwhile can be read twice there, and in any list a
+  row that leaves it meanwhile (an action told, say) moves the rows after it up one, so one of them
+  can be missed until the next read.
+  Each page is also a subrequest of the invocation that reads it (see the first limit above).
+  What is left in one request is a list of one organization or one location, which its plan
+  bounds, and the work lists the schedule reads again at its next run (the stalled actions and
+  drafts, the connections' lists): a cut there delays the rest to the next run, for as long as the
+  work done leaves the list.
 
 ## Known gaps
 

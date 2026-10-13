@@ -164,7 +164,8 @@ pass `pnpm check` and run in mock mode without it.
   answers a request with at most 1,000 rows and says nothing when it leaves the rest out, so a
   list read in one request is right until it is long and then short without an error. In the
   Supabase store such a read goes through `every` (`readEvery`, `apps/api/src/store/paging.ts`),
-  asked for in an order no two rows share, oldest first. A list that belongs to one organization
+  asked for in an order no two rows share, and oldest first where the rows have a time they were
+  made, so a row made meanwhile lands past the end. A list that belongs to one organization
   or one location is bounded by its plan and needs none. A work list the schedule reads again at
   its next run, and takes only the first of, may stay as it is.
 - **Providers only fetch.** They return an `Observation`; `analyzeObservation` in the shared

@@ -988,6 +988,7 @@ export function createSupabaseStore(
         db
           .from("subscriptions")
           .select("organization_id, stripe_subscription_id", counted(first))
+          .order("created_at")
           .order("organization_id")
           .range(from, to),
       );
@@ -1074,6 +1075,7 @@ export function createSupabaseStore(
             .select("id", counted(first))
             .eq("plan_key", planKey)
             .eq("is_test", false)
+            .order("created_at")
             .order("id")
             .range(from, to),
         ),
@@ -1082,6 +1084,7 @@ export function createSupabaseStore(
             .from("subscriptions")
             .select("organization_id", counted(first))
             .not("stripe_subscription_id", "is", null)
+            .order("created_at")
             .order("organization_id")
             .range(from, to),
         ),
@@ -1111,6 +1114,8 @@ export function createSupabaseStore(
     },
 
     async listPriceChangeNotices(priceChangeId) {
+      // One to an organization, with no time it was made and never taken away: a notice made
+      // while the pages are read can at worst be read twice, never missed.
       const data = await every("List price change notices", (from, to, first) =>
         db
           .from("price_change_notices")
@@ -1194,6 +1199,7 @@ export function createSupabaseStore(
           .select("id", counted(first))
           .eq("plan_key", planKey)
           .eq("is_test", false)
+          .order("created_at")
           .order("id")
           .range(from, to),
       );
@@ -1228,6 +1234,7 @@ export function createSupabaseStore(
     },
 
     async listLimitChangeNotices(limitChangeId) {
+      // One to an organization, as a price change's are, and read the same way.
       const data = await every("List limit change notices", (from, to, first) =>
         db
           .from("limit_change_notices")
@@ -1295,7 +1302,7 @@ export function createSupabaseStore(
         db
           .from("locations")
           .select(LOCATION_COLUMNS, counted(first))
-          .order("name")
+          .order("created_at")
           .order("id")
           .range(from, to),
       );
@@ -1411,6 +1418,7 @@ export function createSupabaseStore(
         db
           .from("platform_roles")
           .select("user_id, role", counted(first))
+          .order("created_at")
           .order("user_id")
           .range(from, to),
       );
