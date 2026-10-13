@@ -136,6 +136,25 @@ describe("the facts in a draft that nobody gave", () => {
     expect(unknown("In 2001. Yes, 2001.")).toEqual(["2001"]);
   });
 
+  it("are read in the time it takes to read the text, whatever the text is", () => {
+    // Each of these begins an address or a number at every character and never finishes one.
+    // A pattern that starts over from each would take the square of the length.
+    for (const run of ["%", "a-", "a.", "a.1.", ".", "/", "1,", "www.", "@", "a@a."]) {
+      const long = run.repeat(100_000);
+      expect(Array.isArray(factsNobodyGave(long, given)), run).toBe(true);
+      // And in what the owner wrote, which is read too.
+      expect(factsNobodyGave("Hello.", { ...given, what_we_do: long }), run).toEqual([]);
+    }
+  });
+
+  it("still read an address whose name is as long as a name may be", () => {
+    const local = "a".repeat(64);
+    const label = "b".repeat(63);
+    expect(
+      unknown(`Write to ${local}@${label}.example, or see ${label}.example/menu today`),
+    ).toEqual([`${local}@${label}.example`, `${label}.example/menu`]);
+  });
+
   it("do not take ordinary writing for an address", () => {
     expect(unknown("We open at 5 p.m., e.g. on Fridays. Dr. Lee says hello... really.")).toEqual([
       "5",
