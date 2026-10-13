@@ -11,8 +11,8 @@ import {
 
 const SAID = "Wood-fired pizza and fresh pasta, family-run since 1998.";
 /**
- * How long a draft may take to land. The queue holds a lone message for up to ten seconds before
- * the worker is given it, as it does a scan's.
+ * How long a draft may take to land. The worker writes it from the queue, on its own time, and a
+ * busy machine can keep it waiting.
  */
 const LANDS = { timeout: 30_000 };
 
@@ -73,7 +73,7 @@ test("writes a draft for a task once the business has said what it does, and kee
 });
 
 test("writes a draft again in place of the first, and counts one more", async ({ page }) => {
-  // Two drafts, each after the queue's wait.
+  // Two drafts, each written by the worker in its own time.
   test.setTimeout(90_000);
   await withDrafts(organizationId, 2);
   await signIn(page, account, `${locationPath}?tab=settings`);

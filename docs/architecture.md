@@ -37,7 +37,11 @@
   `{ connection_id, step }` is one step for a connection, `remove` or `sync` (see "Connections");
   after a sync that read the account it also proposes actions. A message shaped
   `{ action_id, step }` carries out one approved action (see "Actions"). A message shaped
-  `{ draft_id, step }` writes one draft a member asked for (see "Drafts").
+  `{ draft_id, step }` writes one draft a member asked for (see "Drafts"). The consumer is handed
+  up to five messages at a time and works through them one after another. A lone message waits
+  at most a second for others to join it (`max_batch_timeout` in `wrangler.jsonc`), because
+  somebody is usually watching the page for it; a message that lands in a batch behind scans
+  still waits for those to finish.
 
 ## How a scan runs
 
