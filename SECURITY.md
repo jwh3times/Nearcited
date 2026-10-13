@@ -36,7 +36,7 @@ Nearcited is multi-tenant, and tenant isolation is enforced by Postgres row-leve
 - Using up or clearing an organization's allowance: writing `allowance_use` as a signed-in user, or
   calling `claim_allowance()`, `release_allowance()` or `allowance_has_room()` as anyone but the
   worker. Also getting an action of a counted kind proposed, approved or carried out past the
-  month's number.
+  month's number, or a draft asked for or written past it.
 - Reading a connection's sign-in, sealed or not, by any path: `connection_secrets` has no policy
   and no grant for any API role, the operator included, and no route, response or log line carries
   a sign-in. The same goes for the `CONNECTIONS_KEY` that seals it.
@@ -61,6 +61,11 @@ Nearcited is multi-tenant, and tenant isolation is enforced by Postgres row-leve
   `dismiss_alert()` for a location the caller is not a member of, the operator included. Also
   calling `seen_before()`, which returns what any location's earlier scans named and cited, as
   anyone but the worker.
+- Asking for a draft as anyone but a member of its location's organization, or writing one as
+  anyone but the worker: calling `ask_draft()` for a location the caller is not a member of, the
+  operator included, writing `drafts` directly, or calling `claim_draft()` or `finish_draft()` as
+  anyone but the worker. Also getting a request to write a draft, or to decide what one is written
+  from.
 - Taking back what an action did, or keeping what it replaced past its day: clearing a task an
   action marked done, or writing `recommendations.acted_by_action`, as a signed-in user; or finding
   a copy of what an action replaced anywhere but `seen`, which `drop_expired_seen()` clears once

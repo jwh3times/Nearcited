@@ -1,12 +1,18 @@
-import type { Task } from "@nearcited/shared";
-import { useMutation } from "@tanstack/react-query";
+import { DRAFTS_ALLOWANCE, type DraftsStanding, type Location, type Task } from "@nearcited/shared";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { Link } from "react-router";
 import { api } from "../lib/api";
+import { plansLineBelongs } from "../lib/drafts";
 import { formatDate } from "../lib/format";
 import { KIND_LABELS, markedDone, proof } from "../lib/tasks";
 import { ErrorNote } from "./ErrorNote";
+import { TaskDraft } from "./TaskDraft";
 
 interface TasksProps {
   tasks: Task[];
+  location: Location;
+  /** Where the organization's month of drafts stands. */
+  drafts: DraftsStanding;
   onChanged: () => unknown;
   /** True while the operator is reading a customer's account: the tasks are shown, not acted on. */
   readOnly: boolean;
@@ -17,16 +23,38 @@ interface TasksProps {
  * location, and the scans before that day are set beside the scans since. A task an action did
  * the work of is marked by that, and offers nothing to undo.
  */
-export function Tasks({ tasks, onChanged, readOnly }: TasksProps) {
+export function Tasks({ tasks, location, drafts, onChanged, readOnly }: TasksProps) {
   const mark = useMutation({
     mutationFn: ({ id, acted }: { id: string; acted: boolean }) =>
       api.setRecommendationActed(id, acted),
     onSuccess: onChanged,
   });
+  // The way to the plans is the owner's, and the account page has already asked who that is.
+  const account = useQuery({
+    queryKey: ["account", location.organization_id],
+    queryFn: () => api.organizationAccount(location.organization_id),
+    enabled: !readOnly,
+  });
+  const isOwner = account.data?.billing != null;
+  // A plan with no drafts is said so only where some plan has them.
+  const withoutDrafts = plansLineBelongs(tasks, drafts, readOnly);
+  const plans = useQuery({
+    queryKey: ["plans"],
+    queryFn: api.plans,
+    staleTime: 300_000,
+    enabled: withoutDrafts,
+  });
+  const offered = plans.data?.some((plan) => plan.allowances[DRAFTS_ALLOWANCE] !== undefined);
 
   return (
     <>
       <h3>Your tasks</h3>
+      {withoutDrafts && offered && (
+        <p className="footnote">
+          Your plan does not include drafts written for you.{" "}
+          {isOwner && <Link to="/pricing">See plans</Link>}
+        </p>
+      )}
       <ul className="steps">
         {tasks.map((task) => {
           const lines = proof(task);
@@ -46,6 +74,14 @@ export function Tasks({ tasks, onChanged, readOnly }: TasksProps) {
                     </a>
                   </p>
                 )}
+                <TaskDraft
+                  task={task}
+                  location={location}
+                  standing={drafts}
+                  readOnly={readOnly}
+                  isOwner={isOwner}
+                  onChanged={onChanged}
+                />
                 {task.acted_at && lines && (
                   <p className="task-proof">
                     {markedDone(task, formatDate(task.acted_at))}

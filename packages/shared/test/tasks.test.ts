@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Recommendation, SourceSummary } from "../src/schemas";
+import type { Draft, Recommendation, SourceSummary } from "../src/schemas";
 import { sourceKind } from "../src/source-kinds";
 import { belongsTo, unnamedSources } from "../src/sources";
 import { buildTasks, namedCount, sourceOfRule } from "../src/tasks";
@@ -98,7 +98,23 @@ describe("tasks", () => {
     recommendations: Recommendation[],
     sources: SourceSummary[] = [],
     evidence = new Map(),
-  ) => buildTasks({ name: "Tony's", recommendations, sources, answers: 10, evidence });
+    drafts: Draft[] = [],
+  ) => buildTasks({ name: "Tony's", recommendations, sources, answers: 10, evidence, drafts });
+
+  const draftFor = (recommendation_id: string, fields: Partial<Draft> = {}): Draft => ({
+    id: "d0000000-0000-4000-8000-000000000001",
+    location_id: "00000000-0000-4000-8000-0000000000aa",
+    recommendation_id,
+    status: "written",
+    asked_by_email: "tony@example.com",
+    asked_at: "2026-10-06T00:00:00.000Z",
+    failure: null,
+    kind: "note",
+    text: "Hello.",
+    written_at: "2026-10-06T00:00:05.000Z",
+    sample_data: false,
+    ...fields,
+  });
 
   it("reads the site out of a source rule and nothing out of any other", () => {
     expect(sourceOfRule("source:yelp.com")).toBe("yelp.com");
@@ -170,6 +186,53 @@ describe("tasks", () => {
     );
     expect(mine?.acted_by_action).toBeNull();
     expect(theirs?.acted_by_action).toBe(action);
+  });
+
+  it("offers a draft where the work is wording, and only while the work is still to do", () => {
+    const done = recommendation("source:money.usnews.com", {
+      status: "done",
+      acted_at: "2026-10-05T00:00:00.000Z",
+    });
+    const tasks = build(
+      [
+        recommendation("source:usnews.com"),
+        recommendation("source:tripadvisor.com"),
+        recommendation("source:blog.example"),
+        done,
+      ],
+      [source("usnews.com", 5, 0), source("tripadvisor.com", 4, 0), source("blog.example", 3, 0)],
+    );
+    expect(tasks.map((task) => [task.host, task.draft_kind])).toEqual([
+      // A page somebody wrote: a note to its author.
+      ["usnews.com", "note"],
+      // Asking customers for reviews is not wording to write for them.
+      ["tripadvisor.com", null],
+      // Nobody knows what kind of site this is, so nobody knows what to write to it.
+      ["blog.example", null],
+      // The same kind of page, and nothing left to do.
+      ["money.usnews.com", null],
+    ]);
+  });
+
+  it("carries each task's own draft, and keeps one that was written once the task is done", () => {
+    const open = recommendation("source:usnews.com");
+    const done = recommendation("source:money.usnews.com", {
+      status: "done",
+      acted_at: "2026-10-05T00:00:00.000Z",
+    });
+    const other = recommendation("source:yelp.com");
+    const tasks = build(
+      [open, done, other],
+      [source("usnews.com", 5, 0), source("yelp.com", 4, 0)],
+      new Map(),
+      [draftFor(done.id, { text: "Kept." }), draftFor(open.id, { status: "asked", text: null })],
+    );
+    expect(tasks.map((task) => [task.host, task.draft?.status ?? null])).toEqual([
+      ["usnews.com", "asked"],
+      ["yelp.com", null],
+      ["money.usnews.com", "written"],
+    ]);
+    expect(tasks[2]?.draft?.text).toBe("Kept.");
   });
 
   it("leaves out a dismissed one, and one that cleared without anyone marking it", () => {

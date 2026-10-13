@@ -7,6 +7,7 @@ import {
   CITING_SURFACES,
   ConnectionMatchSchema,
   ConnectionSchema,
+  DraftSchema,
   LimitChangeSchema,
   LocationConnectionSchema,
   LocationSchema,
@@ -76,6 +77,7 @@ const ERROR_KINDS: Record<string, StoreErrorKind> = {
   NC011: "limit", // an allowance of a kind that does not exist, or a value its kind does not take
   NC012: "limit", // a match a connection cannot take: not reached, already taken, or not working
   NC013: "limit", // an action that is no longer waiting or cannot be asked for, or a task one did
+  NC014: "limit", // a draft asked for when the month has no more
 };
 
 function fail(action: string, error: DbError): never {
@@ -187,6 +189,9 @@ const ORGANIZATION_COLUMNS =
 // What a member is sent of an action. `subject` and `basis` are the worker's own bookkeeping.
 const ACTION_COLUMNS =
   "id, location_id, kind, connection_id, summary, seen, seen_dropped_at, proposed_text, written_by, status, proposed_at, lapses_at, approved_by_email, approved_at, approved_text, declined_by_email, declined_at, decline_reason, done_at, failed_at, failure, lapsed_at, lapse_reason, retry_of";
+
+const DRAFT_COLUMNS =
+  "id, location_id, recommendation_id, status, asked_by_email, asked_at, failure, kind, text, written_at, sample_data";
 
 const ALERT_COLUMNS =
   "id, location_id, kind, tracked_query_id, surface, facts, since, scan_id, raised_at, cleared_at, clear_reason, dismissed_at, dismissed_by_email";
@@ -407,6 +412,24 @@ export function createSupabaseStore(db: SupabaseClient): Store {
         .maybeSingle();
       if (error) fail("Dismiss an alert", error);
       return data ? AlertSchema.parse(data) : null;
+    },
+
+    async listDrafts(locationId) {
+      const { data, error } = await db
+        .from("drafts")
+        .select(DRAFT_COLUMNS)
+        .eq("location_id", locationId);
+      if (error) fail("List drafts", error);
+      return DraftSchema.array().parse(data);
+    },
+
+    async askDraft(recommendationId) {
+      const { data, error } = await db
+        .rpc("ask_draft", { recommendation: recommendationId })
+        .select(DRAFT_COLUMNS)
+        .maybeSingle();
+      if (error) fail("Ask for a draft", error);
+      return data ? DraftSchema.parse(data) : null;
     },
 
     async listConnections(organizationId) {
@@ -676,6 +699,59 @@ export function createSupabaseStore(db: SupabaseClient): Store {
         .number()
         .int()
         .parse(data ?? 0);
+    },
+
+    async getDraft(id) {
+      const { data, error } = await db
+        .from("drafts")
+        .select(DRAFT_COLUMNS)
+        .eq("id", id)
+        .maybeSingle();
+      if (error) fail("Get a draft", error);
+      return data ? DraftSchema.parse(data) : null;
+    },
+
+    async claimDraft(id) {
+      const { data, error } = await db.rpc("claim_draft", { draft: id });
+      if (error) fail("Claim a draft", error);
+      return z
+        .number()
+        .int()
+        .parse(data ?? 0);
+    },
+
+    async finishDraft(id, result) {
+      const { data, error } = await db.rpc(
+        "finish_draft",
+        result.outcome === "written"
+          ? {
+              draft: id,
+              outcome: result.outcome,
+              body: result.text,
+              of_kind: result.kind,
+              by_model: result.model,
+              sample: result.sample_data,
+            }
+          : { draft: id, outcome: result.outcome, why: result.why },
+      );
+      if (error) fail("Finish a draft", error);
+      return data === true;
+    },
+
+    async listStalledDrafts(before) {
+      const { data, error } = await db
+        .from("drafts")
+        .select("id")
+        .eq("status", "asked")
+        .lt("asked_at", before)
+        // Nobody is on it, or whoever was has been on it since before then and is taken to
+        // have died.
+        .or(`writing_since.is.null,writing_since.lt.${before}`);
+      if (error) fail("List stalled drafts", error);
+      return z
+        .array(z.object({ id: z.uuid() }))
+        .parse(data ?? [])
+        .map((row) => row.id);
     },
 
     async listStalledActions(before) {

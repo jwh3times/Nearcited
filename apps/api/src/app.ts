@@ -12,6 +12,7 @@ import { actionRoutes } from "./routes/actions";
 import { alertRoutes } from "./routes/alerts";
 import { billingRoutes } from "./routes/billing";
 import { connectionRoutes } from "./routes/connections";
+import { draftRoutes } from "./routes/drafts";
 import { locationRoutes } from "./routes/locations";
 import { operatorRoutes } from "./routes/operator";
 import { organizationRoutes } from "./routes/organizations";
@@ -168,6 +169,7 @@ export function createApp(deps: AppDeps = { authenticate: authenticateWithSupaba
   app.route("/", connectionRoutes);
   app.route("/", actionRoutes);
   app.route("/", alertRoutes);
+  app.route("/", draftRoutes);
 
   app.notFound((c) => c.json({ error: { code: "not_found", message: "No such route" } }, 404));
 

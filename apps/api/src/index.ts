@@ -5,6 +5,8 @@ import {
   AuditMessageSchema,
   type ConnectionMessage,
   ConnectionMessageSchema,
+  type DraftMessage,
+  DraftMessageSchema,
   type LimitChangeMessage,
   LimitChangeMessageSchema,
   type PriceChangeMessage,
@@ -31,6 +33,7 @@ import {
   tellBrokenConnections,
 } from "./connections";
 import { sealingKey } from "./connections/seal";
+import { requeueStalledDrafts, writeDraft } from "./drafts";
 import { buildScanReportEmail, type Email, sendEmail } from "./email/report";
 import type { Env } from "./env";
 import { createProviders, liveScansUnavailable, usesSampleData } from "./providers";
@@ -62,8 +65,8 @@ export default {
 
   /**
    * Cron. Every run clears abandoned scans and unfinished audits, and asks again for any
-   * connection's removal or first sync that has not been finished and any approved action nobody
-   * is carrying out; the daily run also queues a scan for every location that is due and a sync
+   * connection's removal or first sync that has not been finished, any approved action nobody
+   * is carrying out and any draft nobody is writing; the daily run also queues a scan for every location that is due and a sync
    * for every connection that is, lapses the proposals nobody answered, drops what an action
    * replaced once it may be kept no longer, and tells each organization's owners what was done
    * for it. The two schedules are in wrangler.jsonc.
@@ -80,6 +83,8 @@ export default {
     if (firstSyncs > 0) console.log(`Queued ${firstSyncs} first syncs of connections again`);
     const stalledActions = await requeueStalledActions(store, env.SCAN_QUEUE);
     if (stalledActions > 0) console.log(`Queued ${stalledActions} approved actions again`);
+    const stalledDrafts = await requeueStalledDrafts(store, env.SCAN_QUEUE);
+    if (stalledDrafts > 0) console.log(`Queued ${stalledDrafts} drafts again`);
     if (controller.cron === SWEEP_ONLY_CRON) return;
 
     const queued = await enqueueDueScans(store, env.SCAN_QUEUE);
@@ -261,6 +266,25 @@ export default {
         continue;
       }
 
+      const draft = DraftMessageSchema.safeParse(message.body);
+      if (draft.success) {
+        const what = `Draft ${draft.data.draft_id}`;
+        try {
+          const outcome = await writeDraft(draft.data.draft_id, {
+            store,
+            sampleData: usesSampleData(env),
+          });
+          console.log(`${what}: ${outcome}`);
+          // A try that something got in the way of is made again in a minute, three times in all.
+          if (outcome === "again") message.retry({ delaySeconds: 60 });
+          else message.ack();
+        } catch (error) {
+          console.error(`${what} failed, will retry`, error);
+          message.retry();
+        }
+        continue;
+      }
+
       const parsed = ScanMessageSchema.safeParse(message.body);
       if (!parsed.success) {
         console.error("Dropping malformed scan message", message.body);
@@ -303,4 +327,5 @@ export default {
   | LimitChangeMessage
   | ConnectionMessage
   | ActionMessage
+  | DraftMessage
 >;

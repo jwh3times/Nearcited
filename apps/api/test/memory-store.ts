@@ -5,6 +5,7 @@ import type {
   AuditJob,
   AuditPart,
   Connection,
+  Draft,
   LimitChange,
   LimitChangeNotice,
   Location,
@@ -25,6 +26,7 @@ import {
   allowanceErrors,
   allowedEachMonth,
   CITING_SURFACES,
+  DRAFTS_ALLOWANCE,
   NOTICE_HOLD_HOURS,
   reductions,
 } from "@nearcited/shared";
@@ -91,6 +93,14 @@ export interface MemoryDb {
     seen_until: string | null;
     /** The month, as `YYYY-MM`, whose allowance this action holds one of. */
     allowance_month: string | null;
+  })[];
+  /** Every draft, with the worker's own bookkeeping beside what a member is sent. */
+  drafts: (Draft & {
+    attempts: number;
+    writing_since: string | null;
+    /** The month, as `YYYY-MM`, whose allowance this ask holds one of. */
+    allowance_month: string | null;
+    model: string | null;
   })[];
   /** Every alert, with what keeps one thing from being raised twice beside what is sent. */
   alerts: (Alert & {
@@ -179,6 +189,7 @@ export function createMemoryDb(): MemoryDb {
     limitChanges: [],
     allowanceUse: new Map(),
     actions: [],
+    drafts: [],
     alerts: [],
     actionKindTerms: new Map([["sample", { allowance: null, keeps_seen_days: 30 }]]),
     sampleLines: new Map(),
@@ -278,6 +289,18 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
     return used < allowedEachMonth(allowance, organization.max_locations);
   };
   const NO_ROOM = "Your plan has no more of these this month.";
+  const NO_DRAFTS = "Your plan has no more drafts this month.";
+  const sentDraft = ({
+    attempts: _attempts,
+    writing_since: _since,
+    allowance_month: _month,
+    model: _model,
+    ...draft
+  }: MemoryDb["drafts"][number]): Draft => draft;
+  const organizationOf = (locationId: string) =>
+    db.organizations.find(
+      (o) => o.id === db.locations.find((l) => l.id === locationId)?.organization_id,
+    );
   /** Mirrors organization_held(): an action done 36 hours ago and its owners still not told. */
   const organizationHeld = (organizationId: string) => {
     const organization = db.organizations.find((o) => o.id === organizationId);
@@ -624,6 +647,54 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
       return sentAlert(alert);
     },
 
+    async listDrafts(locationId) {
+      if (!readsLocation(locationId)) return [];
+      return db.drafts.filter((draft) => draft.location_id === locationId).map(sentDraft);
+    },
+
+    // Mirrors ask_draft(): a member of the location's organization, one ask at a time, and only
+    // while the month has room.
+    async askDraft(recommendationId) {
+      const task = db.recommendations.find((r) => r.id === recommendationId);
+      if (!task || userId === null || !visibleLocation(task.location_id)) return null;
+      const asked = db.drafts.find((draft) => draft.recommendation_id === recommendationId);
+      if (asked?.status === "asked") return sentDraft(asked);
+
+      const organization = organizationOf(task.location_id);
+      const allowance = organization?.allowances[DRAFTS_ALLOWANCE];
+      const used =
+        db.allowanceUse.get(`${organization?.id}:${DRAFTS_ALLOWANCE}:${thisMonth()}`) ?? 0;
+      const room =
+        organization !== undefined &&
+        allowance !== undefined &&
+        (allowance === true || used < allowedEachMonth(allowance, organization.max_locations));
+      if (!room) throw new StoreError("limit", NO_DRAFTS);
+
+      const ask = {
+        status: "asked" as const,
+        asked_by_email: db.emails.get(userId) ?? null,
+        asked_at: db.now ?? timestamp(),
+        failure: null,
+        attempts: 0,
+        writing_since: null,
+        allowance_month: null,
+      };
+      if (asked) return sentDraft(Object.assign(asked, ask));
+      const draft = {
+        id: crypto.randomUUID(),
+        location_id: task.location_id,
+        recommendation_id: recommendationId,
+        kind: null,
+        text: null,
+        written_at: null,
+        sample_data: false,
+        model: null,
+        ...ask,
+      };
+      db.drafts.push(draft);
+      return sentDraft(draft);
+    },
+
     async countWaitingActions(organizationId) {
       if (!readsOrg(organizationId)) return {};
       const waiting: Record<string, number> = {};
@@ -874,6 +945,82 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         Object.assign(action, { seen: null, seen_dropped_at: now });
       }
       return due.length;
+    },
+
+    async getDraft(id) {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      const draft = db.drafts.find((candidate) => candidate.id === id);
+      return draft ? sentDraft(draft) : null;
+    },
+
+    // Mirrors claim_draft(): asked for, and nobody on it for the last ten minutes. It takes one
+    // from the month unless this ask holds one, and is failed here when there is no room.
+    async claimDraft(id) {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      const now = db.now ?? new Date().toISOString();
+      const stale = new Date(Date.parse(now) - 10 * 60_000).toISOString();
+      const draft = db.drafts.find(
+        (candidate) =>
+          candidate.id === id &&
+          candidate.status === "asked" &&
+          (candidate.writing_since === null || candidate.writing_since < stale),
+      );
+      if (!draft) return 0;
+      if (draft.allowance_month === null) {
+        const organization = organizationOf(draft.location_id);
+        const claim = organization ? takeAllowance(organization.id, DRAFTS_ALLOWANCE, 1) : null;
+        if (!claim?.claimed) {
+          Object.assign(draft, { status: "failed", writing_since: null, failure: NO_DRAFTS });
+          return 0;
+        }
+        draft.allowance_month = thisMonth();
+      }
+      draft.writing_since = now;
+      draft.attempts += 1;
+      return draft.attempts;
+    },
+
+    // Mirrors finish_draft().
+    async finishDraft(id, result) {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      const draft = db.drafts.find(
+        (candidate) => candidate.id === id && candidate.status === "asked",
+      );
+      if (!draft) return false;
+      draft.writing_since = null;
+      if (result.outcome === "written") {
+        Object.assign(draft, {
+          status: "written",
+          text: result.text,
+          kind: result.kind,
+          model: result.model,
+          sample_data: result.sample_data,
+          written_at: db.now ?? timestamp(),
+          failure: null,
+        });
+      } else if (result.outcome === "failed") {
+        // Nothing was written, so what the ask took from the month is given back.
+        if (draft.allowance_month) {
+          const key = `${organizationOf(draft.location_id)?.id}:${DRAFTS_ALLOWANCE}:${draft.allowance_month}`;
+          db.allowanceUse.set(key, Math.max((db.allowanceUse.get(key) ?? 0) - 1, 0));
+        }
+        Object.assign(draft, { status: "failed", failure: result.why, allowance_month: null });
+      } else {
+        draft.failure = result.why;
+      }
+      return true;
+    },
+
+    async listStalledDrafts(before) {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      return db.drafts
+        .filter(
+          (draft) =>
+            draft.status === "asked" &&
+            draft.asked_at < before &&
+            (draft.writing_since === null || draft.writing_since < before),
+        )
+        .map((draft) => draft.id);
     },
 
     async listStalledActions(before) {

@@ -95,6 +95,18 @@ tasks the owner can mark done, with the answers that cited the site before besid
 task that an action did the work of is marked done by that action, and a member cannot clear it.
 How often a location is scanned, and on which assistants, are settings on its organization.
 
+A task about a page somebody wrote ("Ask to be included on ...") can also have a **draft**: the
+note to its author, which the owner copies and sends themselves. A member asks for it with "Write a
+draft", and the worker, never the page, writes it. It is written from the location's details, the
+page the task is about and a few sentences in the owner's own words on what the business does
+("What we do"), which the task asks for first if the location has none; nothing from the answers is
+given to it. A draft is checked by rule before it is kept: every number, web address and email
+address in it must be in what it was written from, or it is written once more, and if that fails
+too nothing is kept. It is labelled with who wrote it. Writing one again replaces it and counts as
+another. A plan includes a number of drafts a month for each location, taken from when the worker
+starts one and given back when nothing was written. Only sample text is written so far (see
+[What is not built](#what-is-not-built)).
+
 The Overview tab also lists **alerts**: statements that something measured has changed in a way
 an owner would want to know. There are four kinds. A drop is a prompt that named the business on
 an assistant, or a keyword on a Google surface, and has stopped: none of its latest three checks
@@ -201,7 +213,8 @@ data or on the default tuning.
 
 [docs/architecture.md](docs/architecture.md) covers the scan flow, how an alert is raised and
 cleared, how an audit runs, how a connection's sign-in is kept, how an action is proposed and
-carried out, the tenancy model, the limits a Worker imposes, and the known gaps.
+carried out, how a draft is asked for and written, the tenancy model, the limits a Worker imposes,
+and the known gaps.
 
 ## Stack
 
@@ -226,8 +239,10 @@ packages/
   shared/       Zod schemas for every wire type, plus the logic that decides whether a business
                 was named and which phone numbers an answer gave for it, the visibility score,
                 the rule-based recommendations, the audit, cited-source and on-page check logic,
-                the action plan, the alert rules, the structured business details block, and the
-                checks on what a form accepts (phone, website, postal code, country).
+                the action plan, the alert rules, the structured business details block, the
+                draft rules (which tasks have a draft, what one is written from, and the check on
+                what it states), and the checks on what a form accepts (phone, website, postal
+                code, country).
   db/           Tests that run the migrations in in-process Postgres and attack the policies.
 supabase/
   migrations/   Schema, row-level security, and the SQL functions the Worker calls.
@@ -398,7 +413,8 @@ organization reads as missing and returns 404. Payloads are defined in
 | `POST /api/actions/:actionId/decline` | A member's no. Takes an optional `reason`, up to 200 characters. Answers the action. Any member of the location's organization: 404 to anyone else, the operator included. 409 `limit_reached` when it is no longer waiting; 422 for a longer `reason`. |
 | `POST /api/actions/:actionId/retry` | Asks for a failed action again: a new action, already approved by the caller, that points at the one that failed; queues the worker. Answers the new action, 201. Any member of the location's organization: 404 to anyone else, the operator included. 409 `limit_reached` for an action that did not fail, when another for the same thing is waiting or on its way, or when the plan has no more of its kind this month; 503 `actions_unavailable` as for the yes. |
 | `POST /api/alerts/:alertId/dismiss` | A member's dismissal of an alert: it leaves the location page, and a drop is raised again only once it has ended and begun afresh. Records who and when; answers the alert. Dismissing one already dismissed or cleared changes nothing. Any member of the location's organization: 404 to anyone else, the operator included. Alerts are raised and cleared only by the worker, when a scan finishes. |
-| `GET /api/locations/:id` | One location with its queries, latest scan, rates over recent scans, the sites those answers cited, the surfaces being checked, recommendations, the latest website check, the action plan, the owner's tasks, the connected accounts it is matched to (`connections`), its open alerts (`alerts`: not cleared, not dismissed, and, for a drop, not about a prompt since retired) and the fix for a page with no structured business details (`details_fix`: whether a member marked it done, whether a scan has looked since, and how many answers cited the business's website before the mark and since; null until the check has found them missing). |
+| `POST /api/locations/:locationId/tasks/:taskId/draft` | A member's ask for a draft of one task, the first or another. Records the ask and queues the worker, which writes it and takes one from the month; answers the draft as asked, 202 (`status` `asked`, and the `text` last written, if any, which stays until the new one lands). Asking while one is being written is the same ask. Only a member of the location's organization asks: anyone else, the operator included, gets 404, whatever the task. 409 `no_draft` for a task with no wording to write, 409 `what_we_do_missing` until the location has said what the business does, 409 `limit_reached` when the plan includes no drafts or the month's are used, 503 `drafts_unavailable` where nothing can write a real draft: only sample text is written, so only a deployment in mock mode or a test organization can ask. |
+| `GET /api/locations/:id` | One location with its queries, latest scan, rates over recent scans, the sites those answers cited, the surfaces being checked, recommendations, the latest website check, the action plan, the owner's tasks (each with `draft_kind`, the kind of draft that can be written for it now, `note` for a task about a page somebody wrote that is still to do and otherwise null, and its `draft` once one has been asked for), where the organization's month of drafts stands (`drafts`: `allowed`, null when the plan includes none, `used`, and `resets_on`, the first of next month in UTC), the connected accounts it is matched to (`connections`), its open alerts (`alerts`: not cleared, not dismissed, and, for a drop, not about a prompt since retired) and the fix for a page with no structured business details (`details_fix`: whether a member marked it done, whether a scan has looked since, and how many answers cited the business's website before the mark and since; null until the check has found them missing). |
 | `PATCH /api/locations/:id` | Replace a location's details with a whole location body, as when adding one; a field left out goes back to blank or its default, except `what_we_do`, which stays as it is when the body leaves it out (a blank one clears it), so a page opened before the field existed cannot wipe it. The same checks as adding. |
 | `POST /api/locations/:id/activate` | Brings a location the plan paused back into use. Takes `instead_of`, the location in use that is paused in its place, when the plan has no room; 409 with the reason without one. 404 to a non-member. |
 | `DELETE /api/locations/:id` | Delete a location and its history. |
@@ -427,7 +443,7 @@ The migrations in `supabase/migrations/` define everything.
 | `audits` | A shareable audit: the business, its prompts, the results as each prompt finishes, and its token, expiry and revocation. Belongs to no organization; only the operator can read it through the API. |
 | `operator_actions` | What the operator changed or made, one row per action, with who and what: an organization's limits before and after, a plan's settings or prices before and after, or the audit made. Written only by the function that does it; only the operator can read it through the API. |
 | `plans` | What is on sale: a monthly price for the locations a plan includes, a price for each extra location, its limits and its allowances. Read by everyone; written by no API role. An organization's `plan_key` names its plan, or is null when its limits were set by hand. |
-| `allowance_kinds` | The kinds of work a plan can include, each counted (a number a month for each location) or not (included or not). A plan's or an organization's allowances may name only these, and the database refuses any other. Read by everyone; written by no API role. |
+| `allowance_kinds` | The kinds of work a plan can include, each counted (a number a month for each location) or not (included or not). A plan's or an organization's allowances may name only these, and the database refuses any other. One exists: `drafts`, counted. Read by everyone; written by no API role. |
 | `allowance_use` | How much of each counted allowance an organization has used in a calendar month (UTC). Read by the organization's members and the operator; written only by the Worker, through `claim_allowance()` and `release_allowance()`. |
 | `plan_prices` | Every pair of prices a plan has been sold at (the plan's price and its extra-location price, in cents, with the Stripe price IDs). The newest is also on the plan's row. A subscription is matched to its plan by any of them. Read by anyone signed in, not by a visitor; written by no API role. |
 | `price_changes` | One announcement per plan: the price version subscribers move to, the day it takes effect, and when it was reminded, called off or completed. Read by anyone signed in; written by no API role, only by the operator's functions. |
@@ -442,6 +458,7 @@ The migrations in `supabase/migrations/` define everything.
 | `actions` | What the product does outside itself for a location: what it would do, what was there when it was proposed, the text and whether a rule or a model wrote it, and its status (`proposed`, `approved`, `done`, `failed`, `declined` or `lapsed`). Records who approved or declined it, as the address they had then, and when; the text as approved, when a member changed it; how it ended, with the reason for a failure; and the failed action it was asked for again from (`retry_of`). `told_at` and `waiting_told_at` are when the organization's owners were told it had been carried out, and that it was waiting for a yes. What it replaced is dropped once its kind says it may be kept no longer, and when is recorded (`seen_dropped_at`). Five more columns are the Worker's bookkeeping, and no route sends them: `subject` and `basis`, so that one action is open for a thing and a declined one is not proposed again until what it rests on changes; `recommendation_id`, the task it does the work of; `seen_until`, the day what it replaced may be kept until; and `allowance_month`, the month whose allowance it holds one of. Read by whoever can read the location and by the operator; written by no API role directly, only through `approve_action()`, `decline_action()` and `retry_action()`, which answer a member of the location's organization alone, and the Worker's `propose_action()`, `claim_action()` (which refuses an action while `organization_held()`, Worker only, says its owners have gone 36 hours untold of one), `finish_action()` (which gives back what was taken from the allowance when the action ends undone, and marks the task when it is done), `lapse_actions()` and `drop_expired_seen()`, and its secret key alone writes the two told columns. Deleted with its location. |
 | `action_kind_terms` | What each kind of action is held to: the allowance it takes from, if any, and how many days what it replaced may be kept, if limited. Row-level security is on with no policy and no grant to any API role, the operator included: only the database's own functions read it. |
 | `sample_listings` | What the sample account's listings say (an opening line): the outside world for the sample kind of action, which has none. Row-level security is on with no policy and no grant to any API role, the operator included: only the Worker reads or writes it. |
+| `drafts` | Wording written for one of a location's tasks (a recommendation): one row for a task, and asking again replaces what it holds. Where the ask in hand stands (`status` `asked`, `written` or `failed`; who asked, as the address they had then, and when; why the last ask wrote nothing, as `failure`), and the draft last written, which stays while another is being written and when that fails: its `kind` (`note`, so far), its `text` (up to 4,000 characters), when it was written, whether it is sample text (`sample_data`), and the model that wrote it, null for sample text, which no route sends. `writing_since`, `attempts` and `allowance_month` are the Worker's bookkeeping, and no route sends them: whether a worker is on it, which try this is, and the month whose allowance it holds one of. Read by whoever can read the location and by the operator; written by no API role directly, only through `ask_draft()`, which answers a member of the location's organization alone (the operator and the Worker get no row), and the Worker's `claim_draft()`, which takes one from the month's allowance, and `finish_draft()`, which keeps what was written or gives the allowance back when nothing was. Deleted with its task and with its location. |
 | `provider_usage` | What the providers used for a scan or audit prompt, per surface and model: calls, input, cached input and output tokens, searches. Outlives the scan, audit or organization it describes. Written only by the Worker; only the operator can read it through the API. `GET /api/operator/spend` prices it and the operator's view shows it. |
 
 Usage limits are enforced by database triggers, so they hold for the API and for anyone calling
@@ -452,7 +469,8 @@ Row-level security policies on every table are the authorization layer. Signed-i
 insert one kind of scan row, a queued manual scan for a location they can see; results, scores,
 recommendations and alerts are written only by the worker, through `complete_scan()`. A member may
 change two things on a recommendation and nothing else: its status, and whether its work was done
-(not once an action did it). The one thing a member may do to an alert is dismiss it.
+(not once an action did it). The one thing a member may do to an alert is dismiss it, and the one
+thing a member may do to a draft is ask for it.
 
 `audits` is the exception to "every row belongs to an organization". Its table is closed to
 signed-in and anonymous users alike, except that the operator can read it; the Worker and the owner's script use the secret key, and a
@@ -462,23 +480,23 @@ reader gets one audit only by its token, through the `get_audit()` function.
 
 - **`packages/shared`**: name matching, mention detection, scoring, recommendation rules, input
   validation, the tuning schema, its defaults and prompt rendering, audits, cited sources, the
-  on-page check, the action plan, the structured business details block (what it states, what it leaves out, and that no detail can close its script element) and the fix for a page without it (unmarked, marked, and the answers that cited the business's website before and since), and the alert rules (when a drop, a first sighting or a phone number is raised and when it clears), and which phone numbers an answer gives for the business.
+  on-page check, the action plan, the structured business details block (what it states, what it leaves out, and that no detail can close its script element) and the fix for a page without it (unmarked, marked, and the answers that cited the business's website before and since), and the alert rules (when a drop, a first sighting or a phone number is raised and when it clears), and which phone numbers an answer gives for the business, and the draft rules (which tasks have a draft, what one is written from, the check for a number, web address or email address in a draft that nobody gave, and where a month of drafts stands).
 - **`packages/db`**: applies the real migrations to in-process Postgres (PGlite) and checks, as
   different users, that one organization cannot read or write another's rows, that users cannot
-  forge scan results or grant themselves a platform role, that worker-only functions and the `audits`, `provider_usage`, `connection_secrets`, `connection_kind_allowances`, `sample_listings` and `action_kind_terms` tables are closed to them, that only an owner or admin can connect, match or remove an account, that a connection breaks and is paused as it should, that only a member of a location's organization can approve, decline or ask again for an action and only the worker can propose or carry one out, that an organization is held once its owners have gone 36 hours untold of an action, that what an action replaced is dropped on its day, that a task an action did stays marked, that an action of a counted kind takes from the month's allowance once and gives it back unless the thing is done, that only the worker can ask that of an organization and a stranger is told nothing of a location's, that only the worker raises or clears an alert, reads what a location's earlier scans named and cited, or keeps that its owners were told of an alert, and only a member of a location's organization can dismiss one, that a result sent without phone numbers is kept with none, and that the operator reads every organization and changes only an organization's limits or a plan's settings or prices, each through one function that records it (announcing and calling off a price change or a reduction included). No Docker needed. It
+  forge scan results or grant themselves a platform role, that worker-only functions and the `audits`, `provider_usage`, `connection_secrets`, `connection_kind_allowances`, `sample_listings` and `action_kind_terms` tables are closed to them, that only an owner or admin can connect, match or remove an account, that a connection breaks and is paused as it should, that only a member of a location's organization can approve, decline or ask again for an action and only the worker can propose or carry one out, that an organization is held once its owners have gone 36 hours untold of an action, that what an action replaced is dropped on its day, that a task an action did stays marked, that an action of a counted kind takes from the month's allowance once and gives it back unless the thing is done, that only the worker can ask that of an organization and a stranger is told nothing of a location's, that only the worker raises or clears an alert, reads what a location's earlier scans named and cited, or keeps that its owners were told of an alert, and only a member of a location's organization can dismiss one, that a result sent without phone numbers is kept with none, that only a member of a location's organization can ask for a draft (not the operator, not the worker) and only the worker can take one from the month's allowance or keep what was written, that a draft takes one from the month once and gives it back when nothing was written, and that the draft from before stays while another is written or fails, and that the operator reads every organization and changes only an organization's limits or a plan's settings or prices, each through one function that records it (announcing and calling off a price change or a reduction included). No Docker needed. It
   also checks `private/tuning.json` against the tuning schema where that file exists.
 - **`apps/api`**: every route against an in-memory store, the scan runner (success, retry,
   permanent failure, reporting, scoring with given weights, refusing live scans on default tuning),
   the ChatGPT and Claude providers against responses in the shape the real APIs return, the
-  scheduler, actions (proposing after a sync, a member's yes and no, carrying one out once, trying again, lapsing, telling the owners, holding back while they are untold, dropping what they replaced, marking a task, and counting against an allowance), alerts (raising a drop, a first sighting or a phone number, keeping each answer's numbers with its result, clearing them, reading the whole record only when a scan holds something that might be new, keeping a dismissed one from being raised again, leaving sample data apart, and telling the owners once in the scan report, or not telling them when the report goes to nobody), billing (checkout, the portal and the Stripe webhook, against a stand-in for Stripe), the audit runner, the site fetch (what it refuses and how it follows redirects), and
+  scheduler, actions (proposing after a sync, a member's yes and no, carrying one out once, trying again, lapsing, telling the owners, holding back while they are untold, dropping what they replaced, marking a task, and counting against an allowance), alerts (raising a drop, a first sighting or a phone number, keeping each answer's numbers with its result, clearing them, reading the whole record only when a scan holds something that might be new, keeping a dismissed one from being raised again, leaving sample data apart, and telling the owners once in the scan report, or not telling them when the report goes to nobody), drafts (asking, which records the ask and writes nothing; refusing a task with no wording, a location that has not said what the business does, a plan with none and real data; writing sample text once and counting it; throwing away a draft that states what nobody gave, and not counting one that was not kept; writing it again in place of the first; and queueing again an ask nobody is writing), billing (checkout, the portal and the Stripe webhook, against a stand-in for Stripe), the audit runner, the site fetch (what it refuses and how it follows redirects), and
   the mock providers.
 - **`apps/web`**: the logic that lays results out as a grid, the logic behind the chart of the
   score over time, the logic behind the audit page, the logic that fills the location edit form,
   the locations table's summary figures, the onboarding suggestions, the location page's tabs, what
-  the Connections page and its sidebar link show, what the Actions tab says of each action, what a task says when an action did it, and what the structured details' card says before a scan has looked and after.
+  the Connections page and its sidebar link show, what the Actions tab says of each action, what a task says when an action did it, what a task's card offers for its draft and what the page says of the month's drafts and of who wrote one, and what the structured details' card says before a scan has looked and after.
 - **`apps/e2e`**: `pnpm e2e` drives the real web app and Worker in Chromium against the local
   Supabase stack, in mock mode: sign-in by the emailed link, onboarding through the first scan, the
-  location page, account settings, connecting a sample account, matching a location to it and removing it, approving a proposed action with its text changed and declining another, a drop shown on the Overview and in the locations table and then dismissed, a business named for the first time shown with a link to the answers, a phone number the answers give shown and dismissed as the business's own, the structured business details offered where a page has none, copied, marked done, kept with the location and taken back, the operator's view and reading through an account, the public pages and one phone-sized run. It starts the Worker
+  location page, account settings, connecting a sample account, matching a location to it and removing it, approving a proposed action with its text changed and declining another, a drop shown on the Overview and in the locations table and then dismissed, a business named for the first time shown with a link to the answers, a phone number the answers give shown and dismissed as the business's own, the structured business details offered where a page has none, copied, marked done, kept with the location and taken back, a draft asked for once the business has said what it does, written, copied and written again, and none offered where the plan includes none, the operator's view and reading through an account, the public pages and one phone-sized run. It starts the Worker
   and web app itself, or reuses them if `pnpm dev` is up. `pnpm smoke` is a separate run against a
   real deployment: it signs in as the test account, refuses to go on unless that account's
   organization is a test one, then adds a location and a prompt, runs a scan (generated data), reads
@@ -551,7 +569,9 @@ development. Any other value means live. A live build needs the private
 tuning file, so the deploy has to run where `private/` is checked out, which the workflow does.
 Without the file, live scans fail with a message saying so. With it, a live scan checks each
 surface whose key is set (ChatGPT with `OPENAI_API_KEY`, Claude with `ANTHROPIC_API_KEY`) and skips the rest; with
-no key set at all, scans fail with "No data provider is configured".
+no key set at all, scans fail with "No data provider is configured". A draft is another matter:
+nothing here writes a real one, so on a live deployment asking for a draft answers 503
+`drafts_unavailable`, except for a test organization, whose drafts are sample text.
 
 ## Repository automation
 
@@ -636,9 +656,17 @@ pnpm sync:agents
 - **Inviting teammates.** The schema and policies support members and roles; there is no API or
   screen for it.
 - **Switching organizations.** A user in several organizations always sees the first.
-- **Any kind of allowance.** A plan and an organization carry allowances, and the operator can set
-  them, and the database counts use of one against its number, but no kind exists yet
-  ([#133](https://github.com/jwh3times/Nearcited/issues/133)).
+- **Most kinds of allowance.** A plan and an organization carry allowances, and the operator can set
+  them, and the database counts use of one against its number. One kind exists, `drafts`, and no
+  plan includes it yet, so a test organization is the only one that can ask for a draft until the
+  operator gives another a number. No kind of connection or of action names an allowance, so
+  nothing else is held to one ([#133](https://github.com/jwh3times/Nearcited/issues/133)).
+- **A draft written by a model.** A draft is asked for, written by the worker, counted against the
+  month and checked by rule, but only sample text is written (for a deployment in mock mode and a
+  test organization): nothing calls a model. On real data asking answers 503
+  `drafts_unavailable`. There is no tuning yet for what a model would be told, and no spend is
+  recorded for a draft. The only kind of draft is the note to the author of a page; a description
+  for a listing is not built.
 - **Anything that works from a connection.** An owner or admin can connect a sample account, say
   which of the three sample listings it reaches is each location's, and remove it. There is no
   real kind of connection (a Google profile, a website, a customer source). Nothing reads anything
@@ -652,7 +680,7 @@ pnpm sync:agents
   on sample data that has email set up. What
   [ADR 0014](docs/adr/0014-only-the-worker-carries-out-an-action.md) decides is built, and no real
   kind uses it: the sample kind is given 30 days to keep what it replaced, so that dropping can be
-  seen, it does no task's work, and it takes from no allowance, since no kind of allowance exists.
+  seen, it does no task's work, and it takes from no allowance.
 - **A comparison of the structured details with what is on file.** The on-page check passes for a
   JSON-LD block that names this business and gives an address. What else the block says, such as a
   phone number or street address, is not compared with what is on file, so one that differs
