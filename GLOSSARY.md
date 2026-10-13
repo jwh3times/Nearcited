@@ -42,6 +42,10 @@ system works; this file only settles vocabulary.
   business's name, the site's name and the link a customer is sent. It asks every customer alike
   for what they honestly thought, and offers nothing. Not a review request, which the product
   sends, and not a draft, which a model writes.
+- **Code to print**: the link a customer is sent, drawn as a QR code for an owner to print on a
+  card or save as a picture. A customer points a phone's camera at it and the link opens. It
+  holds the site's own address and none of the product's, so nothing passes through the product
+  and nothing is counted.
 - **Alert**: a statement that something measured has changed at a location in a way its owner
   would want to know, composed by rule from what the scans recorded and saying what was counted.
   It is shown from the scan that raised it until a later scan clears it or a member dismisses

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { requestToSend, siteName } from "../src/asking";
+import { cardWords, requestToSend, siteName } from "../src/asking";
 import { listingSite } from "../src/listings";
 import { sitesOfKind } from "../src/source-kinds";
 
@@ -78,6 +78,36 @@ describe("the request an owner sends a customer", () => {
   it("writes the name out tidily however it was typed", () => {
     expect(requestToSend({ business: "  Joe's   Pizza ", site: "google.com", link: LINK })).toBe(
       request,
+    );
+  });
+});
+
+describe("the words on the card an owner prints", () => {
+  const words = cardWords({ business: "Joe's Pizza", site: "google.com" });
+
+  it("is headed by the business, asks for a review on the site by its name, and says how", () => {
+    expect(words).toEqual({
+      heading: "Joe's Pizza",
+      ask: "How did we do? Leave a review on Google.",
+      how: "Point your phone's camera at the code.",
+    });
+  });
+
+  it("names the site a task is for, whichever it is", () => {
+    expect(cardWords({ business: "Joe's Pizza", site: "trustpilot.com" }).ask).toBe(
+      "How did we do? Leave a review on Trustpilot.",
+    );
+  });
+
+  it("asks for no good review and offers nothing in return", () => {
+    const all = `${words.heading} ${words.ask} ${words.how}`;
+    expect(all).not.toMatch(/\b(?:5|five)[- ]stars?\b|positive|great review|loved/i);
+    expect(all).not.toMatch(/discount|coupon|free\b|gift|reward|prize|win\b|% off|\$\d/i);
+  });
+
+  it("writes the name out tidily however it was typed", () => {
+    expect(cardWords({ business: "  Joe's   Pizza ", site: "google.com" }).heading).toBe(
+      "Joe's Pizza",
     );
   });
 });
