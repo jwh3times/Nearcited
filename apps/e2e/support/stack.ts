@@ -31,6 +31,11 @@ const local = deployed ? {} : webEnv();
 
 export const APP_URL = deployed ?? "http://localhost:5173";
 export const API_URL = deployed ? `${deployed}/api` : "http://127.0.0.1:8787/api";
+/**
+ * Where the web app is served as it was last built. Locally that is the Worker: the pages under
+ * test come from the dev server, which serves the source and no build.
+ */
+export const BUILT_URL = new URL(API_URL).origin;
 export const SUPABASE_URL = process.env.E2E_SUPABASE_URL ?? local.VITE_SUPABASE_URL ?? "";
 export const PUBLISHABLE_KEY =
   process.env.E2E_SUPABASE_PUBLISHABLE_KEY ?? local.VITE_SUPABASE_PUBLISHABLE_KEY ?? "";
