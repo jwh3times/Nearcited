@@ -1467,8 +1467,10 @@ details.as-table td {
   text-underline-offset: 0.18em;
 }
 
-/* A draft, as it was written: its line breaks kept, and read as text, not as a note about it. */
-.paste-block .draft-text {
+/* A draft, as it was written: its line breaks kept, and read as text, not as a note about it.
+   The request to send a customer is read the same way. */
+.paste-block .draft-text,
+.paste-block .request-text {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   font-size: 0.875rem;
