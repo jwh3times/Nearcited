@@ -415,7 +415,7 @@ from counts the product holds; nothing a model wrote is in one.
   so can one about a directory or a review site that does not let a business ask for reviews
   (`directory`, `reviews_unasked`), whose draft is the description its listing asks for. One about
   asking customers for reviews (`reviews`) or about a site nobody knows (`unknown`) has none (the
-  request to send such a task hands over is not a draft; see below). The
+  request to send and the code to print such a task hands over are not drafts; see below). The
   route returns `draft_kind` for a task that is still to do and whose draft can be written here, and
   `draft` once one has been asked for (see "Drafts"). The task's own wording is unchanged, and still
   composed by rule.
@@ -512,11 +512,45 @@ from counts the product holds; nothing a model wrote is in one.
   drawn, and copying it does not mark the task done. It is not a draft (see "Drafts"): no worker
   writes it, no allowance is taken from, nothing is recorded for it, and a task about asking
   customers for reviews still has no `draft_kind`.
+- **The same task hands over a code to print.** `TaskAsking` shows, in a second block under the
+  request, the link the task shows (`sentLink`) as a QR code, with "Print a card" and "Download the
+  code" (the term is "code to print" in `GLOSSARY.md`; the screen says "QR code"). `ReviewCode` and
+  `DownloadCode` (`apps/web/src/components/ReviewCode.tsx`) draw it in the browser with
+  `qrcode.react` (ISC, which bundles Project Nayuki's QR Code generator, MIT): `ReviewCode` is an
+  SVG, for the screen and the card, and `DownloadCode` keeps a 1,024-pixel canvas out of sight and
+  saves it as a PNG, named by `codeFileName` from the business and the site, such as
+  `joes-pizza-google-review-code.png`. The code holds the site's own address, the same link the task
+  shows, and nothing of the product's: no forwarding address, nothing counted, nothing stored,
+  nothing sent. It opens that address for as long as that page is there, so a card printed before a
+  link was changed opens the old one. How it is drawn is one set of values, `CODE`
+  (`apps/web/src/lib/asking.ts`): error correction level M (about a seventh of the code can be lost
+  to a crease or a smudge and still read), four squares of clear space round it, and black on white
+  whatever the theme, since a reader may not manage a light code on a dark ground.
+- **The card is a page of the web app, not a route of the API.** `ReviewCard`
+  (`apps/web/src/pages/ReviewCard.tsx`) is at `locations/:id/review-card/:site`, and under
+  `/operator/o/:organizationId/` for the operator (`cardPath` builds the address inside whichever
+  account is being shown). It reads the location the location page already loads
+  (`GET /api/locations/:id`) and finds the task for the site (`cardFor`), so it has nothing of its
+  own to fetch, keep or send. It shows a card four inches by six, sized in inches and points so that
+  the size on the screen is the size on paper, and shrunk to fit a screen narrower than that: the
+  business's name, "How did we do? Leave a review on Google." (the site's own name where the task is
+  for another), the code, and "Point your phone's camera at the code." (`cardWords`,
+  `packages/shared/src/asking.ts`, which like the request asks every customer alike and offers
+  nothing). Above it the owner is told to print the card, cut it out, hand one to every customer or
+  leave it where they pay, and to offer nothing in return for a review. "Print the card" calls
+  `window.print()`, and the print stylesheet (the `@media print` block of `apps/web/src/styles.css`)
+  leaves only the card on the sheet. "Download the code" is here too. For a site with no link kept,
+  or one no task asks for a listing on, `cardFor` finds nothing, so the page says there is no card to
+  print and shows none.
+- **The code is offered where the request is, and marks nothing.** `asking` makes nothing until the
+  task's `listing` has a link, so there is no code for a site that forbids asking or whose kind is
+  not known. The operator, reading a customer's account, sees the code and the card. Neither
+  printing nor saving marks the task done. As with the request, no route, wire type or table carries
+  the code or the card, and it is not a draft: no worker writes it, no allowance is taken from and
+  nothing is recorded for it.
 - Not built: a review-form link on any site but those two (Google's is the link its owner pastes,
-  and none is made from a place ID), the code to print (a QR code of the link, the card to print it
-  on and its download; issue [#128](https://github.com/jwh3times/Nearcited/issues/128), whose
-  request to send is built), page copy as a task (and so a draft of it), and anything the product
-  does outside itself for real. Approvals and actions exist (see
+  and none is made from a place ID), page copy as a task (and so a draft of it), and anything the
+  product does outside itself for real. Approvals and actions exist (see
   "Actions") but the only kind is a sample one, which does no task's work, so no action has marked a task.
 
 ## Alerts
@@ -1029,9 +1063,9 @@ instructions the private tuning holds for its kind.
   draft for a kind of site: `note` for `editorial`, and `listing` for `directory` and for
   `reviews_unasked`, a review site that does not let a business ask for reviews, whose listing is
   claimed and filled in. There is none for `reviews`, whose work is asking customers and which the
-  product writes nothing to (the request to send that task hands over is composed by rule, not
-  written; see "Tasks"), or for `unknown`. The two kinds are `DRAFT_KINDS`
-  (`packages/shared/src/schemas.ts`), and the check on `drafts.kind` takes both. A draft of either
+  product writes nothing to (the request to send that task hands over is composed by rule and the
+  code to print is drawn, and neither is written; see "Tasks"), or for `unknown`. The two kinds are
+  `DRAFT_KINDS` (`packages/shared/src/schemas.ts`), and the check on `drafts.kind` takes both. A draft of either
   kind is asked for, written, checked, kept and counted the same way, against the one monthly
   number. `buildTasks` puts it on a task as `draft_kind` only while the task is still to do and only
   where a draft of that kind can be written, and puts the task's own `draft` beside it, kept after
