@@ -117,7 +117,7 @@ apps/api/src/tuning.ts          resolveTuning() at startup; an invalid private f
         |
 queue consumer -> runScan({ weights, unavailable })
                   writeDraft({ writer })           (the writer holds the draft settings)
-fetch handler  -> Deployment.draft_kinds            (what the draft route refuses on)
+fetch handler  -> Deployment.draft_kinds            (what the draft route refuses on, and what a task is offered)
 ```
 
 `runScan` and the scoring functions take the tuning as arguments, so they are tested without the
@@ -438,8 +438,9 @@ from counts the product holds; nothing a model wrote is in one.
   so can one about a directory or a review site that does not let a business ask for reviews
   (`directory`, `reviews_unasked`), whose draft is the description its listing asks for. One about
   asking customers for reviews (`reviews`) or about a site nobody knows (`unknown`) has none. The
-  route returns `draft_kind` for a task that is still to do and `draft` once one has been asked
-  for (see "Drafts"). The task's own wording is unchanged, and still composed by rule.
+  route returns `draft_kind` for a task that is still to do and whose draft can be written here, and
+  `draft` once one has been asked for (see "Drafts"). The task's own wording is unchanged, and still
+  composed by rule.
 - Not built: a direct review link, a printable code or request text, page copy as a task (and so
   a draft of it), and anything the product does outside itself for real. Approvals and actions exist (see "Actions") but the only kind is a
   sample one, which does no task's work, so no action has marked a task.
@@ -957,9 +958,19 @@ instructions the private tuning holds for its kind.
   product writes nothing to, or for `unknown`. The two kinds are `DRAFT_KINDS`
   (`packages/shared/src/schemas.ts`), and the check on `drafts.kind` takes both. A draft of either
   kind is asked for, written, checked, kept and counted the same way, against the one monthly
-  number. `buildTasks` puts it on a task as `draft_kind` only while the task is still to do, and
-  puts the task's own `draft` beside it, kept after the task is marked done. There is one draft for
-  a task (`recommendation_id` is unique).
+  number. `buildTasks` puts it on a task as `draft_kind` only while the task is still to do and only
+  where a draft of that kind can be written, and puts the task's own `draft` beside it, kept after
+  the task is marked done. There is one draft for a task (`recommendation_id` is unique).
+- **A task is offered a draft only where one can be written.** `buildTasks` takes an optional
+  `writes(kind)` (`packages/shared/src/tasks.ts`); left out, every kind can be written, and where it
+  says a kind cannot, that task's `draft_kind` is null, as if it had no draft, and the page shows it
+  no button. `GET /api/locations/:id` passes one that is true for every kind on sample data (a
+  deployment in mock mode or a test organization) and, on real data, true only for a kind
+  `writesRealDrafts` accepts, the test the draft route applies: instructions for the kind in the
+  private tuning, and `ANTHROPIC_API_KEY`. So a task is never offered a draft that asking could only
+  refuse with 503, and a build with neither offers none on real data. The plan is a separate matter:
+  a task keeps its `draft_kind` on a plan with no drafts, and the card offers nothing there because
+  the month's `allowed` is null (`draftsStanding`, below).
 - **A member asks, and a request records it.** `POST /api/locations/:locationId/tasks/:taskId/draft`
   reads the location's tasks as they stand (`currentTasks`, `apps/api/src/tasks.ts`: the same pool
   the rates use, without the counts either side of a mark, and for the kind of data the page shows)
@@ -980,7 +991,8 @@ instructions the private tuning holds for its kind.
   `asked` is that same ask. Asking after one has been written or has failed puts the row back to
   `asked` and keeps the text. It takes nothing from the month. The route then queues
   `{ draft_id, step: "write" }` and answers 202; if the send fails the request still succeeds and
-  logs it.
+  logs it. A task is not offered a draft where the 503 would be the answer, so only a request made
+  by hand, or from a page loaded before a deploy, reaches it.
 - **Only the worker writes.** The queue consumer calls `writeDraft` (`apps/api/src/drafts/index.ts`).
   `claim_draft()` takes the draft and counts the try, and answers zero, and the worker goes no further,
   unless the draft is `asked` and no worker has had it in the last ten minutes. The worker then reads
@@ -1066,9 +1078,10 @@ is being written and the location page asks again every two seconds. A written d
 label saying who wrote it and a button that copies it; "Write it again" replaces it, says it counts as
 one more, and leaves the first on the page until the second lands. A failed ask says why. When the
 month's drafts are used the card says on what day more come, and the organization's owner is
-pointed at the plans. Where the plan includes none, no card offers a draft; a line above the tasks says
-so only once some plan on sale includes drafts. The operator reading through an account sees a draft
-and has no buttons.
+pointed at the plans. Where the plan includes none, as the free plan does, no card offers a draft; a line
+above the tasks says so, and links the owner to the plans, only where some task has a `draft_kind`
+(so a build that writes none on real data shows neither a button nor the line) and some plan on
+sale includes drafts. The operator reading through an account sees a draft and has no buttons.
 
 ## Tenancy
 
@@ -1201,6 +1214,14 @@ copy, edit and lower a plan.
 - **An organization's set is copied from its plan** by `apply_plan()`, and a member cannot write it,
   as with the limits. `create_organization()` gives a test organization every kind, and a kind
   added later reaches the test organizations that exist.
+- **A plan includes a kind when its row says so.** Every paid plan includes `drafts`, a number a
+  month for each location it covers, and the free plan has none. The migration
+  `20261012180000_drafts_on_plans.sql` set the numbers the plans started with, and the operator can
+  change them like any other setting of a plan. The same migration gave an organization already on
+  one of those plans its plan's number, as if the operator had set it, since a plan gaining
+  something takes effect at once. It set only that one key, so the organization's other limits,
+  including any the operator had set for it alone, stayed, and it left a test organization the
+  number it was made with.
 - **Use of a counted kind is kept in `allowance_use`**, one row for an organization, a kind and a
   calendar month in UTC. Its members read their own organization's rows and the operator reads
   all of them; no API role writes it, since a count a member could write is a count a member could
@@ -1369,15 +1390,14 @@ drop it.
 - On a Supabase project that still signs tokens with a legacy shared secret, `getClaims` asks the
   Auth server on every request. Use asymmetric signing keys.
 - Allowances limit little yet. One kind of allowance exists, `drafts` (`ALLOWANCE_KINDS` and
-  `allowance_kinds`), and the migration that made it gave it to no plan. A test organization is
-  given every kind, so its drafts are counted; until the operator sets a number on a plan, no
-  other organization can ask for one. No kind of connection or of action
+  `allowance_kinds`), which every paid plan includes and the free plan does not. A test
+  organization is given every kind, so its drafts are counted. No kind of connection or of action
   names an allowance, so a number for another kind would be stored, shown and lowered by
   announcement, but no work would stop at it or be counted against it. What an allowance can stop is
   a kind of connection that needs it (see "Connections"), a kind of action that takes from it (see
   "Actions") and a draft (see "Drafts"), and only the last exists ([#133](https://github.com/jwh3times/Nearcited/issues/133)).
 - A real draft is written only where the private tuning has instructions for its kind, and it
-  needs them before a deployment writes one (see "Tuning" and "Drafts"). What a draft costs has not
+  needs them before a deployment writes one, or offers a task one (see "Tuning" and "Drafts"). What a draft costs has not
   been measured: a draft's use is recorded, so the figure can be read from `provider_usage` once
   real drafts are written, and a month given back does not return what a failed write cost, so a
   writer that keeps failing the check is paid for twice an ask and shows only in the operator's
