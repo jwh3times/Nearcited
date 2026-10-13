@@ -286,19 +286,24 @@ describe("tasks", () => {
       // A subdomain is the same site, so it finds the same listing.
       recommendation("source:m.tripadvisor.com"),
       recommendation("source:bbb.org"),
+      recommendation("source:maps.google.com"),
       recommendation("source:yelp.com"),
       recommendation("source:yellowpages.com"),
       recommendation("source:usnews.com"),
       recommendation("source:somewhere.example"),
     ];
+    // What Google is asked for is the review link it gave, which is on another name.
+    const link: Listing = { ...kept, site: "google.com", url: "https://g.page/r/CZx1AbCd/review" };
     const listings = (given: Listing[]) =>
       Object.fromEntries(
         build(rules, [], new Map(), [], given).map((task) => [task.host, task.listing]),
       );
-    expect(listings([kept])).toEqual({
+    expect(listings([kept, link])).toEqual({
       // No form address is known for this site, so the listing is what a customer is sent.
       "m.tripadvisor.com": { site: "tripadvisor.com", url: kept.url, review_url: null },
       "bbb.org": { site: "bbb.org", url: null, review_url: null },
+      // Nothing is made from Google's link: it is what a customer is sent.
+      "maps.google.com": { site: "google.com", url: link.url, review_url: null },
       "yelp.com": null,
       "yellowpages.com": null,
       "usnews.com": null,

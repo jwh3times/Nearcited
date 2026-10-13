@@ -1482,6 +1482,17 @@ details.as-table td {
   font-size: 0.875rem;
 }
 
+/* Where to find what the field asks for: steps to follow in order, so they are numbered. */
+.paste-block .find-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding-left: 1.25rem;
+  list-style: decimal;
+  font-size: 0.8125rem;
+  color: var(--ink);
+}
+
 .paste-actions {
   display: flex;
   align-items: center;

@@ -425,21 +425,29 @@ from counts the product holds; nothing a model wrote is in one.
   location and the site, not for the task (`listings`, one row for each; the term is in
   `GLOSSARY.md`), so a task that comes back finds it, and a task marked done still carries it.
   `listingSite` (`packages/shared/src/listings.ts`) names the sites that have one: those on the
-  `reviews` list except google.com, which is to be reached by the place ID a location already
-  holds and has nothing built for it. A site that forbids asking, a directory, a page somebody wrote or a site nobody knows has
-  none, and the route answers 404 for it. `taskListing` puts `{ site, url, review_url }` on a task as `listing`,
-  with `url` null until a member gives it, and null for every other task. `GET /api/locations/:id`
-  reads the location's listings for it. `currentTasks`, which a draft is asked for and written
+  `reviews` list, Google included. What Google is asked for is not the address of a page but the
+  review link Google gives a business (`asksForReviewLink`, true for google.com only; the term is
+  in `GLOSSARY.md`), which its owner copies from the business's Google profile. It is kept in
+  `listings` as any other is, and nothing is made from it or from the place ID a location holds. A
+  site that forbids asking, a directory, a page somebody wrote or a site nobody knows has none, and
+  the route answers 404 for it. `taskListing` puts `{ site, url, review_url }` on a task as
+  `listing`, with `url` null until a member gives it, and null for every other task.
+  `GET /api/locations/:id` reads the location's listings for it. `currentTasks`, which a draft is asked for and written
   against, carries none: a draft is written from nothing a listing holds.
 - **Only the form of an address is checked, and nothing is opened.** `readListing` takes it as a
   browser would: `http://` becomes https, an address pasted without its start is given one, and what
   follows `#` is dropped. It refuses an address that is not on the site (the site or a subdomain of
   it), the site's front page, an address with a user name or password in it, and one longer than 500
-  characters; the route answers 422 `validation_failed` with the sentence it returns. The table
-  holds to the same form (https, 500 characters, a site name in lower case) and to at most 50
+  characters; the route answers 422 `validation_failed` with the sentence it returns. For google.com
+  it takes an address on `g.page` or on `google.com` (or a subdomain of either) and refuses one on
+  any other name, a front page, a Google search address (the path `/search`, which is what an owner
+  managing a profile has in the address bar) and anything on `business.google.com` (pages only the
+  owner can open), with one sentence that says where the link is. Google's help does not show what
+  the link looks like, so `g.page` is taken because every account of it that could be found puts it
+  there. The table holds to the same form (https, 500 characters, a site name in lower case) and to at most 50
   listings for a location (`NC015`, a `limit` error, so 409 `limit_reached`), since the site is
   whatever the caller names. The product never looks for a listing, so a member who gives a wrong
-  address is believed.
+  address, or a link that is not Google's review link but is on one of its names, is believed.
 - **Who reads and writes.** `listings` has a `select` policy for whoever can read the location and
   one for the operator, and no write grant for any API role. A request writes only through
   `set_listing()` and `remove_listing()`, security-definer functions that answer a member of the
@@ -453,9 +461,10 @@ from counts the product holds; nothing a model wrote is in one.
   address with `/leave-a-review` after it) and trustpilot.com (`/evaluate/<name>` for the company
   at `/review/<name>`), both read on 2026-10-13. A listing whose address is not of the shape that
   was read gets none, and so does every other site: the task then gives the listing, from which a
-  customer finds the form. google.com is left out on purpose. The address in common use for its
-  form answered by asking for a sign-in, and no page of Google's that could be read says it is
-  the form's address, so nothing is built from a place ID.
+  customer finds the form. google.com is left out on purpose: what a member gives there is already
+  the link to the form, so there is nothing to make. Nor is one built from a place ID. The address
+  in common use for its form answered by asking for a sign-in, and no page of Google's that could be
+  read says it is the form's address.
 - **The task asks for the listing and shows the link.** `TaskListing`
   (`apps/web/src/components/TaskListing.tsx`) puts a field on a task that has a `listing` with no
   `url`, and checks what is pasted with `readListing` before anything is sent. Once one is kept it
@@ -463,11 +472,21 @@ from counts the product holds; nothing a model wrote is in one.
   was made from beside it, and the listing where there is not. The listing can be changed or
   removed. The operator, reading a customer's account, is shown a listing that is kept and asked
   for none (`listingView`).
-- Not built: a review-form link on any site but those two, anything for Google's review form, a
-  printable code or request text (issue
+- **The task says where an owner finds Google's link.** The wording is in `askWords` and
+  `keptWords` (`apps/web/src/lib/listings.ts`). An owner is assumed not to know the link exists. For
+  Google the field is "Your review link from Google" and the button "Save the link", and above it
+  are three numbered steps taken from Google's own help (support.google.com/business/answer/16816815,
+  read on 2026-10-13): go to business.google.com signed in as the account that manages the
+  business; on the Business Profile choose Read Reviews, then Get more reviews; choose Copy and
+  paste it. A link to that page goes with them. Once the link is kept it is shown as Google's
+  review link, with no listing beside it, since it was made from none. For every other site the field
+  is still "Your listing on" and the site's name, and its hint says how to get the address: find the
+  business on the site, open its page and copy the address from the top of the browser.
+- Not built: a review-form link on any site but those two (Google's is the link its owner pastes,
+  and none is made from a place ID), a printable code or request text (issue
   [#128](https://github.com/jwh3times/Nearcited/issues/128)), page copy as a task (and so a draft of
-  it), and anything the product does outside itself for real. Approvals and actions exist (see "Actions") but the only kind is a
-  sample one, which does no task's work, so no action has marked a task.
+  it), and anything the product does outside itself for real. Approvals and actions exist (see
+  "Actions") but the only kind is a sample one, which does no task's work, so no action has marked a task.
 
 ## Alerts
 
@@ -1456,7 +1475,11 @@ drop it.
   site that leads to no page, or to another business's, is kept, because nothing opens it (see
   "Tasks"). A review-form link is made from the listing's address by a shape read once on the
   site's pages. If a site changes how its form is addressed the link breaks, and nothing notices
-  until somebody reads the site again.
+  until somebody reads the site again. The same is true of Google's link, which is believed as it is
+  pasted, and of the steps an owner is shown for finding it: they name what Google's help names
+  today (Business Profile, Read Reviews, Get more reviews, Copy), so if Google renames any of them
+  the steps go stale until somebody reads its help again. Its help does not show what the link looks
+  like, so what is taken for one is where accounts of it put it.
 - Nothing seals the sign-ins again under a new `CONNECTIONS_KEY`. Changing or losing the key makes
   every sign-in kept unreadable and its owner has to connect again; a sync of one changes nothing,
   and a removal still finishes but cannot take the access back at the outside service (see

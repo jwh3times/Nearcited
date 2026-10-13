@@ -204,6 +204,39 @@ describe("giving a listing", () => {
     });
   });
 
+  it("takes the review link Google gave for Google, and not the address of the owner's own search", async () => {
+    const { location, query } = await withTasks();
+    await scanThatRead(location.id, query.id, ["maps.google.com"]);
+    expect(await listingOn(alice, location.id, "maps.google.com")).toEqual({
+      site: "google.com",
+      url: null,
+      review_url: null,
+    });
+
+    const searched = await set(
+      alice,
+      location.id,
+      "google.com",
+      "https://www.google.com/search?q=Joe%27s+Pizza+Raleigh",
+    );
+    expect(searched.status).toBe(422);
+    expect(await problem(searched)).toMatchObject({
+      code: "validation_failed",
+      message: expect.stringMatching(/choose Read Reviews, then Get more reviews/),
+    });
+    expect(db.listings).toEqual([]);
+
+    // The link is on g.page, which is Google's and is not the name Google is listed by.
+    const link = "https://g.page/r/CZx1AbCdEfGhEAE/review";
+    expect((await set(alice, location.id, "google.com", link)).status).toBe(200);
+    expect(await listingOn(alice, location.id, "maps.google.com")).toEqual({
+      site: "google.com",
+      url: link,
+      // Nothing is made from it: it is what a customer is sent.
+      review_url: null,
+    });
+  });
+
   it("refuses an address that is not a page on the site, and keeps nothing", async () => {
     const { location } = await withTasks();
     for (const [pasted, said] of [
@@ -235,8 +268,8 @@ describe("giving a listing", () => {
       "yellowpages.com",
       "usnews.com",
       "somewhere.example",
-      // To be reached by the place ID a location holds, so none is kept for it.
-      "google.com",
+      // Where Google's link is, and not a site with listings of its own.
+      "g.page",
       // A site goes by the name the list gives it and no other.
       "www.tripadvisor.com",
       "TripAdvisor.com",
