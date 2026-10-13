@@ -305,7 +305,7 @@ pnpm dev
 Open http://localhost:5173 and sign in with any email address. Locally the sign-in link is not
 sent anywhere; read it in the mail catcher at http://127.0.0.1:54324.
 
-With `PROVIDER_MODE=mock` (or in a test organization), "Run scan" returns generated results within about ten seconds and the
+With `PROVIDER_MODE=mock` (or in a test organization), "Run scan" returns generated results within a few seconds and the
 app shows a banner saying so. To fire the daily schedule by hand:
 
 ```sh
