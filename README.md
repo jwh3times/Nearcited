@@ -104,8 +104,15 @@ given to it. A draft is checked by rule before it is kept: every number, web add
 address in it must be in what it was written from, or it is written once more, and if that fails
 too nothing is kept. It is labelled with who wrote it. Writing one again replaces it and counts as
 another. A plan includes a number of drafts a month for each location, taken from when the worker
-starts one and given back when nothing was written. Only sample text is written so far (see
-[What is not built](#what-is-not-built)).
+starts one and given back when nothing was written.
+
+On real data Claude writes the draft, through Anthropic's API with no tools: it is told what to
+make by instructions that come from the private tuning, then given the details it is written from,
+one to a line, with "not on file" for one the location does not hold. A build without instructions
+for a kind of draft writes none on real data, as a build without the private tuning runs no live
+scan, and asking is refused. What each write used is recorded for the organization, kept or not,
+and is in the operator's spend. A deployment in mock mode, and a test organization, get sample text instead,
+generated from the same details, labelled as that and written by no model.
 
 The Overview tab also lists **alerts**: statements that something measured has changed in a way
 an owner would want to know. There are four kinds. A drop is a prompt that named the business on
@@ -222,7 +229,7 @@ and the known gaps.
 | --- | --- |
 | Web | React 19, Vite, TypeScript, React Router, TanStack Query |
 | API and jobs | One Cloudflare Worker: Hono for HTTP, a Cron Trigger to schedule scans, a Queue to run them |
-| Assistants | OpenAI's Responses API and Anthropic's Messages API (through its SDK), both with web search |
+| Assistants | OpenAI's Responses API and Anthropic's Messages API (through its SDK), both with web search for a scan; Claude also writes drafts, with no tools |
 | Data and auth | Supabase (Postgres with row-level security, email sign-in) |
 | Email | Resend |
 | Payments | Stripe (Checkout, the billing portal and webhooks), taking live payments |
@@ -310,7 +317,7 @@ The Worker reads its settings from `vars` in `apps/api/wrangler.jsonc`. Locally,
 | `EMAIL_FROM` | no | The sender of scan reports. |
 | `EMAIL_REPLY_TO` | no | Optional. Where a reply to a scan report goes. Without it, replies go to `EMAIL_FROM`. |
 | `OPENAI_API_KEY` | yes | Optional. In live mode, scans check ChatGPT when it is set and skip that surface when it is not. |
-| `ANTHROPIC_API_KEY` | yes | Optional. The same, for Claude. |
+| `ANTHROPIC_API_KEY` | yes | Optional. The same, for Claude. It also writes drafts on real data, with instructions for the kind of draft from the private tuning; without the key, or without the instructions, none is written. |
 | `RESEND_API_KEY` | yes | Optional. Without it, scheduled scans finish without sending a report, nobody is emailed when a connection breaks or told what was done for them, a price change cannot be announced, and no action can be approved (unless the deployment serves sample data, or the organization is a test one). |
 | `STRIPE_SECRET_KEY` | yes | Optional. A Stripe secret key (a test-mode one outside production). Needed with the next one before anyone can subscribe. |
 | `STRIPE_WEBHOOK_SECRET` | yes | Optional. The signing secret of the webhook endpoint registered at Stripe, which points at `/api/stripe/webhook`. |
@@ -413,7 +420,7 @@ organization reads as missing and returns 404. Payloads are defined in
 | `POST /api/actions/:actionId/decline` | A member's no. Takes an optional `reason`, up to 200 characters. Answers the action. Any member of the location's organization: 404 to anyone else, the operator included. 409 `limit_reached` when it is no longer waiting; 422 for a longer `reason`. |
 | `POST /api/actions/:actionId/retry` | Asks for a failed action again: a new action, already approved by the caller, that points at the one that failed; queues the worker. Answers the new action, 201. Any member of the location's organization: 404 to anyone else, the operator included. 409 `limit_reached` for an action that did not fail, when another for the same thing is waiting or on its way, or when the plan has no more of its kind this month; 503 `actions_unavailable` as for the yes. |
 | `POST /api/alerts/:alertId/dismiss` | A member's dismissal of an alert: it leaves the location page, and a drop is raised again only once it has ended and begun afresh. Records who and when; answers the alert. Dismissing one already dismissed or cleared changes nothing. Any member of the location's organization: 404 to anyone else, the operator included. Alerts are raised and cleared only by the worker, when a scan finishes. |
-| `POST /api/locations/:locationId/tasks/:taskId/draft` | A member's ask for a draft of one task, the first or another. Records the ask and queues the worker, which writes it and takes one from the month; answers the draft as asked, 202 (`status` `asked`, and the `text` last written, if any, which stays until the new one lands). Asking while one is being written is the same ask. Only a member of the location's organization asks: anyone else, the operator included, gets 404, whatever the task. 409 `no_draft` for a task with no wording to write, 409 `what_we_do_missing` until the location has said what the business does, 409 `limit_reached` when the plan includes no drafts or the month's are used, 503 `drafts_unavailable` where nothing can write a real draft: only sample text is written, so only a deployment in mock mode or a test organization can ask. |
+| `POST /api/locations/:locationId/tasks/:taskId/draft` | A member's ask for a draft of one task, the first or another. Records the ask and queues the worker, which writes it and takes one from the month; answers the draft as asked, 202 (`status` `asked`, and the `text` last written, if any, which stays until the new one lands). Asking while one is being written is the same ask. Only a member of the location's organization asks: anyone else, the operator included, gets 404, whatever the task. 409 `no_draft` for a task with no wording to write, 409 `what_we_do_missing` until the location has said what the business does, 409 `limit_reached` when the plan includes no drafts or the month's are used, 503 `drafts_unavailable` on real data where this build has no instructions for the task's kind of draft (they come with the private tuning) or the deployment has no `ANTHROPIC_API_KEY`; sample text, for a deployment in mock mode or a test organization, is never refused for it. |
 | `GET /api/locations/:id` | One location with its queries, latest scan, rates over recent scans, the sites those answers cited, the surfaces being checked, recommendations, the latest website check, the action plan, the owner's tasks (each with `draft_kind`, the kind of draft that can be written for it now, `note` for a task about a page somebody wrote that is still to do and otherwise null, and its `draft` once one has been asked for), where the organization's month of drafts stands (`drafts`: `allowed`, null when the plan includes none, `used`, and `resets_on`, the first of next month in UTC), the connected accounts it is matched to (`connections`), its open alerts (`alerts`: not cleared, not dismissed, and, for a drop, not about a prompt since retired) and the fix for a page with no structured business details (`details_fix`: whether a member marked it done, whether a scan has looked since, and how many answers cited the business's website before the mark and since; null until the check has found them missing). |
 | `PATCH /api/locations/:id` | Replace a location's details with a whole location body, as when adding one; a field left out goes back to blank or its default, except `what_we_do`, which stays as it is when the body leaves it out (a blank one clears it), so a page opened before the field existed cannot wipe it. The same checks as adding. |
 | `POST /api/locations/:id/activate` | Brings a location the plan paused back into use. Takes `instead_of`, the location in use that is paused in its place, when the plan has no room; 409 with the reason without one. 404 to a non-member. |
@@ -459,7 +466,7 @@ The migrations in `supabase/migrations/` define everything.
 | `action_kind_terms` | What each kind of action is held to: the allowance it takes from, if any, and how many days what it replaced may be kept, if limited. Row-level security is on with no policy and no grant to any API role, the operator included: only the database's own functions read it. |
 | `sample_listings` | What the sample account's listings say (an opening line): the outside world for the sample kind of action, which has none. Row-level security is on with no policy and no grant to any API role, the operator included: only the Worker reads or writes it. |
 | `drafts` | Wording written for one of a location's tasks (a recommendation): one row for a task, and asking again replaces what it holds. Where the ask in hand stands (`status` `asked`, `written` or `failed`; who asked, as the address they had then, and when; why the last ask wrote nothing, as `failure`), and the draft last written, which stays while another is being written and when that fails: its `kind` (`note`, so far), its `text` (up to 4,000 characters), when it was written, whether it is sample text (`sample_data`), and the model that wrote it, null for sample text, which no route sends. `writing_since`, `attempts` and `allowance_month` are the Worker's bookkeeping, and no route sends them: whether a worker is on it, which try this is, and the month whose allowance it holds one of. Read by whoever can read the location and by the operator; written by no API role directly, only through `ask_draft()`, which answers a member of the location's organization alone (the operator and the Worker get no row), and the Worker's `claim_draft()`, which takes one from the month's allowance, and `finish_draft()`, which keeps what was written or gives the allowance back when nothing was. Deleted with its task and with its location. |
-| `provider_usage` | What the providers used for a scan or audit prompt, per surface and model: calls, input, cached input and output tokens, searches. Outlives the scan, audit or organization it describes. Written only by the Worker; only the operator can read it through the API. `GET /api/operator/spend` prices it and the operator's view shows it. |
+| `provider_usage` | What the providers used for a scan or audit prompt, or for writing a draft, per surface and model: calls, input, cached input and output tokens, searches. A draft's use names the draft and the organization and no surface, which is null. Outlives the scan, audit, draft or organization it describes. Written only by the Worker; only the operator can read it through the API. `GET /api/operator/spend` prices it and the operator's view shows it, a draft's under its organization. |
 
 Usage limits are enforced by database triggers, so they hold for the API and for anyone calling
 the database directly. Going over one returns 409 `limit_reached` with a message that names the
@@ -479,16 +486,16 @@ reader gets one audit only by its token, through the `get_audit()` function.
 ## Tests
 
 - **`packages/shared`**: name matching, mention detection, scoring, recommendation rules, input
-  validation, the tuning schema, its defaults and prompt rendering, audits, cited sources, the
+  validation, the tuning schema (a file without the draft settings included), its defaults and prompt rendering, audits, cited sources, the
   on-page check, the action plan, the structured business details block (what it states, what it leaves out, and that no detail can close its script element) and the fix for a page without it (unmarked, marked, and the answers that cited the business's website before and since), and the alert rules (when a drop, a first sighting or a phone number is raised and when it clears), and which phone numbers an answer gives for the business, and the draft rules (which tasks have a draft, what one is written from, the check for a number, web address or email address in a draft that nobody gave, and where a month of drafts stands).
 - **`packages/db`**: applies the real migrations to in-process Postgres (PGlite) and checks, as
   different users, that one organization cannot read or write another's rows, that users cannot
-  forge scan results or grant themselves a platform role, that worker-only functions and the `audits`, `provider_usage`, `connection_secrets`, `connection_kind_allowances`, `sample_listings` and `action_kind_terms` tables are closed to them, that only an owner or admin can connect, match or remove an account, that a connection breaks and is paused as it should, that only a member of a location's organization can approve, decline or ask again for an action and only the worker can propose or carry one out, that an organization is held once its owners have gone 36 hours untold of an action, that what an action replaced is dropped on its day, that a task an action did stays marked, that an action of a counted kind takes from the month's allowance once and gives it back unless the thing is done, that only the worker can ask that of an organization and a stranger is told nothing of a location's, that only the worker raises or clears an alert, reads what a location's earlier scans named and cited, or keeps that its owners were told of an alert, and only a member of a location's organization can dismiss one, that a result sent without phone numbers is kept with none, that only a member of a location's organization can ask for a draft (not the operator, not the worker) and only the worker can take one from the month's allowance or keep what was written, that a draft takes one from the month once and gives it back when nothing was written, and that the draft from before stays while another is written or fails, and that the operator reads every organization and changes only an organization's limits or a plan's settings or prices, each through one function that records it (announcing and calling off a price change or a reduction included). No Docker needed. It
+  forge scan results or grant themselves a platform role, that worker-only functions and the `audits`, `provider_usage`, `connection_secrets`, `connection_kind_allowances`, `sample_listings` and `action_kind_terms` tables are closed to them, that only an owner or admin can connect, match or remove an account, that a connection breaks and is paused as it should, that only a member of a location's organization can approve, decline or ask again for an action and only the worker can propose or carry one out, that an organization is held once its owners have gone 36 hours untold of an action, that what an action replaced is dropped on its day, that a task an action did stays marked, that an action of a counted kind takes from the month's allowance once and gives it back unless the thing is done, that only the worker can ask that of an organization and a stranger is told nothing of a location's, that only the worker raises or clears an alert, reads what a location's earlier scans named and cited, or keeps that its owners were told of an alert, and only a member of a location's organization can dismiss one, that a result sent without phone numbers is kept with none, that only a member of a location's organization can ask for a draft (not the operator, not the worker) and only the worker can take one from the month's allowance or keep what was written, that a draft takes one from the month once and gives it back when nothing was written, that the draft from before stays while another is written or fails, that only the worker records what a draft used (for no surface; the operator's spend counts it and it outlives the draft), and that the operator reads every organization and changes only an organization's limits or a plan's settings or prices, each through one function that records it (announcing and calling off a price change or a reduction included). No Docker needed. It
   also checks `private/tuning.json` against the tuning schema where that file exists.
 - **`apps/api`**: every route against an in-memory store, the scan runner (success, retry,
   permanent failure, reporting, scoring with given weights, refusing live scans on default tuning),
   the ChatGPT and Claude providers against responses in the shape the real APIs return, the
-  scheduler, actions (proposing after a sync, a member's yes and no, carrying one out once, trying again, lapsing, telling the owners, holding back while they are untold, dropping what they replaced, marking a task, and counting against an allowance), alerts (raising a drop, a first sighting or a phone number, keeping each answer's numbers with its result, clearing them, reading the whole record only when a scan holds something that might be new, keeping a dismissed one from being raised again, leaving sample data apart, and telling the owners once in the scan report, or not telling them when the report goes to nobody), drafts (asking, which records the ask and writes nothing; refusing a task with no wording, a location that has not said what the business does, a plan with none and real data; writing sample text once and counting it; throwing away a draft that states what nobody gave, and not counting one that was not kept; writing it again in place of the first; and queueing again an ask nobody is writing), billing (checkout, the portal and the Stripe webhook, against a stand-in for Stripe), the audit runner, the site fetch (what it refuses and how it follows redirects), and
+  scheduler, actions (proposing after a sync, a member's yes and no, carrying one out once, trying again, lapsing, telling the owners, holding back while they are untold, dropping what they replaced, marking a task, and counting against an allowance), alerts (raising a drop, a first sighting or a phone number, keeping each answer's numbers with its result, clearing them, reading the whole record only when a scan holds something that might be new, keeping a dismissed one from being raised again, leaving sample data apart, and telling the owners once in the scan report, or not telling them when the report goes to nobody), drafts (asking, which records the ask and writes nothing; refusing a task with no wording, a location that has not said what the business does, a plan with none and real data; writing sample text once and counting it; throwing away a draft that states what nobody gave, and not counting one that was not kept; writing it again in place of the first; recording what each write used, kept or not; refusing real data where the build has no instructions or no key; and queueing again an ask nobody is writing), the Claude draft writer against recorded responses (what it is sent, set out one detail to a line and with no tools, and what it reports having used), billing (checkout, the portal and the Stripe webhook, against a stand-in for Stripe), the audit runner, the site fetch (what it refuses and how it follows redirects), and
   the mock providers.
 - **`apps/web`**: the logic that lays results out as a grid, the logic behind the chart of the
   score over time, the logic behind the audit page, the logic that fills the location edit form,
@@ -544,7 +551,7 @@ The `integration` job in `.github/workflows/ci.yml` is a working example.
    pnpm exec wrangler secret put SUPABASE_SECRET_KEY
    pnpm exec wrangler secret put RESEND_API_KEY   # optional: emailed reports and notices
    pnpm exec wrangler secret put OPENAI_API_KEY   # optional: live ChatGPT checks
-   pnpm exec wrangler secret put ANTHROPIC_API_KEY   # optional: live Claude checks
+   pnpm exec wrangler secret put ANTHROPIC_API_KEY   # optional: live Claude checks and drafts
    pnpm exec wrangler secret put STRIPE_SECRET_KEY   # optional: subscriptions, with the next
    pnpm exec wrangler secret put STRIPE_WEBHOOK_SECRET
    pnpm exec wrangler secret put CONNECTIONS_KEY   # optional: connecting accounts; `openssl rand -base64 32` makes one
@@ -570,8 +577,9 @@ tuning file, so the deploy has to run where `private/` is checked out, which the
 Without the file, live scans fail with a message saying so. With it, a live scan checks each
 surface whose key is set (ChatGPT with `OPENAI_API_KEY`, Claude with `ANTHROPIC_API_KEY`) and skips the rest; with
 no key set at all, scans fail with "No data provider is configured". A draft is another matter:
-nothing here writes a real one, so on a live deployment asking for a draft answers 503
-`drafts_unavailable`, except for a test organization, whose drafts are sample text.
+Claude writes it, so it needs `ANTHROPIC_API_KEY` and, in the private tuning, instructions for its
+kind. Without either, on a live deployment, asking for a draft answers 503 `drafts_unavailable`,
+except for a test organization, whose drafts are sample text.
 
 ## Repository automation
 
@@ -599,12 +607,14 @@ that maintainers check out at `private/`, which this repository ignores.
 Nothing here needs it. A public clone installs, passes `pnpm check` and runs on sample data
 without it.
 
-The one thing the build takes from it is `private/tuning.json`: prompt wording and score weights,
-as data. All the code that uses those values is here, with placeholder defaults in
-`packages/shared/src/tuning.ts`. Wrangler runs `scripts/prepare-tuning.mjs` before every dev
-session and deploy, which bundles the private file when it is present and the defaults when it is
-not. Live scans refuse to run on the defaults, so a build without the private file cannot store
-placeholder results as measurements. The reasoning is in
+The one thing the build takes from it is `private/tuning.json`: prompt wording, score weights and
+the instructions a draft is written from, as data. All the code that uses those values is here,
+with placeholder defaults in `packages/shared/src/tuning.ts`. Wrangler runs
+`scripts/prepare-tuning.mjs` before every dev session and deploy, which bundles the private file
+when it is present and the defaults when it is not. Live scans refuse to run on the defaults, so a
+build without the private file cannot store placeholder results as measurements, and no draft is
+written on real data from the placeholder instructions. A tuning file without the draft settings
+still loads and writes none. The reasoning is in
 [docs/adr/0001-private-tuning-as-data.md](docs/adr/0001-private-tuning-as-data.md).
 
 Maintainers with access restore it with one command, which reads the repository's location from
@@ -661,12 +671,10 @@ pnpm sync:agents
   plan includes it yet, so a test organization is the only one that can ask for a draft until the
   operator gives another a number. No kind of connection or of action names an allowance, so
   nothing else is held to one ([#133](https://github.com/jwh3times/Nearcited/issues/133)).
-- **A draft written by a model.** A draft is asked for, written by the worker, counted against the
-  month and checked by rule, but only sample text is written (for a deployment in mock mode and a
-  test organization): nothing calls a model. On real data asking answers 503
-  `drafts_unavailable`. There is no tuning yet for what a model would be told, and no spend is
-  recorded for a draft. The only kind of draft is the note to the author of a page; a description
-  for a listing is not built.
+- **Most kinds of draft.** The only kind is the note to the author of a page; a description for a
+  listing is not built. A real draft needs instructions for its kind in the private tuning, so a
+  deployment writes none on real data until it has them; without them only sample text is written,
+  for a deployment in mock mode and a test organization.
 - **Anything that works from a connection.** An owner or admin can connect a sample account, say
   which of the three sample listings it reaches is each location's, and remove it. There is no
   real kind of connection (a Google profile, a website, a customer source). Nothing reads anything

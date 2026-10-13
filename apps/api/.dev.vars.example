@@ -11,7 +11,8 @@ EMAIL_FROM=Nearcited <reports@example.com>
 EMAIL_REPLY_TO=
 # Optional. Only used when PROVIDER_MODE is not mock: live scans check ChatGPT when this is set.
 OPENAI_API_KEY=
-# Optional. The same, for Claude.
+# Optional. The same, for Claude. It also writes drafts on real data, once the private tuning has
+# instructions for them.
 ANTHROPIC_API_KEY=
 # Optional. Leave blank to skip sending emails. Without it, a deployment on live data cannot
 # approve an action.
