@@ -770,11 +770,13 @@ version over a network, that license requires you to offer them its source. It c
 warranty.
 
 The packages the web app is built from keep their own licences, which ask that their notice go
-wherever a copy does, and the build drops the comments that carried them from the bundled
-JavaScript. So the web build writes `third-party-licenses.md` into `apps/web/dist`, with one section
-for each package the bundle includes: its name, version, licence identifier and the licence's text.
-The Worker serves it with the rest of the build, at `/third-party-licenses.md` and without signing
-in, and a comment in the app's `index.html` says where it is. It covers the web app's bundle, which
-is what a browser is sent, and not the Worker's own packages, which run on the server.
+wherever a copy does. So the web build writes `third-party-licenses.md` into `apps/web/dist`, with
+one section for each package the bundle includes: its name, version, licence identifier and the
+licence's text. The Worker serves it with the rest of the build, at `/third-party-licenses.md` and
+without signing in, and a comment in the app's `index.html` says where it is. The build also keeps,
+in the bundled JavaScript, the short licence notices those packages carry in their own code, which
+a minified build would otherwise drop; some name code inside a package that its licence file does
+not. Both cover the web app's bundle, which is what a browser is sent, and not the Worker's own
+packages, which run on the server.
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) covers the files kept in this repository under
 their own licence.

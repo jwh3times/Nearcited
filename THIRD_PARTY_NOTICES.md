@@ -1,7 +1,14 @@
 # Third-party notices
 
-Nearcited itself is licensed under AGPL-3.0-only (see `LICENSE`). The files below are included
-under their own licence.
+Nearcited itself is licensed under AGPL-3.0-only (see `LICENSE`). The files below are kept in this
+repository under their own licence.
+
+## Packages installed from the registry
+
+The packages installed from the npm registry are not listed here, and their licences are not
+copied into this repository. The web app's build writes the licence of each package it bundles
+to `third-party-licenses.md`, which the Worker serves beside the app at
+`/third-party-licenses.md`, and keeps the licence notices those packages carry in their own code.
 
 ## Agent skills
 

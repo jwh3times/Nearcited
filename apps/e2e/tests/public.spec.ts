@@ -76,4 +76,11 @@ test("serves the licence of every package the app includes, beside the app", asy
   // And the app's own page says where the file is.
   const page = await (await request.get(`${BUILT_URL}/`)).text();
   expect(page).toContain("/third-party-licenses.md");
+
+  // The script the page loads still carries the short notices its packages' own code came with.
+  const script = /<script[^>]+src="([^"]+\.js)"/.exec(page)?.[1];
+  expect(script, "the built page loads a script").toBeTruthy();
+  const code = await (await request.get(`${BUILT_URL}${script}`)).text();
+  expect(code).toMatch(/@license React/);
+  expect(code.match(/@license/g)?.length).toBeGreaterThan(5);
 });
