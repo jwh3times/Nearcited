@@ -214,14 +214,17 @@ describe("asking for a draft", () => {
   });
 
   it("answers only a member of the location's organization", async () => {
-    const { location, note } = await withTasks();
+    const { location, note, listing } = await withTasks();
     db.operators.add(carol);
 
     expect((await ask(null, location.id, note.id)).status).toBe(401);
     expect((await ask(dave, location.id, note.id)).status).toBe(404);
-    // The operator reads the task and cannot ask for its draft.
+    // The operator reads the task and cannot ask for its draft, and is told no more of a task
+    // that would be refused than a stranger is.
     expect((await detailOf(carol, location.id)).tasks).toHaveLength(2);
     expect((await ask(carol, location.id, note.id)).status).toBe(404);
+    expect((await ask(carol, location.id, listing.id)).status).toBe(404);
+    expect((await ask(dave, location.id, listing.id)).status).toBe(404);
     expect(db.drafts).toEqual([]);
     expect(queued).toEqual([]);
   });

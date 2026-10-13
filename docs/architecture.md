@@ -12,7 +12,8 @@
   also fails audits still `queued` after 30 minutes (see "Shareable audits"), and queues again
   the removal of any connection asked for more than 15 minutes ago and not finished, the first
   sync of any connection made in the last day that still has none (see "Connections"), and any
-  approved action nobody is carrying out (`requeueStalledActions`; see "Actions").
+  approved action nobody is carrying out (`requeueStalledActions`; see "Actions") and any draft
+  asked for that nobody is writing (`requeueStalledDrafts`; see "Drafts").
   Once a day it also asks Postgres which locations are due (`locations_due_for_scan`), creates a
   `scheduled` scan row for each, and puts the scan IDs on the queue. It also queues a sync for each
   connection that is due (`enqueueDueSyncs`). It also lapses the proposals that waited fourteen
@@ -35,7 +36,8 @@
   a reduction for one organization (see "Reductions in limits"). A message shaped
   `{ connection_id, step }` is one step for a connection, `remove` or `sync` (see "Connections");
   after a sync that read the account it also proposes actions. A message shaped
-  `{ action_id, step }` carries out one approved action (see "Actions").
+  `{ action_id, step }` carries out one approved action (see "Actions"). A message shaped
+  `{ draft_id, step }` writes one draft a member asked for (see "Drafts").
 
 ## How a scan runs
 
@@ -420,10 +422,13 @@ from counts the product holds; nothing a model wrote is in one.
   The mark on the structured details uses the same read (see "The on-page check").
 - A dismissed recommendation has no task. Ticks on action-plan steps are still kept in the browser
   only. The operator's read-only view hides the buttons.
-- Not built: anything a model drafts, a direct review link, a printable code or request text, page
-  copy as a task, and anything the product does outside itself for real. Approvals and actions
-  exist (see "Actions") but the only kind is a sample one, which does no task's work, so no action
-  has marked a task.
+- A task about a page somebody wrote (`editorial`) can have a draft: the note to its author. The
+  route returns `draft_kind` for a task that is still to do and `draft` once one has been asked
+  for (see "Drafts"). The task's own wording is unchanged, and still composed by rule.
+- Not built: a draft written by a model (only sample text is written, see "Drafts"), a direct
+  review link, a printable code or request text, page copy as a task, and anything the product
+  does outside itself for real. Approvals and actions exist (see "Actions") but the only kind is a
+  sample one, which does no task's work, so no action has marked a task.
 
 ## Alerts
 
@@ -789,7 +794,7 @@ An action is one thing the product does outside itself for a location, once a me
 `done` or `failed`; a proposed one can instead be `declined` or `lapsed`. The only kind is
 `sample`: it sets the opening line of one of the sample account's listings, rows in
 `sample_listings` that stand in for an outside service, so nothing leaves the product. There is no
-real kind, so nothing is counted against an allowance and no action marks a task yet (see "Known
+real kind, so no action is counted against an allowance and none marks a task yet (see "Known
 gaps").
 
 - **Only the worker proposes.** After a sync that read a connection (`syncConnection` answers
@@ -921,6 +926,99 @@ page asks again every couple of seconds. When the organization is held, a notice
 so. The sidebar says how many are waiting at each location
 (`GET /api/organizations/:organizationId/actions/waiting`, asked every 30 seconds). The operator
 reading through an account sees the tab and has no buttons.
+
+## Drafts
+
+A draft is wording written for one of an owner's tasks, so that the owner has less to write: so far
+the note to the author of a page, for a task about a site of the `editorial` kind (`drafts`; the
+terms are in `GLOSSARY.md`, the decision in `docs/adr/0016-the-worker-writes-a-draft.md`). It is
+`asked`, then `written` or `failed`. The product sends nothing: the owner copies it and changes it
+wherever it is going. Only sample text is written. Nothing calls a model, so there is no real draft
+yet (see "Known gaps").
+
+- **Which tasks have one.** `draftKindFor` (`packages/shared/src/drafts.ts`) names the kind of
+  draft for a kind of site: `note` for `editorial`, nothing for the others. `buildTasks` puts it on
+  a task as `draft_kind` only while the task is still to do, and puts the task's own `draft` beside
+  it, kept after the task is marked done. There is one draft for a task (`recommendation_id` is
+  unique).
+- **A member asks, and a request records it.** `POST /api/locations/:locationId/tasks/:taskId/draft`
+  reads the location's tasks as they stand (`currentTasks`, `apps/api/src/tasks.ts`: the same pool
+  the rates use, without the counts either side of a mark, and for the kind of data the page shows)
+  and refuses what it can before anything is recorded (`draftRequest`): 409 `no_draft` for a task
+  that is gone or has no wording to write, and 409 `what_we_do_missing` until the location has said
+  what the business does (`locations.what_we_do`), because without it a draft would be a name and a
+  city and whatever a writer made up. It answers 503 `drafts_unavailable` where nothing can write a
+  real draft. Before any of those it asks whose organization the location is (`listOrganizations`,
+  which goes by membership and not by what the caller can read) and answers 404 to anyone who is
+  not a member, the operator included, so a task that would be refused tells them no more than a
+  stranger is told. Then `ask_draft()` records the ask. It is a security-definer function that
+  returns a row only to a member of the location's organization (`can_access_location`), whoever
+  the route let through. It raises `NC014`, a `limit`, so 409
+  `limit_reached`, when the plan includes no drafts or the month's are used (`allowance_has_room()`).
+  It locks the task, so two asks arrive one after the other, and an ask made while a draft is
+  `asked` is that same ask. Asking after one has been written or has failed puts the row back to
+  `asked` and keeps the text. It takes nothing from the month. The route then queues
+  `{ draft_id, step: "write" }` and answers 202; if the send fails the request still succeeds and
+  logs it.
+- **Only the worker writes.** The queue consumer calls `writeDraft` (`apps/api/src/drafts/index.ts`).
+  `claim_draft()` takes the draft and counts the try, and answers zero, and the worker goes no further,
+  unless the draft is `asked` and no worker has had it in the last ten minutes. The worker then reads
+  the draft, the location and the organization, and the location's tasks, from what is on file, and
+  works out again what the draft is written from, so nothing a request said decides it. If the task
+  is gone, or no longer has wording to write (it was done, or the business's description was taken
+  away) in the meantime, the ask is failed with the reason and what it took from the month is given
+  back. Sample data is a deployment in mock mode, or a test organization. The queue consumer hands the
+  worker no writer, so on real data an ask that gets this far is failed with "Drafts cannot be
+  written here yet."
+- **A draft is written from what is held, and nothing from the answers.** `DraftGiven` is the
+  location's name, city, region, category and website, `what_we_do`, the site the task is about and
+  the page of it the answers cited most. A detail not on file is null and is not filled in. What an
+  assistant said about the business is the thing measured and is not given. A writer
+  (`DraftWriter`) only writes: it returns text, and whether the text may be kept is decided here.
+- **A rule checks every draft before it is kept.** `factsNobodyGave` lists the numbers, web
+  addresses and email addresses in the text that are not in `DraftGiven`; a web address passes as one
+  that was given or as the site of one, so a made-up page of the business's own site does not. A
+  draft that names any is thrown away and written once more (`MOST_WRITES`, two in all), and if the
+  second does too, or the text is empty, nothing is kept and the ask fails with that reason. What was
+  said is not logged, only how many things nobody gave. The rule reads characters, not meaning: it
+  catches an invented phone number, year, price, link or address to write to, and does not catch a
+  boast. It runs on whatever wrote the text.
+- **Sample text is nobody's writing.** For sample data, `sampleWriter` (`apps/api/src/drafts/sample.ts`)
+  generates the note from `DraftGiven` and calls nothing. It goes through the same check and the
+  same count, and is kept with `sample_data` true and no `model`. The page labels it as sample text
+  that no model wrote, and a real draft as a model's.
+- **A try that something gets in the way of is made again, three times in all.** A writer that throws
+  fails the ask at once ("Nothing was counted."). Any other error, such as a failed read, lets go of
+  the draft with `finish_draft()` saying `again`, and the queue consumer asks for the message again in
+  a minute (`MOST_ATTEMPTS`, 3); the third fails it. A failed ask keeps the text from before.
+- **The month is taken when the worker takes the draft, and given back when nothing was written.**
+  `claim_draft()` calls `claim_allowance()` for `drafts`, once for all of an ask's tries, and keeps
+  the month in `allowance_month`. When the month has no room (it ran out after the ask) the ask is
+  failed there. `finish_draft()` calls `release_allowance()`, into the month it came from, when the
+  ask ends `failed`, and keeps it when it ends `written` or `again`. Asking again takes one more.
+  `draftsStanding` puts where the month stands on `GET /api/locations/:id` as `drafts`: the plan's
+  number for each location the plan covers, how many are used, and the first of next month, when the
+  count starts again; `allowed` is null for a plan that includes none.
+- **A lost message is asked for again.** Every run of the schedule calls `requeueStalledDrafts`: each
+  draft asked more than 15 minutes ago that no worker has, or that a worker took more than 15 minutes
+  ago, goes on the queue again, at most 100 a run. That covers a message that was lost, a draft
+  the worker let go of to be tried again, and a worker that died, whose hold lasts ten minutes.
+- **Who reads and writes.** `drafts` has a `select` policy for whoever can read the location and one
+  for the operator, and no write grant for any API role. A request writes only through `ask_draft()`;
+  `claim_draft()` and `finish_draft()` answer the worker alone. `asked_by`, `writing_since`,
+  `attempts`, `allowance_month` and `model` are the worker's bookkeeping, and no route sends them. A
+  draft is deleted with its task and with its location.
+
+On the Overview tab each task card shows its draft (`TaskDraft`). "Write a draft" asks for one; if the
+location has not said what the business does, the card asks first, under "What we do", and saves
+it to the location (`PATCH /api/locations/:id`) before asking. While a draft is `asked` the card says one
+is being written and the location page asks again every two seconds. A written draft is shown with a
+label saying who wrote it and a button that copies it; "Write it again" replaces it, says it counts as
+one more, and leaves the first on the page until the second lands. A failed ask says why. When the
+month's drafts are used the card says on what day more come, and the organization's owner is
+pointed at the plans. Where the plan includes none, no card offers a draft; a line above the tasks says
+so only once some plan on sale includes drafts. The operator reading through an account sees a draft
+and has no buttons.
 
 ## Tenancy
 
@@ -1061,14 +1159,17 @@ copy, edit and lower a plan.
   room, locking the organization row so two claims at once cannot both take the last one. It says
   whether it claimed, what the month allows and how much of it is used. `release_allowance()`,
   also worker only, gives back what was claimed for a month, for work that was then not done. A kind
-  that is included without a number is not counted. Only the action functions call either, and no
-  kind of action is counted yet (see "Actions" and "Known gaps").
+  that is included without a number is not counted. Only the action functions and the draft
+  functions call either. `drafts` is the one kind that exists, and `claim_draft()` and
+  `finish_draft()` count it (see "Drafts"); no kind of action is counted yet (see "Actions" and
+  "Known gaps").
 - **A kind of connection can name the allowance it needs**, in `connection_kind_allowances`; see
   "Connections".
 
 Users can insert exactly one kind of scan row: a queued, manual scan in their own name for a
 location they can see. Results, scores, recommendations and alerts are written only by the worker;
-a member can dismiss an alert and nothing more (see "Alerts").
+a member can dismiss an alert and nothing more (see "Alerts"), and can ask for a draft and nothing
+more (see "Drafts").
 Organizations are created only through `create_organization()`, which makes the caller the owner.
 
 **The operator reads every row, through policies.** `is_operator()` is true for an account with the
@@ -1217,11 +1318,21 @@ drop it.
   A signed-in user cannot update a scan, so the request that hit the failure cannot clear it.
 - On a Supabase project that still signs tokens with a legacy shared secret, `getClaims` asks the
   Auth server on every request. Use asymmetric signing keys.
-- Allowances limit almost nothing yet. No kind of allowance exists (`ALLOWANCE_KINDS` and
-  `allowance_kinds` are empty) and no kind of connection or of action names one, so a number would
-  be stored, shown and lowered by announcement, but no work would stop at it or be counted against
-  it. What an allowance can stop is a kind of connection that needs it (see "Connections") and a
-  kind of action that takes from it (see "Actions"), and none does ([#133](https://github.com/jwh3times/Nearcited/issues/133)).
+- Allowances limit little yet. One kind of allowance exists, `drafts` (`ALLOWANCE_KINDS` and
+  `allowance_kinds`), and the migration that made it gave it to no plan. A test organization is
+  given every kind, so its drafts are counted; until the operator sets a number on a plan, no
+  other organization can ask for one. No kind of connection or of action
+  names an allowance, so a number for another kind would be stored, shown and lowered by
+  announcement, but no work would stop at it or be counted against it. What an allowance can stop is
+  a kind of connection that needs it (see "Connections"), a kind of action that takes from it (see
+  "Actions") and a draft (see "Drafts"), and only the last exists ([#133](https://github.com/jwh3times/Nearcited/issues/133)).
+- No draft is written by a model. `writeDraft` is given a writer only for sample text, and the
+  queue consumer gives it none, so on real data asking is refused (503 `drafts_unavailable`) and an
+  ask that got through is failed. There is no tuning yet for what a model would be told, and no
+  spend is recorded for a draft, since `provider_usage` is for scans and audits, so what a draft
+  costs is a count of asks against the month and not a price. The only kind of draft is the note to
+  the author of a page; a description for a listing is not built. The check on what a draft states
+  reads characters and not meaning (see "Drafts").
 - Nothing seals the sign-ins again under a new `CONNECTIONS_KEY`. Changing or losing the key makes
   every sign-in kept unreadable and its owner has to connect again; a sync of one changes nothing,
   and a removal still finishes but cannot take the access back at the outside service (see

@@ -34,8 +34,13 @@ draftRoutes.post("/locations/:locationId/tasks/:taskId/draft", async (c) => {
   const location = await requireLocation(store, uuidParam(c, "locationId", "Location"));
   const taskId = uuidParam(c, "taskId", "Task");
 
-  const organization = await store.getOrganization(location.organization_id);
-  const sample = usesSampleData(c.env) || organization?.is_test === true;
+  // By membership, not by what the caller can read: the operator reads every location and its
+  // tasks, and is told of this one what a stranger is.
+  const organization = (await store.listOrganizations()).find(
+    (candidate) => candidate.id === location.organization_id,
+  );
+  if (!organization) throw notFound("Task");
+  const sample = usesSampleData(c.env) || organization.is_test;
   const task = (await currentTasks(store, location, sample)).find(
     (candidate) => candidate.id === taskId,
   );
