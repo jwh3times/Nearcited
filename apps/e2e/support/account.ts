@@ -241,6 +241,13 @@ export async function withUncheckedDetails(account: Account, locationId: string)
     },
     "PATCH",
   );
+  // The finding the scan would have kept, which is what marking the fix done stands on.
+  await asWorker("recommendations", {
+    location_id: locationId,
+    rule: "site:structured_data",
+    title: "Your home page has no structured business details",
+    detail: "Detail",
+  });
 }
 
 /** Writes a row with the secret key. Never against a deployment: its data is not a test's. */

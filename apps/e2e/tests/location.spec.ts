@@ -243,6 +243,29 @@ test("offers the structured details to paste where the page has none, and copies
   await expect(step.getByRole("button", { name: "Copy the block" })).toBeVisible();
 });
 
+test("marks the structured details as pasted, keeps that with the location, and takes it back", async ({
+  page,
+}) => {
+  await withUncheckedDetails(account, locationPath.replace("/locations/", ""));
+  await signIn(page, account, `${locationPath}?tab=website`);
+  const card = page.getByRole("tabpanel").locator(".paste-block");
+  await expect(card.getByText("Once it is on the page, mark it done.")).toBeVisible();
+
+  await card.getByRole("button", { name: "Mark done" }).click();
+  const marked = card.getByText(/^Marked done /);
+  // No scan has looked since, and it does not pretend one has.
+  await expect(marked).toContainText("The next scan will look for it.");
+  await expect(marked).toContainText("Before: 0 of 6 answers cited your website.");
+  await expect(marked).toContainText("Since: too early to say. No answer has come in yet.");
+
+  // It is kept with the location, not in this browser.
+  await page.reload();
+  await expect(marked).toBeVisible();
+  await card.getByRole("button", { name: "Undo" }).click();
+  await expect(marked).toHaveCount(0);
+  await expect(card.getByRole("button", { name: "Mark done" })).toBeVisible();
+});
+
 test("opens the menu on a phone, and stacks the tables @phone", async ({ page }) => {
   await signIn(page, account);
   // The sidebar is folded away behind a button.

@@ -1,8 +1,10 @@
 import {
   ActivateLocationSchema,
   buildActionPlan,
+  buildDetailsFix,
   buildTasks,
   CITING_SURFACES,
+  type DetailsEvidence,
   type LocationDetail,
   LocationInputSchema,
   MAX_SCANS_SINCE,
@@ -63,7 +65,7 @@ locationRoutes.get("/locations/:id", async (c) => {
   // read separately from the window: the window moves on, and the mark stays where it was put.
   const citing = (scans: Awaited<typeof recent>) =>
     scans.flat().filter((result) => CITING_SURFACES.includes(result.surface));
-  const evidence = new Map<string, TaskEvidence>(
+  const evidence = new Map<string, TaskEvidence & DetailsEvidence>(
     await Promise.all(
       recommendations
         .filter(
@@ -79,7 +81,11 @@ locationRoutes.get("/locations/:id", async (c) => {
           );
           return [
             recommendation.id,
-            { before: citing(around.before), since: citing(around.since) },
+            {
+              before: citing(around.before),
+              since: citing(around.since),
+              scans_since: around.since.length,
+            },
           ] as const;
         }),
     ),
@@ -120,6 +126,7 @@ locationRoutes.get("/locations/:id", async (c) => {
       answers: answers.length,
       evidence,
     }),
+    details_fix: buildDetailsFix({ recommendations, website: location.website, evidence }),
     alerts: alerts.filter(
       (alert) =>
         alert.dismissed_at === null && (alert.kind !== "drop" || asked.has(alert.tracked_query_id)),

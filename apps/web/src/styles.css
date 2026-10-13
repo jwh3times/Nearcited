@@ -1432,6 +1432,12 @@ details.as-table td {
   color: var(--muted);
 }
 
+/* What was marked and what the scans saw: the one part of the card that is a finding. */
+.paste-block .task-proof,
+.checks .task-proof {
+  color: var(--ink);
+}
+
 /* An action in the run of a sentence has to look like one. */
 .paste-block button.link {
   text-decoration: underline;
@@ -1447,7 +1453,7 @@ details.as-table td {
   color: var(--muted);
 }
 
-.paste-actions button {
+.paste-actions button.secondary {
   height: 2.25rem;
   padding: 0 0.75rem;
   font-size: 0.8125rem;

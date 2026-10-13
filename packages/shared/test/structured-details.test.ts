@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
+import type { Recommendation } from "../src/schemas";
 import { analyzeSite } from "../src/site";
 import {
   type BlockLocation,
   buildBusinessBlock,
+  buildDetailsFix,
+  citedCount,
   needsBusinessBlock,
 } from "../src/structured-details";
 
@@ -129,5 +132,97 @@ describe("needsBusinessBlock", () => {
     // A page that leads nowhere has only the one check, and one that proved nothing has none.
     expect(needsBusinessBlock(site([{ id: "reachable", passed: false }]))).toBe(false);
     expect(needsBusinessBlock(site([]))).toBe(false);
+  });
+});
+
+/** An answer that cited the business's own site, or somebody else's. */
+const answer = (own: boolean) => ({
+  mentioned: own,
+  cited_urls: [own ? "https://www.joespizza.example/menu" : "https://www.yelp.com/biz/x"],
+});
+
+describe("citedCount", () => {
+  it("counts the answers that cited the business's own website, once each", () => {
+    const answers = [
+      answer(true),
+      answer(false),
+      {
+        mentioned: true,
+        cited_urls: ["https://joespizza.example/", "https://joespizza.example/a"],
+      },
+    ];
+    expect(citedCount(answers, "https://joespizza.example")).toEqual({ answers: 3, cited: 2 });
+  });
+
+  it("counts none where no website is on file, or nothing came in", () => {
+    expect(citedCount([answer(true)], null)).toEqual({ answers: 1, cited: 0 });
+    expect(citedCount([], "https://joespizza.example")).toEqual({ answers: 0, cited: 0 });
+  });
+});
+
+describe("buildDetailsFix", () => {
+  const recommendation = (change: Partial<Recommendation> = {}): Recommendation => ({
+    id: "00000000-0000-4000-8000-0000000000d1",
+    location_id: "00000000-0000-4000-8000-0000000000b1",
+    scan_id: null,
+    rule: "site:structured_data",
+    title: "Your home page has no structured business details",
+    detail: "Detail",
+    status: "open",
+    acted_at: null,
+    acted_by_action: null,
+    created_at: "2026-10-01T00:00:00Z",
+    ...change,
+  });
+  const website = "https://joespizza.example";
+  const fixFor = (
+    recommendations: Recommendation[],
+    evidence: Parameters<typeof buildDetailsFix>[0]["evidence"] = new Map(),
+  ) => buildDetailsFix({ recommendations, website, evidence });
+
+  it("is nothing where the check never found the details missing, or the finding was dismissed", () => {
+    expect(fixFor([])).toBeNull();
+    expect(fixFor([recommendation({ rule: "site:names_city" })])).toBeNull();
+    expect(fixFor([recommendation({ status: "dismissed" })])).toBeNull();
+  });
+
+  it("stands unmarked, with nothing to compare, until a member says the block is on the page", () => {
+    expect(fixFor([recommendation()])).toEqual({
+      id: "00000000-0000-4000-8000-0000000000d1",
+      acted_at: null,
+      checked_since: false,
+      before: null,
+      since: null,
+    });
+  });
+
+  it("sets what the answers did before the mark beside what they have done since", () => {
+    const marked = recommendation({ acted_at: "2026-10-05T09:00:00Z", status: "done" });
+    const evidence = new Map([
+      [
+        marked.id,
+        {
+          before: [answer(false), answer(false), answer(true)],
+          since: [answer(true), answer(true)],
+          scans_since: 1,
+        },
+      ],
+    ]);
+    expect(fixFor([marked], evidence)).toEqual({
+      id: marked.id,
+      acted_at: "2026-10-05T09:00:00Z",
+      checked_since: true,
+      before: { answers: 3, cited: 1 },
+      since: { answers: 2, cited: 2 },
+    });
+  });
+
+  it("says no scan has looked since while none has finished", () => {
+    const marked = recommendation({ acted_at: "2026-10-05T09:00:00Z" });
+    const evidence = new Map([[marked.id, { before: [answer(false)], since: [], scans_since: 0 }]]);
+    expect(fixFor([marked], evidence)).toMatchObject({
+      checked_since: false,
+      since: { answers: 0, cited: 0 },
+    });
   });
 });
