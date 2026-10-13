@@ -1476,6 +1476,12 @@ details.as-table td {
   color: var(--ink);
 }
 
+/* A listing's address, which can be long and has nowhere to break. */
+.paste-block .listing-link {
+  overflow-wrap: anywhere;
+  font-size: 0.875rem;
+}
+
 .paste-actions {
   display: flex;
   align-items: center;
