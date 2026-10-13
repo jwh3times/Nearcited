@@ -9,6 +9,7 @@ import {
   ConnectionSchema,
   DraftSchema,
   LimitChangeSchema,
+  ListingSchema,
   LocationConnectionSchema,
   LocationSchema,
   OperatorAuditSchema,
@@ -79,6 +80,7 @@ const ERROR_KINDS: Record<string, StoreErrorKind> = {
   NC012: "limit", // a match a connection cannot take: not reached, already taken, or not working
   NC013: "limit", // an action that is no longer waiting or cannot be asked for, or a task one did
   NC014: "limit", // a draft asked for when the month has no more
+  NC015: "limit", // a listing on one site more than a location may hold
 };
 
 function fail(action: string, error: DbError): never {
@@ -193,6 +195,8 @@ const ACTION_COLUMNS =
 
 const DRAFT_COLUMNS =
   "id, location_id, recommendation_id, status, asked_by_email, asked_at, failure, kind, text, written_at, sample_data";
+
+const LISTING_COLUMNS = "location_id, site, url, set_by_email, set_at";
 
 const ALERT_COLUMNS =
   "id, location_id, kind, tracked_query_id, surface, facts, since, scan_id, raised_at, cleared_at, clear_reason, dismissed_at, dismissed_by_email";
@@ -451,6 +455,34 @@ export function createSupabaseStore(
         .maybeSingle();
       if (error) fail("Ask for a draft", error);
       return data ? DraftSchema.parse(data) : null;
+    },
+
+    async listListings(locationId) {
+      const { data, error } = await db
+        .from("listings")
+        .select(LISTING_COLUMNS)
+        .eq("location_id", locationId)
+        .order("site");
+      if (error) fail("List listings", error);
+      return ListingSchema.array().parse(data);
+    },
+
+    async setListing(locationId, site, url) {
+      const { data, error } = await db
+        .rpc("set_listing", { location: locationId, on_site: site, address: url })
+        .select(LISTING_COLUMNS)
+        .maybeSingle();
+      if (error) fail("Set a listing", error);
+      return data ? ListingSchema.parse(data) : null;
+    },
+
+    async removeListing(locationId, site) {
+      const { data, error } = await db.rpc("remove_listing", {
+        location: locationId,
+        on_site: site,
+      });
+      if (error) fail("Remove a listing", error);
+      return data === true;
     },
 
     async listConnections(organizationId) {

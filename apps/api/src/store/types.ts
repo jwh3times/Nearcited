@@ -19,6 +19,7 @@ import type {
   DraftKind,
   LimitChange,
   LimitChangeNotice,
+  Listing,
   Location,
   LocationConnection,
   LocationInput,
@@ -246,6 +247,19 @@ export interface Store {
    * Throws a limit when the month has no room.
    */
   askDraft(recommendationId: string): Promise<Draft | null>;
+  /** A location's listings, one for each site a member gave one on, for whoever can read it. */
+  listListings(locationId: string): Promise<Listing[]>;
+  /**
+   * A member gives a location's listing on a site, the first time or in place of the one before.
+   * Null for anyone who is not a member of the location's organization. Throws a limit when the
+   * location holds as many as it may.
+   */
+  setListing(locationId: string, site: string, url: string): Promise<Listing | null>;
+  /**
+   * A member takes a location's listing on a site away. False when there was none, and for anyone
+   * who is not a member of the location's organization.
+   */
+  removeListing(locationId: string, site: string): Promise<boolean>;
   /** An organization's connections, removed ones included, newest first. */
   listConnections(organizationId: string): Promise<Connection[]>;
   /** Whether the caller may connect and remove for the organization: its owner or an admin. */

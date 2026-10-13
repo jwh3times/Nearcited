@@ -1507,6 +1507,35 @@ export const DraftsStandingSchema = z.object({
 });
 export type DraftsStanding = z.infer<typeof DraftsStandingSchema>;
 
+/**
+ * The address of a location's own page on a site, as a member gave it. One for a location on a
+ * site. See `listings.ts`.
+ */
+export const ListingSchema = z.object({
+  location_id: Id,
+  /** The site, as the list of known sites names it. */
+  site: z.string(),
+  url: z.string(),
+  set_by_email: z.string().nullable(),
+  set_at: Timestamp,
+});
+export type Listing = z.infer<typeof ListingSchema>;
+
+/** What a member pastes. Its shape is checked against the site by `readListing`. */
+export const ListingInputSchema = z.object({
+  url: z.string().trim().min(1, "Paste the address of your listing").max(2000),
+});
+export type ListingInput = z.infer<typeof ListingInputSchema>;
+
+/** What a task holds of the business's listing on its site. */
+export const TaskListingSchema = z.object({
+  /** The site the listing is kept under, which is what setting it names. */
+  site: z.string(),
+  /** The listing's address. Null until a member gives it. */
+  url: z.string().nullable(),
+});
+export type TaskListing = z.infer<typeof TaskListingSchema>;
+
 export const TaskSchema = z.object({
   /** The recommendation the task stands on, which is what marking it done updates. */
   id: Id,
@@ -1531,6 +1560,11 @@ export const TaskSchema = z.object({
   draft_kind: DraftKindSchema.nullable(),
   /** Its draft, once one has been asked for. */
   draft: DraftSchema.nullable(),
+  /**
+   * The business's own page on the site, for a task that asks for it: one whose site lets a
+   * business ask its customers for reviews. Null for every other task.
+   */
+  listing: TaskListingSchema.nullable(),
 });
 export type Task = z.infer<typeof TaskSchema>;
 

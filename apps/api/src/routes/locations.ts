@@ -45,7 +45,7 @@ locationRoutes.get("/locations/:id", async (c) => {
   // Generated and real results never share a window, so which one to read is decided first. A
   // test organization's are generated even in a live deployment.
   const sample = usesSampleData(c.env) || organization?.is_test === true;
-  const [queries, [latest], recommendations, recent, site, alerts, drafts, allowanceUse] =
+  const [queries, [latest], recommendations, recent, site, alerts, drafts, listings, allowanceUse] =
     await Promise.all([
       store.listQueries(location.id),
       store.listScans(location.id, 1),
@@ -54,6 +54,7 @@ locationRoutes.get("/locations/:id", async (c) => {
       store.getSiteCheck(location.id),
       store.listAlerts(location.id, sample),
       store.listDrafts(location.id),
+      store.listListings(location.id),
       store.getAllowanceUse(location.organization_id),
     ]);
   // A drop on a prompt retired since the last scan has nothing left to say. The next scan
@@ -127,6 +128,7 @@ locationRoutes.get("/locations/:id", async (c) => {
       answers: answers.length,
       evidence,
       drafts,
+      listings,
       // No task is offered a draft this build could only refuse to write.
       writes: (kind) => sample || writesRealDrafts(c.env, c.get("deployment").draft_kinds, kind),
     }),

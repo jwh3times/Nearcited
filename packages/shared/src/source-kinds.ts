@@ -54,12 +54,21 @@ const BY_HOST = new Map<string, SourceKind>(
   ),
 );
 
-/** The kind of the site at `host`, by its own name first and then each parent's. */
-export function sourceKind(host: string): SourceKind {
+/**
+ * The name on the list that `host` goes by: its own first, then each parent's. Null for a site
+ * that is not on it.
+ */
+export function listedSite(host: string): string | null {
   const labels = host.toLowerCase().split(".");
   for (let start = 0; start < labels.length - 1; start += 1) {
-    const kind = BY_HOST.get(labels.slice(start).join("."));
-    if (kind) return kind;
+    const site = labels.slice(start).join(".");
+    if (BY_HOST.has(site)) return site;
   }
-  return "unknown";
+  return null;
+}
+
+/** The kind of the site at `host`, by its own name first and then each parent's. */
+export function sourceKind(host: string): SourceKind {
+  const site = listedSite(host);
+  return (site === null ? undefined : BY_HOST.get(site)) ?? "unknown";
 }
