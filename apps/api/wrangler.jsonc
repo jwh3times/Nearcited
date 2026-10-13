@@ -37,7 +37,11 @@
       {
         "queue": "nearcited-scans",
         "max_batch_size": 5,
-        "max_batch_timeout": 10,
+        // How long a message waits for others to join it before the Worker is handed the batch.
+        // Somebody is watching the page for most of what is queued (a scan run by hand, an
+        // approved action, a draft), so a lone message is not kept waiting. Messages queued
+        // together, as the daily run's are, still arrive five at a time.
+        "max_batch_timeout": 1,
         "max_retries": 3,
         "retry_delay": 60,
         "dead_letter_queue": "nearcited-scans-dlq"

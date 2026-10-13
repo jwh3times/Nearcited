@@ -94,7 +94,7 @@ changed.
 
 - **Writing a draft when the task is opened.** Rejected, for the reason above. It is what #120
   first said, before a month had a number.
-- **Writing it on the request.** Rejected. It is quicker by the queue's wait, about ten seconds.
+- **Writing it on the request.** Rejected. It is quicker by the queue's wait, a second or so.
   It would also have a request take from an allowance and call a model with what the request
   said, and a failed request would leave the count taken or the model's cost unrecorded.
 - **A second model reading the draft for facts nobody gave.** Rejected. It would catch more, and
