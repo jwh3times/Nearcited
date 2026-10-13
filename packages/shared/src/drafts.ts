@@ -93,19 +93,31 @@ export function draftRequest(
 
 // An email address, then a web address: one with a scheme or `www.`, or a bare name ending in
 // what looks like a top-level domain, with whatever path follows it.
-const EMAIL = /[a-z0-9._%+-]+@[a-z0-9-]+(?:\.[a-z0-9-]+)+/gi;
+//
+// These read text someone else wrote: a model's draft, and an owner's own words. Every repeat
+// that something has to come after is bounded, by the length a name or a label may really have
+// (64 before the "@", 63 to a label). An unbounded one is tried again from every character of a
+// long run that never finishes, such as a hundred thousand "%" and no "@", and that takes the
+// square of the length.
+const EMAIL = /[a-z0-9._%+-]{1,64}@[a-z0-9-]{1,63}(?:\.[a-z0-9-]{1,63})+/gi;
 const ADDRESS =
-  /(?:https?:\/\/|www\.)[^\s<>"')\]]+|\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}\b(?:\/[^\s<>"')\]]*)?/gi;
+  /(?:https?:\/\/|www\.)[^\s<>"')\]]+|\b[a-z0-9-]{1,63}(?:\.[a-z0-9-]{1,63}){0,8}\.[a-z]{2,24}\b(?:\/[^\s<>"')\]]*)?/gi;
 const NUMBER = /\d+(?:[.,]\d+)*/g;
+
+/** What may end a sentence an address stands in, or an address itself, and is not part of it. */
+const TRAILING = ".,;:!?/";
 
 /** A web address as it is compared: no scheme, no `www.`, lower case, nothing trailing. */
 function plain(address: string): string {
-  return address
+  const bare = address
     .toLowerCase()
     .replace(/^https?:\/\//, "")
-    .replace(/^www\./, "")
-    .replace(/[.,;:!?]+$/, "")
-    .replace(/\/+$/, "");
+    .replace(/^www\./, "");
+  // Counted off from the end by hand, for the reason above: a pattern for "these, to the end"
+  // starts over from each of them.
+  let end = bare.length;
+  while (end > 0 && TRAILING.includes(bare.charAt(end - 1))) end -= 1;
+  return bare.slice(0, end);
 }
 
 /** A number as it is compared: "1,998" is 1998. */
