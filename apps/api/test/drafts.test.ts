@@ -24,6 +24,7 @@ const MINUTE = 60_000;
 
 const SAID = "Wood-fired pizza and fresh pasta, family-run since 1998.";
 const GUIDE = "https://travel.usnews.com/raleigh/best-pizza";
+const LISTING = "https://www.yelp.com/biz/joes-pizza-raleigh";
 
 let db: MemoryDb;
 let queued: DraftMessage[];
@@ -89,8 +90,9 @@ const worker = () => memoryStore(db, null);
 
 /**
  * Alice's organization, with Bob in it as a member and two drafts a month, and a location that
- * has said what it does. Its scan read a guide on usnews.com and a listing on yelp.com without
- * naming the business, so it has a task for each: one whose work is a note, one with no wording.
+ * has said what it does. Its scan read a guide on usnews.com, a listing on yelp.com and a review
+ * site without naming the business, so it has a task for each: one whose work is a note, one
+ * whose work is a listing's description, and one, asking customers for reviews, with no wording.
  */
 async function withTasks({
   said = SAID as string | null,
@@ -140,7 +142,7 @@ async function withTasks({
         mentioned: false,
         position: null,
         competitors: [],
-        cited_urls: [GUIDE, "https://www.yelp.com/biz/somewhere"],
+        cited_urls: [GUIDE, LISTING, "https://www.tripadvisor.com/somewhere"],
         answer_excerpt: null,
         phones: [],
       },
@@ -148,14 +150,16 @@ async function withTasks({
     recommendations: [
       { rule: "source:travel.usnews.com", title: "Ask to be included", detail: "Detail" },
       { rule: "source:yelp.com", title: "Check your listing", detail: "Detail" },
+      { rule: "source:tripadvisor.com", title: "Ask for reviews", detail: "Detail" },
     ],
   });
 
   const tasks = (await detailOf(alice, location.id)).tasks;
   const note = tasks.find((task) => task.host === "travel.usnews.com");
   const listing = tasks.find((task) => task.host === "yelp.com");
-  if (!note || !listing) throw new Error("the scan gave no tasks");
-  return { organization, location, note, listing };
+  const asking = tasks.find((task) => task.host === "tripadvisor.com");
+  if (!note || !listing || !asking) throw new Error("the scan gave no tasks");
+  return { organization, location, note, listing, asking };
 }
 
 const detailOf = async (user: string, locationId: string) =>
@@ -264,25 +268,26 @@ describe("asking for a draft", () => {
   });
 
   it("answers only a member of the location's organization", async () => {
-    const { location, note, listing } = await withTasks();
+    const { location, note, asking } = await withTasks();
     db.operators.add(carol);
 
     expect((await ask(null, location.id, note.id)).status).toBe(401);
     expect((await ask(dave, location.id, note.id)).status).toBe(404);
     // The operator reads the task and cannot ask for its draft, and is told no more of a task
     // that would be refused than a stranger is.
-    expect((await detailOf(carol, location.id)).tasks).toHaveLength(2);
+    expect((await detailOf(carol, location.id)).tasks).toHaveLength(3);
     expect((await ask(carol, location.id, note.id)).status).toBe(404);
-    expect((await ask(carol, location.id, listing.id)).status).toBe(404);
-    expect((await ask(dave, location.id, listing.id)).status).toBe(404);
+    expect((await ask(carol, location.id, asking.id)).status).toBe(404);
+    expect((await ask(dave, location.id, asking.id)).status).toBe(404);
     expect(db.drafts).toEqual([]);
     expect(queued).toEqual([]);
   });
 
   it("refuses a task with no wording to write, and one that is not this location's", async () => {
-    const { location, listing } = await withTasks();
-    expect(listing.draft_kind).toBeNull();
-    const none = await ask(alice, location.id, listing.id);
+    const { location, asking } = await withTasks();
+    // Asking customers for reviews is theirs to do: the product writes no request to them.
+    expect(asking.draft_kind).toBeNull();
+    const none = await ask(alice, location.id, asking.id);
     expect(none.status).toBe(409);
     expect(await errorCode(none)).toBe("no_draft");
     expect((await ask(alice, location.id, crypto.randomUUID())).status).toBe(404);
@@ -340,6 +345,51 @@ describe("writing a draft", () => {
 
     expect(await used(organization.id)).toEqual({ drafts: 1 });
     expect((await detailOf(alice, location.id)).drafts).toMatchObject({ allowed: 2, used: 1 });
+  });
+
+  it("writes a listing's description for a listing, from the same details", async () => {
+    const { organization, location, listing } = await withTasks();
+    expect(listing.draft_kind).toBe("listing");
+    const draft = await asked(alice, location.id, listing.id);
+
+    expect(await writeDraft(draft.id, { store: worker(), sampleData: true })).toBe("written");
+    const written = await draftOf(location.id, listing.id);
+    expect(written).toMatchObject({ status: "written", kind: "listing", sample_data: true });
+    expect(written?.text).toBe(
+      `Joe's Pizza is in Raleigh, NC. ${SAID} More at https://joespizza.example.`,
+    );
+    expect(await used(organization.id)).toEqual({ drafts: 1 });
+  });
+
+  it("asks the writer for the kind the task takes", async () => {
+    const { location, listing } = await withTasks();
+    db.scans.forEach((scan) => {
+      scan.sample_data = false;
+    });
+    const draft = await asked(alice, location.id, listing.id);
+    const writer = writing("Joe's Pizza is in Raleigh.");
+
+    await writeDraft(draft.id, { store: worker(), sampleData: false, writer });
+    expect(writer.write).toHaveBeenCalledWith(
+      {
+        kind: "listing",
+        given: expect.objectContaining({ host: "yelp.com", url: LISTING, what_we_do: SAID }),
+      },
+      expect.any(Function),
+    );
+    expect(await draftOf(location.id, listing.id)).toMatchObject({ kind: "listing" });
+  });
+
+  it("counts every kind against the one month", async () => {
+    const { organization, location, note, listing } = await withTasks();
+    const deps = { store: worker(), sampleData: true };
+    await writeDraft((await asked(alice, location.id, note.id)).id, deps);
+    await writeDraft((await asked(alice, location.id, listing.id)).id, deps);
+    expect(await used(organization.id)).toEqual({ drafts: 2 });
+    expect(db.drafts).toHaveLength(2);
+
+    const refused = await ask(alice, location.id, note.id);
+    expect(await errorCode(refused)).toBe("limit_reached");
   });
 
   it("is written once: reading it again, or a second message, writes nothing", async () => {
@@ -724,6 +774,17 @@ describe("a real draft", () => {
     const noWording = await ask(alice, location.id, note.id);
     expect(noWording.status).toBe(503);
     expect(db.drafts).toEqual([]);
+  });
+
+  it("is refused for a kind the build has no instructions for, and not for one it has", async () => {
+    const askLive = live();
+    env.ANTHROPIC_API_KEY = "test-key";
+    const { location, note, listing } = await withTasks();
+    // This build's private tuning has instructions for a note and none for a listing.
+    const none = await askLive(alice, location.id, listing.id);
+    expect(none.status).toBe(503);
+    expect(await errorCode(none)).toBe("drafts_unavailable");
+    expect((await askLive(alice, location.id, note.id)).status).toBe(202);
   });
 
   it("is failed by the worker where its writer has no instructions for the kind", async () => {

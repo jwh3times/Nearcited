@@ -32,11 +32,16 @@ const given: DraftGiven = {
 };
 
 describe("which tasks have a draft", () => {
-  it("is the ones whose work is wording", () => {
+  it("is the ones whose work is wording: a note to an author, or a listing's description", () => {
     expect(draftKindFor("editorial")).toBe("note");
-    for (const kind of ["reviews", "reviews_unasked", "directory", "unknown"] as const) {
-      expect(draftKindFor(kind)).toBeNull();
-    }
+    expect(draftKindFor("directory")).toBe("listing");
+    // It may not ask for reviews, and its listing still takes a description.
+    expect(draftKindFor("reviews_unasked")).toBe("listing");
+  });
+
+  it("is not one whose work is asking customers, or one on a site nobody knows", () => {
+    expect(draftKindFor("reviews")).toBeNull();
+    expect(draftKindFor("unknown")).toBeNull();
   });
 });
 

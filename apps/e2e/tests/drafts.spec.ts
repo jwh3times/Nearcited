@@ -98,7 +98,7 @@ test("writes a draft again in place of the first, and counts one more", async ({
 test("offers no draft on a plan that includes none, and none for a task with no wording", async ({
   page,
 }) => {
-  await withUnnamedSource(locationPath.replace("/locations/", ""), "yelp.com");
+  await withUnnamedSource(locationPath.replace("/locations/", ""), "tripadvisor.com");
   await signIn(page, account, locationPath);
   const note = page.getByRole("listitem").filter({ hasText: "Ask to be included on usnews.com" });
   await expect(note).toBeVisible();
@@ -109,10 +109,29 @@ test("offers no draft on a plan that includes none, and none for a task with no 
   await withDrafts(organizationId, 1);
   await page.reload();
   await expect(note.getByRole("button", { name: "Write a draft" })).toBeVisible();
-  // Claiming a listing is not wording to write.
-  const listing = page
+  // Asking customers for reviews is theirs to do: there is no wording to write for it.
+  const asking = page
     .getByRole("listitem")
-    .filter({ hasText: "Claim and complete your listing on yelp.com" });
-  await expect(listing).toBeVisible();
-  await expect(listing.getByRole("button", { name: "Write a draft" })).toHaveCount(0);
+    .filter({ hasText: "Ask your customers for reviews on tripadvisor.com" });
+  await expect(asking).toBeVisible();
+  await expect(asking.getByRole("button", { name: "Write a draft" })).toHaveCount(0);
+});
+
+test("writes the description for a listing", async ({ page }) => {
+  await withUnnamedSource(locationPath.replace("/locations/", ""), "yellowpages.com");
+  await withDrafts(organizationId, 1);
+  await signIn(page, account, locationPath);
+  const task = page
+    .getByRole("listitem")
+    .filter({ hasText: "Check your listing on yellowpages.com" });
+
+  await task.getByRole("button", { name: "Write a draft" }).click();
+  await task.getByLabel("What we do").fill(SAID);
+  await task.getByRole("button", { name: "Save and write a draft" }).click();
+  // A description of the business, not a note to anyone.
+  await expect(task.locator(".draft-text")).toHaveText(
+    `Joe's Pizza is in Raleigh, NC. ${SAID}`,
+    LANDS,
+  );
+  await expect(task.getByText(/^Sample text\. No model wrote this/)).toBeVisible();
 });

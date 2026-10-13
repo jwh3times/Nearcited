@@ -195,14 +195,22 @@ describe("tasks", () => {
     });
     const tasks = build(
       [
+        recommendation("source:yellowpages.com"),
         recommendation("source:usnews.com"),
         recommendation("source:tripadvisor.com"),
         recommendation("source:blog.example"),
         done,
       ],
-      [source("usnews.com", 5, 0), source("tripadvisor.com", 4, 0), source("blog.example", 3, 0)],
+      [
+        source("yellowpages.com", 6, 0),
+        source("usnews.com", 5, 0),
+        source("tripadvisor.com", 4, 0),
+        source("blog.example", 3, 0),
+      ],
     );
     expect(tasks.map((task) => [task.host, task.draft_kind])).toEqual([
+      // A listing to fill in: its description.
+      ["yellowpages.com", "listing"],
       // A page somebody wrote: a note to its author.
       ["usnews.com", "note"],
       // Asking customers for reviews is not wording to write for them.

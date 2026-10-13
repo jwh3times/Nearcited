@@ -1453,10 +1453,11 @@ export type NamedCount = z.infer<typeof NamedCountSchema>;
 
 /** One piece of work for an owner, because of one source. Composed by rule, never by a model. */
 /**
- * The kinds of draft: wording written for a task. `note` is a note to the author of a page. See
+ * The kinds of draft: wording written for a task. `note` is a note to the author of a page, and
+ * `listing` the description a directory or review site asks a business for. See
  * `docs/adr/0016-the-worker-writes-a-draft.md`.
  */
-export const DRAFT_KINDS = ["note"] as const;
+export const DRAFT_KINDS = ["note", "listing"] as const;
 export const DraftKindSchema = z.enum(DRAFT_KINDS);
 export type DraftKind = z.infer<typeof DraftKindSchema>;
 
