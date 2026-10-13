@@ -16,8 +16,8 @@ import { listedSite, sourceKind } from "./source-kinds";
 export const LISTING_URL_MAX = 500;
 
 /**
- * Google's review form is reached by the place ID a location already holds, so no listing is
- * kept for it.
+ * No listing is kept for Google: its review form is to be reached from the place ID a location
+ * already holds. Nothing builds that yet. See `REVIEW_FORMS`.
  */
 const BY_PLACE_ID = "google.com";
 
@@ -69,11 +69,59 @@ export function readListing(site: string, pasted: string): ReadListing {
 }
 
 /**
+ * Where a customer writes a review, for the sites whose form address is known, made from the
+ * address of a business's listing there.
+ *
+ * A site is here only when its own pages showed the address. One that was guessed would send a
+ * business's customers to a page that is not there, so a site that is not here gets no form
+ * address: its task shows the listing, and the customer finds the way to the form from it. Each
+ * entry says what was read and when. A listing whose address is not of the shape that was read
+ * gets none either.
+ *
+ * google.com is left out on purpose. The address in common use for its form,
+ * search.google.com/local/writereview?placeid=<place ID>, answered on 2026-10-13 by asking for a
+ * sign-in, and no page of Google's that could be read says it is the form's address: its help
+ * says to copy the link from the Business Profile.
+ */
+const REVIEW_FORMS: Record<string, (listing: URL) => string | null> = {
+  // Read on 2026-10-13. A profile's address with /leave-a-review after it is a page titled
+  // "Leave a review for <business> | BBB", and bbb.org's advice to businesses
+  // (bbb.org/all/customer-reviews/value-of-reviews) is to link to the profile or to the Leave a
+  // Review page. The profile read was in the United States:
+  // /us/<state>/<city>/profile/<category>/<name and number>.
+  "bbb.org": (listing) => {
+    const profile = /^\/us\/[a-z]{2}\/[^/]+\/profile\/[^/]+\/[^/]+/.exec(listing.pathname);
+    return profile ? `${listing.origin}${profile[0]}/leave-a-review` : null;
+  },
+  // Read on 2026-10-13. A company's page is /review/<name>, and /evaluate/<name> is a page
+  // headed "Rate <company>".
+  "trustpilot.com": (listing) => {
+    const company = /^\/(?:review|evaluate)\/([^/]+)\/?$/.exec(listing.pathname);
+    return company ? `${listing.origin}/evaluate/${company[1]}` : null;
+  },
+};
+
+/**
+ * Where a customer writes a review of the business whose listing on `site` is at `listing`.
+ * Null where the site's form address is not known, or cannot be made from this listing.
+ */
+export function reviewForm(site: string, listing: string): string | null {
+  const form = Object.hasOwn(REVIEW_FORMS, site) ? REVIEW_FORMS[site] : undefined;
+  if (!form) return null;
+  try {
+    return form(new URL(listing));
+  } catch {
+    return null;
+  }
+}
+
+/**
  * What a task for `host` holds of the business's listing there. Null when the task asks for
  * none.
  */
 export function taskListing(host: string, listings: readonly Listing[]): TaskListing | null {
   const site = listingSite(host);
   if (site === null) return null;
-  return { site, url: listings.find((listing) => listing.site === site)?.url ?? null };
+  const url = listings.find((listing) => listing.site === site)?.url ?? null;
+  return { site, url, review_url: url === null ? null : reviewForm(site, url) };
 }

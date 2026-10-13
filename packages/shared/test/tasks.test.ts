@@ -296,8 +296,9 @@ describe("tasks", () => {
         build(rules, [], new Map(), [], given).map((task) => [task.host, task.listing]),
       );
     expect(listings([kept])).toEqual({
-      "m.tripadvisor.com": { site: "tripadvisor.com", url: kept.url },
-      "bbb.org": { site: "bbb.org", url: null },
+      // No form address is known for this site, so the listing is what a customer is sent.
+      "m.tripadvisor.com": { site: "tripadvisor.com", url: kept.url, review_url: null },
+      "bbb.org": { site: "bbb.org", url: null, review_url: null },
       "yelp.com": null,
       "yellowpages.com": null,
       "usnews.com": null,
@@ -320,7 +321,31 @@ describe("tasks", () => {
       [],
       [],
     );
-    expect(task?.listing).toEqual({ site: "bbb.org", url: null });
+    expect(task?.listing).toEqual({ site: "bbb.org", url: null, review_url: null });
+  });
+
+  it("carries where a customer writes a review, on a site whose form address is known", () => {
+    const profile = "https://www.bbb.org/us/nc/raleigh/profile/pizza/tonys-0593-1234";
+    const [task] = build(
+      [recommendation("source:bbb.org")],
+      [],
+      new Map(),
+      [],
+      [
+        {
+          location_id: "00000000-0000-4000-8000-0000000000aa",
+          site: "bbb.org",
+          url: `${profile}/customer-reviews`,
+          set_by_email: null,
+          set_at: "2026-10-13T00:00:00.000Z",
+        },
+      ],
+    );
+    expect(task?.listing).toEqual({
+      site: "bbb.org",
+      url: `${profile}/customer-reviews`,
+      review_url: `${profile}/leave-a-review`,
+    });
   });
 
   it("leaves out a dismissed one, and one that cleared without anyone marking it", () => {

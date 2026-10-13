@@ -1533,6 +1533,11 @@ export const TaskListingSchema = z.object({
   site: z.string(),
   /** The listing's address. Null until a member gives it. */
   url: z.string().nullable(),
+  /**
+   * Where a customer writes a review, made from the listing. Null until there is a listing, and
+   * for a site whose form address is not known: the listing is then what a customer is sent.
+   */
+  review_url: z.string().nullable(),
 });
 export type TaskListing = z.infer<typeof TaskListingSchema>;
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { LISTING_URL_MAX, listingSite, readListing } from "../src/listings";
+import { LISTING_URL_MAX, listingSite, readListing, reviewForm } from "../src/listings";
 import { listedSite } from "../src/source-kinds";
 
 describe("the name a site goes by on the list", () => {
@@ -28,7 +28,7 @@ describe("which sites a task asks for a listing on", () => {
     }
   });
 
-  it("is not Google, whose review form is reached by the place ID a location holds", () => {
+  it("is not Google, which is to be reached by the place ID a location holds", () => {
     expect(listingSite("google.com")).toBeNull();
     expect(listingSite("maps.google.com")).toBeNull();
   });
@@ -109,5 +109,87 @@ describe("reading a pasted listing", () => {
     expect(readListing("bbb.org", `${most}a`)).toEqual({
       problem: `Paste an address of ${LISTING_URL_MAX} characters or fewer.`,
     });
+  });
+});
+
+describe("where a customer writes a review", () => {
+  const PROFILE = "https://www.bbb.org/us/nc/raleigh/profile/pizza/joes-pizza-0593-1234";
+
+  it("is the profile's own review page on bbb.org, whichever page of the profile was pasted", () => {
+    expect(reviewForm("bbb.org", PROFILE)).toBe(`${PROFILE}/leave-a-review`);
+    for (const pasted of [
+      `${PROFILE}/`,
+      `${PROFILE}/customer-reviews`,
+      `${PROFILE}/customer-reviews?page=2`,
+      `${PROFILE}/leave-a-review`,
+      `${PROFILE}/complaints`,
+    ]) {
+      expect(reviewForm("bbb.org", pasted), pasted).toBe(`${PROFILE}/leave-a-review`);
+    }
+  });
+
+  it("is the company's rating page on trustpilot.com, on the part of the site it was pasted from", () => {
+    expect(
+      reviewForm("trustpilot.com", "https://www.trustpilot.com/review/joespizza.example"),
+    ).toBe("https://www.trustpilot.com/evaluate/joespizza.example");
+    expect(
+      reviewForm("trustpilot.com", "https://uk.trustpilot.com/review/joespizza.example?stars=5"),
+    ).toBe("https://uk.trustpilot.com/evaluate/joespizza.example");
+    // The form's own address is the form.
+    expect(
+      reviewForm("trustpilot.com", "https://www.trustpilot.com/evaluate/joespizza.example"),
+    ).toBe("https://www.trustpilot.com/evaluate/joespizza.example");
+  });
+
+  it("is not made from a listing whose address is not of the shape that was read", () => {
+    for (const [site, listing] of [
+      // Not a profile: a search, a category, a profile in a country that was not read.
+      ["bbb.org", "https://www.bbb.org/search?find_text=pizza"],
+      ["bbb.org", "https://www.bbb.org/us/nc/raleigh/category/pizza"],
+      ["bbb.org", "https://www.bbb.org/us/nc/raleigh/profile/pizza"],
+      ["bbb.org", "https://www.bbb.org/ca/on/toronto/profile/pizza/joes-pizza-0107-1234"],
+      ["trustpilot.com", "https://www.trustpilot.com/categories/restaurants_bars"],
+      ["trustpilot.com", "https://www.trustpilot.com/review/joespizza.example/transparency"],
+      ["trustpilot.com", "https://www.trustpilot.com/review/"],
+      ["bbb.org", "not an address"],
+    ] as const) {
+      expect(reviewForm(site, listing), listing).toBeNull();
+    }
+  });
+
+  it("is not known for any other site, so none is guessed", () => {
+    for (const site of [
+      "angi.com",
+      "capterra.com",
+      "g2.com",
+      "houzz.com",
+      "thumbtack.com",
+      "tripadvisor.com",
+      "zillow.com",
+      // Not sites a listing is kept for at all.
+      "google.com",
+      "yelp.com",
+      "somewhere.example",
+      // Not names a careless lookup should find.
+      "constructor",
+      "toString",
+      "__proto__",
+    ]) {
+      expect(
+        reviewForm(site, `https://www.${site}/us/nc/raleigh/profile/pizza/joes-1`),
+        site,
+      ).toBeNull();
+    }
+  });
+
+  it("stays on the site the listing is on", () => {
+    for (const [site, listing] of [
+      ["bbb.org", "https://www.bbb.org/us/nc/raleigh/profile/pizza/joes-pizza-0593-1234"],
+      ["trustpilot.com", "https://www.trustpilot.com/review/joespizza.example"],
+    ] as const) {
+      const form = new URL(reviewForm(site, listing) ?? "");
+      expect(form.protocol).toBe("https:");
+      expect(form.host).toBe(new URL(listing).host);
+    }
   });
 });

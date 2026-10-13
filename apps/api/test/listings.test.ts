@@ -135,7 +135,7 @@ describe("a task that asks for the business's listing", () => {
     const tasks = (await detailOf(alice, location.id)).tasks;
     expect(Object.fromEntries(tasks.map((task) => [task.host, task.listing]))).toEqual({
       // The subdomain an answer cited is the same site.
-      "m.tripadvisor.com": { site: "tripadvisor.com", url: null },
+      "m.tripadvisor.com": { site: "tripadvisor.com", url: null, review_url: null },
       "yelp.com": null,
       "usnews.com": null,
     });
@@ -159,6 +159,8 @@ describe("giving a listing", () => {
     expect(await listingOn(alice, location.id, "m.tripadvisor.com")).toEqual({
       site: "tripadvisor.com",
       url: PAGE,
+      // No form address is known for this site, so the listing is what a customer is sent.
+      review_url: null,
     });
   });
 
@@ -194,7 +196,12 @@ describe("giving a listing", () => {
     expect(await listingOn(alice, location.id, "bbb.org")).toBeUndefined();
 
     await scanThatRead(location.id, query.id, ["bbb.org"]);
-    expect(await listingOn(alice, location.id, "bbb.org")).toEqual({ site: "bbb.org", url: page });
+    expect(await listingOn(alice, location.id, "bbb.org")).toEqual({
+      site: "bbb.org",
+      url: page,
+      // Where the site's form address is known, the task carries that too.
+      review_url: `${page}/leave-a-review`,
+    });
   });
 
   it("refuses an address that is not a page on the site, and keeps nothing", async () => {
@@ -228,7 +235,7 @@ describe("giving a listing", () => {
       "yellowpages.com",
       "usnews.com",
       "somewhere.example",
-      // Its review form is reached by the place ID a location holds.
+      // To be reached by the place ID a location holds, so none is kept for it.
       "google.com",
       // A site goes by the name the list gives it and no other.
       "www.tripadvisor.com",
@@ -254,6 +261,7 @@ describe("taking a listing away", () => {
     expect(await listingOn(alice, location.id, "m.tripadvisor.com")).toEqual({
       site: "tripadvisor.com",
       url: null,
+      review_url: null,
     });
   });
 
@@ -283,6 +291,7 @@ describe("who a listing answers", () => {
     expect(await listingOn(dave, location.id, "m.tripadvisor.com")).toEqual({
       site: "tripadvisor.com",
       url: PAGE,
+      review_url: null,
     });
     const refused = await set(dave, location.id, "tripadvisor.com", OTHER);
     expect(refused.status).toBe(404);
