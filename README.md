@@ -54,9 +54,9 @@ shareable audit both show the table.
 Each scan also reads the business's own home page the way an assistant's crawler would, without
 running scripts: does it load, does `robots.txt` let the assistants' search crawlers in, is it
 free of `noindex`, does it have text, does that text state the business name and city, and does
-it carry structured business details. Each failed check is a recommendation that clears when a
-later scan finds it fixed. Where a page has no structured business details, the location page
-offers a block of them to copy into the page, built from the details on file and nothing else.
+it carry structured business details that name the business. Each failed check is a recommendation
+that clears when a later scan finds it fixed. Where a page has none, the location page offers a
+block of them to copy into the page, built from the details on file and nothing else.
 The shareable audit shows the whole checklist. The fetch identifies
 itself as `NearcitedBot`, with a link to the public `/bot` page, and is skipped while the deployment serves sample data.
 
@@ -650,12 +650,12 @@ pnpm sync:agents
   [ADR 0014](docs/adr/0014-only-the-worker-carries-out-an-action.md) decides is built, and no real
   kind uses it: the sample kind is given 30 days to keep what it replaced, so that dropping can be
   seen, it does no task's work, and it takes from no allowance, since no kind of allowance exists.
-- **A check that the structured details name this business.** Where the on-page check finds no
-  structured business details, the Website tab and the action plan offer a block to paste. The
-  check itself passes for any JSON-LD block with a name and an address, not only one naming this
-  business. Nothing marks that a block was added or compares the answers from before and since, and
-  opening hours are not held, so the block has none
-  ([#137](https://github.com/jwh3times/Nearcited/issues/137)).
+- **A check of the structured details beyond the name.** Where the on-page check finds no
+  structured business details that name the business, the Website tab and the action plan offer a
+  block to paste. The check passes for a JSON-LD block that names this business and gives an
+  address; what else the block says is not compared with what is on file. Nothing marks that a
+  block was added or compares the answers from before and since, and opening hours are not held,
+  so the block has none ([#137](https://github.com/jwh3times/Nearcited/issues/137)).
 - **An alert about a wrong address.** A drop, a business named for the first time, a site read for
   the first time and a phone number the answers give that is not the location's are built, shown
   on the Overview tab, counted on the locations table and emailed to the owners in the scan
