@@ -14,5 +14,6 @@ export function locationFormValues(location: Location): Required<LocationFormVal
     country_code: location.country_code,
     google_place_id: location.google_place_id ?? "",
     primary_category: location.primary_category ?? "",
+    what_we_do: location.what_we_do ?? "",
   };
 }

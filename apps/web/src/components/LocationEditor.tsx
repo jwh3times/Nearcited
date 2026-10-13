@@ -3,6 +3,7 @@ import {
   type Location,
   type LocationFormValues,
   LocationInputSchema,
+  WHAT_WE_DO_MAX,
 } from "@nearcited/shared";
 import { useMutation } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
@@ -10,7 +11,7 @@ import { api } from "../lib/api";
 import { useFormErrors } from "../lib/form";
 import { locationFormValues } from "../lib/location";
 import { ErrorNote } from "./ErrorNote";
-import { Field } from "./Field";
+import { Field, LongField } from "./Field";
 
 type TextField = keyof LocationFormValues;
 
@@ -118,6 +119,13 @@ export function LocationEditor({ location, onSaved, readOnly }: LocationEditorPr
           autoCapitalize="none"
           maxLength={200}
           {...field("google_place_id")}
+        />
+        <LongField
+          label="What we do"
+          maxLength={WHAT_WE_DO_MAX}
+          placeholder="Wood-fired pizza and fresh pasta in downtown Raleigh, family-run since 1998."
+          hint="A few sentences in your own words: what you do, who for, and what you are known for. Scans do not use this."
+          {...field("what_we_do")}
         />
       </div>
 

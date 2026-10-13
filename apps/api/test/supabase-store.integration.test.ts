@@ -555,6 +555,19 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
       await aliceStore.updateLocation(location.id, { ...fields, phone: "919-555-0100" }),
     ).toEqual({ ...location, phone: "919-555-0100" });
     expect(await aliceStore.updateLocation(location.id, fields)).toEqual(location);
+    // What the business says it does is written when given and left alone when left out.
+    const { what_we_do: _said, ...unsaid } = fields;
+    expect(
+      await aliceStore.updateLocation(location.id, { ...unsaid, what_we_do: "Wood-fired pizza." }),
+    ).toEqual({ ...location, what_we_do: "Wood-fired pizza." });
+    expect(await aliceStore.updateLocation(location.id, unsaid)).toEqual({
+      ...location,
+      what_we_do: "Wood-fired pizza.",
+    });
+    expect(await aliceStore.updateLocation(location.id, fields)).toEqual(location);
+    await expect(
+      aliceStore.updateLocation(location.id, { ...unsaid, what_we_do: "a".repeat(601) }),
+    ).rejects.toThrow();
     await expect(
       bobStore.createLocation(organization.id, { ...location, name: "Planted" }),
     ).rejects.toMatchObject({ kind: "forbidden" });

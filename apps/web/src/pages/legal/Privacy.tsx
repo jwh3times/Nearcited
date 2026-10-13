@@ -29,8 +29,8 @@ export function Privacy() {
         </li>
         <li>
           <strong>What you enter about your business.</strong> The organization's name, and for each
-          location its name, address, phone number, website, category and Google place ID, and the
-          prompts and keywords you choose to track.
+          location its name, address, phone number, website, category, Google place ID and what you
+          say the business does, and the prompts and keywords you choose to track.
         </li>
         <li>
           <strong>What the scans find.</strong> The answers AI assistants gave to your prompts,
