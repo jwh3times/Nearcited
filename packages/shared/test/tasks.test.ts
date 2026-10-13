@@ -222,6 +222,26 @@ describe("tasks", () => {
     ]);
   });
 
+  it("offers no draft of a kind that cannot be written where it is asked", () => {
+    const input = {
+      name: "Tony's",
+      recommendations: [
+        recommendation("source:yellowpages.com"),
+        recommendation("source:usnews.com"),
+      ],
+      sources: [source("yellowpages.com", 6, 0), source("usnews.com", 5, 0)],
+      answers: 10,
+      evidence: new Map(),
+      drafts: [],
+    };
+    const kinds = (writes?: (kind: string) => boolean) =>
+      buildTasks({ ...input, writes }).map((task) => task.draft_kind);
+    expect(kinds()).toEqual(["listing", "note"]);
+    // A build with instructions for a note and none for a listing.
+    expect(kinds((kind) => kind === "note")).toEqual([null, "note"]);
+    expect(kinds(() => false)).toEqual([null, null]);
+  });
+
   it("carries each task's own draft, and keeps one that was written once the task is done", () => {
     const open = recommendation("source:usnews.com");
     const done = recommendation("source:money.usnews.com", {

@@ -21,6 +21,7 @@ import {
 } from "@nearcited/shared";
 import { Hono } from "hono";
 import type { AppEnv } from "../app";
+import { writesRealDrafts } from "../drafts";
 import { notFound } from "../errors";
 import { checkedSurfaces, planSurfaces, usesSampleData } from "../providers";
 import type { Store } from "../store/types";
@@ -126,6 +127,8 @@ locationRoutes.get("/locations/:id", async (c) => {
       answers: answers.length,
       evidence,
       drafts,
+      // No task is offered a draft this build could only refuse to write.
+      writes: (kind) => sample || writesRealDrafts(c.env, c.get("deployment").draft_kinds, kind),
     }),
     drafts: draftsStanding(
       organization?.allowances ?? {},

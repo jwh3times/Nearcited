@@ -1,5 +1,13 @@
 import { draftKindFor } from "./drafts";
-import type { Draft, NamedCount, Recommendation, SourceKind, SourceSummary, Task } from "./schemas";
+import type {
+  Draft,
+  DraftKind,
+  NamedCount,
+  Recommendation,
+  SourceKind,
+  SourceSummary,
+  Task,
+} from "./schemas";
 import { sourceKind } from "./source-kinds";
 import { type SourcedAnswer, summarizeSources } from "./sources";
 
@@ -38,6 +46,11 @@ export interface TaskInput {
   evidence: ReadonlyMap<string, TaskEvidence>;
   /** The location's drafts, each for one recommendation. */
   drafts: readonly Draft[];
+  /**
+   * Whether a draft of a kind can be written where this is asked. Left out, every kind can. A
+   * task is offered no draft that would only be refused.
+   */
+  writes?: (kind: DraftKind) => boolean;
 }
 
 /** The host a recommendation is about, or null when its rule is not about a source. */
@@ -97,6 +110,14 @@ function summaryOf(
   return `${host} is no longer one of the sites read most for answers that leave ${name} out.`;
 }
 
+/** The kind of draft, or none where it cannot be written here. */
+function writable(
+  kind: DraftKind | null,
+  writes: TaskInput["writes"] = () => true,
+): DraftKind | null {
+  return kind !== null && writes(kind) ? kind : null;
+}
+
 /**
  * The tasks to show: one for each source the rule fires for now, most cited first, then the few
  * most recently done whose rule has since stopped firing. A dismissed recommendation has none.
@@ -126,7 +147,7 @@ export function buildTasks(input: TaskInput): Task[] {
       before: evidence ? namedCount(evidence.before, host) : null,
       since: evidence ? namedCount(evidence.since, host) : null,
       // A draft is asked for while the work is still to do. One already written stays to be read.
-      draft_kind: open ? draftKindFor(kind) : null,
+      draft_kind: open ? writable(draftKindFor(kind), input.writes) : null,
       draft: input.drafts.find((draft) => draft.recommendation_id === recommendation.id) ?? null,
     });
   }

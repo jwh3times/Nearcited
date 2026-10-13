@@ -787,6 +787,37 @@ describe("a real draft", () => {
     expect((await askLive(alice, location.id, note.id)).status).toBe(202);
   });
 
+  it("is offered on a task only where it could be written", async () => {
+    const { location } = await withTasks();
+    const kinds = async (app: typeof priced) =>
+      LocationDetailSchema.parse(
+        await (await app.request(`/api/locations/${location.id}`, bearer(alice), env)).json(),
+      ).tasks.map((task) => [task.host, task.draft_kind]);
+    const sample = [
+      ["travel.usnews.com", "note"],
+      ["tripadvisor.com", null],
+      ["yelp.com", "listing"],
+    ];
+    // Sample data: every kind is written, as sample text.
+    expect((await kinds(priced)).sort()).toEqual(sample);
+
+    // Real data, with instructions for a note only, and no key yet: nothing can be written, so
+    // no task offers a draft that asking would refuse.
+    env.PROVIDER_MODE = "live";
+    db.scans.forEach((scan) => {
+      scan.sample_data = false;
+    });
+    expect((await kinds(priced)).map(([, kind]) => kind)).toEqual([null, null, null]);
+    env.ANTHROPIC_API_KEY = "test-key";
+    expect((await kinds(priced)).sort()).toEqual([
+      ["travel.usnews.com", "note"],
+      ["tripadvisor.com", null],
+      ["yelp.com", null],
+    ]);
+    // A build without the private tuning has instructions for none.
+    expect((await kinds(app)).map(([, kind]) => kind)).toEqual([null, null, null]);
+  });
+
   it("is failed by the worker where its writer has no instructions for the kind", async () => {
     const { organization, location, note } = await withTasks();
     db.scans.forEach((scan) => {

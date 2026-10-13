@@ -100,7 +100,8 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
       max_queries_per_location: 10,
       max_manual_scans_per_month: 10,
       emails_report: true,
-      allowances: {},
+      // What the plan includes comes with it.
+      allowances: { drafts: 30 },
       surfaces: ["chatgpt", "claude"],
     });
     // Billing: only the owner is told where the organization stands, and only the worker
@@ -796,8 +797,14 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
 
     // Drafts: a member asks, the worker writes, and the month counts what was written.
     expect(await aliceStore.listDrafts(location.id)).toEqual([]);
-    await expect(aliceStore.askDraft(recommendation.id)).rejects.toMatchObject({ kind: "limit" });
     const service = client(await token({ role: "service_role" }));
+    // On a plan with none, as the free plan is, there is nothing to ask for.
+    await service
+      .from("organizations")
+      .update({ allowances: {} })
+      .eq("id", organization.id)
+      .throwOnError();
+    await expect(aliceStore.askDraft(recommendation.id)).rejects.toMatchObject({ kind: "limit" });
     await service
       .from("organizations")
       .update({ allowances: { drafts: 1 }, max_locations: 1 })
@@ -890,7 +897,7 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
     ).toMatchObject([{ organization_id: organization.id, is_audit: false, calls: 1 }]);
     await service
       .from("organizations")
-      .update({ allowances: {}, max_locations: organization.max_locations })
+      .update({ allowances: organization.allowances, max_locations: organization.max_locations })
       .eq("id", organization.id)
       .throwOnError();
     // An action that does the work marks it when it is carried out, and that mark is not a
