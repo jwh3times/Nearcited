@@ -40,8 +40,9 @@ system works; this file only settles vocabulary.
 - **First sighting**: the alert that the written answers have begun to name a business, or to
   cite a site, that no written answer of any earlier scan on record named or cited. Said once,
   and of the whole record, not of the scan window.
-- **Draft**: wording written for one of an owner's tasks, such as the note to a page's author. A
-  member asks for it, a model writes it, and it is labelled as a model's. It states nothing about
+- **Draft**: wording written for one of an owner's tasks: the note to a page's author, or the
+  description for a listing. A member asks for it, a model writes it, and it is labelled as a
+  model's. It states nothing about
   the business beyond what the location holds and what its owner said it does. There is one for
   a task, and writing it again replaces it. The owner sends or publishes it themselves, or
   approves an action that does. Never a measurement, a step or a recommendation. See
