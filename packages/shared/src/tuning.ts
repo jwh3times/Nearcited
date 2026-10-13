@@ -145,6 +145,8 @@ export const defaultTuning: Tuning = {
     max_tokens: 1000,
     instructions: {
       note: "Write a short note from the owner of the business to the author of the page, asking to be considered for it. Use only the details given.",
+      listing:
+        "Write a short description of the business for its listing on the site. Use only the details given.",
     },
   },
 };

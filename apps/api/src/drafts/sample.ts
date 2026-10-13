@@ -27,6 +27,14 @@ const SAMPLE: Record<DraftKind, (given: DraftGiven) => string> = {
     ]
       .filter((line) => line !== null)
       .join("\n\n"),
+  listing: (given) =>
+    [
+      `${given.name} is in ${place(given)}.`,
+      given.what_we_do,
+      given.website ? `More at ${given.website}.` : null,
+    ]
+      .filter((line) => line !== null)
+      .join(" "),
 };
 
 /**

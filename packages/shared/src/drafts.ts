@@ -25,6 +25,11 @@ export const DRAFTS_ALLOWANCE = "drafts";
 const DRAFT_FOR: Partial<Record<SourceKind, DraftKind>> = {
   // A page somebody wrote: the work is a note to its author.
   editorial: "note",
+  // A listing to claim and fill in: the field that takes writing is the description.
+  directory: "listing",
+  reviews_unasked: "listing",
+  // `reviews` has none: its work is asking customers, and the product writes no request to them.
+  // `unknown` has none: nobody knows what the site would take.
 };
 
 /** The kind of draft a task about a site of this kind has, or null when it has no wording to write. */

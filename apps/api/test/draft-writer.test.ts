@@ -140,6 +140,14 @@ describe("the Claude draft writer", () => {
     expect(String(fetchStub.mock.calls[0]?.[0])).toContain("/v1/messages");
   });
 
+  it("sends the instructions for the kind it is asked for", async () => {
+    const instructions = { note: "Write a note.", listing: "Write a description." };
+    const fetchStub = respondWith({ body: message([text("Joe's Pizza is in Raleigh.")]) });
+    await writer(fetchStub, { instructions }).write({ kind: "listing", given });
+    expect(sentBody(fetchStub).system).toBe("Write a description.");
+    expect(writer(fetchStub, { instructions }).kinds).toEqual(["note", "listing"]);
+  });
+
   it("returns the text it was given back, whole", async () => {
     const fetchStub = respondWith({ body: message([text(NOTE)]) });
     expect(await writer(fetchStub).write({ kind: "note", given })).toBe(NOTE);

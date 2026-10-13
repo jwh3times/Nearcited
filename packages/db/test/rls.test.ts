@@ -5116,10 +5116,11 @@ describe("the operator", () => {
       await expect(finish(id, "lost")).rejects.toThrow(/written, failed or again/);
 
       expect(
-        await finish(id, "written", ", body => 'Sample.', of_kind => 'note', sample => true"),
+        await finish(id, "written", ", body => 'Sample.', of_kind => 'listing', sample => true"),
       ).toBe(true);
+      // The other kind there is: a listing's description.
       expect(await drafts()).toMatchObject([
-        { status: "written", text: "Sample.", model: null, sample_data: true },
+        { status: "written", text: "Sample.", kind: "listing", model: null, sample_data: true },
       ]);
     });
 

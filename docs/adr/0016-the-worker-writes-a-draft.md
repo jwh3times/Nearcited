@@ -11,6 +11,14 @@ description for a listing. A draft is that wording.
 it, that it is labelled as a model's, and that it states no fact about the business nobody gave.
 This record is how that is kept.
 
+**A task has a draft where its work is wording.** There are two kinds. A note, for a task about
+a page somebody wrote: the work is asking its author. A listing's description, for a task about a
+directory, or about a review site that does not let a business ask for reviews: the listing is
+claimed and filled in, and the field that takes writing is the description. A task whose work is
+asking customers for reviews has none, since the product writes nothing to a business's
+customers. A task about a site of a kind nobody knows has none either: nobody knows what the site
+would take.
+
 **A draft is asked for, not written when a task is opened.** A member presses a button on the
 task. A plan gives a number of drafts a month, and writing one for every task a page shows would
 spend the month on tasks nobody means to do, and charge an owner for looking.

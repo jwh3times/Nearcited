@@ -434,12 +434,14 @@ from counts the product holds; nothing a model wrote is in one.
   The mark on the structured details uses the same read (see "The on-page check").
 - A dismissed recommendation has no task. Ticks on action-plan steps are still kept in the browser
   only. The operator's read-only view hides the buttons.
-- A task about a page somebody wrote (`editorial`) can have a draft: the note to its author. The
+- A task about a page somebody wrote (`editorial`) can have a draft, the note to its author, and
+  so can one about a directory or a review site that does not let a business ask for reviews
+  (`directory`, `reviews_unasked`), whose draft is the description its listing asks for. One about
+  asking customers for reviews (`reviews`) or about a site nobody knows (`unknown`) has none. The
   route returns `draft_kind` for a task that is still to do and `draft` once one has been asked
   for (see "Drafts"). The task's own wording is unchanged, and still composed by rule.
-- Not built: any draft but the note (see "Drafts"), a direct
-  review link, a printable code or request text, page copy as a task, and anything the product
-  does outside itself for real. Approvals and actions exist (see "Actions") but the only kind is a
+- Not built: a direct review link, a printable code or request text, page copy as a task (and so
+  a draft of it), and anything the product does outside itself for real. Approvals and actions exist (see "Actions") but the only kind is a
   sample one, which does no task's work, so no action has marked a task.
 
 ## Alerts
@@ -941,18 +943,23 @@ reading through an account sees the tab and has no buttons.
 
 ## Drafts
 
-A draft is wording written for one of an owner's tasks, so that the owner has less to write: so far
-the note to the author of a page, for a task about a site of the `editorial` kind (`drafts`; the
-terms are in `GLOSSARY.md`, the decision in `docs/adr/0016-the-worker-writes-a-draft.md`). It is
-`asked`, then `written` or `failed`. The product sends nothing: the owner copies it and changes it
-wherever it is going. On sample data the text is generated; on real data Claude writes it, from the
+A draft is wording written for one of an owner's tasks, so that the owner has less to write: the
+note to the author of a page, or the description a directory or review site asks a business for
+(`drafts`; the terms are in `GLOSSARY.md`, the decision in
+`docs/adr/0016-the-worker-writes-a-draft.md`). It is `asked`, then `written` or `failed`. The
+product sends nothing: the owner copies it and changes it wherever it is going. On sample data the text is generated; on real data Claude writes it, from the
 instructions the private tuning holds for its kind.
 
 - **Which tasks have one.** `draftKindFor` (`packages/shared/src/drafts.ts`) names the kind of
-  draft for a kind of site: `note` for `editorial`, nothing for the others. `buildTasks` puts it on
-  a task as `draft_kind` only while the task is still to do, and puts the task's own `draft` beside
-  it, kept after the task is marked done. There is one draft for a task (`recommendation_id` is
-  unique).
+  draft for a kind of site: `note` for `editorial`, and `listing` for `directory` and for
+  `reviews_unasked`, a review site that does not let a business ask for reviews, whose listing is
+  claimed and filled in. There is none for `reviews`, whose work is asking customers and which the
+  product writes nothing to, or for `unknown`. The two kinds are `DRAFT_KINDS`
+  (`packages/shared/src/schemas.ts`), and the check on `drafts.kind` takes both. A draft of either
+  kind is asked for, written, checked, kept and counted the same way, against the one monthly
+  number. `buildTasks` puts it on a task as `draft_kind` only while the task is still to do, and
+  puts the task's own `draft` beside it, kept after the task is marked done. There is one draft for
+  a task (`recommendation_id` is unique).
 - **A member asks, and a request records it.** `POST /api/locations/:locationId/tasks/:taskId/draft`
   reads the location's tasks as they stand (`currentTasks`, `apps/api/src/tasks.ts`: the same pool
   the rates use, without the counts either side of a mark, and for the kind of data the page shows)
@@ -1002,14 +1009,17 @@ instructions the private tuning holds for its kind.
   catches an invented phone number, year, price, link or address to write to, and does not catch a
   boast. It runs on whatever wrote the text.
 - **Sample text is nobody's writing.** For sample data, `sampleWriter` (`apps/api/src/drafts/sample.ts`)
-  generates the note from `DraftGiven` and calls nothing. It goes through the same check and the
-  same count, and is kept with `sample_data` true and no `model`. The page labels it as sample text
-  that no model wrote, and a real draft as a model's.
+  generates the text for the kind from `DraftGiven` (a note, or one short paragraph for a listing)
+  and calls nothing. It goes through the same check and the same count, and is kept with
+  `sample_data` true and no `model`. The page labels it as sample text that no model wrote, and a
+  real draft as a model's.
 - **A real draft is written by Claude, with no tools.** `createClaudeDraftWriter`
   (`apps/api/src/drafts/claude.ts`) calls Anthropic's Messages API through its SDK, with no web
   search and no other tool, so it cannot look up the business and bring back what it finds. The
   system prompt is the instructions for the draft's kind, from `drafts.instructions` in the
-  tuning; the user message is `setOut(given)`: `DraftGiven` one detail to a line, each with its
+  tuning, so a build writes a kind on real data only if its private tuning has instructions for that
+  kind (a build with them for a note and none for a listing writes notes and refuses to ask for
+  listings); the user message is `setOut(given)`: `DraftGiven` one detail to a line, each with its
   name, and "not on file" for one that is null, the same way every time. The model, its effort and
   the longest a draft may run (`max_tokens`) are the tuning's too. It makes one call per write,
   with a 60-second timeout and no retries, since a draft that fails is not counted and its reader
@@ -1371,8 +1381,9 @@ drop it.
   been measured: a draft's use is recorded, so the figure can be read from `provider_usage` once
   real drafts are written, and a month given back does not return what a failed write cost, so a
   writer that keeps failing the check is paid for twice an ask and shows only in the operator's
-  spend. The only kind of draft is the note to the author of a page; a description for a listing is
-  not built. The check on what a draft states reads characters and not meaning.
+  spend. Two kinds of draft exist, the note to the author of a page and the description for a
+  listing; copy for a page on the business's own site is not built. The check on what a draft states
+  reads characters and not meaning.
 - Nothing seals the sign-ins again under a new `CONNECTIONS_KEY`. Changing or losing the key makes
   every sign-in kept unreadable and its owner has to connect again; a sync of one changes nothing,
   and a removal still finishes but cannot take the access back at the outside service (see
