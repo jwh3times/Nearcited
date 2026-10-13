@@ -140,7 +140,7 @@ describe("reading the review link Google gives a business", () => {
 
   it("keeps another address of Google's that a customer can open", () => {
     for (const pasted of [
-      "https://search.google.com/local/writereview?placeid=ChIJN1t_tDeuEmsRUsoyG83frY4",
+      "https://search.google.com/local/writereview?placeid=ChIJ0000000000000000000000000",
       "https://www.google.com/maps/place/Joes+Pizza/@35.77,-78.63,17z",
       "https://maps.google.com/?cid=1234567890",
     ]) {
