@@ -21,6 +21,7 @@ import { Onboarding } from "./pages/Onboarding";
 import { Operator } from "./pages/Operator";
 import { OperatorPlan } from "./pages/OperatorPlan";
 import { Pricing } from "./pages/Pricing";
+import { ReviewCard } from "./pages/ReviewCard";
 import { SignIn } from "./pages/SignIn";
 
 export function App() {
@@ -83,6 +84,7 @@ function SignedIn() {
       <Routes>
         <Route index element={<Locations organization={organization} />} />
         <Route path="locations/:id" element={<LocationDetail />} />
+        <Route path="locations/:id/review-card/:site" element={<ReviewCard />} />
         <Route
           path="settings"
           element={<AccountSettings organization={organization} email={me.data.email} />}
@@ -136,6 +138,7 @@ function ReadThrough({ me, organizationId }: { me: Me; organizationId: string })
           <Route path={base}>
             <Route index element={<Locations organization={organization.data} />} />
             <Route path="locations/:id" element={<LocationDetail />} />
+            <Route path="locations/:id/review-card/:site" element={<ReviewCard />} />
             <Route
               path="plan"
               element={<OperatorPlan key={organizationId} organization={organization.data} />}

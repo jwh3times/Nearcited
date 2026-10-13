@@ -3,7 +3,7 @@ import { useMutation } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
 import { api } from "../lib/api";
 import { useCopy } from "../lib/copy";
-import { askWords, keptWords, listingView } from "../lib/listings";
+import { askWords, keptWords, listingView, sentLink } from "../lib/listings";
 import { ErrorNote } from "./ErrorNote";
 import { Field } from "./Field";
 
@@ -41,8 +41,7 @@ interface ListingProps extends Omit<TaskListingProps, "task"> {
 
 function Listing({ listing, locationId, readOnly, onChanged }: ListingProps) {
   const { site, url } = listing;
-  // What a customer is sent: the review form where its address is known, or else the listing.
-  const sent = listing.review_url ?? url;
+  const sent = sentLink(listing);
   const words = askWords(site);
   const { copied, copy } = useCopy();
   // Open while one that is kept is being replaced. With none kept the field is always there.

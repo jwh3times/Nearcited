@@ -15,6 +15,14 @@ export function listingView(task: Pick<Task, "listing">, readOnly: boolean): Lis
   return readOnly ? "nothing" : "ask";
 }
 
+/**
+ * What a customer is sent: the review form where its address is known, or else the listing. Null
+ * until a listing is kept.
+ */
+export function sentLink(listing: Pick<TaskListing, "url" | "review_url">): string | null {
+  return listing.review_url ?? listing.url;
+}
+
 /** Where an owner finds what a task asks for, for a site whose own help says. */
 export interface Finding {
   /** What the thing is, for an owner who has not heard of it. */

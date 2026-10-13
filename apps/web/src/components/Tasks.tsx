@@ -6,6 +6,7 @@ import { plansLineBelongs } from "../lib/drafts";
 import { formatDate } from "../lib/format";
 import { KIND_LABELS, markedDone, proof } from "../lib/tasks";
 import { ErrorNote } from "./ErrorNote";
+import { TaskAsking } from "./TaskAsking";
 import { TaskDraft } from "./TaskDraft";
 import { TaskListing } from "./TaskListing";
 
@@ -81,6 +82,7 @@ export function Tasks({ tasks, location, drafts, onChanged, readOnly }: TasksPro
                   readOnly={readOnly}
                   onChanged={onChanged}
                 />
+                <TaskAsking task={task} location={location} />
                 <TaskDraft
                   task={task}
                   location={location}
