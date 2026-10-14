@@ -25,6 +25,7 @@ import {
   StoredAuditSchema,
   TrackedQuerySchema,
   UsageByMonthSchema,
+  VisitLineSchema,
 } from "@nearcited/shared";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
@@ -197,6 +198,8 @@ const DRAFT_COLUMNS =
   "id, location_id, recommendation_id, status, asked_by_email, asked_at, failure, kind, text, written_at, sample_data";
 
 const LISTING_COLUMNS = "location_id, site, url, set_by_email, set_at";
+
+const LINE_COLUMNS = "location_id, key, key_made_at, checked_on";
 
 const ALERT_COLUMNS =
   "id, location_id, kind, tracked_query_id, surface, facts, since, scan_id, raised_at, cleared_at, clear_reason, dismissed_at, dismissed_by_email";
@@ -483,6 +486,25 @@ export function createSupabaseStore(
       });
       if (error) fail("Remove a listing", error);
       return data === true;
+    },
+
+    async getVisitLine(locationId) {
+      const { data, error } = await db
+        .from("visit_lines")
+        .select(LINE_COLUMNS)
+        .eq("location_id", locationId)
+        .maybeSingle();
+      if (error) fail("Get a line", error);
+      return data ? VisitLineSchema.parse(data) : null;
+    },
+
+    async replaceSiteKey(locationId) {
+      const { data, error } = await db
+        .rpc("replace_site_key", { location: locationId })
+        .select(LINE_COLUMNS)
+        .maybeSingle();
+      if (error) fail("Replace a site key", error);
+      return data ? VisitLineSchema.parse(data) : null;
     },
 
     async listConnections(organizationId) {

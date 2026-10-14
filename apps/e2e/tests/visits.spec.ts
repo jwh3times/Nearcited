@@ -3,15 +3,19 @@ import {
   type Account,
   api,
   createAccount,
+  grantRole,
   lineOf,
   onPlan,
+  signIn,
   visitsOf,
   withVisits,
 } from "../support/account";
-import { BUILT_URL } from "../support/stack";
+import { APP_URL, BUILT_URL } from "../support/stack";
 
 /** The business's own site, which exists only in these tests. */
 const SITE = "https://joes-pizza.example";
+/** The same site as its owner gave it, which is the address the product sends them to. */
+const ON_FILE = "https://www.joes-pizza.example";
 /** Somebody else's, carrying a copy of the same line. */
 const ELSEWHERE = "https://elsewhere.example";
 
@@ -43,13 +47,18 @@ test.beforeEach(async () => {
  * To the browser the site is out on the web and the product is on this machine, and it asks
  * before letting the one reach the other. A real site reaches a real deployment without asking.
  */
-async function withSite(context: BrowserContext, site: string) {
-  await context.grantPermissions(["local-network-access"]);
+async function withSite(
+  context: BrowserContext,
+  site: string,
+  line = `<script async src="${BUILT_URL}/line.js" data-site="${key}"></script>`,
+) {
+  await context.grantPermissions(["local-network-access", "clipboard-read", "clipboard-write"]);
+  await context.unroute(`${site}/**`);
   await context.route(`${site}/**`, (route) =>
     route.fulfill({
       contentType: "text/html",
       body: `<!doctype html><html><head><title>Joe's Pizza</title>
-        <script async src="${BUILT_URL}/line.js" data-site="${key}"></script>
+        ${line}
         </head><body><h1>Joe's Pizza</h1><a href="/menu">Menu</a></body></html>`,
     }),
   );
@@ -167,4 +176,150 @@ test("notes the owner's check that the line is there, and counts no visit for it
     .poll(async () => (await lineOf(locationId)).checked_on)
     .toBe(new Date().toISOString().slice(0, 10));
   expect(await visitsOf(locationId)).toEqual([]);
+});
+
+/** The card on a location's Website tab. */
+const card = (page: Page) => page.getByRole("region", { name: "Visits from assistants" });
+const websiteTab = (base = "") => `${base}/locations/${locationId}?tab=website`;
+const today = () =>
+  new Intl.DateTimeFormat(undefined, { day: "numeric", month: "long", timeZone: "UTC" }).format(
+    new Date(),
+  );
+
+test("hands an owner the line to paste, says where it goes, and sees it answer from their site", async ({
+  page,
+  context,
+}) => {
+  await withVisits(organizationId);
+  await withSite(context, ON_FILE, "");
+  await signIn(page, account, websiteTab());
+
+  await expect(card(page)).toContainText("It reports nothing about any other visitor");
+  // The line, loaded from where the product is served and carrying this location's key.
+  const line = `<script async src="${APP_URL}/line.js" data-site="${key}"></script>`;
+  await card(page).getByRole("button", { name: "Copy the line" }).click();
+  await expect(card(page).getByRole("button", { name: "Copied" })).toBeVisible();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(line);
+  await card(page).getByText("See the line").click();
+  await expect(card(page).locator("pre")).toHaveText(line);
+
+  // Where it goes: in plain words, and by name for the builders an owner is likely to be on.
+  await expect(card(page)).toContainText("It goes in your site's header code");
+  await card(page).getByText("Where that is in WordPress, Wix, Squarespace and Shopify").click();
+  for (const builder of ["WordPress.", "Wix.", "Squarespace.", "Shopify."]) {
+    await expect(card(page).getByText(builder, { exact: true })).toBeVisible();
+  }
+
+  // Before the line is on the site, looking for it finds nothing.
+  await expect(card(page).getByText("The line has not answered from your site yet.")).toBeVisible();
+  const check = card(page).getByRole("link", { name: "Check the line" });
+  await expect(check).toHaveAttribute("href", `${ON_FILE}/#nearcited-check`);
+
+  // The owner pastes what they copied into their site, and opens the site to check.
+  await withSite(context, ON_FILE, await page.evaluate(() => navigator.clipboard.readText()));
+  const [site] = await Promise.all([context.waitForEvent("page"), check.click()]);
+  await expect(site.getByRole("heading", { name: "Joe's Pizza" })).toBeVisible();
+  await expect(
+    card(page).getByText(`The line answered from your site on ${today()}.`),
+  ).toBeVisible();
+  // Checking was not a visit.
+  expect(await visitsOf(locationId)).toEqual([]);
+
+  // And the line as it was handed over counts a visit that arrives from an assistant.
+  await arrive(site, `${ON_FILE}/menu`, "https://chatgpt.com/");
+  await expect
+    .poll(() => visitsOf(locationId))
+    .toEqual([{ assistant: "chatgpt", path: "/menu", count: 1 }]);
+});
+
+test("replaces the key when its owner asks, and the line with the old one counts nothing", async ({
+  page,
+  context,
+}) => {
+  await withVisits(organizationId);
+  await signIn(page, account, websiteTab());
+  await card(page).getByText("See the line").click();
+  const shown = card(page).locator("pre");
+  const old = `<script async src="${APP_URL}/line.js" data-site="${key}"></script>`;
+  await expect(shown).toHaveText(old);
+
+  await card(page).getByText("Replace the key", { exact: true }).first().click();
+  await expect(card(page)).toContainText("counts nothing until you paste the new one");
+  const replace = card(page).getByRole("button", { name: "Replace the key" });
+
+  // Asked first, and nothing happens on a no.
+  page.once("dialog", (dialog) => dialog.dismiss());
+  await replace.click();
+  await expect(shown).toHaveText(old);
+  expect((await lineOf(locationId)).key).toBe(key);
+
+  let asked = "";
+  page.once("dialog", (dialog) => {
+    asked = dialog.message();
+    return dialog.accept();
+  });
+  await replace.click();
+  await expect(
+    card(page).getByText("The key was replaced. Paste the new line into your site."),
+  ).toBeVisible();
+  expect(asked).toContain("stops counting until you paste the new one");
+  const replaced = (await lineOf(locationId)).key;
+  expect(replaced).not.toBe(key);
+  await expect(shown).toHaveText(old.replace(key, replaced));
+
+  // The line still on the site counts nothing. Pasted again with the new key, it counts.
+  const site = await context.newPage();
+  await withSite(context, SITE, old);
+  const answered = site.waitForResponse((response) => response.url().endsWith("/api/visits"));
+  await arrive(site, `${SITE}/menu`, "https://chatgpt.com/");
+  expect((await answered).status()).toBe(204);
+  expect(await visitsOf(locationId)).toEqual([]);
+
+  await withSite(context, SITE, old.replace(key, replaced));
+  await arrive(site, `${SITE}/menu`, "https://chatgpt.com/");
+  await expect
+    .poll(() => visitsOf(locationId))
+    .toEqual([{ assistant: "chatgpt", path: "/menu", count: 1 }]);
+});
+
+test("asks for the website first where a location has none on file", async ({ page }) => {
+  await withVisits(organizationId);
+  const bare = await api<{ id: string }>(
+    account,
+    "POST",
+    `/organizations/${organizationId}/locations`,
+    {
+      name: "Joe's Pizza Downtown",
+      city: "Raleigh",
+      region: "NC",
+    },
+  );
+  await signIn(page, account, `/locations/${bare.id}?tab=website`);
+
+  await expect(card(page)).toContainText("There is no website on file for this location.");
+  await expect(card(page).getByRole("button", { name: "Copy the line" })).toHaveCount(0);
+  await card(page).getByRole("button", { name: "Add it in Settings" }).click();
+  await expect(page.getByRole("tab", { name: "Settings" })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+});
+
+test("says nothing of visits where no plan counts them", async ({ page }) => {
+  await signIn(page, account, websiteTab());
+  await expect(page.getByRole("heading", { name: "Your website" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Visits from assistants" })).toHaveCount(0);
+});
+
+test("shows the operator a customer's line, and no way to replace its key", async ({ page }) => {
+  await withVisits(organizationId);
+  const operator = await createAccount();
+  await api(operator, "POST", "/organizations", { name: "The operator's own" });
+  await grantRole(operator, "operator");
+  await signIn(page, operator, websiteTab(`/operator/o/${organizationId}`));
+
+  await card(page).getByText("See the line").click();
+  await expect(card(page).locator("pre")).toContainText(`data-site="${key}"`);
+  await expect(card(page).getByRole("link", { name: "Check the line" })).toBeVisible();
+  await expect(card(page).getByText("Replace the key")).toHaveCount(0);
 });

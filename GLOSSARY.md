@@ -53,6 +53,8 @@ system works; this file only settles vocabulary.
   it says nothing of how often the business is named.
 - **Line to paste** (or **the line**): one line an owner pastes into their own site, once, so
   that the site reports its visits from assistants. It reports nothing about any other visit.
+- **Line check** (or **check**): an owner opening their own site through a marked link, so that
+  the line reports it is there. Noted with its day, and never counted as a visit.
 - **Site key**: what the line carries to say which location a visit is for. Anyone who opens the
   site's source can read it, so it is no secret, and an owner or admin can replace it.
 - **Alert**: a statement that something measured has changed at a location in a way its owner

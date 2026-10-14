@@ -1634,6 +1634,27 @@ export type VisitAssistant = z.infer<typeof VisitAssistantSchema>;
 /** A location's site key, as the line on its site carries it. */
 const SiteKey = z.string().regex(/^[0-9a-f]{32}$/);
 
+/** A location's line: the key the line on its own site carries, and whether it was seen there. */
+export const VisitLineSchema = z.object({
+  location_id: Id,
+  key: SiteKey,
+  /** When the key was made: with the location, or when an owner or admin last replaced it. */
+  key_made_at: Timestamp,
+  /** The last day (UTC) the line answered a check from the location's own site. Null until one. */
+  checked_on: z.string().nullable(),
+});
+export type VisitLine = z.infer<typeof VisitLineSchema>;
+
+/** A location's line as its page is sent it. */
+export const LocationLineSchema = z.object({
+  line: VisitLineSchema,
+  /** The line itself, as an owner pastes it into their site. */
+  html: z.string(),
+  /** Whether the caller may replace the key: an owner or an admin. */
+  can_replace: z.boolean(),
+});
+export type LocationLine = z.infer<typeof LocationLineSchema>;
+
 /**
  * What the line on a business's site sends, with no sign-in. One of two things: its owner
  * checking that the line is there, or a visit that arrived from an assistant. Nothing in either

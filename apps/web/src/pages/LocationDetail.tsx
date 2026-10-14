@@ -26,6 +26,7 @@ import { ScoreCard } from "../components/ScoreCard";
 import { SiteChecklist } from "../components/SiteChecklist";
 import { SourceTable } from "../components/SourceTable";
 import { Tasks } from "../components/Tasks";
+import { VisitLine } from "../components/VisitLine";
 import { actionsQuery, hasActions } from "../lib/actions";
 import { api } from "../lib/api";
 import { draftsBeingWritten, WRITING_MS } from "../lib/drafts";
@@ -427,6 +428,12 @@ export function LocationDetail() {
                   : "There is no website on file for this location. Add one under Settings and the next scan will read it."}
               </p>
             )}
+            <VisitLine
+              location={location}
+              allowances={organization?.allowances}
+              onOpenSettings={openSettings}
+              readOnly={readOnly}
+            />
           </>
         )}
 

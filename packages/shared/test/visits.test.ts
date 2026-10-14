@@ -4,6 +4,9 @@ import { VISIT_ASSISTANTS, VisitSentSchema } from "../src/schemas";
 import {
   ASSISTANT_REFERRERS,
   assistantOf,
+  checkAddress,
+  LINE_CHECK,
+  lineToPaste,
   VISIT_ASSISTANT_LABELS,
   VISITS_ALLOWANCE,
 } from "../src/visits";
@@ -119,6 +122,35 @@ describe("what the line sends", () => {
     ]) {
       expect(VisitSentSchema.safeParse(bad).success, JSON.stringify(bad)?.slice(0, 60)).toBe(false);
     }
+  });
+});
+
+describe("the line an owner pastes", () => {
+  it("is one script tag, loaded from where the product is served and carrying the key", () => {
+    expect(lineToPaste("https://nearcited.example", KEY)).toBe(
+      `<script async src="https://nearcited.example/line.js" data-site="${KEY}"></script>`,
+    );
+    expect(lineToPaste("https://nearcited.example/", KEY)).toBe(
+      lineToPaste("https://nearcited.example", KEY),
+    );
+    expect(lineToPaste("http://localhost:5173", KEY)).toContain(
+      'src="http://localhost:5173/line.js"',
+    );
+  });
+});
+
+describe("the address an owner opens to check the line", () => {
+  it("is the website on file, marked as a check", () => {
+    expect(checkAddress("https://joes.example")).toBe(`https://joes.example/#${LINE_CHECK}`);
+    expect(checkAddress("https://joes.example/raleigh?ref=1#menu")).toBe(
+      `https://joes.example/raleigh?ref=1#${LINE_CHECK}`,
+    );
+  });
+
+  it("is nothing where no address is on file", () => {
+    expect(checkAddress(null)).toBeNull();
+    expect(checkAddress("")).toBeNull();
+    expect(checkAddress("joes pizza")).toBeNull();
   });
 });
 

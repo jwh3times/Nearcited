@@ -1,4 +1,5 @@
 import {
+  LocationLineSchema,
   LocationSchema,
   MOST_PAGES_A_DAY,
   MOST_VISITS_A_DAY,
@@ -11,6 +12,9 @@ import type { Env } from "../src/env";
 import { createMemoryDb, type MemoryDb, memoryStore } from "./memory-store";
 
 const alice = "a0000000-0000-4000-8000-000000000001";
+const bob = "b0000000-0000-4000-8000-000000000002";
+const carol = "c0000000-0000-4000-8000-000000000003";
+const dave = "d0000000-0000-4000-8000-000000000004";
 
 const SITE = "https://www.joespizza.example";
 const NOBODYS = "0".repeat(32);
@@ -69,7 +73,7 @@ const counted = () =>
 beforeEach(async () => {
   db = createMemoryDb();
   db.now = "2026-10-13T15:00:00.000Z";
-  env = {} as Env;
+  env = { APP_URL: "https://nearcited.example/" } as Env;
   const organization = OrganizationSchema.parse(
     await (await call(alice, "POST", "/organizations", { name: "Raleigh Pizza Group" })).json(),
   );
@@ -270,5 +274,101 @@ describe("a location's line", () => {
     // The line left on the site reports to nobody now.
     await report(fromChatGpt());
     expect(db.visits).toEqual([]);
+  });
+});
+
+describe("GET /api/locations/:id/line", () => {
+  const read = async (user: string) => {
+    const response = await call(user, "GET", `/locations/${locationId}/line`);
+    return response.status === 200 ? LocationLineSchema.parse(await response.json()) : response;
+  };
+
+  beforeEach(() => {
+    const organizationId = db.organizations[0]?.id ?? "";
+    db.memberships.push({ organization_id: organizationId, user_id: bob, role: "member" });
+    db.operators.add(dave);
+  });
+
+  it("gives whoever can read the location its line, ready to paste", async () => {
+    expect(await read(alice)).toEqual({
+      line: {
+        location_id: locationId,
+        key,
+        key_made_at: expect.any(String),
+        checked_on: null,
+      },
+      // Loaded from where the product is served, and carrying the location's key.
+      html: `<script async src="https://nearcited.example/line.js" data-site="${key}"></script>`,
+      can_replace: true,
+    });
+    // A member reads the same line, and so does the operator. Neither may replace its key.
+    for (const user of [bob, dave]) {
+      expect(await read(user), user).toMatchObject({ line: { key }, can_replace: false });
+    }
+  });
+
+  it("is not found for anyone else, and asks for a sign-in", async () => {
+    expect(((await read(carol)) as Response).status).toBe(404);
+    const unsigned = await app.request(`/api/locations/${locationId}/line`, {}, env);
+    expect(unsigned.status).toBe(401);
+    expect((await call(alice, "GET", "/locations/not-an-id/line")).status).toBe(404);
+  });
+
+  it("says the day the line last answered a check", async () => {
+    await report({ key, check: true });
+    expect(await read(bob)).toMatchObject({ line: { checked_on: "2026-10-13" } });
+  });
+});
+
+describe("POST /api/locations/:id/line/key", () => {
+  const replace = (user: string) => call(user, "POST", `/locations/${locationId}/line/key`);
+
+  beforeEach(() => {
+    const organizationId = db.organizations[0]?.id ?? "";
+    db.memberships.push({ organization_id: organizationId, user_id: bob, role: "member" });
+    db.operators.add(dave);
+  });
+
+  it("gives the location a new key, which has answered no check", async () => {
+    await report({ key, check: true });
+    await report(fromChatGpt());
+    db.now = "2026-10-13T18:00:00.000Z";
+
+    const response = await replace(alice);
+    expect(response.status).toBe(200);
+    const replaced = LocationLineSchema.parse(await response.json());
+    expect(replaced.line.key).toMatch(/^[0-9a-f]{32}$/);
+    expect(replaced.line.key).not.toBe(key);
+    expect(replaced).toEqual({
+      line: {
+        location_id: locationId,
+        key: replaced.line.key,
+        key_made_at: "2026-10-13T18:00:00.000Z",
+        checked_on: null,
+      },
+      html: `<script async src="https://nearcited.example/line.js" data-site="${replaced.line.key}"></script>`,
+      can_replace: true,
+    });
+
+    // The line still on the site, with the old key, counts nothing and checks nothing.
+    await report(fromChatGpt());
+    await report({ key, check: true });
+    expect(counted()).toEqual([{ assistant: "chatgpt", path: "/menu", count: 1 }]);
+    expect(db.visitLines.get(locationId)?.checked_on).toBeNull();
+    // Pasted again with the new one, it counts on top of what was counted before.
+    await report({ ...fromChatGpt(), key: replaced.line.key });
+    expect(counted()).toEqual([{ assistant: "chatgpt", path: "/menu", count: 2 }]);
+  });
+
+  it("is an owner's or an admin's to do, and not found for anyone else", async () => {
+    for (const user of [bob, carol, dave]) {
+      expect((await replace(user)).status, user).toBe(404);
+    }
+    expect(db.visitLines.get(locationId)?.key).toBe(key);
+
+    const membership = db.memberships.find((member) => member.user_id === bob);
+    if (membership) membership.role = "admin";
+    expect((await replace(bob)).status).toBe(200);
+    expect(db.visitLines.get(locationId)?.key).not.toBe(key);
   });
 });

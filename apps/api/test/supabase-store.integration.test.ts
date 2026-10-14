@@ -999,6 +999,21 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
           .select("day")
       ).error,
     ).not.toBeNull();
+    // The line is read by whoever reads the location, and its key replaced by an owner or admin.
+    expect(await aliceStore.getVisitLine(location.id)).toEqual({
+      location_id: location.id,
+      key: visit.key,
+      key_made_at: expect.any(String),
+      checked_on: today,
+    });
+    expect(await bobStore.getVisitLine(location.id)).toBeNull();
+    expect(await bobStore.replaceSiteKey(location.id)).toBeNull();
+    expect(await worker.replaceSiteKey(location.id)).toBeNull();
+    const replaced = await aliceStore.replaceSiteKey(location.id);
+    expect(replaced).toMatchObject({ location_id: location.id, checked_on: null });
+    expect(replaced?.key).not.toBe(visit.key);
+    expect(await anyone.recordVisit(visit)).toBe(false);
+    expect(await anyone.recordVisit({ ...visit, key: replaced?.key ?? "" })).toBe(true);
     await service.from("visits").delete().eq("location_id", location.id).throwOnError();
     await service
       .from("organizations")

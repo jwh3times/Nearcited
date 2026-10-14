@@ -5696,6 +5696,77 @@ describe("the operator", () => {
       }
     });
 
+    it("have their key replaced by an owner or an admin, and by nobody else", async () => {
+      const replace = "select key, checked_on from public.replace_site_key($1)";
+      const colleague = "c0000000-0000-4000-8000-00000000000c";
+      await db.query("insert into auth.users (id, email) values ($1, 'colleague@example.com')", [
+        colleague,
+      ]);
+      await db.query(
+        "insert into public.memberships (organization_id, user_id, role) values ($1, $2, 'member')",
+        [theirs, colleague],
+      );
+      await visit();
+      await db.query(
+        "update public.visit_lines set checked_on = current_date, key_made_at = now() - interval '1 day' where location_id = $1",
+        [main],
+      );
+
+      // Somebody else, the operator, a plain member and the worker: no row, and nothing changed.
+      for (const user of [bob, operator, colleague]) {
+        expect(await as("authenticated", user, () => rows(replace, [main])), user).toEqual([]);
+      }
+      expect(await as("service_role", null, () => rows(replace, [main]))).toEqual([]);
+      await expect(as("anon", null, () => db.query(replace, [main]))).rejects.toThrow(
+        /permission denied/,
+      );
+      expect(
+        await rows(
+          "select key, checked_on is not null as checked from public.visit_lines where location_id = $1",
+          [main],
+        ),
+      ).toEqual([{ key, checked: true }]);
+
+      // An admin may, and so may the owner. A new key has answered no check.
+      await db.query(
+        "update public.memberships set role = 'admin' where organization_id = $1 and user_id = $2",
+        [theirs, colleague],
+      );
+      const [first] = await as("authenticated", colleague, () =>
+        rows<{ key: string; checked_on: string | null }>(replace, [main]),
+      );
+      const [second] = await as("authenticated", alice, () =>
+        rows<{ key: string; checked_on: string | null }>(replace, [main]),
+      );
+      expect(first?.key).toMatch(/^[0-9a-f]{32}$/);
+      expect(second?.key).toMatch(/^[0-9a-f]{32}$/);
+      expect(new Set([key, first?.key, second?.key]).size).toBe(3);
+      expect([first?.checked_on, second?.checked_on]).toEqual([null, null]);
+      expect(
+        await rows(
+          "select key, checked_on, key_made_at > now() - interval '1 hour' as fresh from public.visit_lines where location_id = $1",
+          [main],
+        ),
+      ).toEqual([{ key: second?.key, checked_on: null, fresh: true }]);
+
+      // The keys that were replaced belong to nobody now, and what they counted stays.
+      for (const old of [key, first?.key ?? ""]) {
+        expect(await visit("/menu", "chatgpt", SITE, old)).toBe(false);
+      }
+      key = second?.key ?? "";
+      expect(await visit()).toBe(true);
+      expect(await visits()).toEqual([{ assistant: "chatgpt", path: "/menu", count: 2 }]);
+
+      // A location that is not there has no key to replace.
+      expect(
+        await as("authenticated", alice, () =>
+          rows(replace, ["00000000-0000-4000-8000-000000000000"]),
+        ),
+      ).toEqual([]);
+      await db.query("delete from public.memberships where user_id = $1", [colleague]);
+      await db.query("delete from auth.users where id = $1", [colleague]);
+    });
+
     it("go with their location, and so does its line", async () => {
       const [limits] = await rows<{ max_locations: number }>(
         "select max_locations from public.organizations where id = $1",

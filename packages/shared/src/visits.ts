@@ -63,6 +63,29 @@ export const LONGEST_PATH = 200;
  */
 export const LINE_CHECK = "nearcited-check";
 
+/**
+ * The line an owner pastes into their site, for a location's key. `app` is where the product is
+ * served, which is where the site's visitors fetch the script from and where it reports to.
+ */
+export function lineToPaste(app: string, key: string): string {
+  return `<script async src="${app.replace(/\/+$/, "")}/line.js" data-site="${key}"></script>`;
+}
+
+/**
+ * The address an owner opens to see that the line is on their site: the website on file, marked
+ * as a check. Null where what is on file is not an address.
+ */
+export function checkAddress(website: string | null): string | null {
+  if (!website) return null;
+  try {
+    const address = new URL(website);
+    address.hash = LINE_CHECK;
+    return address.toString();
+  } catch {
+    return null;
+  }
+}
+
 const tidy = (value: string | null) => value?.trim().toLowerCase() || null;
 
 /**
