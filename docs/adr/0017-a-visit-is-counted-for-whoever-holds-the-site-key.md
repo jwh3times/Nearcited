@@ -52,6 +52,12 @@ therefore never hears of an ordinary visit to a customer's site.
 (UTC) from an assistant on a page. There is no row for a visit, no time of day and nothing about
 the visitor, so there is nothing to delete on request and nothing to leak.
 
+**No visit is generated.** Where scans serve sample data, and for a test organization, the
+counts are still only what a site reported. A scan can be generated because the page says so
+over it ([0003](0003-platform-roles-and-test-accounts.md)). A count of visits is read as a
+count of people, and a made-up one would be read the same way, so there is none: an account
+with no line on a site shows no visits.
+
 **The answer is the same whatever became of the visit.** The route answers that it has nothing
 to say, counted or not. Asking tells nobody whether a key is somebody's or a site is a
 customer's.

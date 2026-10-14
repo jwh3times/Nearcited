@@ -785,9 +785,10 @@ audit is queued.
 An owner can paste one line into their own site so that the site reports the visits that arrive
 from an AI assistant (`visit_lines`, `visits`; the terms are in `GLOSSARY.md`, the decision in
 `docs/adr/0017-a-visit-is-counted-for-whoever-holds-the-site-key.md`). What exists is the line,
-the route that receives what it sends, the database function that counts it, and a card on a
-location's page that hands the line to its owner, lets them check that it answers from their site
-and lets an owner or admin replace its key. No page shows a count.
+the route that receives what it sends, the database function that counts it, the function and
+route that read the counts added up, and a card on a location's page that shows the last thirty
+days of them, hands the line to its owner, lets them check that it answers from their site and
+lets an owner or admin replace its key.
 
 ```
 a visitor lands on the business's own site
@@ -882,30 +883,69 @@ visits: one more for that location, day (UTC), assistant and page
   then belongs to nobody: the line still on the site counts nothing, and its checks note nothing,
   until the new line is pasted in its place. What was counted stays, since a count is kept for the
   location and not for the key.
+- **The counts are read added up, by `location_visits(location, over_days)`.** It is a plain SQL
+  function that runs as the caller, not a security-definer one, granted to `authenticated` and
+  `service_role` and not to `anon`, so row-level security decides what is added up: a member's own
+  location, or everything for the operator. For anyone else it returns the same shape with nothing
+  in it. It counts back from today (UTC, today included) over `over_days` days, at least 1 and at
+  most 366, and returns JSON: `since`, the first day added up; `days`, the count for each day and
+  assistant that had any, oldest first; `pages`, the ten paths with the most (`PAGES_SHOWN`),
+  equal counts in the order of their names; and `other_pages`, the visits kept under the empty
+  path, which are the visits to pages past the fiftieth of their day. It adds up in the database
+  because a location can hold up to 255 rows a day (five assistants, each on fifty pages, and the
+  rest counted together), which over thirty days is past the 1,000 rows the database's API answers
+  a request with and would be cut without an error (see "Limits to design around"). A location's
+  `visits` are read this way and never row by row.
+- **The counts are served by a third signed-in route**, `GET /api/locations/:locationId/visits`
+  (`apps/api/src/routes/visits.ts`), through the caller's own store. `Store.getLocationVisits`
+  calls the function for the last thirty days (`VISITS_SHOWN_DAYS`) and parses the answer with
+  `LocationVisitsSchema`, which does not hold an assistant to the list, so a build that does not
+  know one yet still shows it. It answers anyone who can read the location, the operator
+  included; to anyone else the location reads as missing, a 404. Nothing is generated: on sample
+  data and for a test organization the route returns what the site really reported, so the card
+  has nothing to show there until a line really reports a visit.
+- **The card shows the counts first.** `apps/web/src/components/VisitCounts.tsx` heads the card,
+  above the line. It begins with one sentence holding the total over the last thirty days ("Your
+  site reported 7 visits from assistants in the last 30 days.", or "Your site has reported no visit
+  from an assistant in the last 30 days."). Where there are visits it then shows three native
+  tables. By assistant, the one with the most first. By day, newest first, with which assistants a
+  day's visits came from, and a note on a day that reached 1,000 (`MOST_VISITS_A_DAY`), the most
+  counted in a day, which may therefore have had more. By page landed on, the ten with the most,
+  and an "Other pages" row for the visits to pages past the fiftieth of their day. Under them it
+  always makes two statements. The first is what the count leaves out, so that it is read as at
+  least this many: Google's AI Overviews and AI Mode, and Copilot inside Bing, arrive as a search
+  does; an assistant's app may say nothing of where a visitor came from; and a browser may block
+  the line. The second is that anyone who reads the key can send made-up visits, so nothing else
+  is worked out from the count, and that a day is a day in UTC. The adding-up for the page and its
+  wording are in `apps/web/src/lib/visits.ts` (`visitsShown`, `COUNT_WORDS`, `assistantName`).
 - **The card is `apps/web/src/components/VisitLine.tsx`**, titled "Visits from assistants", on
   the location page's Website tab. It is shown where the organization's allowances include
   `visits` (`visitsOffer`, `apps/web/src/lib/visits.ts`). Where they do not, it says "Your plan
   does not count visits from assistants." only if some plan on sale includes visits, which it
-  reads from `GET /api/plans`; where none does, as at present for a real organization, it shows
-  nothing. A test organization has the allowance and so sees the card. The card says what the
-  line collects and what it does not, offers "Copy the line" and the line itself, says in plain
-  words that it goes in the site's header code, and says where that is in WordPress, Wix,
-  Squarespace and Shopify (`BUILDERS`). "Check the line" opens the website on file with
-  `#nearcited-check` on the end (`checkAddress`) in a new tab; from then the page asks the
-  route every three seconds (`LOOKING_MS`) for up to two minutes (`LOOKING_FOR_MS`) whether the
-  line has answered, stops when it has, and says the day, in UTC, it last did. For an owner or
-  admin there is also "Replace the key", behind a confirm that says the line on the site stops
-  counting until the new one is pasted. A location with no website on file is asked for it first,
-  because a visit counts only on that website, and a location paused by its plan is told its
-  visits are not counted. The operator reading a customer's account sees the line and the check
-  and no way to replace the key.
+  reads from `GET /api/plans`, and gives the owner a link to the plans; where no plan does, it
+  shows nothing. Every paid plan includes visits, so the sentence is what an organization on the
+  free plan, or one moved down to it, sees. Such a card shows no line and counts nothing more. It
+  still shows the last thirty days of what was counted while a plan counted it, and where nothing
+  was counted it says nothing of counts, so nobody is told that a site reported no visit when
+  nothing was listening. A test organization has the allowance and so sees the card with the
+  line. Under the counts the card says what the line collects and what it does not, offers "Copy
+  the line" and the line itself, says in plain words that it goes in the site's header code, and
+  says where that is in WordPress, Wix, Squarespace and Shopify (`BUILDERS`). "Check the line"
+  opens the website on file with `#nearcited-check` on the end (`checkAddress`) in a new tab; from
+  then the page asks the route every three seconds (`LOOKING_MS`) for up to two minutes
+  (`LOOKING_FOR_MS`) whether the line has answered, stops when it has, and says the day, in UTC, it
+  last did. For an owner or admin there is also "Replace the key", behind a confirm that says the
+  line on the site stops counting until the new one is pasted. A location with no website on file
+  is asked for it first, because a visit counts only on that website, and a location paused by its
+  plan is told its visits are not counted. The operator reading a customer's account sees the counts, the line and
+  the check, and no way to replace the key.
 - **`visits` is an allowance that is included or not.** It is in `allowance_kinds` (not counted)
-  and `ALLOWANCE_KINDS`, and `VISITS_ALLOWANCE` is its key. Counting a visit takes nothing from a
-  month (see "Tenancy").
+  and `ALLOWANCE_KINDS`, and `VISITS_ALLOWANCE` is its key. Every paid plan includes it and the
+  free plan does not (see "Tenancy"). Counting a visit takes nothing from a month.
 - **Nothing rests on the count.** Anyone who reads the key can post made-up visits from a client
   that names the site, so the count can be padded, and the ceilings only bound how much one key
-  can write. No score, alert, task or bill is worked out from it
-  ([ADR 0017](adr/0017-a-visit-is-counted-for-whoever-holds-the-site-key.md)).
+  can write. No score, alert, task or bill is worked out from it, and the card says so beside the
+  counts ([ADR 0017](adr/0017-a-visit-is-counted-for-whoever-holds-the-site-key.md)).
 - **The privacy policy says what the line collects**
   (`apps/web/src/pages/legal/Privacy.tsx`).
 
@@ -1470,8 +1510,11 @@ copy, edit and lower a plan.
   one of those plans its plan's number, as if the operator had set it, since a plan gaining
   something takes effect at once. It set only that one key, so the organization's other limits,
   including any the operator had set for it alone, stayed, and it left a test organization the
-  number it was made with. No plan includes `visits` yet. A test organization does: the migration
-  that made the kind gave it to the test organizations that existed.
+  number it was made with. Every paid plan includes `visits` and the free plan does not, so the
+  price list shows the kind on the paid plans ("Visits from assistants counted"). The migration
+  `20261013220000_visits_shown.sql` did for it what that one did for drafts: it put the kind on the
+  paid plans and gave it to each organization already on one, except a test organization, which
+  has had it since the kind was made, and touched no other limit.
 - **Use of a counted kind is kept in `allowance_use`**, one row for an organization, a kind and a
   calendar month in UTC. Its members read their own organization's rows and the operator reads
   all of them; no API role writes it, since a count a member could write is a count a member could
@@ -1656,7 +1699,11 @@ drop it.
   What is left in one request is a list of one organization or one location, which its plan
   bounds, and the work lists the schedule reads again at its next run (the stalled actions and
   drafts, the connections' lists): a cut there delays the rest to the next run, for as long as the
-  work done leaves the list.
+  work done leaves the list. One list of a location is not bounded under 1,000 by its plan: its
+  visits, which can be 255 rows a day and are kept. They are never read row by row. They are added
+  up in the database, by `location_visits()`, which answers a day's count for each assistant, ten
+  pages and one more number, so what the API returns is short however many rows were added up (see
+  "Visits from assistants").
 
 ## Known gaps
 
@@ -1666,9 +1713,9 @@ drop it.
 - On a Supabase project that still signs tokens with a legacy shared secret, `getClaims` asks the
   Auth server on every request. Use asymmetric signing keys.
 - Allowances limit little yet. Two kinds of allowance exist (`ALLOWANCE_KINDS` and
-  `allowance_kinds`): `drafts`, counted, which every paid plan includes and the free plan does
-  not, and `visits`, included or not, which no plan includes yet. A test organization is given
-  every kind, so its drafts are counted and its visits are. No kind of connection or of action
+  `allowance_kinds`): `drafts`, counted, and `visits`, included or not. Every paid plan includes
+  both and the free plan includes neither. A test organization is given every kind, so its drafts
+  are counted and its visits are. No kind of connection or of action
   names an allowance, so a number for another kind would be stored, shown and lowered by
   announcement, but no work would stop at it or be counted against it. What an allowance can stop is
   a kind of connection that needs it (see "Connections"), a kind of action that takes from it (see
@@ -1712,11 +1759,21 @@ drop it.
 - The count of visits leaves out what cannot be told from something else. Google's AI Overviews and
   AI Mode, and Copilot inside Bing, arrive as a search does and are not counted. Neither is a
   visit from an app that sends no site and no tag, or one from a browser that blocks the script.
-  It is a floor (see "Visits from assistants").
+  It is a floor, and the card says so under the counts (see "Visits from assistants").
 - The count of visits can be padded by anyone who reads the site key, which is in the site's
   source. An owner or admin can replace the key (`replace_site_key()`), but only they decide to,
   and nothing notices a padded count. The ceilings in `record_visit()` bound what one key can
-  write, and nothing is worked out from the count.
+  write, and nothing is worked out from the count. The card says it can be padded, beside the
+  counts.
+- The card shows the last thirty days of visits and no more. Older counts are kept with their
+  location and shown nowhere: the route asks `location_visits()` for thirty days
+  (`VISITS_SHOWN_DAYS`), though the function takes up to 366, and no page asks for a longer run.
+- The days in the counts are days in UTC, as the database keeps them, because a location holds no
+  time zone. A visit late in a local evening may be counted on the next day, and the card says a
+  day is a day in UTC.
+- On sample data the card is empty until a line really reports. Nothing is generated for a
+  deployment in mock mode or for a test organization, so the counts there are only what a line on
+  a real site reports to that deployment.
 - Where the line goes in WordPress, Wix, Squarespace and Shopify is given in each builder's own
   menu names (`BUILDERS`, `apps/web/src/lib/visits.ts`), read from each builder's help pages on
   2026-10-13. A builder that renames a menu makes its line wrong, and nothing notices until
@@ -1732,7 +1789,10 @@ These are not engineering tasks, and the code cannot answer them.
    states what a later scan must show for it to have worked, and clears itself when that happens
    (see "Where the answers come from"). Still open: whether acting on one makes it clear more
    often than doing nothing, which only real locations over time can show, and whether a higher
-   score means more calls or visits. The score stays a description of visibility.
+   score means more calls or visits. The score stays a description of visibility. Visits from an
+   assistant are now counted and shown for a location whose owner has pasted the line (see "Visits
+   from assistants"), but nothing compares them with how often the business is named, and a count
+   that is a floor and can be padded is weak evidence either way.
 2. **What is one sample worth?** Partly answered: results are now rates over the last seven
    scans (see "Rates over a window of scans"), which costs nothing extra per scan. Whether seven
    is enough is still open. Assistant answers vary run to run and by location. One call per
@@ -1742,4 +1802,5 @@ These are not engineering tasks, and the code cannot answer them.
 4. **Who buys?** Single-location owners churn and are expensive to reach. Agencies managing many
    locations are the more plausible first customer, and they will want white-label reports.
 5. **The score weights are a guess** (the defaults in `packages/shared/src/tuning.ts`). Nothing ties a rank on
-   any surface to calls or visits yet.
+   any surface to calls yet, or to visits: the visits a site reports are counted and shown on the
+   Website tab, not worked out with the score, and the count is a floor that can be padded.
