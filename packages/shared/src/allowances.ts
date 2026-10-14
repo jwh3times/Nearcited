@@ -19,6 +19,9 @@ export interface AllowanceKind {
 export const ALLOWANCE_KINDS: Record<string, AllowanceKind> = {
   // Wording written for a task (`drafts.ts`). `DRAFTS_ALLOWANCE` there is this key.
   drafts: { counted: true, name: "Drafts written for you" },
+  // Visits to a business's own site that came from an assistant (`visits.ts`).
+  // `VISITS_ALLOWANCE` there is this key.
+  visits: { counted: false, name: "Visits from assistants counted" },
 };
 
 /** The most a plan may give of a counted kind, for each location, in a month. */

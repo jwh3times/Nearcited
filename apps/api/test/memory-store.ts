@@ -21,6 +21,7 @@ import type {
   SiteCheck,
   TrackedQuery,
   UsageByMonth,
+  VisitAssistant,
 } from "@nearcited/shared";
 import {
   ALLOWANCE_KINDS,
@@ -28,8 +29,13 @@ import {
   allowedEachMonth,
   CITING_SURFACES,
   DRAFTS_ALLOWANCE,
+  hostOf,
+  LONGEST_PATH,
+  MOST_PAGES_A_DAY,
+  MOST_VISITS_A_DAY,
   NOTICE_HOLD_HOURS,
   reductions,
+  VISITS_ALLOWANCE,
 } from "@nearcited/shared";
 import {
   type NewAction,
@@ -105,6 +111,16 @@ export interface MemoryDb {
   })[];
   /** Every listing: one for a location on a site. */
   listings: Listing[];
+  /** Every location's line: the key its site carries, and the last day it answered a check. */
+  visitLines: Map<string, { key: string; checked_on: string | null }>;
+  /** The visits counted. No entry is a visit: each is how many, for a day, assistant and page. */
+  visits: {
+    location_id: string;
+    day: string;
+    assistant: VisitAssistant;
+    path: string;
+    count: number;
+  }[];
   /** Every alert, with what keeps one thing from being raised twice beside what is sent. */
   alerts: (Alert & {
     subject: string;
@@ -194,6 +210,8 @@ export function createMemoryDb(): MemoryDb {
     actions: [],
     drafts: [],
     listings: [],
+    visitLines: new Map(),
+    visits: [],
     alerts: [],
     actionKindTerms: new Map([["sample", { allowance: null, keeps_seen_days: 30 }]]),
     sampleLines: new Map(),
@@ -425,6 +443,23 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
   const seesLocation = (id: string) => visibleLocation(id) !== undefined;
   const limits = (organizationId: string) =>
     db.organizations.find((organization) => organization.id === organizationId) ?? DEFAULT_LIMITS;
+  /** The day a visit is counted under: the database's own, in UTC. */
+  const today = () => (db.now ?? new Date().toISOString()).slice(0, 10);
+  /**
+   * Mirrors counts_visits(): the location a key is the line of, when a visit reported from
+   * `host` is one to count for it. Its plan includes visits and covers the location, and the
+   * page is on the website the location has on file or on a subdomain of it.
+   */
+  const lineOf = (key: string, host: string): string | null => {
+    const [locationId] = [...db.visitLines].find(([, line]) => line.key === key) ?? [];
+    const location = db.locations.find((candidate) => candidate.id === locationId);
+    if (!location || location.paused_by_plan) return null;
+    const organization = db.organizations.find(({ id }) => id === location.organization_id);
+    if (organization?.allowances[VISITS_ALLOWANCE] === undefined) return null;
+    const kept = hostOf(location.website);
+    const seen = hostOf(host);
+    return kept && seen && (seen === kept || seen.endsWith(`.${kept}`)) ? location.id : null;
+  };
   /** Mirrors the trigger: only active prompts count, so retiring one makes room. */
   const requireRoomForQuery = (locationId: string) => {
     const organizationId = db.locations.find((l) => l.id === locationId)?.organization_id ?? "";
@@ -1918,6 +1953,11 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         created_at: timestamp(),
       };
       db.locations.push(location);
+      // As the trigger does: every location has a line from the moment it is made.
+      db.visitLines.set(location.id, {
+        key: crypto.randomUUID().replaceAll("-", ""),
+        checked_on: null,
+      });
       return location;
     },
 
@@ -1936,6 +1976,8 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
     async deleteLocation(id) {
       if (!seesLocation(id)) return false;
       db.locations = db.locations.filter((location) => location.id !== id);
+      db.visitLines.delete(id);
+      db.visits = db.visits.filter((counted) => counted.location_id !== id);
       return true;
     },
 
@@ -2115,6 +2157,42 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         expires_at,
         revoked_at,
       };
+    },
+
+    // Mirrors record_visit(): anyone holding the key, a page on the location's own site, a plan
+    // that includes visits, and the day's ceilings.
+    async recordVisit(visit) {
+      const locationId = lineOf(visit.key, visit.host);
+      const path = visit.path.split("?")[0]?.split("#")[0]?.slice(0, LONGEST_PATH) ?? "";
+      if (!locationId || !path.startsWith("/")) return false;
+      const day = today();
+      const counted = db.visits.filter(
+        (kept) => kept.location_id === locationId && kept.day === day,
+      );
+      if (counted.reduce((sum, kept) => sum + kept.count, 0) >= MOST_VISITS_A_DAY) return false;
+      const pages = new Set(counted.map((kept) => kept.path).filter(Boolean));
+      const under = pages.has(path) || pages.size < MOST_PAGES_A_DAY ? path : "";
+      const kept = counted.find((row) => row.assistant === visit.assistant && row.path === under);
+      if (kept) kept.count += 1;
+      else {
+        db.visits.push({
+          location_id: locationId,
+          day,
+          assistant: visit.assistant,
+          path: under,
+          count: 1,
+        });
+      }
+      return true;
+    },
+
+    // Mirrors check_visit_line().
+    async checkVisitLine(line) {
+      const locationId = lineOf(line.key, line.host);
+      const kept = locationId ? db.visitLines.get(locationId) : undefined;
+      if (!kept) return false;
+      kept.checked_on = today();
+      return true;
     },
 
     async getAuditByToken(token) {

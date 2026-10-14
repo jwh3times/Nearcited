@@ -46,6 +46,7 @@ import type {
   TrackedQuery,
   TrackedQueryInput,
   UsageByMonth,
+  VisitAssistant,
   WaitingActions,
 } from "@nearcited/shared";
 
@@ -181,6 +182,17 @@ export interface CompletedScan {
  * rather than erroring. One made with the secret key sees everything and is the only kind that
  * can call the worker methods.
  */
+/** One visit as the route hands it over: who reported it, from where, and what it worked out. */
+export interface VisitReport {
+  /** The site's key, as the line on the site carries it. */
+  key: string;
+  /** The site the report came from, which has to be the location's own. */
+  host: string;
+  assistant: VisitAssistant;
+  /** The page landed on. */
+  path: string;
+}
+
 export interface Store {
   listOrganizations(): Promise<Organization[]>;
   createOrganization(name: string): Promise<Organization>;
@@ -468,6 +480,19 @@ export interface Store {
    * permission.
    */
   getAuditByToken(token: string): Promise<StoredAudit | null>;
+  /**
+   * Counts one visit from an assistant to a location's own site, for whoever holds the site's
+   * key: any caller, signed in or not. False, and nothing counted, for a key that is nobody's, a
+   * page that is not on the location's own site, a plan without visits, and a day that has
+   * reached its ceiling.
+   */
+  recordVisit(visit: VisitReport): Promise<boolean>;
+  /**
+   * Notes that a location's line answered from its own site today, for whoever holds the site's
+   * key. False for a key that is nobody's, another site, and a plan without visits. Counts
+   * nothing.
+   */
+  checkVisitLine(line: Pick<VisitReport, "key" | "host">): Promise<boolean>;
 
   // Worker only: these need the secret key.
   getAudit(id: string): Promise<AuditJob | null>;

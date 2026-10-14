@@ -46,6 +46,15 @@ system works; this file only settles vocabulary.
   card or save as a picture. A customer points a phone's camera at it and the link opens. It
   holds the site's own address and none of the product's, so nothing passes through the product
   and nothing is counted.
+- **Visit from an assistant** (or **visit**): an arrival on a business's own site that says it
+  came from an assistant: the visitor's browser names the assistant's site, or the address
+  carries the assistant's own tag. Counted, never recorded: what is kept is how many there were on
+  a day, from an assistant, on a page, and nothing about the visitor. Not a result of a scan, and
+  it says nothing of how often the business is named.
+- **Line to paste** (or **the line**): one line an owner pastes into their own site, once, so
+  that the site reports its visits from assistants. It reports nothing about any other visit.
+- **Site key**: what the line carries to say which location a visit is for. Anyone who opens the
+  site's source can read it, so it is no secret, and an owner or admin can replace it.
 - **Alert**: a statement that something measured has changed at a location in a way its owner
   would want to know, composed by rule from what the scans recorded and saying what was counted.
   It is shown from the scan that raised it until a later scan clears it or a member dismisses

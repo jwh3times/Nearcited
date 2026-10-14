@@ -279,6 +279,53 @@ async function asWorker(table: string, row: unknown, method = "POST"): Promise<v
   if (!response.ok) throw new Error(`Could not write to ${table}: status ${response.status}.`);
 }
 
+/** Reads rows as the worker does, with the secret key. Local stack only. */
+async function readAsWorker<T>(query: string): Promise<T[]> {
+  if (process.env.E2E_APP_URL) throw new Error("Tests do not read a deployment's database.");
+  const vars = readFileSync(join(import.meta.dirname, "../../api/.dev.vars"), "utf8");
+  const secretKey = /^SUPABASE_SECRET_KEY=(.*)$/m.exec(vars)?.[1] ?? "";
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/${query}`, {
+    headers: { apikey: secretKey, Authorization: `Bearer ${secretKey}` },
+  });
+  if (!response.ok) throw new Error(`Could not read ${query}: status ${response.status}.`);
+  return (await response.json()) as T[];
+}
+
+/**
+ * Has an organization's visits from assistants counted, as a plan that includes them would,
+ * beside whatever else it already has. Local stack only.
+ */
+export async function withVisits(organizationId: string): Promise<void> {
+  const [organization] = await readAsWorker<{ allowances: Record<string, unknown> }>(
+    `organizations?id=eq.${organizationId}&select=allowances`,
+  );
+  await asWorker(
+    `organizations?id=eq.${organizationId}`,
+    { allowances: { ...organization?.allowances, visits: true } },
+    "PATCH",
+  );
+}
+
+/** A location's line: the key its site carries, and the day it last answered a check. */
+export async function lineOf(
+  locationId: string,
+): Promise<{ key: string; checked_on: string | null }> {
+  const [line] = await readAsWorker<{ key: string; checked_on: string | null }>(
+    `visit_lines?location_id=eq.${locationId}&select=key,checked_on`,
+  );
+  if (!line) throw new Error("The location has no line.");
+  return line;
+}
+
+/** The visits counted for a location, as the database holds them. Local stack only. */
+export async function visitsOf(
+  locationId: string,
+): Promise<{ assistant: string; path: string; count: number }[]> {
+  return readAsWorker(
+    `visits?location_id=eq.${locationId}&select=assistant,path,count&order=assistant,path`,
+  );
+}
+
 interface Scene {
   organization: { id: string; name: string };
   location: { id: string; name: string };

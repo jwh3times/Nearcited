@@ -159,6 +159,23 @@ pass `pnpm check` and run in mock mode without it.
   was written: count a draft nowhere else. Sample text is kept as `sample_data`, names no model
   and is never called a model's. Nothing on a request path writes `drafts`, and a draft is not
   written by opening a page.
+- **A visit is counted for whoever holds the site's key, and nothing rests on the count.** The
+  line on a business's site reports a visit with no sign-in, and `record_visit()` is the only
+  thing that counts one
+  (`docs/adr/0017-a-visit-is-counted-for-whoever-holds-the-site-key.md`). The key is in the
+  site's source, so the function trusts nothing it is told: the day is its own, the page must be
+  on the location's own website, and a location counts a bounded number of visits a day under a
+  bounded number of pages. Keep those bounds inside the function, since anyone can call it. The
+  route works out the assistant from what the visit carried (`assistantOf`,
+  `packages/shared/src/visits.ts`), takes the site from where the browser says the post came
+  from, and answers the same whatever became of the visit. Nothing is kept about a visitor: a
+  count for a day, a location, an assistant and a page, and never a row for a visit, a time of
+  day or an address. The line (`apps/web/public/line.js`) sends nothing for a visit that did not
+  come from an assistant, sets no cookie and keeps nothing in the browser: keep all three. Its
+  list of assistants is a copy of the shared one, and the database names them too
+  (`visits.assistant`): add one in all three. The count can be padded by anyone who reads the
+  key, so no score, alert, task or bill is worked out from it. Do not open `visits` or
+  `visit_lines` to a caller who is not signed in, and do not count a visit on any other path.
 - **`packages/shared/src/schemas.ts` defines every wire type.** Change the schema first, then the
   API and the client. Field names stay snake_case end to end.
 - **All database access goes through the `Store` interface** (`apps/api/src/store/types.ts`). A

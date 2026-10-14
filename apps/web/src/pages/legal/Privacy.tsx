@@ -47,6 +47,38 @@ export function Privacy() {
         sooner. If a report is about your business and you want it removed, write to {mail}.
       </p>
 
+      <h3>When you visit a business's website that counts visits from assistants</h3>
+      <p>
+        A business that uses Nearcited can add a line of ours to its own website, to count how many
+        of its visitors arrived from an AI assistant such as ChatGPT. If you visit such a site:
+      </p>
+      <ul>
+        <li>
+          <strong>Nothing is sent to us unless you arrived from an assistant.</strong> The line
+          works that out in your browser. For any other visit it sends us nothing.
+        </li>
+        <li>
+          <strong>For a visit that did, we are sent three things.</strong> Which business's site it
+          was, the name of the assistant's site you came from (or the tag the assistant put on the
+          link), and the path of the page you landed on. We are not sent the address you came from,
+          which can hold what you asked, or anything after a question mark in the page's address.
+        </li>
+        <li>
+          <strong>We keep a count, not a record of you.</strong> What we store is how many such
+          visits a page had on a day from an assistant. We do not put your IP address, the time or
+          anything about you or your device with it, so the count cannot be traced to a visitor.
+        </li>
+        <li>
+          <strong>Nothing is kept in your browser.</strong> The line sets no cookie and stores
+          nothing on your device.
+        </li>
+      </ul>
+      <p>
+        Your browser fetches the line, and reports such a visit, by making requests to our site.
+        Those reach our hosting provider like any other request and appear in its logs, as described
+        under "Server logs" below.
+      </p>
+
       <h3>When you use the site</h3>
       <ul>
         <li>
@@ -66,6 +98,7 @@ export function Privacy() {
           To run the service: ask the assistants your prompts, read your website, show you the
           results, and write the drafts you ask for.
         </li>
+        <li>To show a business how many visits to its website arrived from an AI assistant.</li>
         <li>To sign you in and send the emails you have asked for.</li>
         <li>To keep the service secure and working, and to fix it when it is not.</li>
       </ul>
@@ -112,7 +145,8 @@ export function Privacy() {
         Information is processed in the United States and in the other countries where the companies
         above operate. Account information and scan results are kept for as long as the account
         exists. Deleting a location deletes its prompts and every scan of it. Reports on businesses
-        that have not signed up expire after 30 days.
+        that have not signed up expire after 30 days. Counts of visits from assistants are kept for
+        as long as the location they belong to.
       </p>
 
       <h2>Your choices</h2>
