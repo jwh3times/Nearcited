@@ -10,7 +10,10 @@
   The build output includes `third-party-licenses.md`, the licences of the packages the web app
   bundles, which is therefore public at `/third-party-licenses.md` with no sign-in. It is a static
   asset and no route, and a missing one would be answered with `index.html` like any unknown path
-  (see the README's "License").
+  (see the README's "License"). So is `line.js`, the script a business pastes into its own site,
+  which `apps/web/public/_headers` gives a one-hour cache and `Cross-Origin-Resource-Policy:
+  cross-origin`; a site that loads it does not run the Worker. The reports it sends come back to
+  the Worker at `POST /api/visits` (see "Visits from assistants").
 - **`scheduled`**: two Cron Triggers. Every 15 minutes it fails scans that have been queued or
   running for more than 30 minutes, so an abandoned scan cannot block its location for long. It
   also fails audits still `queued` after 30 minutes (see "Shareable audits"), and queues again
@@ -777,6 +780,99 @@ callable by `service_role` only.
 The web pages at `/audit/:token`, `/privacy`, `/terms` and `/bot` are rendered before the sign-in gate; the audit page polls while the
 audit is queued.
 
+## Visits from assistants
+
+An owner can paste one line into their own site so that the site reports the visits that arrive
+from an AI assistant (`visit_lines`, `visits`; the terms are in `GLOSSARY.md`, the decision in
+`docs/adr/0017-a-visit-is-counted-for-whoever-holds-the-site-key.md`). What exists is the line,
+the route that receives what it sends and the database function that counts it. Nothing in the app
+hands an owner the line yet, and no page shows a count.
+
+```
+a visitor lands on the business's own site
+        |
+line.js, in the visitor's browser: did this arrive from a listed assistant?
+        |  no: nothing is sent
+        |  yes: POST /api/visits { key, referrer, tag, path }, with the site as Origin
+        v
+Worker: readVisit(), assistantOf() -> Store.recordVisit()    (publishable key, no sign-in)
+        |
+record_visit() in Postgres: the key's location, counts_visits(), the day's ceilings
+        |
+visits: one more for that location, day (UTC), assistant and page
+        |
+204 with no body, whatever became of the visit
+```
+
+- **The line decides in the visitor's browser, and sends nothing for any other visit.**
+  `apps/web/public/line.js` reports a visit when the browser names a listed assistant's site as
+  where the visitor came from (a subdomain counts), or, where it names no site at all, when the
+  address carries an assistant's own `utm_source` tag, which is how a visit out of an assistant's
+  app arrives. A tag is not believed over a site: a tagged link somebody posted elsewhere arrives
+  from elsewhere. It sends the key from its tag's `data-site`, the host the visitor came from (or
+  the tag, when that decided), and the page's path, never the address the visitor came from, which
+  can hold what they asked, nor what follows a question mark. It sets no cookie and keeps nothing
+  in the browser. It sends the post with `credentials: "omit"` and `referrerPolicy: "origin"`, so
+  the request names the site and no page of it. It does nothing for a reload or a step back to the
+  page, inside a frame, a second time on a page, or without a key.
+- **The assistants are listed in three places.** `VISIT_ASSISTANTS`
+  (`packages/shared/src/schemas.ts`) names them and `ASSISTANT_REFERRERS`
+  (`packages/shared/src/visits.ts`) holds the hosts and tags each carries. `line.js` has its own
+  copy, since it is a plain script, and `apps/web/test/line.test.ts` holds it to the shared one.
+  The database names them too, twice: the check on `visits.assistant` and `record_visit()`'s own
+  list, and the test in `packages/db` holds both to `VISIT_ASSISTANTS`. An assistant is listed only
+  when its visits can be told from a search: Google's AI Overviews and AI Mode arrive from
+  google.com as a search does, and Copilot's answers inside Bing from bing.com, so neither is
+  counted.
+- **The route** is registered before the sign-in middleware and builds its store from the
+  publishable key, as `GET /api/audits/:token` does (`publicStore`). It ignores a body longer than
+  4,096 characters (`LONGEST_VISIT`; one whose `Content-Length` says so is not read at all),
+  checks what is left against `VisitSentSchema` (a visit, or a check), and takes the site from the
+  `Origin` header, never from the body. It works out the assistant itself with `assistantOf`,
+  where the site named decides and a tag counts only where none is named, and the line does not
+  send it. It answers 204 with no body for a visit counted, one that was not, a body that is not
+  what the line sends and a request with no `Origin`, so asking tells nobody whether a key is
+  somebody's.
+- **`record_visit()` trusts nothing it is told**, because the key is in the site's source and
+  anyone can read it. It is a security-definer function granted to `anon`, `authenticated` and
+  `service_role`, and returns whether it counted. It finds the location by its key and locks the
+  line's row, so a location's visits are counted one at a time. `counts_visits()` then asks
+  whether the location is not `paused_by_plan`, its organization's allowances include `visits`,
+  and the host the post came from is the host of the location's `website` or a subdomain of it,
+  compared in lower case without `www.` (`site_host()`), so a line copied onto somebody else's site
+  counts nothing. The assistant must be one of the five. The page is cut at `?` and `#` and at 200
+  characters (`LONGEST_PATH`) and must start with a slash. The day is the function's own clock in
+  UTC, never the caller's. A location counts at most 1,000 visits a day (`MOST_VISITS_A_DAY`), and
+  once 50 pages (`MOST_PAGES_A_DAY`) have been counted that day the visits to a page not among them
+  are counted together under an empty path. The shared package holds the same numbers; the tests
+  hold the function to them.
+- **A check is not a visit.** When the address ends in `#nearcited-check` (`LINE_CHECK`) the line
+  sends `{ key, check: true }` and no visit, even if the visit arrived from an assistant.
+  `check_visit_line()` sets `visit_lines.checked_on` to today (UTC) when `counts_visits()` accepts
+  the key and host, and counts nothing. Nothing reads `checked_on` yet.
+- **What is kept is a count.** `visits` has one row for a location, a day (UTC), an assistant and a
+  path, with how many. No row is a visit, and there is no time of day and nothing about the
+  visitor. `visit_lines` has one row for a location, made by a trigger when the location is (the
+  migration gave one to each location that existed): the `key`, 32 characters of hex from
+  `gen_random_uuid()`, when it was made (`key_made_at`) and `checked_on`.
+- **Who reads and writes.** Both tables have a `select` policy for whoever can read the location
+  (`can_access_location`) and one for the operator, and no write grant for any API role. A caller
+  who is not signed in has no grant on either. Only `record_visit()` and `check_visit_line()`
+  write, and they answer anyone holding a key; `anon` and `authenticated` can call none of
+  `new_site_key()`, `site_host()`, `counts_visits()` and `give_location_a_line()`. Apart from the payment webhook, which
+  is signed, this is the one write a caller who is not signed in can cause, and the route never
+  uses the admin client. Both tables go with their location, and the counts already kept stay
+  readable when a plan stops including visits.
+- **`visits` is an allowance that is included or not.** It is in `allowance_kinds` (not counted)
+  and `ALLOWANCE_KINDS`, and `VISITS_ALLOWANCE` is its key. Counting a visit takes nothing from a
+  month (see "Tenancy").
+- **Nothing rests on the count.** Anyone who reads the key can post made-up visits from a client
+  that names the site, so the count can be padded, and the ceilings only bound how much one key
+  can write. No score, alert, task or bill is worked out from it
+  ([ADR 0017](adr/0017-a-visit-is-counted-for-whoever-holds-the-site-key.md)).
+- **The privacy policy says what the line collects**
+  (`apps/web/src/pages/legal/Privacy.tsx`).
+
 ## Connections
 
 A connection is an organization's standing sign-in to an outside account (`connections`; the term
@@ -1205,6 +1301,10 @@ the only account that can read them is the operator's; the Worker's secret key w
 more, `connection_secrets`, `connection_kind_allowances`, `sample_listings` and `action_kind_terms`,
 no API role can read or write at all (see "Connections" and "Actions").
 
+A caller who is not signed in can read an audit by its token and the price list, and can write one
+thing: count a visit to a location's own site, or note a check of the line on it, through two
+functions that answer anyone holding the location's site key (see "Visits from assistants").
+
 The API does not check ownership in application code. For each request it builds a Supabase
 client that carries the caller's own access token (`createUserClient`), so Postgres evaluates the
 row-level security policies as that user. A location in someone else's organization simply reads
@@ -1334,7 +1434,8 @@ copy, edit and lower a plan.
   one of those plans its plan's number, as if the operator had set it, since a plan gaining
   something takes effect at once. It set only that one key, so the organization's other limits,
   including any the operator had set for it alone, stayed, and it left a test organization the
-  number it was made with.
+  number it was made with. No plan includes `visits` yet. A test organization does: the migration
+  that made the kind gave it to the test organizations that existed.
 - **Use of a counted kind is kept in `allowance_use`**, one row for an organization, a kind and a
   calendar month in UTC. Its members read their own organization's rows and the operator reads
   all of them; no API role writes it, since a count a member could write is a count a member could
@@ -1344,9 +1445,11 @@ copy, edit and lower a plan.
   whether it claimed, what the month allows and how much of it is used. `release_allowance()`,
   also worker only, gives back what was claimed for a month, for work that was then not done. A kind
   that is included without a number is not counted. Only the action functions and the draft
-  functions call either. `drafts` is the one kind that exists, and `claim_draft()` and
-  `finish_draft()` count it (see "Drafts"); no kind of action is counted yet (see "Actions" and
-  "Known gaps").
+  functions call either. Two kinds exist. `drafts` is counted, by `claim_draft()` and
+  `finish_draft()` (see "Drafts"). `visits` is included or not, so nothing is claimed for it:
+  `counts_visits()` checks that the organization's allowances name it before a visit is counted
+  (see "Visits from assistants"). No kind of action is counted yet (see "Actions" and "Known
+  gaps").
 - **A kind of connection can name the allowance it needs**, in `connection_kind_allowances`; see
   "Connections".
 
@@ -1526,13 +1629,15 @@ drop it.
   A signed-in user cannot update a scan, so the request that hit the failure cannot clear it.
 - On a Supabase project that still signs tokens with a legacy shared secret, `getClaims` asks the
   Auth server on every request. Use asymmetric signing keys.
-- Allowances limit little yet. One kind of allowance exists, `drafts` (`ALLOWANCE_KINDS` and
-  `allowance_kinds`), which every paid plan includes and the free plan does not. A test
-  organization is given every kind, so its drafts are counted. No kind of connection or of action
+- Allowances limit little yet. Two kinds of allowance exist (`ALLOWANCE_KINDS` and
+  `allowance_kinds`): `drafts`, counted, which every paid plan includes and the free plan does
+  not, and `visits`, included or not, which no plan includes yet. A test organization is given
+  every kind, so its drafts are counted and its visits are. No kind of connection or of action
   names an allowance, so a number for another kind would be stored, shown and lowered by
   announcement, but no work would stop at it or be counted against it. What an allowance can stop is
   a kind of connection that needs it (see "Connections"), a kind of action that takes from it (see
-  "Actions") and a draft (see "Drafts"), and only the last exists ([#133](https://github.com/jwh3times/Nearcited/issues/133)).
+  "Actions"), a draft (see "Drafts") and counting a visit (see "Visits from assistants"), and only
+  the last two exist ([#133](https://github.com/jwh3times/Nearcited/issues/133)).
 - A real draft is written only where the private tuning has instructions for its kind, and it
   needs them before a deployment writes one, or offers a task one (see "Tuning" and "Drafts"). What a real draft costs has
   been measured only in a trial, whose readings are kept privately: a draft's use is recorded, so
@@ -1565,6 +1670,19 @@ drop it.
   does a task's work, and the only limit on keeping what one replaced is the sample kind's 30 days,
   which is there so that dropping can be seen. The only notices sent are about sample actions, by a
   deployment on sample data that has email set up.
+- What each assistant's visits carry (`ASSISTANT_REFERRERS`) was read on 2026-10-13 from published
+  accounts of what each assistant sends. Nobody followed a link out of each one to see, so a host
+  or tag that is wrong counts nothing and says nothing.
+- The count of visits leaves out what cannot be told from something else. Google's AI Overviews and
+  AI Mode, and Copilot inside Bing, arrive as a search does and are not counted. Neither is a
+  visit from an app that sends no site and no tag, or one from a browser that blocks the script.
+  It is a floor (see "Visits from assistants").
+- The count of visits can be padded by anyone who reads the site key, which is in the site's
+  source, and the key is for the life of the location: no function or route replaces one yet. The
+  ceilings in `record_visit()` bound what one key can write, and nothing is worked out from the
+  count.
+- The host's request logs see the request to `POST /api/visits`, and the one for `/line.js`, like
+  any other, as the privacy policy says. Nothing from them is kept with a count.
 
 ## Open product questions
 

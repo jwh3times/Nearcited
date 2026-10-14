@@ -96,6 +96,18 @@ Nearcited is multi-tenant, and tenant isolation is enforced by Postgres row-leve
   `operator_set_plan()`, or by calling `apply_limit_change()` as anyone but the worker.
 - Moving a subscription to a higher price without its owners having been told at least thirty
   days before.
+- Counting a visit that `record_visit()` should refuse, or learning anything from `POST /api/visits`.
+  The route needs no sign-in and the site key is in the site's source, so the checks inside the
+  function are the only guard: a visit for a page that is not on the location's own website, for a
+  plan that does not include visits, for a day other than today, past a location's day of 1,000
+  visits under 50 pages, or for an assistant that is not listed. Also the route saying whether a
+  key is somebody's, a table or function behind it reachable by a caller who is not signed in
+  (`visits` and `visit_lines` have no grant for one; `new_site_key()`, `site_host()`,
+  `counts_visits()` and `give_location_a_line()` are callable by neither `anon` nor
+  `authenticated`), writing either
+  table other than through `record_visit()` and `check_visit_line()`, or finding anything about a
+  visitor kept with a count. Posting made-up visits within those bounds, with a key read from a
+  site, is known: the count can be padded and nothing is worked out from it.
 - Reading a shareable audit without its link, or after it was revoked or expired; listing audits;
   or creating one. `/api/audits/:token` is the one route that gives out an organization's data
   with no sign-in, and the token in the link is the only key to it. `/api/plans` needs no sign-in
