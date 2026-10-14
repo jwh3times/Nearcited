@@ -175,7 +175,10 @@ pass `pnpm check` and run in mock mode without it.
   list of assistants is a copy of the shared one, and the database names them too
   (`visits.assistant`): add one in all three. The count can be padded by anyone who reads the
   key, so no score, alert, task or bill is worked out from it. Do not open `visits` or
-  `visit_lines` to a caller who is not signed in, and do not count a visit on any other path.
+  `visit_lines` to a caller who is not signed in, and do not count a visit on any other path. A
+  key is replaced only by `replace_site_key()`, which answers an owner or an admin of the
+  location's organization and no one else, the operator included: the old key then belongs to
+  nobody and what was counted stays. Do not add another path that changes a key.
 - **`packages/shared/src/schemas.ts` defines every wire type.** Change the schema first, then the
   API and the client. Field names stay snake_case end to end.
 - **All database access goes through the `Store` interface** (`apps/api/src/store/types.ts`). A
