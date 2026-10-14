@@ -237,7 +237,10 @@ test("offers the structured details to paste where the page has none, and copies
 
   // The block can be read before it is copied, and the missing details lead to Settings.
   await panel.getByText("See the block").click();
-  await expect(panel.locator("pre")).toContainText('"@type": "LocalBusiness"');
+  // The tab holds another thing to paste, the line that counts visits, so the block is named.
+  await expect(panel.locator("pre").filter({ hasText: "application/ld+json" })).toContainText(
+    '"@type": "LocalBusiness"',
+  );
   await panel.getByRole("button", { name: "Add them in Settings" }).click();
   await expect(page).toHaveURL(/tab=settings/);
 

@@ -1,4 +1,10 @@
-import { type LocationLine, lineToPaste, type VisitLine } from "@nearcited/shared";
+import {
+  type LocationLine,
+  type LocationVisits,
+  lineToPaste,
+  VISITS_SHOWN_DAYS,
+  type VisitLine,
+} from "@nearcited/shared";
 import { Hono } from "hono";
 import type { AppEnv } from "../app";
 import type { Env } from "../env";
@@ -33,6 +39,19 @@ visitRoutes.get("/locations/:locationId/line", async (c) => {
   ]);
   if (!line) throw notFound("Line");
   return c.json(sent(c.env, line, canReplace));
+});
+
+/**
+ * A location's visits from assistants over the last thirty days, added up, for anyone who can
+ * read the location. It is what the location's own site reported and nothing else: nothing here
+ * is generated, on sample data or for a test organization.
+ */
+visitRoutes.get("/locations/:locationId/visits", async (c) => {
+  const store = c.get("store");
+  const location = await requireLocation(store, uuidParam(c, "locationId", "Location"));
+  return c.json(
+    (await store.getLocationVisits(location.id, VISITS_SHOWN_DAYS)) satisfies LocationVisits,
+  );
 });
 
 /**

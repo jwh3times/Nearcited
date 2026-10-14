@@ -190,8 +190,9 @@ pass `pnpm check` and run in mock mode without it.
   Supabase store such a read goes through `every` (`readEvery`, `apps/api/src/store/paging.ts`),
   asked for in an order no two rows share, and oldest first where the rows have a time they were
   made, so a row made meanwhile lands past the end. A list that belongs to one organization
-  or one location is bounded by its plan and needs none. A work list the schedule reads again at
-  its next run, and takes only the first of, may stay as it is.
+  or one location is bounded by its plan and needs none, except a location's visits, which no plan
+  bounds: they are read added up, by `location_visits()`, and never row by row. A work list the
+  schedule reads again at its next run, and takes only the first of, may stay as it is.
 - **Providers only fetch.** They return an `Observation`; `analyzeObservation` in the shared
   package decides what it means. Do not put matching logic in a provider.
 - **Structured details carry only what a location holds.** A detail not on file is left out, never

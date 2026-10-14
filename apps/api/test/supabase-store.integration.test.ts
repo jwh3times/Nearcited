@@ -999,6 +999,19 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
           .select("day")
       ).error,
     ).not.toBeNull();
+    // The counts are read added up, by whoever reads the location.
+    expect(await aliceStore.getLocationVisits(location.id, 30)).toEqual({
+      since: new Date(Date.now() - 29 * 86_400_000).toISOString().slice(0, 10),
+      days: [{ day: today, assistant: "chatgpt", count: 2 }],
+      pages: [{ path: "/menu", count: 2 }],
+      other_pages: 0,
+    });
+    expect(await bobStore.getLocationVisits(location.id, 30)).toMatchObject({
+      days: [],
+      pages: [],
+      other_pages: 0,
+    });
+
     // The line is read by whoever reads the location, and its key replaced by an owner or admin.
     expect(await aliceStore.getVisitLine(location.id)).toEqual({
       location_id: location.id,

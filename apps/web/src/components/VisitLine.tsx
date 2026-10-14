@@ -14,6 +14,7 @@ import {
   visitsOffer,
 } from "../lib/visits";
 import { ErrorNote } from "./ErrorNote";
+import { VisitCounts } from "./VisitCounts";
 
 interface VisitLineProps {
   location: Location;
@@ -25,9 +26,10 @@ interface VisitLineProps {
 }
 
 /**
- * Visits from assistants, on a location's Website tab: the line its owner pastes into their own
- * site, where it goes, and whether it has been seen there. Shown where the plan counts visits. On
- * a plan that does not, it says so, and only where some plan does.
+ * Visits from assistants, on a location's Website tab: what its site has reported, then the line
+ * its owner pastes into their own site, where it goes, and whether it has been seen there. Shown
+ * where the plan counts visits. On a plan that does not, it says so, only where some plan does,
+ * and still shows what was counted while one did.
  */
 export function VisitLine({ location, allowances, onOpenSettings, readOnly }: VisitLineProps) {
   const plans = useQuery({
@@ -51,12 +53,19 @@ export function VisitLine({ location, allowances, onOpenSettings, readOnly }: Vi
         <h2 id="visits-title">{LINE_WORDS.title}</h2>
       </div>
       {offer === "included" ? (
-        <TheLine location={location} onOpenSettings={onOpenSettings} readOnly={readOnly} />
+        <>
+          <VisitCounts locationId={location.id} />
+          <TheLine location={location} onOpenSettings={onOpenSettings} readOnly={readOnly} />
+        </>
       ) : (
-        <p className="lede">
-          {LINE_WORDS.notOnPlan}{" "}
-          {account.data?.billing != null && <Link to="/pricing">See plans</Link>}
-        </p>
+        <>
+          <p className="lede">
+            {LINE_WORDS.notOnPlan}{" "}
+            {account.data?.billing != null && <Link to="/pricing">See plans</Link>}
+          </p>
+          {/* Nothing more is counted. What was, while a plan counted it, is still there to read. */}
+          <VisitCounts locationId={location.id} kept />
+        </>
       )}
     </section>
   );

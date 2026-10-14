@@ -1656,6 +1656,27 @@ export const LocationLineSchema = z.object({
 export type LocationLine = z.infer<typeof LocationLineSchema>;
 
 /**
+ * A location's visits from assistants over a run of days, added up: what its own site reported,
+ * and no more than that. No part of it is a visit, and none says anything of a visitor.
+ */
+export const LocationVisitsSchema = z.object({
+  /** The first day (UTC) added up. The last is today. */
+  since: z.string(),
+  /**
+   * How many visits arrived on a day from an assistant, for each day and assistant that had any.
+   * The assistant is a name this build may not know yet, so it is not held to the list.
+   */
+  days: z.array(
+    z.object({ day: z.string(), assistant: z.string(), count: z.number().int().positive() }),
+  ),
+  /** The pages landed on most, with how many visits each had. At most ten. */
+  pages: z.array(z.object({ path: z.string(), count: z.number().int().positive() })),
+  /** The visits to pages past the fiftieth of their day, which are counted together. */
+  other_pages: z.number().int().nonnegative(),
+});
+export type LocationVisits = z.infer<typeof LocationVisitsSchema>;
+
+/**
  * What the line on a business's site sends, with no sign-in. One of two things: its owner
  * checking that the line is there, or a visit that arrived from an assistant. Nothing in either
  * is about the visitor, and which assistant it was is worked out from this, never sent.

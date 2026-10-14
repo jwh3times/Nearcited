@@ -6,6 +6,7 @@ import {
   LONGEST_PATH,
   MOST_PAGES_A_DAY,
   MOST_VISITS_A_DAY,
+  PAGES_SHOWN,
   VISIT_ASSISTANTS,
 } from "@nearcited/shared";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
@@ -5694,6 +5695,84 @@ describe("the operator", () => {
           ).rejects.toThrow(/permission denied/);
         }
       }
+    });
+
+    it("are read added up, by day and assistant and by page, by whoever reads the location", async () => {
+      const added = "select public.location_visits($1, $2) as visits";
+      const day = (ago: number) =>
+        new Date(Date.now() - ago * 86_400_000).toISOString().slice(0, 10);
+      const read = async (role: Role, user: string | null, days = 30) =>
+        (await as(role, user, () => rows<{ visits: unknown }>(added, [main, days])))[0]?.visits;
+      await db.query(
+        `insert into public.visits (location_id, day, assistant, path, count)
+         select $1, (now() at time zone 'UTC')::date - v.ago, v.assistant, v.path, v.count
+         from (values
+           (0, 'chatgpt', '/menu', 3),
+           (0, 'chatgpt', '/', 2),
+           (0, 'perplexity', '/menu', 1),
+           (0, 'chatgpt', '', 4),
+           (1, 'claude', '/hours', 5),
+           (29, 'gemini', '/', 1),
+           (30, 'gemini', '/', 70)
+         ) as v (ago, assistant, path, count)`,
+        [main],
+      );
+
+      const thirty = {
+        since: day(29),
+        days: [
+          { day: day(29), assistant: "gemini", count: 1 },
+          { day: day(1), assistant: "claude", count: 5 },
+          { day: day(0), assistant: "chatgpt", count: 9 },
+          { day: day(0), assistant: "perplexity", count: 1 },
+        ],
+        // The pages with the most first, and the same count in the order of their names.
+        pages: [
+          { path: "/hours", count: 5 },
+          { path: "/menu", count: 4 },
+          { path: "/", count: 3 },
+        ],
+        other_pages: 4,
+      };
+      expect(await read("authenticated", alice)).toEqual(thirty);
+      expect(await read("authenticated", operator)).toEqual(thirty);
+      expect(await read("service_role", null)).toEqual(thirty);
+      // Somebody else has nothing to add up, and a caller who is not signed in may not ask.
+      expect(await read("authenticated", bob)).toEqual({
+        since: day(29),
+        days: [],
+        pages: [],
+        other_pages: 0,
+      });
+      await expect(read("anon", null)).rejects.toThrow(/permission denied/);
+
+      // The days are counted back from today, which is included. Fewer than one is one, and
+      // more than a year is a year.
+      expect(await read("authenticated", alice, 1)).toMatchObject({
+        since: day(0),
+        days: [
+          { day: day(0), assistant: "chatgpt", count: 9 },
+          { day: day(0), assistant: "perplexity", count: 1 },
+        ],
+      });
+      expect(await read("authenticated", alice, 0)).toMatchObject({ since: day(0) });
+      expect(await read("authenticated", alice, 31)).toMatchObject({
+        days: expect.arrayContaining([{ day: day(30), assistant: "gemini", count: 70 }]),
+      });
+      expect(await read("authenticated", alice, 100000)).toMatchObject({ since: day(365) });
+
+      // No more pages than are shown, however many were landed on.
+      await db.query(
+        `insert into public.visits (location_id, day, assistant, path, count)
+         select $1, (now() at time zone 'UTC')::date, 'copilot', '/page-' || n, 100 + n
+         from generate_series(1, $2::integer) as n`,
+        [main, PAGES_SHOWN + 5],
+      );
+      const many = (await read("authenticated", alice)) as { pages: { count: number }[] };
+      expect(many.pages).toHaveLength(PAGES_SHOWN);
+      expect(many.pages.map((page) => page.count)).toEqual(
+        Array.from({ length: PAGES_SHOWN }, (_, at) => 100 + PAGES_SHOWN + 5 - at),
+      );
     });
 
     it("have their key replaced by an owner or an admin, and by nobody else", async () => {

@@ -18,6 +18,7 @@ import {
   type LocationFormValues,
   LocationLineSchema,
   LocationSchema,
+  LocationVisitsSchema,
   MeSchema,
   OperatorAccountsSchema,
   OperatorAuditSchema,
@@ -214,6 +215,9 @@ export const api = {
     send("DELETE", `/locations/${locationId}/listings/${site}`).then(() => undefined),
   /** A location's line: the key its site carries, the line to paste, and when it last answered. */
   getLine: (locationId: string) => json(LocationLineSchema, "GET", `/locations/${locationId}/line`),
+  /** A location's visits from assistants over the last thirty days, added up. */
+  getVisits: (locationId: string) =>
+    json(LocationVisitsSchema, "GET", `/locations/${locationId}/visits`),
   /** Gives a location a new site key. The line on the site counts nothing until pasted again. */
   replaceSiteKey: (locationId: string) =>
     json(LocationLineSchema, "POST", `/locations/${locationId}/line/key`),

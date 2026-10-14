@@ -113,6 +113,11 @@ Nearcited is multi-tenant, and tenant isolation is enforced by Postgres row-leve
   the worker, a member of another organization and a caller who is not signed in must get nothing,
   and the key must not change. Also reading a location's line, through
   `GET /api/locations/:locationId/line`, as someone who cannot read the location.
+- Reading another organization's visit counts, through `location_visits()` or
+  `GET /api/locations/:locationId/visits`. The function runs as the caller, so row-level security
+  decides what it adds up, and it is granted to signed-in users and the service role and not to
+  `anon`. A member of another organization must get nothing from it, and a caller who is not
+  signed in must not be able to call it.
 - Reading a shareable audit without its link, or after it was revoked or expired; listing audits;
   or creating one. `/api/audits/:token` is the one route that gives out an organization's data
   with no sign-in, and the token in the link is the only key to it. `/api/plans` needs no sign-in

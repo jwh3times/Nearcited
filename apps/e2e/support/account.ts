@@ -292,17 +292,20 @@ async function readAsWorker<T>(query: string): Promise<T[]> {
 }
 
 /**
- * Has an organization's visits from assistants counted, as a plan that includes them would,
- * beside whatever else it already has. Local stack only.
+ * Gives a location counts as its site would have reported them over some days. A day's ceiling
+ * and the pages past a day's fiftieth take a thousand visits to reach. Local stack only.
  */
-export async function withVisits(organizationId: string): Promise<void> {
-  const [organization] = await readAsWorker<{ allowances: Record<string, unknown> }>(
-    `organizations?id=eq.${organizationId}&select=allowances`,
-  );
+export async function withCounted(
+  locationId: string,
+  counted: { ago: number; assistant: string; path: string; count: number }[],
+): Promise<void> {
   await asWorker(
-    `organizations?id=eq.${organizationId}`,
-    { allowances: { ...organization?.allowances, visits: true } },
-    "PATCH",
+    "visits",
+    counted.map(({ ago, ...row }) => ({
+      location_id: locationId,
+      day: new Date(Date.now() - ago * 86_400_000).toISOString().slice(0, 10),
+      ...row,
+    })),
   );
 }
 

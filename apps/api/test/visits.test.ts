@@ -1,9 +1,11 @@
 import {
   LocationLineSchema,
   LocationSchema,
+  LocationVisitsSchema,
   MOST_PAGES_A_DAY,
   MOST_VISITS_A_DAY,
   OrganizationSchema,
+  PAGES_SHOWN,
   VISITS_ALLOWANCE,
 } from "@nearcited/shared";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -370,5 +372,79 @@ describe("POST /api/locations/:id/line/key", () => {
     if (membership) membership.role = "admin";
     expect((await replace(bob)).status).toBe(200);
     expect(db.visitLines.get(locationId)?.key).not.toBe(key);
+  });
+});
+
+describe("GET /api/locations/:id/visits", () => {
+  const read = async (user: string) => {
+    const response = await call(user, "GET", `/locations/${locationId}/visits`);
+    return response.status === 200 ? LocationVisitsSchema.parse(await response.json()) : response;
+  };
+
+  beforeEach(() => {
+    const organizationId = db.organizations[0]?.id ?? "";
+    db.memberships.push({ organization_id: organizationId, user_id: bob, role: "member" });
+    db.operators.add(dave);
+  });
+
+  it("adds up what the location's site reported over the last thirty days", async () => {
+    // Thirty-one days ago, thirty days ago minus one, yesterday and today.
+    for (const [now, body] of [
+      ["2026-09-13T12:00:00.000Z", fromChatGpt("/old")],
+      ["2026-09-14T12:00:00.000Z", { key, referrer: "gemini.google.com", tag: null, path: "/" }],
+      ["2026-10-12T12:00:00.000Z", { key, referrer: "claude.ai", tag: null, path: "/hours" }],
+      ["2026-10-13T09:00:00.000Z", fromChatGpt("/menu")],
+      ["2026-10-13T10:00:00.000Z", fromChatGpt("/menu")],
+      ["2026-10-13T11:00:00.000Z", fromChatGpt("/")],
+      ["2026-10-13T12:00:00.000Z", { key, referrer: "perplexity.ai", tag: null, path: "/menu" }],
+    ] as const) {
+      db.now = now;
+      await report(body);
+    }
+    db.now = "2026-10-13T15:00:00.000Z";
+
+    expect(await read(alice)).toEqual({
+      since: "2026-09-14",
+      days: [
+        { day: "2026-09-14", assistant: "gemini", count: 1 },
+        { day: "2026-10-12", assistant: "claude", count: 1 },
+        { day: "2026-10-13", assistant: "chatgpt", count: 3 },
+        { day: "2026-10-13", assistant: "perplexity", count: 1 },
+      ],
+      pages: [
+        { path: "/menu", count: 3 },
+        { path: "/", count: 2 },
+        { path: "/hours", count: 1 },
+      ],
+      other_pages: 0,
+    });
+    // A member reads the same, and so does the operator.
+    expect(await read(bob)).toEqual(await read(alice));
+    expect(await read(dave)).toEqual(await read(alice));
+  });
+
+  it("lists the pages with the most, and says how many visits were to the rest of a day's", async () => {
+    for (let page = 1; page <= MOST_PAGES_A_DAY + 3; page += 1) {
+      await report(fromChatGpt(`/page-${String(page).padStart(2, "0")}`));
+    }
+    await report(fromChatGpt("/page-07"));
+    const visits = await read(alice);
+    expect(visits).toMatchObject({ other_pages: 3 });
+    const { pages } = visits as { pages: { path: string; count: number }[] };
+    expect(pages).toHaveLength(PAGES_SHOWN);
+    expect(pages[0]).toEqual({ path: "/page-07", count: 2 });
+    expect(pages[1]).toEqual({ path: "/page-01", count: 1 });
+  });
+
+  it("is empty before anything is reported, not found for anyone else, and asks for a sign-in", async () => {
+    expect(await read(alice)).toEqual({
+      since: "2026-09-14",
+      days: [],
+      pages: [],
+      other_pages: 0,
+    });
+    expect(((await read(carol)) as Response).status).toBe(404);
+    const unsigned = await app.request(`/api/locations/${locationId}/visits`, {}, env);
+    expect(unsigned.status).toBe(401);
   });
 });
