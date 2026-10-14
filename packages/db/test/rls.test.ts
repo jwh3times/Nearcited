@@ -1,8 +1,14 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
-import { ALLOWANCE_KINDS } from "@nearcited/shared";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import {
+  ALLOWANCE_KINDS,
+  LONGEST_PATH,
+  MOST_PAGES_A_DAY,
+  MOST_VISITS_A_DAY,
+  VISIT_ASSISTANTS,
+} from "@nearcited/shared";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 /**
  * Applies the real migrations to an in-process Postgres and exercises the policies as
@@ -5359,6 +5365,359 @@ describe("the operator", () => {
 
       await db.query("delete from public.locations where id = $1", [gone?.id]);
       expect(await rows("select 1 from public.listings")).toEqual([]);
+      await db.query("update public.organizations set max_locations = $1 where id = $2", [
+        limits?.max_locations ?? 1,
+        theirs,
+      ]);
+    });
+  });
+
+  describe("visits", () => {
+    let main: string;
+    let key: string;
+    const SITE = "joes.example";
+
+    const record = "select public.record_visit($1, $2, $3, $4) as counted";
+    const check = "select public.check_visit_line($1, $2) as noted";
+    const visit = async (
+      path = "/menu",
+      assistant: string | null = "chatgpt",
+      host: string | null = SITE,
+      withKey: string | null = key,
+    ) =>
+      (
+        await as("anon", null, () =>
+          rows<{ counted: boolean }>(record, [withKey, host, assistant, path]),
+        )
+      )[0]?.counted;
+    const visits = () =>
+      rows<{ assistant: string; path: string; count: number }>(
+        "select assistant, path, count from public.visits where location_id = $1 order by assistant, path",
+        [main],
+      );
+    const counted = async () =>
+      Number(
+        (
+          await rows<{ n: string }>(
+            "select coalesce(sum(count), 0) as n from public.visits where location_id = $1 and day = (now() at time zone 'UTC')::date",
+            [main],
+          )
+        )[0]?.n,
+      );
+    const included = (allowances: string) =>
+      db.query("update public.organizations set allowances = $1::jsonb where id = $2", [
+        allowances,
+        theirs,
+      ]);
+
+    beforeAll(async () => {
+      const [location] = await rows<{ id: string }>(
+        "select id from public.locations where organization_id = $1 order by created_at limit 1",
+        [theirs],
+      );
+      main = location?.id ?? "";
+      const [line] = await rows<{ key: string }>(
+        "select key from public.visit_lines where location_id = $1",
+        [main],
+      );
+      key = line?.key ?? "";
+      await db.query("update public.locations set website = $1 where id = $2", [
+        `https://www.${SITE}/`,
+        main,
+      ]);
+      await included('{"visits": true}');
+    });
+    beforeEach(async () => {
+      await db.query("delete from public.visits");
+    });
+    afterAll(async () => {
+      await db.query("delete from public.visits");
+      await db.query("update public.locations set website = null where id = $1", [main]);
+      await included("{}");
+    });
+
+    it("give every location a line of its own from the moment it is made", async () => {
+      const lines = await rows<{ location_id: string; key: string }>(
+        "select location_id, key from public.visit_lines",
+      );
+      const locations = await rows<{ id: string }>("select id from public.locations");
+      expect(lines.map((line) => line.location_id).sort()).toEqual(
+        locations.map((location) => location.id).sort(),
+      );
+      expect(new Set(lines.map((line) => line.key)).size).toBe(lines.length);
+      for (const line of lines) expect(line.key).toMatch(/^[0-9a-f]{32}$/);
+    });
+
+    it("are counted for whoever holds the key, by day, assistant and page", async () => {
+      expect(await visit()).toBe(true);
+      expect(await visit()).toBe(true);
+      expect(await visit("/", "perplexity")).toBe(true);
+      expect(await visits()).toEqual([
+        { assistant: "chatgpt", path: "/menu", count: 2 },
+        { assistant: "perplexity", path: "/", count: 1 },
+      ]);
+      // The day is the database's own, in UTC.
+      expect(
+        await rows(
+          "select distinct day = (now() at time zone 'UTC')::date as today from public.visits",
+        ),
+      ).toEqual([{ today: true }]);
+      // A signed-in caller and the worker hold the key like anyone else.
+      for (const [role, user] of [
+        ["authenticated", bob],
+        ["service_role", null],
+      ] as const) {
+        expect(await as(role, user, () => rows(record, [key, SITE, "chatgpt", "/menu"]))).toEqual([
+          { counted: true },
+        ]);
+      }
+      expect(await counted()).toBe(5);
+    });
+
+    it("are counted for every assistant the shared list names, and for no other", async () => {
+      for (const assistant of VISIT_ASSISTANTS) {
+        expect(await visit("/", assistant), assistant).toBe(true);
+      }
+      for (const assistant of ["google", "ChatGPT", "", null]) {
+        expect(await visit("/", assistant), String(assistant)).toBe(false);
+      }
+      expect((await visits()).map((row) => row.assistant).sort()).toEqual(
+        [...VISIT_ASSISTANTS].sort(),
+      );
+      await expect(
+        db.query(
+          "insert into public.visits (location_id, day, assistant, path, count) values ($1, current_date, 'google', '/', 1)",
+          [main],
+        ),
+      ).rejects.toThrow(/violates check constraint/);
+    });
+
+    it("are counted only for a page on the location's own site", async () => {
+      for (const host of [SITE, `www.${SITE}`, "JOES.EXAMPLE", `shop.${SITE}`, `https://${SITE}`]) {
+        expect(await visit("/", "chatgpt", host), host).toBe(true);
+      }
+      for (const host of [
+        "notjoes.example",
+        `${SITE}.elsewhere.example`,
+        "example",
+        "null",
+        "",
+        null,
+      ]) {
+        expect(await visit("/", "chatgpt", host), String(host)).toBe(false);
+      }
+      expect(await counted()).toBe(5);
+
+      // A website that is not an address matches nothing, and a location with none counts none.
+      for (const website of ["%", "_oes.example", "", null]) {
+        await db.query("update public.locations set website = $1 where id = $2", [website, main]);
+        expect(await visit(), String(website)).toBe(false);
+      }
+      // One on file as a page, with a port and a name in capitals, is still its site.
+      await db.query("update public.locations set website = $1 where id = $2", [
+        `HTTP://WWW.Joes.Example:8080/menu?x=1`,
+        main,
+      ]);
+      expect(await visit()).toBe(true);
+      await db.query("update public.locations set website = $1 where id = $2", [
+        `https://www.${SITE}/`,
+        main,
+      ]);
+      expect(await counted()).toBe(6);
+    });
+
+    it("are counted for nobody's key, and for no plan that leaves them out", async () => {
+      for (const nobodys of ["0".repeat(32), key.toUpperCase(), `${key}0`, "", null]) {
+        expect(await visit("/menu", "chatgpt", SITE, nobodys), String(nobodys)).toBe(false);
+      }
+
+      await included("{}");
+      expect(await visit()).toBe(false);
+      await included('{"drafts": 5}');
+      expect(await visit()).toBe(false);
+      await included('{"visits": true}');
+
+      // A location the plan no longer covers is not counted for either.
+      await db.query("update public.locations set paused_by_plan = true where id = $1", [main]);
+      expect(await visit()).toBe(false);
+      await db.query("update public.locations set paused_by_plan = false where id = $1", [main]);
+
+      expect(await visits()).toEqual([]);
+      expect(await visit()).toBe(true);
+    });
+
+    it("keep a page as a path: nothing after a question mark, and no more than its length", async () => {
+      expect(await visit("/menu?email=someone@example.com#top")).toBe(true);
+      expect(await visit("/menu#order")).toBe(true);
+      expect(await visit(`/${"a".repeat(LONGEST_PATH + 50)}`)).toBe(true);
+      for (const page of ["menu", "", "?x=1", "https://joes.example/menu", null]) {
+        expect(await visit(page as string), String(page)).toBe(false);
+      }
+      expect(await visits()).toEqual([
+        { assistant: "chatgpt", path: `/${"a".repeat(LONGEST_PATH - 1)}`, count: 1 },
+        { assistant: "chatgpt", path: "/menu", count: 2 },
+      ]);
+    });
+
+    it("are counted under a bounded number of pages a day, and the rest together", async () => {
+      await db.query(
+        `insert into public.visits (location_id, day, assistant, path, count)
+         select $1, (now() at time zone 'UTC')::date, 'chatgpt', '/page-' || n, 1
+         from generate_series(1, $2::integer) as n`,
+        [main, MOST_PAGES_A_DAY - 1],
+      );
+      // The last page there is room for, then two more.
+      expect(await visit("/the-last")).toBe(true);
+      expect(await visit("/one-more")).toBe(true);
+      expect(await visit("/and-another", "claude")).toBe(true);
+      // A page already counted today still counts as itself, for any assistant.
+      expect(await visit("/page-1", "gemini")).toBe(true);
+      expect(await visit("/the-last")).toBe(true);
+
+      const kept = await visits();
+      expect(new Set(kept.map((row) => row.path).filter(Boolean)).size).toBe(MOST_PAGES_A_DAY);
+      expect(kept.filter((row) => row.path === "")).toEqual([
+        { assistant: "chatgpt", path: "", count: 1 },
+        { assistant: "claude", path: "", count: 1 },
+      ]);
+      expect(kept.find((row) => row.path === "/the-last")?.count).toBe(2);
+      expect(kept.some((row) => row.path === "/one-more" || row.path === "/and-another")).toBe(
+        false,
+      );
+    });
+
+    it("stop at the day's ceiling, and start again the next day", async () => {
+      await db.query(
+        `insert into public.visits (location_id, day, assistant, path, count) values
+           ($1, (now() at time zone 'UTC')::date, 'chatgpt', '/', $2),
+           ($1, (now() at time zone 'UTC')::date - 1, 'chatgpt', '/', $3)`,
+        [main, MOST_VISITS_A_DAY - 1, MOST_VISITS_A_DAY],
+      );
+      expect(await visit("/")).toBe(true);
+      expect(await counted()).toBe(MOST_VISITS_A_DAY);
+      expect(await visit("/")).toBe(false);
+      expect(await visit("/another", "claude")).toBe(false);
+      expect(await counted()).toBe(MOST_VISITS_A_DAY);
+
+      // Yesterday's full day did not stop today's first visit, and today's will not stop tomorrow's.
+      await db.query("update public.visits set day = day - 7 where location_id = $1", [main]);
+      expect(await visit("/")).toBe(true);
+      expect(await counted()).toBe(1);
+    });
+
+    it("note that the line answered from the location's own site, and count nothing for it", async () => {
+      const noted = (withKey: string | null, host: string | null) =>
+        as("anon", null, () => rows<{ noted: boolean }>(check, [withKey, host]));
+      const checked = () =>
+        rows<{ today: boolean | null }>(
+          "select checked_on = (now() at time zone 'UTC')::date as today from public.visit_lines where location_id = $1",
+          [main],
+        );
+      expect(await checked()).toEqual([{ today: null }]);
+
+      for (const [withKey, host] of [
+        ["0".repeat(32), SITE],
+        [key, "elsewhere.example"],
+        [key, null],
+        [null, SITE],
+      ] as const) {
+        expect(await noted(withKey, host), `${withKey} ${host}`).toEqual([{ noted: false }]);
+      }
+      await included("{}");
+      expect(await noted(key, SITE)).toEqual([{ noted: false }]);
+      await included('{"visits": true}');
+      expect(await checked()).toEqual([{ today: null }]);
+
+      expect(await noted(key, `www.${SITE}`)).toEqual([{ noted: true }]);
+      expect(await checked()).toEqual([{ today: true }]);
+      // Nobody else's line was touched, and no visit came of it.
+      expect(
+        await rows("select 1 from public.visit_lines where checked_on is not null"),
+      ).toHaveLength(1);
+      expect(await visits()).toEqual([]);
+      await db.query("update public.visit_lines set checked_on = null");
+    });
+
+    it("are read by the members and the operator, and written by nobody but the functions", async () => {
+      await visit();
+      for (const table of ["visits", "visit_lines"]) {
+        const read = `select 1 from public.${table} where location_id = $1`;
+        for (const user of [alice, operator]) {
+          expect(
+            await as("authenticated", user, () => rows(read, [main])),
+            `${table} ${user}`,
+          ).toHaveLength(1);
+        }
+        expect(await as("authenticated", bob, () => rows(read, [main])), table).toEqual([]);
+        await expect(
+          as("anon", null, () => db.query(read, [main])),
+          table,
+        ).rejects.toThrow(/permission denied/);
+      }
+      for (const sql of [
+        `insert into public.visits (location_id, day, assistant, path, count) values ('${main}', current_date, 'claude', '/planted', 900)`,
+        "update public.visits set count = 900",
+        "delete from public.visits",
+        `insert into public.visit_lines (location_id, key) values ('${main}', '${"a".repeat(32)}')`,
+        `update public.visit_lines set key = '${"a".repeat(32)}'`,
+        "update public.visit_lines set checked_on = current_date",
+        "delete from public.visit_lines",
+      ]) {
+        for (const [role, user] of [
+          ["authenticated", alice],
+          ["authenticated", operator],
+          ["anon", null],
+        ] as const) {
+          await expect(
+            as(role, user, () => db.query(sql)),
+            `${sql} ${user}`,
+          ).rejects.toThrow(/permission denied/);
+        }
+      }
+      expect(await visits()).toEqual([{ assistant: "chatgpt", path: "/menu", count: 1 }]);
+    });
+
+    it("leave what decides a visit to the functions: no API role calls the parts", async () => {
+      for (const sql of [
+        `select public.counts_visits('${main}', 'joes.example')`,
+        "select public.site_host('https://joes.example')",
+        "select public.new_site_key()",
+      ]) {
+        for (const [role, user] of [
+          ["authenticated", alice],
+          ["authenticated", operator],
+          ["anon", null],
+        ] as const) {
+          await expect(
+            as(role, user, () => db.query(sql)),
+            `${sql} ${user}`,
+          ).rejects.toThrow(/permission denied/);
+        }
+      }
+    });
+
+    it("go with their location, and so does its line", async () => {
+      const [limits] = await rows<{ max_locations: number }>(
+        "select max_locations from public.organizations where id = $1",
+        [theirs],
+      );
+      await db.query("update public.organizations set max_locations = 2 where id = $1", [theirs]);
+      const [gone] = await rows<{ id: string }>(
+        "insert into public.locations (organization_id, name, city, website) values ($1, 'Closing', 'Raleigh', 'https://closing.example') returning id",
+        [theirs],
+      );
+      const [line] = await rows<{ key: string }>(
+        "select key from public.visit_lines where location_id = $1",
+        [gone?.id],
+      );
+      expect(await visit("/", "chatgpt", "closing.example", line?.key)).toBe(true);
+      expect(await rows("select 1 from public.visits")).toHaveLength(1);
+
+      await db.query("delete from public.locations where id = $1", [gone?.id]);
+      expect(await rows("select 1 from public.visits")).toEqual([]);
+      expect(await rows("select 1 from public.visit_lines where key = $1", [line?.key])).toEqual(
+        [],
+      );
       await db.query("update public.organizations set max_locations = $1 where id = $2", [
         limits?.max_locations ?? 1,
         theirs,

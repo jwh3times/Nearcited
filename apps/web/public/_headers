@@ -1,0 +1,5 @@
+# The line a business pastes into its own site. Every page of every such site asks for it, so a
+# browser keeps it for an hour, and a site that only loads what says it may be loaded can.
+/line.js
+  Cache-Control: public, max-age=3600
+  Cross-Origin-Resource-Policy: cross-origin

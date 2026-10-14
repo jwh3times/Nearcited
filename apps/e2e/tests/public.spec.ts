@@ -84,3 +84,18 @@ test("serves the licence of every package the app includes, beside the app", asy
   expect(code).toMatch(/@license React/);
   expect(code.match(/@license/g)?.length).toBeGreaterThan(5);
 });
+
+test("serves the line a business pastes into its site, as a script any site may load", async ({
+  request,
+}) => {
+  const response = await request.get(`${BUILT_URL}/line.js`);
+  expect(response.status()).toBe(200);
+  // The script itself, not the app's own page, which is what an unknown address is answered with.
+  expect(response.headers()["content-type"]).toMatch(/javascript/);
+  const script = await response.text();
+  expect(script).toContain("/api/visits");
+  expect(script).toBe(readFileSync(join(import.meta.dirname, "../../web/public/line.js"), "utf8"));
+  // Kept by a browser for an hour, and loadable by a site that asks its resources to say so.
+  expect(response.headers()["cache-control"]).toBe("public, max-age=3600");
+  expect(response.headers()["cross-origin-resource-policy"]).toBe("cross-origin");
+});

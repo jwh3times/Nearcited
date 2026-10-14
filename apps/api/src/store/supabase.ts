@@ -1683,6 +1683,26 @@ export function createSupabaseStore(
       return data ? StoredAuditSchema.parse(data) : null;
     },
 
+    async recordVisit(visit) {
+      const { data, error } = await db.rpc("record_visit", {
+        site_key: visit.key,
+        host: visit.host,
+        from_assistant: visit.assistant,
+        page: visit.path,
+      });
+      if (error) fail("Record a visit", error);
+      return data === true;
+    },
+
+    async checkVisitLine(line) {
+      const { data, error } = await db.rpc("check_visit_line", {
+        site_key: line.key,
+        host: line.host,
+      });
+      if (error) fail("Check a line", error);
+      return data === true;
+    },
+
     async getAudit(id) {
       const { data, error } = await db
         .from("audits")

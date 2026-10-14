@@ -1,4 +1,12 @@
-import { type DraftKind, type Rates, toPublicAudit } from "@nearcited/shared";
+import {
+  assistantOf,
+  type DraftKind,
+  hostOf,
+  type Rates,
+  toPublicAudit,
+  type VisitSent,
+  VisitSentSchema,
+} from "@nearcited/shared";
 import { Hono } from "hono";
 import { type AuthedUser, type Authenticate, authenticateWithSupabase } from "./auth";
 import { thankForSubscription } from "./billing/started";
@@ -34,7 +42,10 @@ export type AppEnv = {
 
 export interface AppDeps {
   authenticate: Authenticate;
-  /** A store for a caller who is not signed in. It can only look an audit up by its token. */
+  /**
+   * A store for a caller who is not signed in. It reads the price list and an audit by its
+   * token, and counts a visit for whoever holds a site's key.
+   */
   publicStore?: (env: Env) => Store;
   /**
    * The worker's store, which bypasses row-level security. Used by one route: the payment
@@ -75,6 +86,19 @@ const STORE_ERRORS = {
   forbidden: { status: 403, message: "You do not have access to do that." },
 } as const;
 
+/** More than the line on a site ever sends. Anything longer is not read. */
+const LONGEST_VISIT = 4096;
+
+/** What the line on a site sent, or null when it is not that. */
+function readVisit(body: string): VisitSent | null {
+  if (body.length > LONGEST_VISIT) return null;
+  try {
+    return VisitSentSchema.safeParse(JSON.parse(body)).data ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /** Billing needs both secrets: one to ask the provider, one to know it is the provider asking. */
 function stripeFromEnv(env: Env): Payments | null {
   return env.STRIPE_SECRET_KEY && env.STRIPE_WEBHOOK_SECRET
@@ -85,6 +109,8 @@ function stripeFromEnv(env: Env): Payments | null {
 export function createApp(deps: AppDeps = { authenticate: authenticateWithSupabase }) {
   const app = new Hono<AppEnv>().basePath("/api");
   const paymentsFor = deps.payments ?? stripeFromEnv;
+  const publicStoreFor =
+    deps.publicStore ?? ((env: Env) => createSupabaseStore(createAnonClient(env)));
 
   app.get("/health", (c) => c.json({ ok: true }));
 
@@ -92,9 +118,7 @@ export function createApp(deps: AppDeps = { authenticate: authenticateWithSupaba
   // behind it answers only for a token that is neither revoked nor expired.
   app.get("/audits/:token", async (c) => {
     const token = c.req.param("token");
-    const store = (deps.publicStore ?? ((env) => createSupabaseStore(createAnonClient(env))))(
-      c.env,
-    );
+    const store = publicStoreFor(c.env);
     const audit = AUDIT_TOKEN.test(token) ? await store.getAuditByToken(token) : null;
     if (!audit) throw new ApiError(404, "not_found", "This report is no longer available.");
     // The link is the secret, so keep the page out of shared caches and search results.
@@ -105,11 +129,31 @@ export function createApp(deps: AppDeps = { authenticate: authenticateWithSupaba
 
   // The price list. No sign-in: it is what a visitor reads before deciding to make an account.
   app.get("/plans", async (c) => {
-    const store = (deps.publicStore ?? ((env) => createSupabaseStore(createAnonClient(env))))(
-      c.env,
-    );
+    const store = publicStoreFor(c.env);
     c.header("Cache-Control", "public, max-age=300");
     return c.json(await store.listPlans());
+  });
+
+  // A visit to a business's own site that came from an assistant, reported by the line on that
+  // site. No sign-in: the visitor is a stranger who holds only the site's key, and the database
+  // function behind this answers to the key. Which assistant it was is worked out here from
+  // what the visit carried, and the site it is on is the one the browser says it is posting
+  // from, never one the body names. The answer is the same whatever became of it, so asking
+  // tells nobody whether a key is somebody's.
+  app.post("/visits", async (c) => {
+    const tooLong = Number(c.req.header("Content-Length") ?? 0) > LONGEST_VISIT;
+    const sent = tooLong ? null : readVisit(await c.req.text());
+    const host = hostOf(c.req.header("Origin"));
+    if (sent && host) {
+      const store = publicStoreFor(c.env);
+      if ("check" in sent) {
+        await store.checkVisitLine({ key: sent.key, host });
+      } else {
+        const assistant = assistantOf(sent);
+        if (assistant) await store.recordVisit({ key: sent.key, host, assistant, path: sent.path });
+      }
+    }
+    return c.body(null, 204);
   });
 
   // The payment provider reporting on a subscription. No sign-in: the signature on the request is

@@ -1626,6 +1626,33 @@ export const LocationDetailSchema = z.object({
 });
 export type LocationDetail = z.infer<typeof LocationDetailSchema>;
 
+/** An assistant a visit to a business's own site can be told to come from. See `visits.ts`. */
+export const VISIT_ASSISTANTS = ["chatgpt", "gemini", "perplexity", "copilot", "claude"] as const;
+export const VisitAssistantSchema = z.enum(VISIT_ASSISTANTS);
+export type VisitAssistant = z.infer<typeof VisitAssistantSchema>;
+
+/** A location's site key, as the line on its site carries it. */
+const SiteKey = z.string().regex(/^[0-9a-f]{32}$/);
+
+/**
+ * What the line on a business's site sends, with no sign-in. One of two things: its owner
+ * checking that the line is there, or a visit that arrived from an assistant. Nothing in either
+ * is about the visitor, and which assistant it was is worked out from this, never sent.
+ */
+export const VisitSentSchema = z.union([
+  z.object({ key: SiteKey, check: z.literal(true) }),
+  z.object({
+    key: SiteKey,
+    /** The host name the visitor came from. Never the address, which can hold what they asked. */
+    referrer: z.string().max(253).nullable(),
+    /** The assistant's own tag on the address landed on, when it carries one. */
+    tag: z.string().max(100).nullable(),
+    /** The page landed on, from its first slash, without what follows a question mark. */
+    path: z.string().startsWith("/").max(2000),
+  }),
+]);
+export type VisitSent = z.infer<typeof VisitSentSchema>;
+
 export const ApiErrorSchema = z.object({
   error: z.object({
     code: z.string(),

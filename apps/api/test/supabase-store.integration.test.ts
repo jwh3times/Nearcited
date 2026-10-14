@@ -933,6 +933,84 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
     expect(await aliceStore.removeListing(location.id, "angi.com")).toBe(true);
     expect(await aliceStore.listListings(location.id)).toEqual([]);
 
+    // A visit is counted for whoever holds the site's key, signed in or not: on a plan that
+    // includes visits, for a page on the location's own site.
+    const anyone = createSupabaseStore(client(await token({ role: "anon" })));
+    const { data: line } = await service
+      .from("visit_lines")
+      .select("key")
+      .eq("location_id", location.id)
+      .single()
+      .throwOnError();
+    const visit = {
+      key: line.key as string,
+      host: "www.joes-pizza.example",
+      assistant: "chatgpt",
+      path: "/menu?table=4",
+    } as const;
+    await service
+      .from("locations")
+      .update({ website: "https://joes-pizza.example/" })
+      .eq("id", location.id)
+      .throwOnError();
+    await service
+      .from("organizations")
+      .update({ allowances: {} })
+      .eq("id", organization.id)
+      .throwOnError();
+    expect(await anyone.recordVisit(visit)).toBe(false);
+    expect(await anyone.checkVisitLine(visit)).toBe(false);
+    await service
+      .from("organizations")
+      .update({ allowances: { visits: true } })
+      .eq("id", organization.id)
+      .throwOnError();
+    expect(await anyone.recordVisit(visit)).toBe(true);
+    expect(await bobStore.recordVisit({ ...visit, path: "/menu" })).toBe(true);
+    expect(await anyone.recordVisit({ ...visit, host: "elsewhere.example" })).toBe(false);
+    expect(await anyone.recordVisit({ ...visit, key: "0".repeat(32) })).toBe(false);
+    expect(await anyone.checkVisitLine({ ...visit, host: "elsewhere.example" })).toBe(false);
+    expect(await anyone.checkVisitLine(visit)).toBe(true);
+    const today = new Date().toISOString().slice(0, 10);
+    expect(
+      (
+        await service
+          .from("visits")
+          .select("day, assistant, path, count")
+          .eq("location_id", location.id)
+          .throwOnError()
+      ).data,
+    ).toEqual([{ day: today, assistant: "chatgpt", path: "/menu", count: 2 }]);
+    expect(
+      (
+        await service
+          .from("visit_lines")
+          .select("checked_on")
+          .eq("location_id", location.id)
+          .single()
+          .throwOnError()
+      ).data,
+    ).toEqual({ checked_on: today });
+    // Nobody but the worker reads or writes the count directly: a stranger holds only the key.
+    expect(
+      (
+        await client(await token({ role: "anon" }))
+          .from("visits")
+          .select("day")
+      ).error,
+    ).not.toBeNull();
+    await service.from("visits").delete().eq("location_id", location.id).throwOnError();
+    await service
+      .from("organizations")
+      .update({ allowances: organization.allowances })
+      .eq("id", organization.id)
+      .throwOnError();
+    await service
+      .from("locations")
+      .update({ website: location.website })
+      .eq("id", location.id)
+      .throwOnError();
+
     // An action that does the work marks it when it is carried out, and that mark is not a
     // member's to take back.
     const forTask = await worker.proposeAction({
