@@ -47,6 +47,7 @@ import type {
   TrackedQueryInput,
   UsageByMonth,
   VisitAssistant,
+  VisitLine,
   WaitingActions,
 } from "@nearcited/shared";
 
@@ -272,6 +273,13 @@ export interface Store {
    * who is not a member of the location's organization.
    */
   removeListing(locationId: string, site: string): Promise<boolean>;
+  /** A location's line, for whoever can read the location. Null for anyone else. */
+  getVisitLine(locationId: string): Promise<VisitLine | null>;
+  /**
+   * An owner or an admin gives a location a new site key. The old one then counts nothing. Null
+   * for anyone else, a member, the operator and the worker included.
+   */
+  replaceSiteKey(locationId: string): Promise<VisitLine | null>;
   /** An organization's connections, removed ones included, newest first. */
   listConnections(organizationId: string): Promise<Connection[]>;
   /** Whether the caller may connect and remove for the organization: its owner or an admin. */

@@ -105,9 +105,14 @@ Nearcited is multi-tenant, and tenant isolation is enforced by Postgres row-leve
   (`visits` and `visit_lines` have no grant for one; `new_site_key()`, `site_host()`,
   `counts_visits()` and `give_location_a_line()` are callable by neither `anon` nor
   `authenticated`), writing either
-  table other than through `record_visit()` and `check_visit_line()`, or finding anything about a
-  visitor kept with a count. Posting made-up visits within those bounds, with a key read from a
-  site, is known: the count can be padded and nothing is worked out from it.
+  table other than through `record_visit()`, `check_visit_line()` and `replace_site_key()`, or
+  finding anything about a visitor kept with a count. Posting made-up visits within those bounds,
+  with a key read from a site, is known: the count can be padded and nothing is worked out from it.
+- Replacing a location's site key as anyone but an owner or an admin of its organization, through
+  `replace_site_key()` or `POST /api/locations/:locationId/line/key`: a plain member, the operator,
+  the worker, a member of another organization and a caller who is not signed in must get nothing,
+  and the key must not change. Also reading a location's line, through
+  `GET /api/locations/:locationId/line`, as someone who cannot read the location.
 - Reading a shareable audit without its link, or after it was revoked or expired; listing audits;
   or creating one. `/api/audits/:token` is the one route that gives out an organization's data
   with no sign-in, and the token in the link is the only key to it. `/api/plans` needs no sign-in

@@ -26,6 +26,7 @@ import { locationRoutes } from "./routes/locations";
 import { operatorRoutes } from "./routes/operator";
 import { organizationRoutes } from "./routes/organizations";
 import { scanRoutes } from "./routes/scans";
+import { visitRoutes } from "./routes/visits";
 import { createAdminClient, createAnonClient, createSupabaseStore } from "./store/supabase";
 import { type Store, StoreError } from "./store/types";
 
@@ -221,6 +222,7 @@ export function createApp(deps: AppDeps = { authenticate: authenticateWithSupaba
   app.route("/", alertRoutes);
   app.route("/", draftRoutes);
   app.route("/", listingRoutes);
+  app.route("/", visitRoutes);
 
   app.notFound((c) => c.json({ error: { code: "not_found", message: "No such route" } }, 404));
 

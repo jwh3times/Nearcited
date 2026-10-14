@@ -1495,6 +1495,31 @@ details.as-table td {
   color: var(--ink);
 }
 
+/* Where the line goes in each site builder: one entry for each, under its name. */
+.paste-block .builders {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.8125rem;
+  color: var(--ink);
+}
+
+/* What a folded part of a card says once it is opened. */
+.paste-folded {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+/* A second subject on a tab, under the first. */
+.visits {
+  margin-top: 2rem;
+}
+
 .paste-actions {
   display: flex;
   align-items: center;

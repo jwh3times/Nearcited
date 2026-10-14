@@ -785,8 +785,9 @@ audit is queued.
 An owner can paste one line into their own site so that the site reports the visits that arrive
 from an AI assistant (`visit_lines`, `visits`; the terms are in `GLOSSARY.md`, the decision in
 `docs/adr/0017-a-visit-is-counted-for-whoever-holds-the-site-key.md`). What exists is the line,
-the route that receives what it sends and the database function that counts it. Nothing in the app
-hands an owner the line yet, and no page shows a count.
+the route that receives what it sends, the database function that counts it, and a card on a
+location's page that hands the line to its owner, lets them check that it answers from their site
+and lets an owner or admin replace its key. No page shows a count.
 
 ```
 a visitor lands on the business's own site
@@ -849,20 +850,55 @@ visits: one more for that location, day (UTC), assistant and page
 - **A check is not a visit.** When the address ends in `#nearcited-check` (`LINE_CHECK`) the line
   sends `{ key, check: true }` and no visit, even if the visit arrived from an assistant.
   `check_visit_line()` sets `visit_lines.checked_on` to today (UTC) when `counts_visits()` accepts
-  the key and host, and counts nothing. Nothing reads `checked_on` yet.
+  the key and host, and counts nothing. The card on the location's page reads `checked_on` (see
+  "The line is handed out by two signed-in routes") and says the day the line last answered.
 - **What is kept is a count.** `visits` has one row for a location, a day (UTC), an assistant and a
   path, with how many. No row is a visit, and there is no time of day and nothing about the
   visitor. `visit_lines` has one row for a location, made by a trigger when the location is (the
   migration gave one to each location that existed): the `key`, 32 characters of hex from
-  `gen_random_uuid()`, when it was made (`key_made_at`) and `checked_on`.
+  `gen_random_uuid()`, when it was made (`key_made_at`: with the location, or when an owner or
+  admin last replaced it) and `checked_on`.
 - **Who reads and writes.** Both tables have a `select` policy for whoever can read the location
   (`can_access_location`) and one for the operator, and no write grant for any API role. A caller
-  who is not signed in has no grant on either. Only `record_visit()` and `check_visit_line()`
-  write, and they answer anyone holding a key; `anon` and `authenticated` can call none of
-  `new_site_key()`, `site_host()`, `counts_visits()` and `give_location_a_line()`. Apart from the payment webhook, which
-  is signed, this is the one write a caller who is not signed in can cause, and the route never
-  uses the admin client. Both tables go with their location, and the counts already kept stay
-  readable when a plan stops including visits.
+  who is not signed in has no grant on either. Only `record_visit()`, `check_visit_line()` and
+  `replace_site_key()` write. The first two answer anyone holding a key; `replace_site_key()`
+  answers only an owner or an admin of the location's organization (`has_org_role`), and gives a
+  plain member, the operator and the worker no row and changes nothing. `anon` and `authenticated`
+  can call none of `new_site_key()`, `site_host()`, `counts_visits()` and
+  `give_location_a_line()`, and `anon` cannot call `replace_site_key()`. Apart from the payment
+  webhook, which is signed, counting a visit or noting a check is the one write a caller who is
+  not signed in can cause, and no route uses the admin client. Both tables go with their location,
+  and the counts already kept stay readable when a plan stops including visits.
+- **The line is handed out by two signed-in routes** (`apps/api/src/routes/visits.ts`), both
+  through the caller's own store, so row-level security decides who sees a location.
+  `GET /api/locations/:locationId/line` answers anyone who can read the location, the operator
+  included, with `{ line, html, can_replace }`: the `visit_lines` row, the line to paste, and
+  whether the caller may replace the key (`managesConnections`: an owner or an admin). The line
+  to paste is built from `APP_URL` and the key (`lineToPaste`), so it loads the script from where
+  the product is served. `POST /api/locations/:locationId/line/key` calls `replace_site_key()`
+  and answers the new line with `can_replace` true; to anyone but an owner or an admin of the
+  location's organization it is a 404, a plain member and the operator included. A new key has
+  `key_made_at` set to now and `checked_on` cleared, since it has answered no check. The old key
+  then belongs to nobody: the line still on the site counts nothing, and its checks note nothing,
+  until the new line is pasted in its place. What was counted stays, since a count is kept for the
+  location and not for the key.
+- **The card is `apps/web/src/components/VisitLine.tsx`**, titled "Visits from assistants", on
+  the location page's Website tab. It is shown where the organization's allowances include
+  `visits` (`visitsOffer`, `apps/web/src/lib/visits.ts`). Where they do not, it says "Your plan
+  does not count visits from assistants." only if some plan on sale includes visits, which it
+  reads from `GET /api/plans`; where none does, as at present for a real organization, it shows
+  nothing. A test organization has the allowance and so sees the card. The card says what the
+  line collects and what it does not, offers "Copy the line" and the line itself, says in plain
+  words that it goes in the site's header code, and says where that is in WordPress, Wix,
+  Squarespace and Shopify (`BUILDERS`). "Check the line" opens the website on file with
+  `#nearcited-check` on the end (`checkAddress`) in a new tab; from then the page asks the
+  route every three seconds (`LOOKING_MS`) for up to two minutes (`LOOKING_FOR_MS`) whether the
+  line has answered, stops when it has, and says the day, in UTC, it last did. For an owner or
+  admin there is also "Replace the key", behind a confirm that says the line on the site stops
+  counting until the new one is pasted. A location with no website on file is asked for it first,
+  because a visit counts only on that website, and a location paused by its plan is told its
+  visits are not counted. The operator reading a customer's account sees the line and the check
+  and no way to replace the key.
 - **`visits` is an allowance that is included or not.** It is in `allowance_kinds` (not counted)
   and `ALLOWANCE_KINDS`, and `VISITS_ALLOWANCE` is its key. Counting a visit takes nothing from a
   month (see "Tenancy").
@@ -1678,9 +1714,13 @@ drop it.
   visit from an app that sends no site and no tag, or one from a browser that blocks the script.
   It is a floor (see "Visits from assistants").
 - The count of visits can be padded by anyone who reads the site key, which is in the site's
-  source, and the key is for the life of the location: no function or route replaces one yet. The
-  ceilings in `record_visit()` bound what one key can write, and nothing is worked out from the
-  count.
+  source. An owner or admin can replace the key (`replace_site_key()`), but only they decide to,
+  and nothing notices a padded count. The ceilings in `record_visit()` bound what one key can
+  write, and nothing is worked out from the count.
+- Where the line goes in WordPress, Wix, Squarespace and Shopify is given in each builder's own
+  menu names (`BUILDERS`, `apps/web/src/lib/visits.ts`), read from each builder's help pages on
+  2026-10-13. A builder that renames a menu makes its line wrong, and nothing notices until
+  somebody reads its help again.
 - The host's request logs see the request to `POST /api/visits`, and the one for `/line.js`, like
   any other, as the privacy policy says. Nothing from them is kept with a count.
 

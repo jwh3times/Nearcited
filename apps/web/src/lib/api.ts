@@ -16,6 +16,7 @@ import {
   type LocationDetail,
   LocationDetailSchema,
   type LocationFormValues,
+  LocationLineSchema,
   LocationSchema,
   MeSchema,
   OperatorAccountsSchema,
@@ -211,4 +212,9 @@ export const api = {
     json(ListingSchema, "PUT", `/locations/${locationId}/listings/${site}`, { url }),
   removeListing: (locationId: string, site: string) =>
     send("DELETE", `/locations/${locationId}/listings/${site}`).then(() => undefined),
+  /** A location's line: the key its site carries, the line to paste, and when it last answered. */
+  getLine: (locationId: string) => json(LocationLineSchema, "GET", `/locations/${locationId}/line`),
+  /** Gives a location a new site key. The line on the site counts nothing until pasted again. */
+  replaceSiteKey: (locationId: string) =>
+    json(LocationLineSchema, "POST", `/locations/${locationId}/line/key`),
 };

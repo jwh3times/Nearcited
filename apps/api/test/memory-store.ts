@@ -112,7 +112,7 @@ export interface MemoryDb {
   /** Every listing: one for a location on a site. */
   listings: Listing[];
   /** Every location's line: the key its site carries, and the last day it answered a check. */
-  visitLines: Map<string, { key: string; checked_on: string | null }>;
+  visitLines: Map<string, { key: string; key_made_at: string; checked_on: string | null }>;
   /** The visits counted. No entry is a visit: each is how many, for a day, assistant and page. */
   visits: {
     location_id: string;
@@ -1956,6 +1956,7 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
       // As the trigger does: every location has a line from the moment it is made.
       db.visitLines.set(location.id, {
         key: crypto.randomUUID().replaceAll("-", ""),
+        key_made_at: location.created_at,
         checked_on: null,
       });
       return location;
@@ -2157,6 +2158,24 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         expires_at,
         revoked_at,
       };
+    },
+
+    async getVisitLine(locationId) {
+      const line = readsLocation(locationId) ? db.visitLines.get(locationId) : undefined;
+      return line ? { location_id: locationId, ...line } : null;
+    },
+
+    // Mirrors replace_site_key(): an owner or an admin, and a new key has answered no check.
+    async replaceSiteKey(locationId) {
+      const location = db.locations.find((candidate) => candidate.id === locationId);
+      const line = db.visitLines.get(locationId);
+      if (!location || !line || !managesOrg(location.organization_id)) return null;
+      Object.assign(line, {
+        key: crypto.randomUUID().replaceAll("-", ""),
+        key_made_at: db.now ?? timestamp(),
+        checked_on: null,
+      });
+      return { location_id: locationId, ...line };
     },
 
     // Mirrors record_visit(): anyone holding the key, a page on the location's own site, a plan
