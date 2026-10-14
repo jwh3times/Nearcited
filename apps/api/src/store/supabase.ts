@@ -12,6 +12,7 @@ import {
   ListingSchema,
   LocationConnectionSchema,
   LocationSchema,
+  LocationVisitsSchema,
   OperatorAuditSchema,
   OrganizationSchema,
   PlanSchema,
@@ -486,6 +487,15 @@ export function createSupabaseStore(
       });
       if (error) fail("Remove a listing", error);
       return data === true;
+    },
+
+    async getLocationVisits(locationId, days) {
+      const { data, error } = await db.rpc("location_visits", {
+        location: locationId,
+        over_days: days,
+      });
+      if (error) fail("Add up a location's visits", error);
+      return LocationVisitsSchema.parse(data);
     },
 
     async getVisitLine(locationId) {

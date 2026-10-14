@@ -34,6 +34,7 @@ import {
   MOST_PAGES_A_DAY,
   MOST_VISITS_A_DAY,
   NOTICE_HOLD_HOURS,
+  PAGES_SHOWN,
   reductions,
   VISITS_ALLOWANCE,
 } from "@nearcited/shared";
@@ -2157,6 +2158,41 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         created_at,
         expires_at,
         revoked_at,
+      };
+    },
+
+    // Mirrors location_visits(): the days are counted back from the database's own today, and
+    // only a reader of the location has anything to add up.
+    async getLocationVisits(locationId, days) {
+      const since = new Date(Date.parse(`${today()}T00:00:00Z`) - (days - 1) * 86_400_000)
+        .toISOString()
+        .slice(0, 10);
+      const counted = readsLocation(locationId)
+        ? db.visits.filter((kept) => kept.location_id === locationId && kept.day >= since)
+        : [];
+      const add = (into: Map<string, number>, key: string, count: number) =>
+        into.set(key, (into.get(key) ?? 0) + count);
+      const byDay = new Map<string, number>();
+      const byPage = new Map<string, number>();
+      for (const kept of counted) {
+        add(byDay, `${kept.day}|${kept.assistant}`, kept.count);
+        if (kept.path) add(byPage, kept.path, kept.count);
+      }
+      return {
+        since,
+        days: [...byDay]
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([key, count]) => {
+            const [day = "", assistant = ""] = key.split("|");
+            return { day, assistant, count };
+          }),
+        pages: [...byPage]
+          .map(([path, count]) => ({ path, count }))
+          .sort((a, b) => b.count - a.count || a.path.localeCompare(b.path))
+          .slice(0, PAGES_SHOWN),
+        other_pages: counted
+          .filter((kept) => kept.path === "")
+          .reduce((sum, kept) => sum + kept.count, 0),
       };
     },
 

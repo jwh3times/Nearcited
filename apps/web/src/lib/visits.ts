@@ -1,7 +1,19 @@
-import { type Allowances, type Plan, VISITS_ALLOWANCE, type VisitLine } from "@nearcited/shared";
+import {
+  type Allowances,
+  type LocationVisits,
+  MOST_VISITS_A_DAY,
+  type Plan,
+  VISIT_ASSISTANT_LABELS,
+  VISITS_ALLOWANCE,
+  VISITS_SHOWN_DAYS,
+  type VisitLine,
+} from "@nearcited/shared";
 
 /** The cache key of a location's line. */
 export const lineKey = (locationId: string) => ["line", locationId] as const;
+
+/** The cache key of a location's visits, added up. */
+export const visitsKey = (locationId: string) => ["visits", locationId] as const;
 
 /** How often the page asks whether the line has answered, once its owner has gone to look. */
 export const LOOKING_MS = 3000;
@@ -90,3 +102,68 @@ export const BUILDERS: readonly { name: string; where: string }[] = [
       "Open Online Store, then the three-dot menu beside your theme, and choose Edit code. In theme.liquid, paste the line just above </head> and save.",
   },
 ];
+
+/** An assistant's name, or its key as it came where this build does not know the assistant. */
+export const assistantName = (assistant: string): string =>
+  (VISIT_ASSISTANT_LABELS as Record<string, string>)[assistant] ?? assistant;
+
+/** How many, with the word for them: "1 visit", "12 visits". */
+export const visitsOf = (count: number) =>
+  `${count.toLocaleString("en-US")} ${count === 1 ? "visit" : "visits"}`;
+
+/** A location's visits as its page lays them out. */
+export interface VisitsShown {
+  total: number;
+  /** By assistant, the one with the most first. */
+  assistants: { assistant: string; name: string; count: number }[];
+  /**
+   * By day, the newest first, with which assistants a day's visits came from. `full` is true for
+   * a day that reached the most counted in a day, which may therefore have had more.
+   */
+  days: { day: string; count: number; from: string; full: boolean }[];
+}
+
+/** Adds a location's visits up the two ways its page shows them. */
+export function visitsShown(visits: Pick<LocationVisits, "days">): VisitsShown {
+  const byAssistant = new Map<string, number>();
+  const byDay = new Map<string, { assistant: string; count: number }[]>();
+  for (const { day, assistant, count } of visits.days) {
+    byAssistant.set(assistant, (byAssistant.get(assistant) ?? 0) + count);
+    byDay.set(day, [...(byDay.get(day) ?? []), { assistant, count }]);
+  }
+  const most = (a: { assistant: string; count: number }, b: { assistant: string; count: number }) =>
+    b.count - a.count || assistantName(a.assistant).localeCompare(assistantName(b.assistant));
+  const assistants = [...byAssistant]
+    .map(([assistant, count]) => ({ assistant, count }))
+    .sort(most)
+    .map((row) => ({ ...row, name: assistantName(row.assistant) }));
+  const days = [...byDay]
+    .sort(([a], [b]) => b.localeCompare(a))
+    .map(([day, from]) => {
+      const count = from.reduce((sum, row) => sum + row.count, 0);
+      return {
+        day,
+        count,
+        from: from
+          .sort(most)
+          .map((row) => `${assistantName(row.assistant)} ${row.count.toLocaleString("en-US")}`)
+          .join(", "),
+        full: count >= MOST_VISITS_A_DAY,
+      };
+    });
+  return { total: assistants.reduce((sum, row) => sum + row.count, 0), assistants, days };
+}
+
+export const COUNT_WORDS = {
+  none: `Your site has reported no visit from an assistant in the last ${VISITS_SHOWN_DAYS} days.`,
+  some: (total: number) =>
+    `Your site reported ${visitsOf(total)} from assistants in the last ${VISITS_SHOWN_DAYS} days.`,
+  floor:
+    "Read the count as at least this many. A visit is counted only where it says where it came from. Google's AI Overviews and AI Mode, and Copilot inside Bing, arrive as any search does and cannot be told apart. An assistant's app may say nothing of where a visitor came from, and a browser may block the line.",
+  padded:
+    "The count is what visitors' browsers reported from your site. Anyone who reads the key in your site's source could send made-up visits, so nothing else here is worked out from it.",
+  full: `${MOST_VISITS_A_DAY.toLocaleString("en-US")} is the most counted in a day, so this day may have had more.`,
+  otherPages: "Other pages",
+  otherPagesAbout: "Visits to pages past the fiftieth of their day are counted together.",
+  days: "A day here is a day in UTC.",
+} as const;

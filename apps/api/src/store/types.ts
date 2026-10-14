@@ -23,6 +23,7 @@ import type {
   Location,
   LocationConnection,
   LocationInput,
+  LocationVisits,
   OperatorAudit,
   OperatorFacts,
   Organization,
@@ -273,6 +274,12 @@ export interface Store {
    * who is not a member of the location's organization.
    */
   removeListing(locationId: string, site: string): Promise<boolean>;
+  /**
+   * A location's visits from assistants over the last `days` days, today included, added up by
+   * day and assistant and by page, for whoever can read the location. For anyone else there is
+   * nothing to add up.
+   */
+  getLocationVisits(locationId: string, days: number): Promise<LocationVisits>;
   /** A location's line, for whoever can read the location. Null for anyone else. */
   getVisitLine(locationId: string): Promise<VisitLine | null>;
   /**

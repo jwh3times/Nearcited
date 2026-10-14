@@ -8,7 +8,7 @@ import {
   onPlan,
   signIn,
   visitsOf,
-  withVisits,
+  withCounted,
 } from "../support/account";
 import { APP_URL, BUILT_URL } from "../support/stack";
 
@@ -84,7 +84,6 @@ test("counts a visit to the business's site that arrived from an assistant, and 
   page,
   context,
 }) => {
-  await withVisits(organizationId);
   await withSite(context, SITE);
   const posted = reports(page);
 
@@ -134,7 +133,6 @@ test("counts a visit to the business's site that arrived from an assistant, and 
 });
 
 test("counts nothing for a copy of the line on somebody else's site", async ({ page, context }) => {
-  await withVisits(organizationId);
   await withSite(context, ELSEWHERE);
   const posted = reports(page);
   const answered = page.waitForResponse((response) => response.url().endsWith("/api/visits"));
@@ -147,6 +145,7 @@ test("counts nothing for a copy of the line on somebody else's site", async ({ p
 });
 
 test("counts nothing on a plan that does not include visits", async ({ page, context }) => {
+  await onPlan(organizationId, "free");
   await withSite(context, SITE);
   const answered = page.waitForResponse((response) => response.url().endsWith("/api/visits"));
 
@@ -155,7 +154,7 @@ test("counts nothing on a plan that does not include visits", async ({ page, con
   expect(await visitsOf(locationId)).toEqual([]);
 
   // The same visit once the plan includes them.
-  await withVisits(organizationId);
+  await onPlan(organizationId, "standard");
   await arrive(page, `${SITE}/menu`, "https://chatgpt.com/");
   await expect
     .poll(() => visitsOf(locationId))
@@ -166,7 +165,6 @@ test("notes the owner's check that the line is there, and counts no visit for it
   page,
   context,
 }) => {
-  await withVisits(organizationId);
   await withSite(context, SITE);
   expect((await lineOf(locationId)).checked_on).toBeNull();
 
@@ -181,16 +179,17 @@ test("notes the owner's check that the line is there, and counts no visit for it
 /** The card on a location's Website tab. */
 const card = (page: Page) => page.getByRole("region", { name: "Visits from assistants" });
 const websiteTab = (base = "") => `${base}/locations/${locationId}?tab=website`;
-const today = () =>
+/** A day in UTC, some days ago, as the card writes one. */
+const day = (ago: number) =>
   new Intl.DateTimeFormat(undefined, { day: "numeric", month: "long", timeZone: "UTC" }).format(
-    new Date(),
+    new Date(Date.now() - ago * 86_400_000),
   );
+const today = () => day(0);
 
 test("hands an owner the line to paste, says where it goes, and sees it answer from their site", async ({
   page,
   context,
 }) => {
-  await withVisits(organizationId);
   await withSite(context, ON_FILE, "");
   await signIn(page, account, websiteTab());
 
@@ -236,7 +235,6 @@ test("replaces the key when its owner asks, and the line with the old one counts
   page,
   context,
 }) => {
-  await withVisits(organizationId);
   await signIn(page, account, websiteTab());
   await card(page).getByText("See the line").click();
   const shown = card(page).locator("pre");
@@ -283,7 +281,6 @@ test("replaces the key when its owner asks, and the line with the old one counts
 });
 
 test("asks for the website first where a location has none on file", async ({ page }) => {
-  await withVisits(organizationId);
   const bare = await api<{ id: string }>(
     account,
     "POST",
@@ -305,14 +302,178 @@ test("asks for the website first where a location has none on file", async ({ pa
   );
 });
 
-test("says nothing of visits where no plan counts them", async ({ page }) => {
+test("tells an owner on a plan without visits that it has none, with the way to the plans", async ({
+  page,
+}) => {
+  await onPlan(organizationId, "free");
+  const asked: string[] = [];
+  page.on("request", (request) => {
+    if (/\/locations\/[^/]+\/line$/.test(request.url())) asked.push(request.url());
+  });
   await signIn(page, account, websiteTab());
-  await expect(page.getByRole("heading", { name: "Your website" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Visits from assistants" })).toHaveCount(0);
+
+  await expect(card(page)).toContainText("Your plan does not count visits from assistants.");
+  // Nothing to paste, so the line is not asked for. And nothing is said of visits that nothing
+  // was listening for.
+  await page.waitForLoadState("networkidle");
+  expect(asked).toEqual([]);
+  await expect(card(page).getByRole("button", { name: "Copy the line" })).toHaveCount(0);
+  await expect(card(page)).not.toContainText("no visit from an assistant");
+  await expect(card(page).getByRole("table")).toHaveCount(0);
+  await card(page).getByRole("link", { name: "See plans" }).click();
+  await expect(page.getByRole("heading", { name: "Pricing", level: 1 })).toBeVisible();
+
+  // The price list says which plans count them, and the free plan is not one.
+  for (const name of ["Starter", "Standard", "Pro", "Enterprise"]) {
+    await expect(page.getByRole("region", { name: `${name} plan` }), name).toContainText(
+      "Visits from assistants counted",
+    );
+  }
+  await expect(page.getByRole("region", { name: "Free plan" })).not.toContainText(
+    "Visits from assistants",
+  );
 });
 
-test("shows the operator a customer's line, and no way to replace its key", async ({ page }) => {
-  await withVisits(organizationId);
+test("keeps what was counted readable after a plan stops counting, and counts no more", async ({
+  page,
+  context,
+}) => {
+  // What the site reported while a larger plan counted them.
+  await withCounted(locationId, [{ ago: 1, assistant: "chatgpt", path: "/menu", count: 6 }]);
+  await onPlan(organizationId, "free");
+  await signIn(page, account, websiteTab());
+
+  await expect(card(page)).toContainText("Your plan does not count visits from assistants.");
+  await expect(card(page)).toContainText(
+    "Your site reported 6 visits from assistants in the last 30 days.",
+  );
+  await expect(
+    card(page).getByRole("table", { name: "By assistant" }).getByRole("row").nth(1),
+  ).toHaveText(/ChatGPT\s*6/);
+  await expect(card(page)).toContainText("Read the count as at least this many.");
+  await expect(card(page).getByRole("button", { name: "Copy the line" })).toHaveCount(0);
+
+  // The line still on the site reports, and nothing is added.
+  await withSite(context, SITE);
+  const site = await context.newPage();
+  const answered = site.waitForResponse((response) => response.url().endsWith("/api/visits"));
+  await arrive(site, `${SITE}/menu`, "https://chatgpt.com/");
+  expect((await answered).status()).toBe(204);
+  expect(await visitsOf(locationId)).toEqual([{ assistant: "chatgpt", path: "/menu", count: 6 }]);
+});
+
+test("shows what the site reported, by assistant, day and page, and what the count leaves out", async ({
+  page,
+  context,
+}) => {
+  await signIn(page, account, websiteTab());
+  // Before anything is reported: said plainly, beside what cannot be counted.
+  await expect(card(page)).toContainText(
+    "Your site has reported no visit from an assistant in the last 30 days.",
+  );
+  await expect(card(page)).toContainText(
+    "Google's AI Overviews and AI Mode, and Copilot inside Bing, arrive as any search does and cannot be told apart.",
+  );
+  await expect(card(page).getByRole("table")).toHaveCount(0);
+
+  // Three visits through the line, and what two earlier days held.
+  await withSite(context, SITE);
+  const site = await context.newPage();
+  await arrive(site, `${SITE}/menu`, "https://chatgpt.com/");
+  await arrive(site, `${SITE}/menu?table=4`, "https://chatgpt.com/");
+  await arrive(site, `${SITE}/`, "https://www.perplexity.ai/search/best-pizza");
+  await expect.poll(() => visitsOf(locationId)).toHaveLength(2);
+  await withCounted(locationId, [
+    { ago: 2, assistant: "claude", path: "/hours", count: 4 },
+    // Past the thirty days the page adds up.
+    { ago: 40, assistant: "gemini", path: "/", count: 9 },
+  ]);
+  await page.reload();
+
+  await expect(card(page)).toContainText(
+    "Your site reported 7 visits from assistants in the last 30 days.",
+  );
+  await expect(card(page).getByRole("table", { name: "By assistant" }).getByRole("row")).toHaveText(
+    [/Assistant\s*Visits/, /Claude\s*4/, /ChatGPT\s*2/, /Perplexity\s*1/],
+  );
+  await expect(card(page).getByRole("table", { name: "By day" }).getByRole("row")).toHaveText([
+    /Day\s*Visits\s*From/,
+    new RegExp(`${day(0)}\\s*3\\s*ChatGPT 2, Perplexity 1`),
+    new RegExp(`${day(2)}\\s*4\\s*Claude 4`),
+  ]);
+  await expect(
+    card(page).getByRole("table", { name: "By page landed on" }).getByRole("row"),
+  ).toHaveText([/Page\s*Visits/, /\/hours\s*4/, /\/menu\s*2/, /\/\s*1/]);
+  await expect(card(page)).not.toContainText("Gemini");
+
+  // Under the counts, as under none: what they leave out, and that they can be padded.
+  await expect(card(page)).toContainText("Read the count as at least this many.");
+  await expect(card(page)).toContainText(
+    "Anyone who reads the key in your site's source could send made-up visits, so nothing else here is worked out from it.",
+  );
+  // And the line is still there to copy.
+  await expect(card(page).getByRole("button", { name: "Copy the line" })).toBeVisible();
+});
+
+test("says when a day reached the most that is counted, and counts the rest of a day's pages together", async ({
+  page,
+}) => {
+  await withCounted(locationId, [
+    { ago: 1, assistant: "chatgpt", path: "/", count: 1000 },
+    { ago: 0, assistant: "chatgpt", path: "", count: 3 },
+    ...Array.from({ length: 12 }, (_, at) => ({
+      ago: 0,
+      assistant: "copilot",
+      path: `/page-${String(at + 1).padStart(2, "0")}`,
+      count: 20 - at,
+    })),
+  ]);
+  await signIn(page, account, websiteTab());
+
+  await expect(card(page)).toContainText(
+    "Your site reported 1,177 visits from assistants in the last 30 days.",
+  );
+  const days = card(page).getByRole("table", { name: "By day" }).getByRole("row");
+  await expect(days.nth(2)).toContainText(
+    "ChatGPT 1,000. 1,000 is the most counted in a day, so this day may have had more.",
+  );
+  await expect(days.nth(1)).not.toContainText("the most counted in a day");
+
+  // Ten pages of the thirteen, the ones with the most, and the visits kept under no page.
+  const pages = card(page)
+    .getByRole("table", { name: "By page landed on: the 10 with the most" })
+    .getByRole("row");
+  await expect(pages).toHaveCount(12);
+  await expect(pages.nth(1)).toHaveText(/^\/\s*1,000$/);
+  await expect(pages.nth(2)).toHaveText(/\/page-01\s*20/);
+  await expect(pages.nth(10)).toHaveText(/\/page-09\s*12/);
+  await expect(pages.nth(11)).toHaveText(
+    /Other pages\s*Visits to pages past the fiftieth of their day are counted together\.\s*3/,
+  );
+});
+
+test("fits the visits and the line on a phone @phone", async ({ page }) => {
+  await withCounted(locationId, [
+    { ago: 0, assistant: "chatgpt", path: `/${"a-long-page-name-".repeat(11)}`, count: 2 },
+    { ago: 1, assistant: "perplexity", path: "/", count: 1 },
+  ]);
+  await signIn(page, account, websiteTab());
+  await expect(card(page)).toContainText("Your site reported 3 visits from assistants");
+  await card(page).getByText("See the line").click();
+  await card(page).getByText("Where that is in WordPress, Wix, Squarespace and Shopify").click();
+  await expect(card(page).getByText("Shopify.", { exact: true })).toBeVisible();
+
+  // The line is long and scrolls inside its own box. The page itself does not scroll sideways.
+  const overflow = await page.evaluate(
+    () => document.documentElement.scrollWidth - window.innerWidth,
+  );
+  expect(overflow).toBeLessThanOrEqual(0);
+});
+
+test("shows the operator a customer's line and visits, and no way to replace its key", async ({
+  page,
+}) => {
+  await withCounted(locationId, [{ ago: 3, assistant: "claude", path: "/", count: 5 }]);
   const operator = await createAccount();
   await api(operator, "POST", "/organizations", { name: "The operator's own" });
   await grantRole(operator, "operator");
@@ -322,4 +483,9 @@ test("shows the operator a customer's line, and no way to replace its key", asyn
   await expect(card(page).locator("pre")).toContainText(`data-site="${key}"`);
   await expect(card(page).getByRole("link", { name: "Check the line" })).toBeVisible();
   await expect(card(page).getByText("Replace the key")).toHaveCount(0);
+  // And what the customer's site reported.
+  await expect(card(page)).toContainText("Your site reported 5 visits from assistants");
+  await expect(
+    card(page).getByRole("table", { name: "By assistant" }).getByRole("row").nth(1),
+  ).toHaveText(/Claude\s*5/);
 });

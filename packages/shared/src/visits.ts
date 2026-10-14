@@ -57,6 +57,11 @@ export const MOST_PAGES_A_DAY = 50;
 /** How much of a page's path is kept. `record_visit()` holds the same number. */
 export const LONGEST_PATH = 200;
 
+/** How many days of visits a location's page adds up, today included. */
+export const VISITS_SHOWN_DAYS = 30;
+/** How many pages a location's page lists. `location_visits()` holds the same number. */
+export const PAGES_SHOWN = 10;
+
 /**
  * What an owner's own visit carries after the `#` of the address when it is a check that the line
  * is there. Such a visit is noted as a check and never counted.
