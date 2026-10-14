@@ -68,7 +68,8 @@ export const LINE_CHECK = "nearcited-check";
  * served, which is where the site's visitors fetch the script from and where it reports to.
  */
 export function lineToPaste(app: string, key: string): string {
-  return `<script async src="${app.replace(/\/+$/, "")}/line.js" data-site="${key}"></script>`;
+  // The script is at the root of where the product is served, whatever else `app` holds.
+  return `<script async src="${new URL("/line.js", app)}" data-site="${key}"></script>`;
 }
 
 /**

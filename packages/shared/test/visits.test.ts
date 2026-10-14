@@ -136,6 +136,13 @@ describe("the line an owner pastes", () => {
     expect(lineToPaste("http://localhost:5173", KEY)).toContain(
       'src="http://localhost:5173/line.js"',
     );
+    // Whatever follows the host in where the product is served, the script is at its root.
+    expect(lineToPaste(`https://nearcited.example${"/".repeat(5000)}`, KEY)).toBe(
+      lineToPaste("https://nearcited.example", KEY),
+    );
+    expect(lineToPaste("https://nearcited.example/app/", KEY)).toBe(
+      lineToPaste("https://nearcited.example", KEY),
+    );
   });
 });
 
