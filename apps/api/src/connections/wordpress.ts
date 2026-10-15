@@ -154,10 +154,28 @@ interface Found {
   authorize: string | null;
 }
 
+/**
+ * The address a `Link` header names as the site's interface, `rel="https://api.w.org/"`, or
+ * undefined. Read by splitting, not by a pattern: the header is the site's to write, and a
+ * pattern for "anything up to the next >" is tried again from every "<" of one that never closes.
+ */
+export function interfaceLink(header: string): string | undefined {
+  for (const part of header.split(",")) {
+    const close = part.indexOf(">");
+    const start = part.indexOf("<");
+    if (start === -1 || close < start) continue;
+    const params = part
+      .slice(close + 1)
+      .split(";")
+      .map((param) => param.trim());
+    if (params.includes('rel="https://api.w.org/"')) return part.slice(start + 1, close).trim();
+  }
+  return undefined;
+}
+
 /** Where the interface is: the address the home page names for it, or `/wp-json/` beside it. */
 function apiRoot(response: Response, home: URL, deps: WordPressDeps): URL | null {
-  const links = response.headers.get("Link") ?? "";
-  const named = /<([^>]+)>\s*;\s*rel="https:\/\/api\.w\.org\/"/.exec(links)?.[1];
+  const named = interfaceLink(response.headers.get("Link") ?? "");
   const root = named ? siteAddress(named, deps, home) : new URL("/wp-json/", home);
   return root && sameSite(root.href, home.href) ? root : null;
 }
@@ -482,6 +500,81 @@ export async function writePageContent(
     signIn,
     route(signIn.api, `wp/v2/pages/${id}`, { _fields: "id" }),
     { method: "POST", body: { content: raw } },
+    deps,
+  );
+  await response.body?.cancel().catch(() => {});
+  if (response.status !== 200) throw new SiteUnreachable(`The site answered ${response.status}.`);
+}
+
+/**
+ * The page at an address of the site, as its editor holds it, or null where none is: none was
+ * ever there, or it was moved to the trash. Pages waiting to be published count, since a new page
+ * there would take another address.
+ */
+export async function readPageAt(
+  signIn: WordPressSignIn,
+  slug: string,
+  deps: WordPressDeps = {},
+): Promise<WordPressPage | null> {
+  const response = await signedIn(
+    signIn,
+    route(signIn.api, "wp/v2/pages", {
+      slug,
+      status: "publish,future,draft,pending,private",
+      context: "edit",
+      _fields: "id,link,content",
+    }),
+    {},
+    deps,
+  );
+  const body = (await readJson(response)) as
+    | { id?: unknown; link?: unknown; content?: { raw?: unknown } }[]
+    | null;
+  if (response.status !== 200 || !Array.isArray(body)) {
+    throw new SiteUnreachable(`The site answered ${response.status} for its pages.`);
+  }
+  const [page] = body;
+  if (!page || typeof page.id !== "number" || typeof page.content?.raw !== "string") return null;
+  return {
+    id: page.id,
+    raw: page.content.raw,
+    link: typeof page.link === "string" ? page.link : signIn.site,
+  };
+}
+
+/** Publishes a new page, and says where it is. */
+export async function createPage(
+  signIn: WordPressSignIn,
+  page: { title: string; slug: string; content: string },
+  deps: WordPressDeps = {},
+): Promise<WordPressPage> {
+  const response = await signedIn(
+    signIn,
+    route(signIn.api, "wp/v2/pages", { _fields: "id,link" }),
+    { method: "POST", body: { ...page, status: "publish" } },
+    deps,
+  );
+  const body = (await readJson(response)) as { id?: unknown; link?: unknown } | null;
+  if (response.status !== 201 || typeof body?.id !== "number") {
+    throw new SiteUnreachable(`The site answered ${response.status} to a new page.`);
+  }
+  return {
+    id: body.id,
+    raw: page.content,
+    link: typeof body.link === "string" ? body.link : signIn.site,
+  };
+}
+
+/** Moves a page to WordPress's trash, from which its owner can restore it for thirty days. */
+export async function trashPage(
+  signIn: WordPressSignIn,
+  id: number,
+  deps: WordPressDeps = {},
+): Promise<void> {
+  const response = await signedIn(
+    signIn,
+    route(signIn.api, `wp/v2/pages/${id}`, { _fields: "id" }),
+    { method: "DELETE" },
     deps,
   );
   await response.body?.cancel().catch(() => {});

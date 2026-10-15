@@ -581,10 +581,10 @@ from counts the product holds; nothing a model wrote is in one.
   the code or the card, and it is not a draft: no worker writes it, no allowance is taken from and
   nothing is recorded for it.
 - Not built: a review-form link on any site but those two (Google's is the link its owner pastes,
-  and none is made from a place ID), publishing a page for the owner, and anything the
-  product does outside itself for real beyond the business details on a WordPress home page.
-  Approvals and actions exist (see "Actions"); the one real kind adds those details to the home page
-  of a connected WordPress site, and a sample kind stands in where the data is generated.
+  and none is made from a place ID), and anything the product does outside itself for real beyond
+  the business details on a WordPress home page and a page task's copy published to a WordPress
+  site. Approvals and actions exist (see "Actions"); the real kinds add those details to the home
+  page of a connected WordPress site and publish a page there, and a sample kind stands in where the data is generated.
 
 ## Alerts
 
@@ -1156,12 +1156,13 @@ a new account has not been read yet, the page asks again every couple of seconds
 An action is one thing the product does outside itself for a location, once a member says yes
 (`actions`; the terms are in `GLOSSARY.md`, the decision in
 `docs/adr/0014-only-the-worker-carries-out-an-action.md`). It is `proposed`, then `approved` and
-`done` or `failed`; a proposed one can instead be `declined` or `lapsed`. There are two kinds.
+`done` or `failed`; a proposed one can instead be `declined` or `lapsed`. There are three kinds.
 `sample` sets the opening line of one of the sample account's listings, rows in `sample_listings`
 that stand in for an outside service, so nothing leaves the product. `wordpress_details` adds the
 business's details to the home page of a connected WordPress site, or changes them there (below). It
-takes from the `wordpress` allowance, which is included with no number, so it counts nothing. A
-decision about what the product may change on a business's site is in
+takes from the `wordpress` allowance, which is included with no number, so it counts nothing.
+`wordpress_page` publishes a page task's copy as a new page on that site, on the same terms (below).
+A decision about what the product may change on a business's site is in
 `docs/adr/0018-on-a-business-site-the-product-changes-only-what-it-made.md`.
 
 - **Only the worker proposes.** After a sync that read a connection (`syncConnection` answers
@@ -1181,6 +1182,15 @@ decision about what the product may change on a business's site is in
   page" is proposed when the product's own block is there and differs. The subject is
   `details:<page id>` and `seen.text` is the product's block as it stands on the page, or null.
   A site that cannot be read while proposing is logged and skipped.
+- **A page is proposed once its copy is written.** After `proposeDetails`, `proposePages` goes
+  through the location's open page tasks (`page:` recommendations) that have no `prompt_pages` row,
+  whose draft is of kind `page` with text, and where no page is at the address the copy's title
+  makes (`pageSlug(pageParts(text).title)`, read with `readPageAt`). A page that is pending, a
+  draft, private or scheduled counts as there; one in the trash does not. The subject is
+  `page:<task id>`, the basis and `proposed_text` are the copy, the summary is "Publish the page
+  “<title>” on your site", `seen` is null and the task is the action's. The queue consumer, after
+  it writes a page draft for a location with a WordPress connection (`connectionToPublishWith`),
+  queues that connection's sync, so the proposal comes without waiting for the daily run.
 - **One open action for a thing, and a no is remembered.** `subject` (what it is about) and `basis`
   (what the proposal rests on; here, the proposed text) are the worker's bookkeeping, and no route
   sends them. A partial unique index allows one `proposed` or `approved` action for a location, kind
@@ -1190,15 +1200,15 @@ decision about what the product may change on a business's site is in
   from (null for none) and how many days what it replaced may be kept (null for no limit). A kind
   with no row is held to nothing. No API role reads or writes it. The `sample` kind takes from no
   allowance and is given 30 days, though nothing limits how long a made-up listing may be held, so
-  that dropping can be seen where the data is generated. `wordpress_details` names the `wordpress`
-  allowance, which counts nothing, and has no limit on keeping what it replaced.
+  that dropping can be seen where the data is generated. `wordpress_details` and `wordpress_page` name the
+  `wordpress` allowance, which counts nothing, and have no limit on keeping what they replaced.
 - **A request records the answer.** `approve_action()`, `decline_action()` and `retry_action()` are
   security-definer functions that return a row only to a member of the location's organization
   (`can_access_location`), so their routes answer 404 to anyone else, the operator included. An
   action that is no longer waiting, or whose kind has no room left this month, raises `NC013`, a
   `limit`, so 409 `limit_reached` with the reason. A member may change the text while approving: `approved_text` then keeps it beside
   `proposed_text`, and stays null when the text sent is what was proposed. Only a kind in
-  `EDITABLE_ACTION_KINDS` (`sample`) can be changed: the approve route answers 422 `not_editable` to
+  `EDITABLE_ACTION_KINDS` (`sample` and `wordpress_page`, whose copy is written onto the page as text) can be changed: the approve route answers 422 `not_editable` to
   a `text` for any other, and `carryOutAction` fails one that has `approved_text` anyway. Who answered is kept as
   the address they had then. Approving and asking again queue `{ action_id, step: "carry_out" }`; if
   the send fails, the request still succeeds and logs it.
@@ -1237,6 +1247,17 @@ decision about what the product may change on a business's site is in
   `withDetails(raw, text)` (`packages/shared/src/wordpress.ts`), which replaces or removes only the
   marked block and keeps everything else, through `writePageContent`, which posts the page's
   content. A take-back may carry a null text, which removes the block.
+  For `wordpress_page`, `createPage` posts a new published page with the title, the slug and
+  `pageBlocks(text, pageClosing(location))` (`packages/shared/src/pages.ts`): each heading and
+  paragraph a block with every character escaped as text, the closing line with the location's
+  details last, and the title not repeated in the content. Before it writes, `current` finds the
+  page at the slug and counts it as the product's only while its words (`pageWords`, which strips
+  comments, tags and entities) start with the copy's; another page there is out of date. After it
+  is done the worker calls `keepPublishedPage` (`keep_published_page()`, worker only), which keeps
+  the page's link in `prompt_pages` for the task with the action's id in `action_id`; a second
+  delivery finds the page and keeps its address too. Taking it back trashes the page (`trashPage`,
+  a DELETE without `force`, so its owner can restore it from WordPress's trash), and
+  `finish_action()` deletes the `prompt_pages` row the taken-back action kept.
 - **A try that does not work is made again, three times in all.** A try that throws is let go with
   `finish_action()` saying `again`, keeping why, and the queue consumer asks for the message to be
   delivered again in ten minutes. The third try that throws fails the action with the reason, and
@@ -1466,11 +1487,14 @@ instructions the private tuning holds for its kind.
   paragraph (`pageParts`). The owner copies it whole with `pageToCopy`: the copy, then
   `pageClosing`, composed by rule from the location's name, address, region, postal code and its
   phone number formatted for its country, each only where on file; no model writes it. `pageSlug`
-  makes an address from a title, for publishing, which is not built.
+  makes an address from a title, for publishing (see "Actions").
 
 On the Overview tab each task card shows its draft (`TaskDraft`). The Website tab's page tasks use
 the same card, which for page copy shows it as a page, offers "Copy the page" and "Mark published"
-(which marks the task done) and, once marked, asks "Where is the page?". "Write a draft" asks for one; if the
+(which marks the task done) and, once marked, asks "Where is the page?". While the site is connected
+and the copy is written it says instead that Nearcited asks to publish the page, to be approved or
+changed on the Actions tab, and a page the product published shows "Published by Nearcited at" its
+link, with no Change or Remove. "Write a draft" asks for one; if the
 location has not said what the business does, the card asks first, under "What we do", and saves
 it to the location (`PATCH /api/locations/:id`) before asking. While a draft is `asked` the card says one
 is being written and the location page asks again every two seconds. A written draft is shown with a
@@ -1844,8 +1868,8 @@ drop it.
   the figure can be read from `provider_usage` once real drafts are written, and a month given back does not return what a failed write cost, so a
   writer that keeps failing the check is paid for twice an ask and shows only in the operator's
   spend. Three kinds of draft exist: the note to the author of a page, the description for a
-  listing and the copy for a page on the business's own site. Nothing publishes that page; the owner
-  does, and says where it is. The check on what a draft states
+  listing and the copy for a page on the business's own site. Only a connected WordPress site has
+  that page published for it, on approval; the owner of any other does it and says where it is. The check on what a draft states
   reads characters and not meaning.
 - A listing is kept as a member gave it, and only its form is checked: an address on the right
   site that leads to no page, or to another business's, is kept, because nothing opens it (see
@@ -1864,8 +1888,12 @@ drop it.
   the thing, or its access to it. The Connections page names it "no longer found" so its owner can
   choose again. The sample kind of action acts through a match and does not check that the choice
   is still there; `wordpress_details` reads the site's front page afresh each time.
-- A WordPress connection is read, and the one thing written through it is the business details
-  block on a home page that is a page (`wordpress_details`); nothing else is published to the site.
+- A WordPress connection is read, and what is written through it is the business details block on
+  a home page that is a page (`wordpress_details`) and a new page for a page task
+  (`wordpress_page`); nothing else is published to the site. A page is proposed only where nothing
+  is at its address, so a title whose address is taken gets no proposal until the copy changes or
+  the page there is gone. A page stays the product's while its words start with the copy's, so what
+  an owner adds after the copy does not make it theirs.
   A site whose front page shows the latest posts, or whose account cannot add scripts, is offered
   nothing. A page builder such as Elementor or a caching plugin may keep the block from showing,
   which the Website tab says when a scan since did not find it. The check that a site offers application passwords reads
@@ -1876,8 +1904,8 @@ drop it.
 - The `structured_data` check passes for a block that names the business and gives an address, and
   compares nothing else in it, so a phone number or street address that differs from what is on
   file passes. Opening hours are not held, so the block has none.
-- The one real kind of action, `wordpress_details`, takes from an allowance that counts nothing, and
-  nothing limits how long what it replaced is kept. A kind that counts, or that has a limit, has not
+- The real kinds of action, `wordpress_details` and `wordpress_page`, take from an allowance that
+  counts nothing, and nothing limits how long what they replaced is kept. A kind that counts, or that has a limit, has not
   been made yet. A take-back is refused once a later action on the same subject has changed what
   the first left, and once the first's `seen` was dropped.
 - What each assistant's visits carry (`ASSISTANT_REFERRERS`) was read on 2026-10-13 from published

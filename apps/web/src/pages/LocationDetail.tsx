@@ -443,6 +443,7 @@ export function LocationDetail() {
                 drafts={drafts}
                 onChanged={refresh}
                 readOnly={readOnly}
+                publishes={connections.some((connection) => connection.kind === "wordpress")}
               />
             )}
             <WordPressConnect

@@ -22,6 +22,8 @@ interface PageTasksProps {
   onChanged: () => unknown;
   /** True while the operator is reading a customer's account: the tasks are shown, not acted on. */
   readOnly: boolean;
+  /** Whether the location's WordPress site is connected, so a page's copy is offered for publishing. */
+  publishes: boolean;
 }
 
 /**
@@ -29,7 +31,14 @@ interface PageTasksProps {
  * which the owner publishes on their own site. Once it is up they mark the task done and may say
  * where the page is, and the scans before that day are set beside the scans since.
  */
-export function PageTasks({ tasks, location, drafts, onChanged, readOnly }: PageTasksProps) {
+export function PageTasks({
+  tasks,
+  location,
+  drafts,
+  onChanged,
+  readOnly,
+  publishes,
+}: PageTasksProps) {
   const mark = useMutation({
     mutationFn: ({ id, acted }: { id: string; acted: boolean }) =>
       api.setRecommendationActed(id, acted),
@@ -74,6 +83,12 @@ export function PageTasks({ tasks, location, drafts, onChanged, readOnly }: Page
                   isOwner={isOwner}
                   onChanged={onChanged}
                 />
+                {publishes && task.open && !task.page && task.draft?.text && (
+                  <p className="task-proof">
+                    Nearcited asks to publish this page on your WordPress site. Approve it, or
+                    change it first, on the Actions tab.
+                  </p>
+                )}
                 {task.acted_at && (
                   <PageAddress
                     task={task}
@@ -165,13 +180,13 @@ function PageAddress({ task, location, readOnly, onChanged }: PageAddressProps) 
   if (url !== null && !changing) {
     return (
       <div className="paste-block">
-        <p>The page is at</p>
+        <p>{task.page?.action_id ? "Published by Nearcited at" : "The page is at"}</p>
         <p className="listing-link">
           <a href={url} target="_blank" rel="noopener noreferrer nofollow">
             {url}
           </a>
         </p>
-        {!readOnly && (
+        {!readOnly && !task.page?.action_id && (
           <div className="paste-actions">
             <button
               type="button"

@@ -200,7 +200,7 @@ const DRAFT_COLUMNS =
   "id, location_id, recommendation_id, status, asked_by_email, asked_at, failure, kind, text, written_at, sample_data";
 
 const LISTING_COLUMNS = "location_id, site, url, set_by_email, set_at";
-const PROMPT_PAGE_COLUMNS = "recommendation_id, url, set_by_email, set_at";
+const PROMPT_PAGE_COLUMNS = "recommendation_id, url, set_by_email, set_at, action_id";
 
 const LINE_COLUMNS = "location_id, key, key_made_at, checked_on";
 
@@ -524,6 +524,15 @@ export function createSupabaseStore(
         recommendation: recommendationId,
       });
       if (error) fail("Remove where a page is", error);
+      return data === true;
+    },
+
+    async keepPublishedPage(actionId, url) {
+      const { data, error } = await db.rpc("keep_published_page", {
+        action: actionId,
+        address: url,
+      });
+      if (error) fail("Keep where a page was published", error);
       return data === true;
     },
 

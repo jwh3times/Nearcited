@@ -1,4 +1,10 @@
-import { type Action, EDITABLE_ACTION_KINDS, type LocationActions } from "@nearcited/shared";
+import {
+  type Action,
+  EDITABLE_ACTION_KINDS,
+  type LocationActions,
+  pageParts,
+  pageSlug,
+} from "@nearcited/shared";
 import { api } from "./api";
 
 /** How often the page asks again while the worker is carrying something out. */
@@ -90,3 +96,9 @@ export const isMarkup = (action: Pick<Action, "kind">): boolean =>
 /** What the page asks before taking an action back. */
 export const TAKE_BACK_QUESTION =
   "Take this back? Nearcited will put back what was there before, as long as nobody has changed it since. Your organization's owners are told, as for anything else Nearcited does.";
+
+/** Whether what an action puts there is a page's copy: prose of some length, laid out in blocks. */
+export const isPage = (action: Pick<Action, "kind">): boolean => action.kind === "wordpress_page";
+
+/** Where a page's copy is published on the site: the address its title makes. */
+export const pageAddress = (copy: string): string => `/${pageSlug(pageParts(copy).title)}/`;

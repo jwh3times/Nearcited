@@ -332,3 +332,72 @@ export function readPageAddress(website: string | null, pasted: string): ReadPag
   }
   return { url: address.href };
 }
+
+/** Text made safe to stand in a page's HTML. */
+const asText = (text: string) =>
+  text
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+
+/**
+ * A page's copy as WordPress blocks: each heading and paragraph a block of its own, and the
+ * closing line last, where there is one. Everything is written as text, so nothing in the copy,
+ * whoever wrote or changed it, becomes markup on the business's site. The title is the page's own
+ * and is not here.
+ */
+export function pageBlocks(text: string, closing: string | null): string {
+  const { blocks } = pageParts(text);
+  const paragraph = (words: string) =>
+    `<!-- wp:paragraph -->\n<p>${asText(words)}</p>\n<!-- /wp:paragraph -->`;
+  return [
+    ...blocks.map((block) =>
+      block.heading
+        ? `<!-- wp:heading -->\n<h2 class="wp-block-heading">${asText(block.text)}</h2>\n<!-- /wp:heading -->`
+        : paragraph(block.text),
+    ),
+    ...(closing === null ? [] : [paragraph(closing)]),
+  ].join("\n\n");
+}
+
+/** `text` with every span from `open` to `close` made a space, read once from start to end. */
+function between(text: string, open: string, close: string, dropUnclosed: boolean): string {
+  let kept = "";
+  let at = 0;
+  while (at < text.length) {
+    const start = text.indexOf(open, at);
+    if (start === -1) break;
+    const end = text.indexOf(close, start + open.length);
+    // No close after this opening means none after any later one either.
+    if (end === -1) {
+      kept += dropUnclosed ? `${text.slice(at, start)} ` : text.slice(at);
+      return kept;
+    }
+    kept += `${text.slice(at, start)} `;
+    at = end + close.length;
+  }
+  return kept + text.slice(at);
+}
+
+/**
+ * What a page says, as it is compared: its words without the markup around them, with the
+ * entities read and the spaces between them made one. Two pages that say the same thing compare
+ * equal whatever WordPress did to how the HTML was written.
+ */
+export function pageWords(raw: string): string {
+  // By hand, in one pass each: a pattern for "anything up to the end of a comment" or "of a tag"
+  // is tried again from every opening of one that never ends, which takes the square of the
+  // length. A comment left open takes the rest with it; a "<" left open is text, as a browser
+  // would show it.
+  const tagless = between(between(raw, "<!--", "-->", true), "<", ">", false);
+  return tagless
+    .replaceAll("&quot;", '"')
+    .replaceAll("&#039;", "'")
+    .replaceAll("&#8217;", "\u2019")
+    .replaceAll("&lt;", "<")
+    .replaceAll("&gt;", ">")
+    .replaceAll("&amp;", "&")
+    .replace(/\s+/g, " ")
+    .trim();
+}

@@ -203,6 +203,7 @@ describe("a page task", () => {
       url: PAGE,
       set_by_email: "alice@example.com",
       set_at: expect.any(String),
+      action_id: null,
     });
   });
 });

@@ -4219,6 +4219,7 @@ describe("the operator", () => {
         { kind: "sample", allowance: null, keeps_seen_days: 30 },
         // The business's own site limits nothing about how long its page may be kept.
         { kind: "wordpress_details", allowance: "wordpress", keeps_seen_days: null },
+        { kind: "wordpress_page", allowance: "wordpress", keeps_seen_days: null },
       ]);
     });
 
@@ -4657,6 +4658,60 @@ describe("the operator", () => {
           );
         expect(await again("basis-Put there")).toEqual([]);
         expect(await again("something else")).toHaveLength(1);
+      });
+
+      it("forget where a page was when the action that published it is taken back", async () => {
+        const [page] = await rows<{ id: string }>(
+          "insert into public.recommendations (location_id, rule, title, detail) values ($1, 'page:' || gen_random_uuid(), 'Publish a page', 'd') returning id",
+          [main],
+        );
+        const published = await doneFor("take:page", "The page", page?.id ?? null);
+        const keep = "select public.keep_published_page($1, $2) as kept";
+        // Only the worker keeps it, and only an address to follow over https.
+        for (const user of [alice, member, operator]) {
+          await expect(
+            as("authenticated", user, () => db.query(keep, [published, "https://joes.example/p"])),
+            user,
+          ).rejects.toThrow(/permission denied/);
+        }
+        expect(
+          await as("service_role", null, () => rows(keep, [published, "http://joes.example/p"])),
+        ).toEqual([{ kept: false }]);
+        expect(
+          await as("service_role", null, () => rows(keep, [published, "https://joes.example/p"])),
+        ).toEqual([{ kept: true }]);
+        const kept = () =>
+          rows(
+            "select url, action_id, set_by from public.prompt_pages where recommendation_id = $1",
+            [page?.id],
+          );
+        expect(await kept()).toEqual([
+          { url: "https://joes.example/p", action_id: published, set_by: null },
+        ]);
+        // A member's address in its place is theirs.
+        await as("authenticated", member, () =>
+          db.query("select public.set_prompt_page($1, 'https://joes.example/theirs')", [page?.id]),
+        );
+        expect(await kept()).toEqual([
+          { url: "https://joes.example/theirs", action_id: null, set_by: member },
+        ]);
+        await as("service_role", null, () => rows(keep, [published, "https://joes.example/p"]));
+
+        const [back] = await as("authenticated", member, () =>
+          rows<{ id: string }>("select id from public.take_back_action($1)", [published]),
+        );
+        await claim(back?.id ?? "");
+        await finish(back?.id ?? "", "done");
+        expect(await kept()).toEqual([]);
+
+        // A member's own address is theirs: it stays when no action published it.
+        await as("authenticated", member, () =>
+          db.query("select public.set_prompt_page($1, 'https://joes.example/mine')", [page?.id]),
+        );
+        expect(await kept()).toEqual([
+          { url: "https://joes.example/mine", action_id: null, set_by: member },
+        ]);
+        await db.query("delete from public.recommendations where id = $1", [page?.id]);
       });
 
       it("are refused for what was not done, or what something done since has changed", async () => {

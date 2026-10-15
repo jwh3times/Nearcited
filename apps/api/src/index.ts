@@ -14,7 +14,12 @@ import {
   type ScanMessage,
   ScanMessageSchema,
 } from "@nearcited/shared";
-import { carryOutAction, proposeAfterSync, requeueStalledActions } from "./actions";
+import {
+  carryOutAction,
+  connectionToPublishWith,
+  proposeAfterSync,
+  requeueStalledActions,
+} from "./actions";
 import { sendActionNotices } from "./actions/notice";
 import { createApp } from "./app";
 import { runAuditPart } from "./audits/runner";
@@ -281,6 +286,13 @@ export default {
             writer: usesSampleData(env) ? undefined : createLiveDraftWriter(env, activeTuning),
           });
           console.log(`${what}: ${outcome}`);
+          // A page's copy, once written, is offered for publishing on the location's own site.
+          if (outcome === "written") {
+            const publishWith = await connectionToPublishWith(store, draft.data.draft_id);
+            if (publishWith) {
+              await env.SCAN_QUEUE.send({ connection_id: publishWith, step: "sync" });
+            }
+          }
           // A try that something got in the way of is made again in a minute, three times in all.
           if (outcome === "again") message.retry({ delaySeconds: 60 });
           else message.ack();
