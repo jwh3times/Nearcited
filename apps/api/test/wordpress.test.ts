@@ -8,7 +8,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/app";
 import { readWordPressSignIn, removeConnection, syncConnection } from "../src/connections";
-import { open, sealingKey } from "../src/connections/seal";
+import { open, seal, sealingKey } from "../src/connections/seal";
 import {
   checkWordPress,
   decodeEntities,
@@ -148,10 +148,14 @@ describe("asking a website whether it is a WordPress that can be connected", () 
     expect((await checkWordPress(SITE, deps)).verdict).toBe("not_wordpress");
     site.index = { hello: "world" };
     expect((await checkWordPress(SITE, deps)).verdict).toBe("not_wordpress");
-    // An interface the page names on another site is not this site's.
+    // An interface the page names on another site is not this site's, whatever it says.
     site.link = "https://elsewhere.example/wp-json/";
     site.index = READY_INDEX;
-    expect((await checkWordPress(SITE, deps)).verdict).toBe("not_wordpress");
+    const elsewhere: typeof fetch = async (input, init) =>
+      new URL(String(input)).hostname === "elsewhere.example"
+        ? json(READY_INDEX)
+        : wordpress(input, init);
+    expect((await checkWordPress(SITE, { fetch: elsewhere })).verdict).toBe("not_wordpress");
   });
 
   it("is unreachable where the site does not answer, faults, or is not one to call", async () => {
@@ -240,7 +244,9 @@ describe("signing in with what WordPress handed back", () => {
     await expect(readSite(elsewhere, deps)).rejects.toThrow(/may be sent/);
     expect(site.asked).toEqual([]);
 
-    const redirecting: typeof fetch = async (input) => {
+    const redirecting: typeof fetch = async (input, init) => {
+      // A fetch left to follow would send the password on before this saw the answer.
+      expect(init?.redirect).toBe("manual");
       site.asked.push({ url: String(input), method: "GET", signedIn: true });
       return new Response("", {
         status: 302,
@@ -516,6 +522,17 @@ describe("connecting a location's WordPress site", () => {
     site.live = false;
     expect(await syncConnection(second.id, await worker())).toBe("refused");
     expect(db.connections[0]).toMatchObject({ status: "broken", broken_reason: "refused" });
+  });
+
+  it("is removed all the same where what was kept cannot be used to ask", async () => {
+    const { location } = await withSite();
+    const connection = ConnectionSchema.parse(await (await connect(alice, location.id)).json());
+    await call(alice, "DELETE", `/connections/${connection.id}`);
+    const key = await sealingKey(SECRET);
+    if (!key) throw new Error("no key");
+    db.connectionSecrets.set(connection.id, await seal(key, connection.id, "not a sign-in"));
+    expect(await removeConnection(connection.id, await worker())).toBe("removed");
+    expect(db.connectionSecrets.has(connection.id)).toBe(false);
   });
 
   it("is removed all the same where the site cannot be asked to take the password back", async () => {

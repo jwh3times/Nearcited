@@ -980,10 +980,10 @@ A connection is an organization's standing sign-in to an outside account (`conne
 is in `GLOSSARY.md`, the decision in `docs/adr/0013-a-sign-in-is-sealed-by-the-worker.md`). What
 exists is making one, listing them, reading what one reaches, saying which of those is each
 location's, breaking one that stops working, pausing one the plan stops including, and removing
-one. The only kind is `sample`. Nothing yet reads anything else from an account, and the only
-thing done through one is the `sample` kind's action (see "Actions"). The `sample` kind never fails
-and needs no allowance, so until a real kind exists nothing breaks or pauses in practice, though
-the rules for both are built and tested.
+one. There are two kinds, `sample` and `wordpress` (see "A WordPress site" below). Nothing reads
+anything from an account beyond what it reaches, and the only thing done through one is the
+`sample` kind's action (see "Actions"). The `sample` kind never fails and needs no allowance, so
+only a WordPress connection can break or pause in practice.
 
 - **Only an owner or admin connects or removes.** `create_connection()` and
   `request_connection_removal()` are security-definer functions that return no row to anyone else,
@@ -1013,7 +1013,8 @@ the rules for both are built and tested.
   recorded, and running the step twice is safe: `finish_connection_removal()` answers false when
   none is waiting. A sign-in the Worker cannot
   open (another key, or none) is deleted all the same, without taking the access back. The
-  `sample` kind has none to take back.
+  `sample` kind has none to take back. A `wordpress` one deletes its application password at the
+  site (below).
 - **A lost message is asked for again.** If the send fails, the request still succeeds and logs it.
   If a step throws, the queue redelivers it, and after `max_retries` it goes to the dead-letter
   queue. Either way the connection stays `removing`, and every run of the schedule queues again
@@ -1057,8 +1058,8 @@ the rules for both are built and tested.
   logged and does not undo what was recorded. Mending clears all of it, so a connection that
   breaks again is told again.
 - **A plan that stops including a kind of connection pauses it.** `connection_kind_allowances` says
-  which allowance a kind needs, and a kind not listed needs none: it is empty, since `sample` needs
-  none. `CONNECTION_KIND_ALLOWANCES` (`packages/shared/src/schemas.ts`) is the same list, and a test
+  which allowance a kind needs, and a kind not listed needs none: `sample` needs none and
+  `wordpress` needs the `wordpress` allowance. `CONNECTION_KIND_ALLOWANCES` (`packages/shared/src/schemas.ts`) is the same list, and a test
   in `packages/db` holds the two equal. The table has row-level security on, no policy and no grant
   to any API role. `create_connection()` refuses a kind the organization's allowances do not include
   (`NC012`), and `availableConnectionKinds` leaves it out. `fit_connections_to_plan()`, which
@@ -1091,9 +1092,48 @@ the rules for both are built and tested.
   `matches`, and `GET /api/locations/:id` the `connections` it is matched to.
 - **The sample kind is offered only where the data is generated.** `availableConnectionKinds`
   returns `sample` for a deployment in mock mode, or for a test organization in any deployment,
-  and nothing otherwise, and leaves out a kind the organization's allowances do not include. It
-  makes up a sign-in and calls the account "Sample account", so the path runs with no outside
-  account.
+  and leaves out a kind the organization's allowances do not include. It makes up a sign-in and
+  calls the account "Sample account", so the path runs with no outside account. On live data it
+  offers `wordpress` to an organization that is not a test one and whose allowances include it.
+  The page leaves `wordpress` out of its connect buttons.
+- **A WordPress site is connected from its location, and fetches only.** The generic
+  `POST /api/organizations/:organizationId/connections` refuses the kind with 422
+  `connect_from_location`. `apps/api/src/routes/wordpress.ts` has two routes for an owner or an
+  admin of the location's organization (404 to anyone else, the operator included).
+  `POST /api/locations/:locationId/wordpress/check` asks the location's website, with no sign-in,
+  whether it is a WordPress whose REST index advertises an application-passwords authorization
+  endpoint, and answers `ready`, `not_wordpress`, `passwords_off`, `unreachable` or `no_website`.
+  The browser then sends the owner to that endpoint on their own site, with the app name
+  Nearcited, a fixed app id and return addresses at `/wordpress/return`. WordPress hands back the
+  site, a user name and a new application password on that address. `main.tsx` takes them off the
+  address with `history.replaceState` before the app draws, believes them only with the state the
+  tab kept in `sessionStorage`, and posts them once; `apps/web/public/_headers` gives that path
+  `Referrer-Policy: no-referrer`. `POST /api/locations/:locationId/wordpress` signs in with them,
+  checks the site is the location's website and the account has `publish_pages`, reads the
+  password's uuid, seals `{ site, api, user, password, uuid }`, creates the connection through
+  `create_connection()` with `from_location`, and queues the first sync. It never returns the
+  password. It answers 422 `not_this_site`, `refused` or `cannot_publish`, 502 `unreachable`, 409
+  `already_connected`, 503 `connections_unavailable` and 422 `connection_unavailable`.
+- **A WordPress request is held to the site.** `apps/api/src/connections/wordpress.ts` finds the
+  REST root from the home page's `Link: rel="https://api.w.org/"` header, or `/wp-json/` beside it,
+  or `?rest_route=` on a site without pretty links. Every request without a sign-in goes through
+  `safeSiteUrl` and each redirect is checked again. A signed request (`signedIn`) goes only over
+  https to the site's own host (`www.` ignored) and never follows a redirect, so the password
+  cannot be sent anywhere else. `WORDPRESS_LOCAL_ORIGIN` lets one origin on a developer's machine
+  be reached over http and is never set on a deployment. A 401 or 403 throws `WordPressRefused`,
+  which breaks the connection as `refused`. A sync reads the one site as the one choice, its home
+  address with the label "name (host)". Removal deletes the application password by its uuid; if
+  the site cannot be asked, the connection is still removed and the product's copy is deleted, and
+  the failure is logged.
+- **The first sync matches the location it was made from.** `connections.for_location` holds the
+  location a connection was made from. `record_connection_sync()` matches it on the first sync
+  when the account reaches exactly one thing, that location has no account of that kind and the
+  thing is no other location's, then clears `for_location` either way. `create_connection()`
+  takes `from_location` and returns no row when it is not a location of the same organization.
+  The `wordpress` allowance is included or not, with no number. Pro and Enterprise include it,
+  the migration `20261014110000_wordpress_connections.sql` put it on them and on each
+  organization already on them except a test organization, and the Website tab's card appears only
+  where the plan includes it.
 - **Without the key nothing can be connected.** With no `CONNECTIONS_KEY`, `available` is empty and
   `POST` answers 503 `connections_unavailable`. A kind that is not offered answers 422
   `connection_unavailable`. A value that is not base64, or not 32 bytes, throws instead of
@@ -1555,6 +1595,8 @@ copy, edit and lower a plan.
   `20261013220000_visits_shown.sql` did for it what that one did for drafts: it put the kind on the
   paid plans and gave it to each organization already on one, except a test organization, which
   has had it since the kind was made, and touched no other limit.
+  `wordpress` is included or not like `visits`: `20261014110000_wordpress_connections.sql` put it
+  on Pro and Enterprise and on each organization already on them except a test organization.
 - **Use of a counted kind is kept in `allowance_use`**, one row for an organization, a kind and a
   calendar month in UTC. Its members read their own organization's rows and the operator reads
   all of them; no API role writes it, since a count a member could write is a count a member could
@@ -1752,12 +1794,13 @@ drop it.
   A signed-in user cannot update a scan, so the request that hit the failure cannot clear it.
 - On a Supabase project that still signs tokens with a legacy shared secret, `getClaims` asks the
   Auth server on every request. Use asymmetric signing keys.
-- Allowances limit little yet. Two kinds of allowance exist (`ALLOWANCE_KINDS` and
-  `allowance_kinds`): `drafts`, counted, and `visits`, included or not. Every paid plan includes
-  both and the free plan includes neither. A test organization is given every kind, so its drafts
-  are counted and its visits are. No kind of connection or of action
-  names an allowance, so a number for another kind would be stored, shown and lowered by
-  announcement, but no work would stop at it or be counted against it. What an allowance can stop is
+- Allowances limit little yet. Three kinds of allowance exist (`ALLOWANCE_KINDS` and
+  `allowance_kinds`): `drafts`, counted, and `visits` and `wordpress`, included or not. Every paid
+  plan includes `drafts` and `visits`, Pro and Enterprise include `wordpress`, and the free plan
+  includes none. A test organization is given every kind, so its drafts are counted and its
+  visits and WordPress connection are included. Only the `wordpress` kind of connection names an
+  allowance, and no kind of action does, so a number for another kind would be stored, shown and
+  lowered by announcement, but no work would stop at it or be counted against it. What an allowance can stop is
   a kind of connection that needs it (see "Connections"), a kind of action that takes from it (see
   "Actions"), a draft (see "Drafts") and counting a visit (see "Visits from assistants"), and only
   the last two exist ([#133](https://github.com/jwh3times/Nearcited/issues/133)).
@@ -1787,6 +1830,12 @@ drop it.
   the thing, or its access to it. The Connections page names it "no longer found" so its owner can
   choose again. Only the sample kind of action acts through a match, and it does not check that
   the choice is still there; a real kind will have to.
+- A WordPress connection is made and read and nothing more: no page is published to the site, and
+  no kind of action works through it. The check that a site offers application passwords reads
+  its REST index, so a site that hides the index or a firewall that blocks the Worker reads as
+  `not_wordpress` or `unreachable`. A password the owner revokes in WordPress is found at the next
+  sync, which breaks the connection as `refused`; there is no signing in again, so it is removed
+  and made again. A site is matched only to the location it was connected from.
 - The `structured_data` check passes for a block that names the business and gives an address, and
   compares nothing else in it, so a phone number or street address that differs from what is on
   file passes. Opening hours are not held, so the block has none.
