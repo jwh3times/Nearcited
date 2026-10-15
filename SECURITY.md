@@ -65,8 +65,8 @@ Nearcited is multi-tenant, and tenant isolation is enforced by Postgres row-leve
   `Referer` (the page is served with `Referrer-Policy: no-referrer`). Getting the product to
   connect a site on a forged return is a report.
 - Answering an action as anyone but a member of its location's organization: calling
-  `approve_action()`, `decline_action()` or `retry_action()` for a location the caller is not a
-  member of, the operator included, or writing `actions` directly.
+  `approve_action()`, `decline_action()`, `retry_action()` or `take_back_action()` for a location
+  the caller is not a member of, the operator included, or writing `actions` directly.
 - Proposing or carrying out an action as anyone but the worker: calling `propose_action()`,
   `claim_action()`, `finish_action()`, `lapse_actions()` or `drop_expired_seen()`, or getting a
   request to propose one, carry one out or write through a connection. Also reading or writing
@@ -90,6 +90,11 @@ Nearcited is multi-tenant, and tenant isolation is enforced by Postgres row-leve
   caller is not a member of, the operator included, or for a task that is not a page task, or
   writing `prompt_pages` directly. Also getting one kept that is not an address over https, or
   getting the product to open one.
+- Changing a business's site beyond the block the product marked as its own: an action that edits,
+  removes or reads past the `<!-- nearcited:details -->` block, or that writes to a page when the
+  block on it is no longer what the member was shown. Also getting text of a member's or a
+  caller's choosing into that block: approving with a `text` for a kind that is approved as
+  proposed (`not_editable`), or having `carryOutAction` write an `approved_text` for one.
 - Taking back what an action did, or keeping what it replaced past its day: clearing a task an
   action marked done, or writing `recommendations.acted_by_action`, as a signed-in user; or finding
   a copy of what an action replaced anywhere but `seen`, which `drop_expired_seen()` clears once

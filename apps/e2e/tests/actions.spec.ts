@@ -117,6 +117,8 @@ test("takes back what was done, after asking, and keeps both in the record", asy
   // What it took away was the line the first one wrote.
   await expect(back).toContainText(LINE);
   await expect(done).toContainText("Done on");
+  // There is nothing left of it to take back.
+  await expect(done.getByRole("button", { name: "Take it back" })).toHaveCount(0);
   // Taken back, the same line is not offered again: that was a no.
   await page.reload();
   await expect(page.getByText("Nothing is waiting.")).toBeVisible();

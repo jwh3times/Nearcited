@@ -55,7 +55,15 @@ export function Actions({ actions, onChanged, readOnly }: ActionsProps) {
             <span className="small">Everything that was proposed and what became of it.</span>
           </div>
           {actions.record.map((action) => (
-            <Recorded key={action.id} action={action} onChanged={onChanged} readOnly={readOnly} />
+            <Recorded
+              key={action.id}
+              action={action}
+              takenBack={actions.record.some(
+                (later) => later.takes_back === action.id && later.status !== "failed",
+              )}
+              onChanged={onChanged}
+              readOnly={readOnly}
+            />
           ))}
         </section>
       )}
@@ -91,7 +99,7 @@ function Proposal({
     <article className="card action" aria-label={action.summary}>
       <h3 className="action-name">{action.summary}</h3>
       <ul className="facts">
-        <li>
+        <li className={isMarkup(action) && action.seen?.text ? "action-pair-code" : undefined}>
           <span>What is there now</span>
           <Shown action={action} text={action.seen?.text ?? null} empty="Nothing" />
         </li>
@@ -172,10 +180,13 @@ function Proposal({
 /** One action that has been answered or has lapsed: what it was, and what became of it. */
 function Recorded({
   action,
+  takenBack,
   onChanged,
   readOnly,
 }: {
   action: Action;
+  /** Whether it has been taken back, or is being, so there is nothing more to take back. */
+  takenBack: boolean;
   onChanged: () => void;
   readOnly?: boolean;
 }) {
@@ -190,9 +201,12 @@ function Recorded({
     <article className="card action" aria-label={action.summary}>
       <h3 className="action-name">{action.summary}</h3>
       {text !== null && <Shown action={action} text={text} empty="" block />}
+      {text === null && action.takes_back !== null && (
+        <p>It took away what the earlier action had put there.</p>
+      )}
       {replaced !== null && (
         <ul className="facts">
-          <li>
+          <li className={isMarkup(action) && action.seen?.text ? "action-pair-code" : undefined}>
             <span>{action.status === "done" ? "What it replaced" : "What was there"}</span>
             {action.seen_dropped_at === null ? (
               <Shown action={action} text={action.seen?.text ?? null} empty="Nothing" />
@@ -215,7 +229,7 @@ function Recorded({
           </button>
         </div>
       )}
-      {action.status === "done" && !readOnly && (
+      {action.status === "done" && !takenBack && !readOnly && (
         <div className="button-row">
           <button
             type="button"

@@ -1826,6 +1826,11 @@ mark {
   overflow-wrap: anywhere;
 }
 
+/* What was there, where that is markup: under its label, with the room to read it. */
+.action li.action-pair-code {
+  flex-direction: column;
+}
+
 /* A connected account on the Connections page: what it is, who connected it, and the way out. */
 .connection {
   display: flex;
