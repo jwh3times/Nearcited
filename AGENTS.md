@@ -107,7 +107,10 @@ pass `pnpm check` and run in mock mode without it.
   one, through `create_connection()`, and never reads one: whatever needs the sign-in runs from
   the queue, and no route or wire type carries it, sealed or not. Do not add a policy or a grant
   on `connection_secrets`, and do not read it anywhere but `getConnectionSecret`, which only the
-  worker calls.
+  worker calls. A WordPress site's application password is sent only over https to that site's
+  own host, and never on through a redirect (`signedIn`, `apps/api/src/connections/wordpress.ts`):
+  keep both. `WORDPRESS_LOCAL_ORIGIN` lifts them for one origin on a developer's own machine and
+  is never set on a deployment.
 - **Only the worker proposes an action, and only the worker carries one out.** A request records a
   member's yes or no (`approve_action()`, `decline_action()`, `retry_action()`) and queues the
   worker (`docs/adr/0014-only-the-worker-carries-out-an-action.md`). `carryOutAction`

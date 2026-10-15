@@ -12,6 +12,13 @@ import type { Env } from "../env";
 import { usesSampleData } from "../providers";
 import type { Store } from "../store/types";
 import { open } from "./seal";
+import {
+  readSite,
+  type WordPressDeps,
+  WordPressRefused,
+  type WordPressSignIn,
+  withdrawPassword,
+} from "./wordpress";
 
 /**
  * The kinds of account an organization can connect in this deployment. None without a key to
@@ -23,7 +30,10 @@ export function availableConnectionKinds(
   organization: Pick<Organization, "is_test" | "allowances">,
 ): ConnectionKind[] {
   if (!env.CONNECTIONS_KEY) return [];
-  const offered: ConnectionKind[] = usesSampleData(env) || organization.is_test ? ["sample"] : [];
+  // A real account is written to, so it is offered only where nothing is generated: a test
+  // organization's actions never leave the product, and nor do a sample deployment's.
+  const offered: ConnectionKind[] =
+    usesSampleData(env) || organization.is_test ? ["sample"] : ["wordpress"];
   return offered.filter((kind) => {
     const needed = CONNECTION_KIND_ALLOWANCES[kind];
     return needed === null || organization.allowances[needed] !== undefined;
@@ -36,12 +46,33 @@ export interface Connected {
   signIn: string;
 }
 
-/** Signs in to an account of one kind. The sample kind has nowhere to sign in to, so it makes one up. */
-export async function connect(kind: ConnectionKind): Promise<Connected> {
-  switch (kind) {
-    case "sample":
-      return { label: "Sample account", signIn: `sample-${crypto.randomUUID()}` };
+/**
+ * Signs in to an account of a kind connected with one press. The sample kind has nowhere to sign
+ * in to, so it makes one up. A WordPress site is connected by its owner approving on the site
+ * itself, which `signInWith` (`./wordpress.ts`) takes it from, so it is not connected here.
+ */
+export async function connect(_kind: "sample"): Promise<Connected> {
+  return { label: "Sample account", signIn: `sample-${crypto.randomUUID()}` };
+}
+
+/** A WordPress sign-in as it is sealed. */
+export const wordpressSignIn = (signIn: WordPressSignIn): string => JSON.stringify(signIn);
+
+/** A WordPress sign-in as it was sealed. Throws where what was kept is not one. */
+export function readWordPressSignIn(kept: string): WordPressSignIn {
+  const signIn = JSON.parse(kept) as Partial<WordPressSignIn>;
+  if (
+    typeof signIn.site !== "string" ||
+    typeof signIn.api !== "string" ||
+    typeof signIn.user !== "string" ||
+    typeof signIn.password !== "string"
+  ) {
+    throw new Error("What was kept is not a WordPress sign-in.");
   }
+  return {
+    ...signIn,
+    uuid: typeof signIn.uuid === "string" ? signIn.uuid : null,
+  } as WordPressSignIn;
 }
 
 /** What a sync finds: the things the sign-in reaches, for a location to be matched to one. */
@@ -68,17 +99,38 @@ export class SignInRefused extends Error {
 }
 
 /** Reads from an account of one kind with its sign-in. The sample kind asks nobody anything. */
-async function read(kind: ConnectionKind, _signIn: string): Promise<Reached> {
+async function read(
+  kind: ConnectionKind,
+  signIn: string,
+  outside: WordPressDeps,
+): Promise<Reached> {
   switch (kind) {
     case "sample":
       return { choices: SAMPLE_CHOICES };
+    case "wordpress":
+      try {
+        return { choices: await readSite(readWordPressSignIn(signIn), outside) };
+      } catch (error) {
+        if (error instanceof WordPressRefused) throw new SignInRefused(error.message);
+        throw error;
+      }
   }
 }
 
 /** Takes back, at the outside service, the access a sign-in gave. The sample kind gave none. */
-async function withdraw(kind: ConnectionKind, _signIn: string): Promise<void> {
+async function withdraw(
+  kind: ConnectionKind,
+  signIn: string,
+  outside: WordPressDeps,
+): Promise<void> {
   switch (kind) {
     case "sample":
+      return;
+    case "wordpress":
+      if (!(await withdrawPassword(readWordPressSignIn(signIn), outside))) {
+        // Its copy is deleted all the same: the owner asked for it gone, and nobody then holds it.
+        console.warn("A WordPress password could not be taken back at the site.");
+      }
       return;
   }
 }
@@ -93,6 +145,8 @@ export interface ConnectionDeps {
   appUrl?: string;
   /** Reads from the outside service. The tests put a failing one here. */
   read?: (kind: ConnectionKind, signIn: string) => Promise<Reached>;
+  /** How an outside service is reached. The tests put a made-up WordPress here. */
+  outside?: WordPressDeps;
   now?: Date;
 }
 
@@ -138,7 +192,7 @@ async function tellBroken(
  */
 export async function removeConnection(
   connectionId: string,
-  { store, key }: ConnectionDeps,
+  { store, key, outside = {} }: ConnectionDeps,
 ): Promise<"removed" | "not_waiting"> {
   const connection = await store.getConnection(connectionId);
   if (connection?.status !== "removing") return "not_waiting";
@@ -151,7 +205,14 @@ export async function removeConnection(
     } catch (error) {
       console.error(`Connection ${connectionId}: its sign-in could not be opened`, error);
     }
-    if (signIn !== null) await withdraw(connection.kind, signIn);
+    if (signIn !== null) {
+      try {
+        await withdraw(connection.kind, signIn, outside);
+      } catch (error) {
+        // A sign-in kept in a shape this Worker cannot use is deleted all the same.
+        console.error(`Connection ${connectionId}: its access could not be taken back`, error);
+      }
+    }
   }
   return (await store.finishConnectionRemoval(connectionId)) ? "removed" : "not_waiting";
 }
@@ -187,7 +248,10 @@ export async function syncConnection(
 
   let reached: Reached;
   try {
-    reached = await (deps.read ?? read)(connection.kind, signIn);
+    reached = await (deps.read ?? ((kind, kept) => read(kind, kept, deps.outside ?? {})))(
+      connection.kind,
+      signIn,
+    );
   } catch (error) {
     const refused = error instanceof SignInRefused;
     console.error(

@@ -56,6 +56,14 @@ connectionRoutes.post("/organizations/:organizationId/connections", async (c) =>
   if (!availableConnectionKinds(c.env, organization).includes(kind)) {
     throw new ApiError(422, "connection_unavailable", "That cannot be connected here.");
   }
+  // A site is connected by its owner approving on the site, from its location's Website tab.
+  if (kind === "wordpress") {
+    throw new ApiError(
+      422,
+      "connect_from_location",
+      "Connect a WordPress site from the Website tab of the location it belongs to.",
+    );
+  }
 
   // The ID comes first, because the sign-in is sealed to it.
   const id = crypto.randomUUID();

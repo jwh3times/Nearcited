@@ -3,3 +3,9 @@
 /line.js
   Cache-Control: public, max-age=3600
   Cross-Origin-Resource-Policy: cross-origin
+
+# Where WordPress sends an owner back, with the password it made on the address. The app takes it
+# off at once, but the page's own files are asked for first, and a browser would name the whole
+# address to each of them.
+/wordpress/return
+  Referrer-Policy: no-referrer

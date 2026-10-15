@@ -138,6 +138,11 @@ export interface NewConnection {
   kind: ConnectionKind;
   label: string;
   sealed: string;
+  /**
+   * The location it was connected from, which must be the organization's own. The first sync
+   * matches it there when the account reaches one thing.
+   */
+  for_location?: string | null;
 }
 
 /** A plan as the payment provider knows it: what it is sold at now, and what it has been. */

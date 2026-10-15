@@ -25,3 +25,6 @@ STRIPE_WEBHOOK_SECRET=
 # (`openssl rand -base64 32`). Left blank, nothing can be connected. `pnpm local:env` makes one
 # for this machine. Changing it makes every sign-in already kept unreadable.
 CONNECTIONS_KEY=
+# Optional, and only on your own machine: the one origin of a WordPress you run here for testing,
+# such as http://localhost:8099, which the Worker may then reach over http. Never on a deployment.
+WORDPRESS_LOCAL_ORIGIN=

@@ -21,3 +21,4 @@ export * from "./structured-details";
 export * from "./tasks";
 export * from "./tuning";
 export * from "./visits";
+export * from "./wordpress";

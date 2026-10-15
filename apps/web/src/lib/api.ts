@@ -44,6 +44,8 @@ import {
   type TrackedQueryInput,
   TrackedQuerySchema,
   WaitingActionsSchema,
+  type WordPressApproved,
+  WordPressCheckSchema,
 } from "@nearcited/shared";
 import type { z } from "zod";
 import { supabase } from "./supabase";
@@ -169,6 +171,12 @@ export const api = {
   /** What an organization has connected, what it could connect, and whether the reader may. */
   connections: (organizationId: string) =>
     json(OrganizationConnectionsSchema, "GET", `/organizations/${organizationId}/connections`),
+  /** Asks a location's website whether it is a WordPress that can be connected. */
+  checkWordPress: (locationId: string) =>
+    json(WordPressCheckSchema, "POST", `/locations/${locationId}/wordpress/check`),
+  /** Connects a location's WordPress site with what WordPress handed back. */
+  connectWordPress: (locationId: string, approved: WordPressApproved) =>
+    json(ConnectionSchema, "POST", `/locations/${locationId}/wordpress`, approved),
   connect: (organizationId: string, kind: ConnectionKind) =>
     json(ConnectionSchema, "POST", `/organizations/${organizationId}/connections`, { kind }),
   /** Asks for a connection to be removed. The worker finishes it shortly after. */

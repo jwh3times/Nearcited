@@ -28,6 +28,7 @@ import { SiteChecklist } from "../components/SiteChecklist";
 import { SourceTable } from "../components/SourceTable";
 import { Tasks } from "../components/Tasks";
 import { VisitLine } from "../components/VisitLine";
+import { WordPressConnect } from "../components/WordPressConnect";
 import { actionsQuery, hasActions } from "../lib/actions";
 import { api } from "../lib/api";
 import { draftsBeingWritten, WRITING_MS } from "../lib/drafts";
@@ -444,6 +445,15 @@ export function LocationDetail() {
                 readOnly={readOnly}
               />
             )}
+            <WordPressConnect
+              location={location}
+              connections={connections}
+              allowances={organization?.allowances}
+              base={base}
+              onOpenSettings={openSettings}
+              readOnly={readOnly}
+              onChanged={refresh}
+            />
             <VisitLine
               location={location}
               allowances={organization?.allowances}

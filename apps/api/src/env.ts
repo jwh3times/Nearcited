@@ -62,4 +62,10 @@ export interface Env {
    * Without it nothing can be connected. Changing it makes every sign-in already kept unreadable.
    */
   CONNECTIONS_KEY?: string;
+  /**
+   * Optional, and only ever on a machine of one's own: the one origin of a WordPress running
+   * there for testing, such as `http://localhost:8099`, which the Worker may then reach over
+   * http. Never set on a deployment.
+   */
+  WORDPRESS_LOCAL_ORIGIN?: string;
 }

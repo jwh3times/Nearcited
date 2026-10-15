@@ -23,6 +23,7 @@ import { OperatorPlan } from "./pages/OperatorPlan";
 import { Pricing } from "./pages/Pricing";
 import { ReviewCard } from "./pages/ReviewCard";
 import { SignIn } from "./pages/SignIn";
+import { WordPressReturn } from "./pages/WordPressReturn";
 
 export function App() {
   const session = useSession();
@@ -90,6 +91,7 @@ function SignedIn() {
           element={<AccountSettings organization={organization} email={me.data.email} />}
         />
         <Route path="connections" element={<Connections organization={organization} />} />
+        <Route path="wordpress/return" element={<WordPressReturn />} />
         {/* Only an operator has this page. The server refuses everyone else whatever is shown. */}
         {me.data.platform_role === "operator" && <Route path="operator" element={<Operator />} />}
         <Route path="*" element={<Navigate to="/" replace />} />

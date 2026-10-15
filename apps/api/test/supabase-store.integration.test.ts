@@ -427,6 +427,25 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
     expect(await bobStore.listLocationConnections(location.id)).toEqual([]);
     expect(await bobStore.unmatchConnectionLocation(account.id, location.id)).toBe(false);
     expect(await aliceStore.unmatchConnectionLocation(account.id, location.id)).toBe(true);
+    // An account connected from a location is matched there by its first sync, when it reaches
+    // one thing. Only from a location of the organization's own.
+    const fromLocation = { ...account, id: crypto.randomUUID(), for_location: location.id };
+    expect(
+      await aliceStore.createConnection({ ...fromLocation, for_location: crypto.randomUUID() }),
+    ).toBeNull();
+    await aliceStore.createConnection(fromLocation);
+    await worker.recordConnectionSync(fromLocation.id, [{ id: "site", label: "The site" }]);
+    expect(await aliceStore.listLocationConnections(location.id)).toEqual([
+      {
+        connection_id: fromLocation.id,
+        kind: "sample",
+        label: "Sample account",
+        external_label: "The site",
+      },
+    ]);
+    await aliceStore.unmatchConnectionLocation(fromLocation.id, location.id);
+    await aliceStore.requestConnectionRemoval(fromLocation.id);
+    await worker.finishConnectionRemoval(fromLocation.id);
     await aliceStore.matchConnectionLocation(account.id, location.id, "listing-a");
 
     // Actions: proposed and carried out by the worker, answered by a member of the organization.

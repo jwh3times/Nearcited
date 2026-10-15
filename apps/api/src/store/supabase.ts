@@ -573,6 +573,7 @@ export function createSupabaseStore(
           of_kind: connection.kind,
           account_label: connection.label,
           sealed_sign_in: connection.sealed,
+          from_location: connection.for_location ?? null,
         })
         .select(CONNECTION_COLUMNS)
         .maybeSingle();

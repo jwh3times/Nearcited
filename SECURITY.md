@@ -49,6 +49,21 @@ Nearcited is multi-tenant, and tenant isolation is enforced by Postgres row-leve
   `finish_connection_removal()`, which deletes a sign-in, `expire_paused_connections()`, which
   starts removing them, or `record_connection_sync()`, `record_connection_failure()` or
   `connections_due_for_sync()`, as anyone but the worker.
+- Connecting a WordPress site as anyone but an owner or an admin of the location's organization,
+  through `POST /api/locations/:locationId/wordpress` or `create_connection()` with a
+  `from_location`: a plain member, the operator and a caller who is not signed in must get
+  nothing, and a `from_location` that is not a location of the same organization must make no
+  connection. `POST /api/locations/:locationId/wordpress/check` is held to the same callers.
+  Also the application password WordPress hands back appearing in any response, log line or
+  stored place but the sealed sign-in, sent anywhere but over https to the site's own host, or
+  sent on through a redirect; and the requests made to a location's website, which must stay on
+  public addresses with each redirect checked (`WORDPRESS_LOCAL_ORIGIN` is for a developer's own
+  machine and is never set on a deployment).
+- The return page, `/wordpress/return`: the address WordPress sends the owner back to carries a
+  user name and a new application password. They must be taken off the address before the app
+  draws, believed only with the state the same tab kept, posted once, and never sent on in a
+  `Referer` (the page is served with `Referrer-Policy: no-referrer`). Getting the product to
+  connect a site on a forged return is a report.
 - Answering an action as anyone but a member of its location's organization: calling
   `approve_action()`, `decline_action()` or `retry_action()` for a location the caller is not a
   member of, the operator included, or writing `actions` directly.

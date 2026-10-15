@@ -222,6 +222,7 @@ export default {
               ? (to: string[], email: Email) => sendEmail(env, to, email)
               : undefined,
             appUrl: env.APP_URL,
+            outside: { localOrigin: env.WORDPRESS_LOCAL_ORIGIN ?? null },
           };
           const outcome =
             step === "remove"
