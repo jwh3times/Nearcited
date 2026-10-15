@@ -91,6 +91,39 @@ test("shows what would be done, does it on a yes with the text changed, and keep
   await expect(page.getByRole("link", { name: /Joe's Pizza/ })).not.toContainText("waiting");
 });
 
+test("takes back what was done, after asking, and keeps both in the record", async ({ page }) => {
+  const { account, locationId } = await withProposal();
+  await openActions(page, account, locationId);
+  await page
+    .getByRole("article", { name: SUMMARY })
+    .getByRole("button", { name: "Approve", exact: true })
+    .click();
+  const done = page.getByRole("article", { name: SUMMARY, exact: true });
+  await expect(done).toContainText("Done on", { timeout: 30_000 });
+
+  // Asked first; saying no to the question does nothing.
+  page.once("dialog", (dialog) => dialog.dismiss());
+  await done.getByRole("button", { name: "Take it back" }).click();
+  await expect(page.getByRole("article", { name: `Take back: ${SUMMARY}` })).toHaveCount(0);
+
+  page.once("dialog", (dialog) => {
+    expect(dialog.message()).toContain("put back what was there before");
+    void dialog.accept();
+  });
+  await done.getByRole("button", { name: "Take it back" }).click();
+  const back = page.getByRole("article", { name: `Take back: ${SUMMARY}` });
+  await expect(back).toContainText("Done on", { timeout: 30_000 });
+  await expect(back).toContainText(`Asked for by ${account.email}.`);
+  // What it took away was the line the first one wrote.
+  await expect(back).toContainText(LINE);
+  await expect(done).toContainText("Done on");
+  // There is nothing left of it to take back.
+  await expect(done.getByRole("button", { name: "Take it back" })).toHaveCount(0);
+  // Taken back, the same line is not offered again: that was a no.
+  await page.reload();
+  await expect(page.getByText("Nothing is waiting.")).toBeVisible();
+});
+
 test("lets a member say no, with a reason that is kept, and does nothing", async ({ page }) => {
   const { account, locationId } = await withProposal();
   await openActions(page, account, locationId);

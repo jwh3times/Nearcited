@@ -1,7 +1,15 @@
 import { type Action, type LocationActions, NOTICE_HOLD_HOURS } from "@nearcited/shared";
 import { useMutation } from "@tanstack/react-query";
 import { useState } from "react";
-import { actionState, actionText, whatItReplaced, writtenBy } from "../lib/actions";
+import {
+  actionState,
+  actionText,
+  editable,
+  isMarkup,
+  TAKE_BACK_QUESTION,
+  whatItReplaced,
+  writtenBy,
+} from "../lib/actions";
 import { api } from "../lib/api";
 import { formatDay } from "../lib/billing";
 import { ErrorNote } from "./ErrorNote";
@@ -47,7 +55,15 @@ export function Actions({ actions, onChanged, readOnly }: ActionsProps) {
             <span className="small">Everything that was proposed and what became of it.</span>
           </div>
           {actions.record.map((action) => (
-            <Recorded key={action.id} action={action} onChanged={onChanged} readOnly={readOnly} />
+            <Recorded
+              key={action.id}
+              action={action}
+              takenBack={actions.record.some(
+                (later) => later.takes_back === action.id && later.status !== "failed",
+              )}
+              onChanged={onChanged}
+              readOnly={readOnly}
+            />
           ))}
         </section>
       )}
@@ -83,14 +99,19 @@ function Proposal({
     <article className="card action" aria-label={action.summary}>
       <h3 className="action-name">{action.summary}</h3>
       <ul className="facts">
-        <li>
+        <li className={isMarkup(action) && action.seen?.text ? "action-pair-code" : undefined}>
           <span>What is there now</span>
-          <span>{action.seen?.text ?? "Nothing"}</span>
+          <Shown action={action} text={action.seen?.text ?? null} empty="Nothing" />
         </li>
       </ul>
       {action.proposed_text !== null &&
-        (readOnly ? (
-          <p>{action.proposed_text}</p>
+        (readOnly || !editable(action) ? (
+          <>
+            {!readOnly && (
+              <span className="small muted">What it would put there. {writtenBy(action)}.</span>
+            )}
+            <Shown action={action} text={action.proposed_text} empty="" block />
+          </>
         ) : (
           <label className="stack-tight">
             <span className="small muted">What it would say. {writtenBy(action)}.</span>
@@ -159,25 +180,39 @@ function Proposal({
 /** One action that has been answered or has lapsed: what it was, and what became of it. */
 function Recorded({
   action,
+  takenBack,
   onChanged,
   readOnly,
 }: {
   action: Action;
+  /** Whether it has been taken back, or is being, so there is nothing more to take back. */
+  takenBack: boolean;
   onChanged: () => void;
   readOnly?: boolean;
 }) {
   const retry = useMutation({ mutationFn: () => api.retryAction(action.id), onSuccess: onChanged });
+  const takeBack = useMutation({
+    mutationFn: () => api.takeBackAction(action.id),
+    onSuccess: onChanged,
+  });
   const text = actionText(action);
   const replaced = whatItReplaced(action, formatDay);
   return (
     <article className="card action" aria-label={action.summary}>
       <h3 className="action-name">{action.summary}</h3>
-      {text !== null && <p>{text}</p>}
+      {text !== null && <Shown action={action} text={text} empty="" block />}
+      {text === null && action.takes_back !== null && (
+        <p>It took away what the earlier action had put there.</p>
+      )}
       {replaced !== null && (
         <ul className="facts">
-          <li>
+          <li className={isMarkup(action) && action.seen?.text ? "action-pair-code" : undefined}>
             <span>{action.status === "done" ? "What it replaced" : "What was there"}</span>
-            <span>{replaced}</span>
+            {action.seen_dropped_at === null ? (
+              <Shown action={action} text={action.seen?.text ?? null} empty="Nothing" />
+            ) : (
+              <span>{replaced}</span>
+            )}
           </li>
         </ul>
       )}
@@ -194,7 +229,48 @@ function Recorded({
           </button>
         </div>
       )}
-      <ErrorNote error={retry.error} />
+      {action.status === "done" && !takenBack && !readOnly && (
+        <div className="button-row">
+          <button
+            type="button"
+            className="secondary"
+            disabled={takeBack.isPending}
+            onClick={() => {
+              if (window.confirm(TAKE_BACK_QUESTION)) takeBack.mutate();
+            }}
+          >
+            {takeBack.isPending ? "Asking" : "Take it back"}
+          </button>
+        </div>
+      )}
+      <ErrorNote error={retry.error ?? takeBack.error} />
     </article>
   );
+}
+
+/**
+ * What an action read or would put there. Markup is shown as it is written, so nobody approves
+ * code they were shown as prose; anything else is shown as text. `empty` stands for nothing.
+ */
+function Shown({
+  action,
+  text,
+  empty,
+  block = false,
+}: {
+  action: Action;
+  text: string | null;
+  empty: string;
+  /** A paragraph of its own, rather than one side of a pair. */
+  block?: boolean;
+}) {
+  if (text === null) return <span>{empty}</span>;
+  if (isMarkup(action)) {
+    return (
+      <pre className="action-code">
+        <code>{text}</code>
+      </pre>
+    );
+  }
+  return block ? <p>{text}</p> : <span>{text}</span>;
 }

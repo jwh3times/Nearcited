@@ -123,6 +123,7 @@ export function buildDetailsFix(input: {
   return {
     id: fix.id,
     acted_at: fix.acted_at,
+    acted_by_action: fix.acted_by_action,
     checked_since: (evidence?.scans_since ?? 0) > 0,
     before: evidence ? citedCount(evidence.before, input.website) : null,
     since: evidence ? citedCount(evidence.since, input.website) : null,

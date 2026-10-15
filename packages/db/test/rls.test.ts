@@ -4212,8 +4212,14 @@ describe("the operator", () => {
       }
       await expect(as("anon", null, () => db.query(read))).rejects.toThrow(/permission denied/);
       expect(
-        await rows("select kind, allowance, keeps_seen_days from public.action_kind_terms"),
-      ).toEqual([{ kind: "sample", allowance: null, keeps_seen_days: 30 }]);
+        await rows(
+          "select kind, allowance, keeps_seen_days from public.action_kind_terms order by kind",
+        ),
+      ).toEqual([
+        { kind: "sample", allowance: null, keeps_seen_days: 30 },
+        // The business's own site limits nothing about how long its page may be kept.
+        { kind: "wordpress_details", allowance: "wordpress", keeps_seen_days: null },
+      ]);
     });
 
     it("drop what one replaced once it may be kept no longer, and lapse a proposal waiting on it", async () => {
@@ -4561,6 +4567,111 @@ describe("the operator", () => {
       );
       await db.query("delete from public.locations where id = $1", [gone?.id]);
       expect(await rows("select 1 from public.actions where subject = 'a'")).toEqual([]);
+    });
+
+    describe("taken back", () => {
+      const takeBack =
+        "select status, kind, subject, seen, proposed_text, approved_by_email, takes_back, summary from public.take_back_action($1)";
+      let task: string;
+      let put: string;
+
+      /** Proposes, approves and carries out an action for `about`, doing `task`'s work. */
+      async function doneFor(about: string, text: string, forTask: string | null = null) {
+        const [made] = await as("service_role", null, () =>
+          rows<{ id: string }>(
+            "select id from public.propose_action($1, 'sample', $2, $3, $4, 'Set the opening line', $5::jsonb, $6, 'rule', $7)",
+            [main, account, about, `basis-${text}`, JSON.stringify({ text: "Was" }), text, forTask],
+          ),
+        );
+        const id = made?.id ?? "";
+        await as("authenticated", member, () => db.query(approve, [id, null]));
+        await claim(id);
+        await finish(id, "done");
+        return id;
+      }
+
+      beforeAll(async () => {
+        const [made] = await rows<{ id: string }>(
+          "insert into public.recommendations (location_id, rule, title, detail) values ($1, 'site:structured_data', 'Add the details', 'd') returning id",
+          [main],
+        );
+        task = made?.id ?? "";
+        put = await doneFor("take:one", "Put there", task);
+      });
+      afterAll(async () => {
+        await db.query("delete from public.recommendations where id = $1", [task]);
+      });
+
+      it("are asked for by a member of the organization and by nobody else", async () => {
+        for (const user of [bob, operator]) {
+          expect(await as("authenticated", user, () => rows(takeBack, [put])), user).toEqual([]);
+        }
+        await expect(as("anon", null, () => db.query(takeBack, [put]))).rejects.toThrow(
+          /permission denied/,
+        );
+        // The worker is nobody's member either.
+        expect(await as("service_role", null, () => rows(takeBack, [put]))).toEqual([]);
+      });
+
+      it("are a new action, approved by whoever asked, putting back what was there", async () => {
+        expect(
+          await rows("select acted_by_action from public.recommendations where id = $1", [task]),
+        ).toEqual([{ acted_by_action: put }]);
+        const [back] = await as("authenticated", member, () =>
+          rows<Record<string, unknown>>(takeBack, [put]),
+        );
+        expect(back).toEqual({
+          status: "approved",
+          kind: "sample",
+          subject: "take:one",
+          seen: { text: "Put there" },
+          proposed_text: "Was",
+          approved_by_email: "acting@example.com",
+          takes_back: put,
+          summary: "Take back: Set the opening line",
+        });
+        // Twice at once is one.
+        await expect(as("authenticated", member, () => db.query(takeBack, [put]))).rejects.toThrow(
+          /waiting or on its way/,
+        );
+
+        const [{ id } = { id: "" }] = await rows<{ id: string }>(
+          "select id from public.actions where takes_back = $1",
+          [put],
+        );
+        await claim(id);
+        await finish(id, "done");
+        // What the action did is undone, so the task is no longer done by it.
+        expect(
+          await rows("select acted_at, acted_by_action from public.recommendations where id = $1", [
+            task,
+          ]),
+        ).toEqual([{ acted_at: null, acted_by_action: null }]);
+        // Taken back is a no to that change: it is not proposed again on the same basis.
+        const again = (basis: string) =>
+          as("service_role", null, () =>
+            rows(
+              "select id from public.propose_action($1, 'sample', $2, 'take:one', $3, 'Set the opening line', null, 'Put there', 'rule')",
+              [main, account, basis],
+            ),
+          );
+        expect(await again("basis-Put there")).toEqual([]);
+        expect(await again("something else")).toHaveLength(1);
+      });
+
+      it("are refused for what was not done, or what something done since has changed", async () => {
+        const [waiting] = await propose("take:two", "first");
+        await expect(
+          as("authenticated", member, () => db.query(takeBack, [waiting?.id])),
+        ).rejects.toThrow(/Only something that was done/);
+
+        const older = await doneFor("take:three", "First");
+        const newer = await doneFor("take:three", "Second");
+        await expect(
+          as("authenticated", member, () => db.query(takeBack, [older])),
+        ).rejects.toThrow(/Something done since/);
+        expect(await as("authenticated", member, () => rows(takeBack, [newer]))).toHaveLength(1);
+      });
     });
   });
 

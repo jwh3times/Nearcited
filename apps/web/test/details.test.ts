@@ -6,27 +6,45 @@ const MARKED = "2026-10-05T09:00:00Z";
 
 describe("detailsStatus", () => {
   it("says nothing until the block is marked as on the page", () => {
-    expect(detailsStatus({ acted_at: null, checked_since: false }, true, day)).toBeNull();
+    expect(
+      detailsStatus({ acted_at: null, acted_by_action: null, checked_since: false }, true, day),
+    ).toBeNull();
   });
 
   it("says a scan has yet to look, while none has finished since the mark", () => {
-    expect(detailsStatus({ acted_at: MARKED, checked_since: false }, true, day)).toBe(
-      "Marked done 2026-10-05. The next scan will look for it.",
-    );
+    expect(
+      detailsStatus({ acted_at: MARKED, acted_by_action: null, checked_since: false }, true, day),
+    ).toBe("Marked done 2026-10-05. The next scan will look for it.");
   });
 
   it("says what the scan since found on the page, either way", () => {
-    expect(detailsStatus({ acted_at: MARKED, checked_since: true }, true, day)).toBe(
-      "Marked done 2026-10-05. The scan since did not find it on the page.",
-    );
-    expect(detailsStatus({ acted_at: MARKED, checked_since: true }, false, day)).toBe(
-      "Marked done 2026-10-05. The scan since found it on the page.",
-    );
+    expect(
+      detailsStatus({ acted_at: MARKED, acted_by_action: null, checked_since: true }, true, day),
+    ).toBe("Marked done 2026-10-05. The scan since did not find it on the page.");
+    expect(
+      detailsStatus({ acted_at: MARKED, acted_by_action: null, checked_since: true }, false, day),
+    ).toBe("Marked done 2026-10-05. The scan since found it on the page.");
   });
 
   it("claims nothing of a scan that has not happened", () => {
-    expect(detailsStatus({ acted_at: MARKED, checked_since: false }, false, day)).toBe(
-      "Marked done 2026-10-05.",
+    expect(
+      detailsStatus({ acted_at: MARKED, acted_by_action: null, checked_since: false }, false, day),
+    ).toBe("Marked done 2026-10-05.");
+  });
+});
+
+describe("detailsStatus, where Nearcited added the block", () => {
+  const added = { acted_at: MARKED, acted_by_action: "ac000000-0000-4000-8000-000000000001" };
+
+  it("says Nearcited added it, and what may hide it where the scan since did not find it", () => {
+    expect(detailsStatus({ ...added, checked_since: false }, true, day)).toBe(
+      "Added to your home page by Nearcited on 2026-10-05. The next scan will look for it.",
+    );
+    expect(detailsStatus({ ...added, checked_since: true }, false, day)).toBe(
+      "Added to your home page by Nearcited on 2026-10-05. The scan since found it on the page.",
+    );
+    expect(detailsStatus({ ...added, checked_since: true }, true, day)).toContain(
+      "A page builder such as Elementor, or a caching plugin, may be keeping it from showing.",
     );
   });
 });

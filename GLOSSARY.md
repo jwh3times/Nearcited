@@ -108,6 +108,9 @@ system works; this file only settles vocabulary.
 - **Proposal**: an action waiting for a member's answer. The worker makes it from what it read, and
   it lapses if nobody answers in fourteen days.
 - **Approval**: a member's yes to one action, before it is carried out.
+- **Taking back**: undoing what an action did, asked for by a member after it was done. It is a
+  new action that removes only what the first one put there, and is not proposed again. See
+  `docs/adr/0018-on-a-business-site-the-product-changes-only-what-it-made.md`.
 - **Standing permission**: an owner's or admin's yes in advance to every action of one kind, so
   the product acts first and tells the owners afterwards. It can be taken back.
 - **Action notice**: the message that tells an organization's owners what an action changed, sent

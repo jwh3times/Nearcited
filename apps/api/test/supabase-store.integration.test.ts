@@ -549,6 +549,20 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
       (await worker.listActionsToTell()).filter((row) => row.organization_id === organization.id),
     ).toEqual([]);
     expect(await aliceStore.listUntoldActions()).toEqual([]);
+    // Taking back what was done is a member's ask, made as a new action already approved.
+    expect(await bobStore.takeBackAction(again.id)).toBeNull();
+    const back = await aliceStore.takeBackAction(again.id);
+    expect(back).toMatchObject({
+      status: "approved",
+      takes_back: again.id,
+      // What it put there, which a member had changed before saying yes.
+      seen: { text: "Changed line" },
+      proposed_text: null,
+    });
+    await expect(aliceStore.takeBackAction(again.id)).rejects.toMatchObject({ kind: "limit" });
+    expect(await worker.claimAction(back?.id ?? "")).toBe(1);
+    expect(await worker.finishAction(back?.id ?? "", "done")).toBe(true);
+    await worker.markActionsTold([back?.id ?? ""], "done", new Date().toISOString());
     await aliceStore.requestConnectionRemoval(account.id);
     expect(await worker.finishConnectionRemoval(account.id)).toBe(true);
     expect(await aliceStore.listLocationConnections(location.id)).toEqual([]);

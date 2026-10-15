@@ -582,8 +582,9 @@ from counts the product holds; nothing a model wrote is in one.
   nothing is recorded for it.
 - Not built: a review-form link on any site but those two (Google's is the link its owner pastes,
   and none is made from a place ID), publishing a page for the owner, and anything the
-  product does outside itself for real. Approvals and actions exist (see
-  "Actions") but the only kind is a sample one, which does no task's work, so no action has marked a task.
+  product does outside itself for real beyond the business details on a WordPress home page.
+  Approvals and actions exist (see "Actions"); the one real kind adds those details to the home page
+  of a connected WordPress site, and a sample kind stands in where the data is generated.
 
 ## Alerts
 
@@ -1096,7 +1097,7 @@ only a WordPress connection can break or pause in practice.
   calls the account "Sample account", so the path runs with no outside account. On live data it
   offers `wordpress` to an organization that is not a test one and whose allowances include it.
   The page leaves `wordpress` out of its connect buttons.
-- **A WordPress site is connected from its location, and fetches only.** The generic
+- **A WordPress site is connected from its location.** The generic
   `POST /api/organizations/:organizationId/connections` refuses the kind with 422
   `connect_from_location`. `apps/api/src/routes/wordpress.ts` has two routes for an owner or an
   admin of the location's organization (404 to anyone else, the operator included).
@@ -1155,11 +1156,13 @@ a new account has not been read yet, the page asks again every couple of seconds
 An action is one thing the product does outside itself for a location, once a member says yes
 (`actions`; the terms are in `GLOSSARY.md`, the decision in
 `docs/adr/0014-only-the-worker-carries-out-an-action.md`). It is `proposed`, then `approved` and
-`done` or `failed`; a proposed one can instead be `declined` or `lapsed`. The only kind is
-`sample`: it sets the opening line of one of the sample account's listings, rows in
-`sample_listings` that stand in for an outside service, so nothing leaves the product. There is no
-real kind, so no action is counted against an allowance and none marks a task yet (see "Known
-gaps").
+`done` or `failed`; a proposed one can instead be `declined` or `lapsed`. There are two kinds.
+`sample` sets the opening line of one of the sample account's listings, rows in `sample_listings`
+that stand in for an outside service, so nothing leaves the product. `wordpress_details` adds the
+business's details to the home page of a connected WordPress site, or changes them there (below). It
+takes from the `wordpress` allowance, which is included with no number, so it counts nothing. A
+decision about what the product may change on a business's site is in
+`docs/adr/0018-on-a-business-site-the-product-changes-only-what-it-made.md`.
 
 - **Only the worker proposes.** After a sync that read a connection (`syncConnection` answers
   `synced`), the queue consumer calls `proposeAfterSync`. For each location matched to a working
@@ -1167,7 +1170,17 @@ gaps").
   (`sampleOpeningLine`) and, when the listing does not already say that, calls `propose_action()`,
   which only the worker may call. The proposal keeps what the listing said (`seen`), the text, and
   that a rule wrote it. Matching a location queues a sync (see "Connections"), so a proposal
-  appears without waiting for the daily run. No request proposes.
+  appears without waiting for the daily run. No request proposes. For a working `wordpress`
+  connection it calls `proposeDetails` for each matched location. The site's front page must be a
+  page (`show_on_front` is `page`, and `page_on_front` comes from the REST index; `readFrontPage`),
+  and the account must be allowed to add scripts (`unfiltered_html`; `mayAddScripts`), since the
+  block carries JSON-LD. The block is `buildBusinessBlock(location).html`. Nothing is proposed when
+  the product's marked block on the page (`detailsOnPage`) already equals it. Otherwise "Add your
+  business details to your home page" is proposed only while the `site:structured_data`
+  recommendation is open, and is that task's action; "Update the business details on your home
+  page" is proposed when the product's own block is there and differs. The subject is
+  `details:<page id>` and `seen.text` is the product's block as it stands on the page, or null.
+  A site that cannot be read while proposing is logged and skipped.
 - **One open action for a thing, and a no is remembered.** `subject` (what it is about) and `basis`
   (what the proposal rests on; here, the proposed text) are the worker's bookkeeping, and no route
   sends them. A partial unique index allows one `proposed` or `approved` action for a location, kind
@@ -1177,13 +1190,16 @@ gaps").
   from (null for none) and how many days what it replaced may be kept (null for no limit). A kind
   with no row is held to nothing. No API role reads or writes it. The `sample` kind takes from no
   allowance and is given 30 days, though nothing limits how long a made-up listing may be held, so
-  that dropping can be seen where the data is generated.
+  that dropping can be seen where the data is generated. `wordpress_details` names the `wordpress`
+  allowance, which counts nothing, and has no limit on keeping what it replaced.
 - **A request records the answer.** `approve_action()`, `decline_action()` and `retry_action()` are
   security-definer functions that return a row only to a member of the location's organization
   (`can_access_location`), so their routes answer 404 to anyone else, the operator included. An
   action that is no longer waiting, or whose kind has no room left this month, raises `NC013`, a
   `limit`, so 409 `limit_reached` with the reason. A member may change the text while approving: `approved_text` then keeps it beside
-  `proposed_text`, and stays null when the text sent is what was proposed. Who answered is kept as
+  `proposed_text`, and stays null when the text sent is what was proposed. Only a kind in
+  `EDITABLE_ACTION_KINDS` (`sample`) can be changed: the approve route answers 422 `not_editable` to
+  a `text` for any other, and `carryOutAction` fails one that has `approved_text` anyway. Who answered is kept as
   the address they had then. Approving and asking again queue `{ action_id, step: "carry_out" }`; if
   the send fails, the request still succeeds and logs it.
 - **Asking again is a new action.** `retry_action()` takes a `failed` action and makes another,
@@ -1191,6 +1207,16 @@ gaps").
   record keeps who approved each try. It refuses an action that did not fail, and one that has
   another waiting or on its way (`NC013`). The new action is for the same task and keeps the first
   one's `seen_until`.
+- **Taking back is a new action.** `take_back_action()` (`POST /api/actions/:actionId/take-back`,
+  with `requireNotice`, 201) takes an action that is `done` and makes another, already approved by
+  whoever asked, with `takes_back` pointing at it. Its `seen.text` is what the first put there and
+  its `proposed_text` is what the first replaced, null meaning that the block is removed. It answers
+  any member of the location's organization and no one else, the operator included. It raises
+  `NC013` (409) for an action that is not done, one whose `seen` was dropped, one with another open
+  for the same subject, and one a later `done` action on the same subject has changed.
+  `finish_action()` records the take-back and clears `acted_at` and `acted_by_action` on the task
+  the first had marked. `propose_action()` does not propose again for a subject whose `done` action
+  with the same basis was taken back, as it does not after a decline.
 - **It is carried out once, and only by the worker.** `carryOutAction` first calls
   `claim_action()`, which counts the try and, where the kind takes from an allowance, takes one
   from the month's (below). It answers zero, and the worker goes no further, unless the action is
@@ -1204,7 +1230,13 @@ gaps").
   another, and so does one whose `seen` was dropped (below), before anything is read; the queue
   consumer then queues a sync of the connection, which proposes a fresh action
   against what is there now. Otherwise it writes the text and records `done`.
-  `finish_action()` records each end, and only the worker may call it.
+  `finish_action()` records each end, and only the worker may call it. For `wordpress_details` the
+  handler reads the current front page and compares only the product's marked block
+  (`<!-- nearcited:details -->` to `<!-- /nearcited:details -->`, wrapped in `<!-- wp:html -->` on a
+  block-editor page and bare on a classic one) with `seen`. It then saves the page with
+  `withDetails(raw, text)` (`packages/shared/src/wordpress.ts`), which replaces or removes only the
+  marked block and keeps everything else, through `writePageContent`, which posts the page's
+  content. A take-back may carry a null text, which removes the block.
 - **A try that does not work is made again, three times in all.** A try that throws is let go with
   `finish_action()` saying `again`, keeping why, and the queue consumer asks for the message to be
   delivered again in ten minutes. The third try that throws fails the action with the reason, and
@@ -1265,8 +1297,9 @@ gaps").
 - **An action that does a task's work marks it.** `propose_action()` takes the task
   (`recommendation_id`) and refuses one that is not the location's. When `finish_action()` records
   `done` it sets the task's `acted_at` and `acted_by_action` (see "Tasks"), and a failed or
-  out-of-date action marks nothing. The sample kind does no task's work, so nothing is marked in
-  practice.
+  out-of-date action marks nothing. The sample kind does no task's work. A `wordpress_details`
+  action marks the `site:structured_data` task it was proposed for, and a take-back of it clears
+  the mark.
 - **A proposal nobody answers lapses.** `lapses_at` is fourteen days after it was proposed. The
   daily run calls `lapse_actions()`, which only the worker may call, and `approve_action()` refuses
   one past its day before then. The record says whether it lapsed because nobody answered or
@@ -1282,9 +1315,10 @@ gaps").
 
 The Actions tab of the location page (`?tab=actions`) is there once the location has an action,
 and carries the count of those waiting. It lists what is waiting, each with what is there now, the
-text it would put there and who wrote it (editable; the button then reads "Approve as changed"),
+text it would put there and who wrote it (editable for a kind that allows it, where the button then reads "Approve as changed"; the details
+block is shown as code, with no text box),
 "Approve" and "Decline" with a reason of up to 200 characters, and below it the record, newest first
-(at most 100 actions in all), with "Try again" on a failed one. The record shows what an action replaced ("What it replaced", or
+(at most 100 actions in all), with "Try again" on a failed one and "Take it back", behind a confirmation, on a done one. The record shows what an action replaced ("What it replaced", or
 "What was there" for one that was not done), or "No longer kept" once it was dropped. While an action is approved the
 page asks again every couple of seconds. When the organization is held, a notice above the lists says
 so. The sidebar says how many are waiting at each location
@@ -1828,10 +1862,13 @@ drop it.
   "Connections").
 - A match whose choice a later sync no longer finds is kept as it was: the account may have lost
   the thing, or its access to it. The Connections page names it "no longer found" so its owner can
-  choose again. Only the sample kind of action acts through a match, and it does not check that
-  the choice is still there; a real kind will have to.
-- A WordPress connection is made and read and nothing more: no page is published to the site, and
-  no kind of action works through it. The check that a site offers application passwords reads
+  choose again. The sample kind of action acts through a match and does not check that the choice
+  is still there; `wordpress_details` reads the site's front page afresh each time.
+- A WordPress connection is read, and the one thing written through it is the business details
+  block on a home page that is a page (`wordpress_details`); nothing else is published to the site.
+  A site whose front page shows the latest posts, or whose account cannot add scripts, is offered
+  nothing. A page builder such as Elementor or a caching plugin may keep the block from showing,
+  which the Website tab says when a scan since did not find it. The check that a site offers application passwords reads
   its REST index, so a site that hides the index or a firewall that blocks the Worker reads as
   `not_wordpress` or `unreachable`. A password the owner revokes in WordPress is found at the next
   sync, which breaks the connection as `refused`; there is no signing in again, so it is removed
@@ -1839,10 +1876,10 @@ drop it.
 - The `structured_data` check passes for a block that names the business and gives an address, and
   compares nothing else in it, so a phone number or street address that differs from what is on
   file passes. Opening hours are not held, so the block has none.
-- There is no real kind of action yet (see "Actions"). So no action takes from an allowance, none
-  does a task's work, and the only limit on keeping what one replaced is the sample kind's 30 days,
-  which is there so that dropping can be seen. The only notices sent are about sample actions, by a
-  deployment on sample data that has email set up.
+- The one real kind of action, `wordpress_details`, takes from an allowance that counts nothing, and
+  nothing limits how long what it replaced is kept. A kind that counts, or that has a limit, has not
+  been made yet. A take-back is refused once a later action on the same subject has changed what
+  the first left, and once the first's `seen` was dropped.
 - What each assistant's visits carry (`ASSISTANT_REFERRERS`) was read on 2026-10-13 from published
   accounts of what each assistant sends. Nobody followed a link out of each one to see, so a host
   or tag that is wrong counts nothing and says nothing.

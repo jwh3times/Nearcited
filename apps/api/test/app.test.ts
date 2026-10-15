@@ -1284,6 +1284,7 @@ describe("the fix for a page with no structured business details", () => {
     expect(await fixOf(alice, location.id)).toEqual({
       id: db.recommendations[0]?.id,
       acted_at: null,
+      acted_by_action: null,
       checked_since: false,
       before: null,
       since: null,

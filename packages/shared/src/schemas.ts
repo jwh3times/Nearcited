@@ -1127,12 +1127,20 @@ export type ConnectionMessage = z.infer<typeof ConnectionMessageSchema>;
 
 /**
  * The kinds of action: what the product can do outside itself for a business. `sample` changes
- * a made-up line on a sample listing, where the data is generated. See
+ * a made-up line on a sample listing, where the data is generated. `wordpress_details` puts the
+ * business details block at the end of a WordPress home page (`wordpress.ts`). See
  * `docs/adr/0014-only-the-worker-carries-out-an-action.md`.
  */
-export const ACTION_KINDS = ["sample"] as const;
+export const ACTION_KINDS = ["sample", "wordpress_details"] as const;
 export const ActionKindSchema = z.enum(ACTION_KINDS);
 export type ActionKind = z.infer<typeof ActionKindSchema>;
+
+/**
+ * The kinds of action whose text a member may change before saying yes. The details block is
+ * composed by rule from what the location holds and goes onto a business's site as it is, so it
+ * is approved as proposed or declined.
+ */
+export const EDITABLE_ACTION_KINDS: readonly ActionKind[] = ["sample"];
 
 /**
  * Where an action stands. `proposed` waits for a member's yes. `approved` is on its way to
@@ -1191,6 +1199,8 @@ export const ActionSchema = z.object({
   lapse_reason: z.enum(["expired", "out_of_date"]).nullable(),
   /** The failed action this one was asked for again from. */
   retry_of: Id.nullable(),
+  /** The action this one takes back, where a member asked to have it taken back. */
+  takes_back: Id.nullable(),
 });
 export type Action = z.infer<typeof ActionSchema>;
 
@@ -1682,8 +1692,10 @@ export type CitedCount = z.infer<typeof CitedCountSchema>;
 export const DetailsFixSchema = z.object({
   /** The recommendation the fix stands on, which is what marking it done updates. */
   id: Id,
-  /** When a member said the block was on the page. */
+  /** When a member said the block was on the page, or an action put it there. */
   acted_at: Timestamp.nullable(),
+  /** The action that put it there, when one did. The mark then stays. */
+  acted_by_action: Id.nullable(),
   /** Whether a scan has finished since then, so that the check on the page is newer than the mark. */
   checked_since: z.boolean(),
   /** Counted over the scans before `acted_at` and over those since. Null until it is marked. */

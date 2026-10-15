@@ -1,12 +1,24 @@
-import type {
-  Action,
-  ActionKind,
-  ActionMessage,
-  Connection,
-  ConnectionMatch,
+import {
+  type Action,
+  type ActionKind,
+  type ActionMessage,
+  buildBusinessBlock,
+  type Connection,
+  type ConnectionMatch,
+  DETAILS_RULE,
+  detailsOnPage,
+  EDITABLE_ACTION_KINDS,
+  withDetails,
 } from "@nearcited/shared";
-import { SignInRefused } from "../connections";
+import { readWordPressSignIn, SignInRefused } from "../connections";
 import { open } from "../connections/seal";
+import {
+  mayAddScripts,
+  readFrontPage,
+  type WordPressDeps,
+  WordPressRefused,
+  writePageContent,
+} from "../connections/wordpress";
 import type { Store } from "../store/types";
 
 /**
@@ -21,6 +33,8 @@ export interface ActionDeps {
   store: Store;
   /** The key this deployment seals with. Null where none is set. */
   key: CryptoKey | null;
+  /** How an outside service is reached. The tests put a made-up WordPress here. */
+  outside?: WordPressDeps;
 }
 
 /** What a kind of action is given to work with: the account, and what of it is the location's. */
@@ -29,14 +43,15 @@ interface Target {
   connection: Connection;
   match: ConnectionMatch;
   signIn: string;
+  outside: WordPressDeps;
 }
 
 /** How one kind of action reads what is there now and makes its change. */
 interface ActionHandler {
   /** What is there now, as the text a member would be shown. Null when there is nothing. */
   current(target: Target): Promise<string | null>;
-  /** Puts the text there. */
-  apply(target: Target, text: string): Promise<void>;
+  /** Puts the text there, or takes away what is there where it is null. */
+  apply(target: Target, text: string | null): Promise<void>;
 }
 
 /**
@@ -49,7 +64,34 @@ const sample: ActionHandler = {
     store.setSampleLine(connection.id, match.external_id, text),
 };
 
-const HANDLERS: Record<ActionKind, ActionHandler> = { sample };
+/** The site's home page, which has to be a page of its own for the block to go on it. */
+async function homePage(signIn: string, outside: WordPressDeps) {
+  const site = readWordPressSignIn(signIn);
+  const page = await readFrontPage(site, outside);
+  if (!page) throw new Error("The site's home page is no longer a page of its own.");
+  return { site, page };
+}
+
+/**
+ * The business details block on a WordPress home page. What is there is the product's own block,
+ * found between its marks, and the change replaces or takes away that block and touches nothing
+ * else on the page. The page is read again just before it is saved, so what the owner wrote
+ * since the proposal is kept.
+ */
+const wordpressDetails: ActionHandler = {
+  async current({ signIn, outside }) {
+    return detailsOnPage((await homePage(signIn, outside)).page.raw);
+  },
+  async apply({ signIn, outside }, text) {
+    const { site, page } = await homePage(signIn, outside);
+    await writePageContent(site, page.id, withDetails(page.raw, text), outside);
+  },
+};
+
+const HANDLERS: Record<ActionKind, ActionHandler> = {
+  sample,
+  wordpress_details: wordpressDetails,
+};
 
 /** What the sample listing of a location should open with, composed by rule from its details. */
 export function sampleOpeningLine(location: { name: string; city: string | null }): string {
@@ -62,15 +104,13 @@ export function sampleOpeningLine(location: { name: string; city: string | null 
  * A proposal the store refuses, because one is already waiting or was declined, is not made
  * again. Returns how many were proposed.
  *
- * Only the sample kind proposes so far: it offers to set its sample listing's opening line to
- * what the location's own details say.
+ * The sample kind offers to set its sample listing's opening line to what the location's own
+ * details say. A WordPress site offers the business details block on its home page (below).
  */
-export async function proposeAfterSync(
-  connectionId: string,
-  { store, key }: ActionDeps,
-): Promise<number> {
+export async function proposeAfterSync(connectionId: string, deps: ActionDeps): Promise<number> {
+  const { store, key } = deps;
   const connection = await store.getConnection(connectionId);
-  if (connection?.status !== "working" || connection.kind !== "sample" || !key) return 0;
+  if (connection?.status !== "working" || !key) return 0;
   const sealed = await store.getConnectionSecret(connectionId);
   if (!sealed) return 0;
   let signIn: string;
@@ -79,13 +119,20 @@ export async function proposeAfterSync(
   } catch {
     return 0;
   }
+  if (connection.kind === "wordpress") return proposeDetails(connection, signIn, deps);
 
   let proposed = 0;
   for (const match of connection.matches) {
     const location = await store.getLocation(match.location_id);
     if (!location) continue;
     const text = sampleOpeningLine(location);
-    const now = await sample.current({ store, connection, match, signIn });
+    const now = await sample.current({
+      store,
+      connection,
+      match,
+      signIn,
+      outside: {},
+    });
     if (now === text) continue;
     const made = await store.proposeAction({
       location_id: location.id,
@@ -97,6 +144,60 @@ export async function proposeAfterSync(
       seen: { text: now },
       proposed_text: text,
       written_by: "rule",
+    });
+    if (made) proposed++;
+  }
+  return proposed;
+}
+
+/**
+ * Offers the business details block on a WordPress site's home page, for the location matched to
+ * it. Only where the home page is a page of the site's own and the account may put a script on
+ * it, and only where the on-page check found the details missing or the product's own block no
+ * longer says what is on file. The block is composed by rule, and the task it does the work of
+ * is the check's.
+ */
+async function proposeDetails(
+  connection: Connection,
+  signIn: string,
+  { store, outside = {} }: ActionDeps,
+): Promise<number> {
+  const site = readWordPressSignIn(signIn);
+  let proposed = 0;
+  for (const match of connection.matches) {
+    const location = await store.getLocation(match.location_id);
+    if (!location) continue;
+    let front: Awaited<ReturnType<typeof readFrontPage>>;
+    try {
+      front = await readFrontPage(site, outside);
+      if (!front || !(await mayAddScripts(site, outside))) continue;
+    } catch (error) {
+      // The sync read the site a moment ago. The next one proposes what this one could not.
+      console.error(`Connection ${connection.id}: its home page could not be read`, error);
+      continue;
+    }
+    const block = buildBusinessBlock(location).html;
+    const now = detailsOnPage(front.raw);
+    if (now === block) continue;
+    const task = (await store.listRecommendations(location.id)).find(
+      (recommendation) => recommendation.rule === DETAILS_RULE && recommendation.status === "open",
+    );
+    // A page with no block of the product's is offered one only where the check found it lacking.
+    if (now === null && !task) continue;
+    const made = await store.proposeAction({
+      location_id: location.id,
+      kind: "wordpress_details",
+      connection_id: connection.id,
+      subject: `details:${front.id}`,
+      basis: block,
+      summary:
+        now === null
+          ? "Add your business details to your home page"
+          : "Update the business details on your home page",
+      seen: { text: now },
+      proposed_text: block,
+      written_by: "rule",
+      recommendation_id: task?.id ?? null,
     });
     if (made) proposed++;
   }
@@ -137,7 +238,7 @@ export const actionText = (action: Pick<Action, "approved_text" | "proposed_text
  */
 export async function carryOutAction(
   actionId: string,
-  { store, key }: ActionDeps,
+  { store, key, outside = {} }: ActionDeps,
 ): Promise<CarriedOut> {
   const action = await store.getAction(actionId);
   if (action?.status !== "approved") return "not_approved";
@@ -171,7 +272,13 @@ export async function carryOutAction(
     return fail("The account's sign-in could not be read.");
   }
   const text = actionText(action);
-  if (text === null) return fail("There is nothing for this action to put there.");
+  // Taking an action back puts back nothing where there was nothing: that is taking it away.
+  if (text === null && action.takes_back === null) {
+    return fail("There is nothing for this action to put there.");
+  }
+  if (action.approved_text !== null && !EDITABLE_ACTION_KINDS.includes(action.kind)) {
+    return fail("This change is made as it was proposed, so it cannot be changed first.");
+  }
   // What the member was shown it would replace is no longer kept, so there is nothing to check
   // what is there now against.
   if (action.seen_dropped_at !== null) {
@@ -180,7 +287,7 @@ export async function carryOutAction(
   }
 
   const handler = HANDLERS[action.kind];
-  const target = { store, connection, match, signIn };
+  const target = { store, connection, match, signIn, outside };
   try {
     const now = await handler.current(target);
     if (now === text) {
@@ -198,7 +305,9 @@ export async function carryOutAction(
     const why = error instanceof Error ? error.message : "It could not be done.";
     console.error(`Action ${actionId}: a try at carrying it out failed`, error);
     // A refused sign-in will not work the next time either.
-    if (error instanceof SignInRefused) return fail("The account refused the sign-in.");
+    if (error instanceof SignInRefused || error instanceof WordPressRefused) {
+      return fail("The account refused the sign-in.");
+    }
     if (attempt >= MOST_ATTEMPTS) return fail(why);
     await store.finishAction(actionId, "again", why);
     return "again";
