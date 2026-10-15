@@ -1478,6 +1478,35 @@ details.as-table td {
   color: var(--ink);
 }
 
+/* A page's copy, as it would read on the business's site: its title, headings and paragraphs. */
+.paste-block .page-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  overflow-wrap: anywhere;
+}
+
+.paste-block .page-title {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.paste-block .page-heading {
+  margin: 0.25rem 0 0;
+  font-size: 0.875rem;
+}
+
+.paste-block .page-para {
+  font-size: 0.875rem;
+  line-height: 1.55;
+  color: var(--ink);
+}
+
+.paste-block .page-closing-note {
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+
 /* A listing's address, which can be long and has nowhere to break. */
 .paste-block .listing-link {
   overflow-wrap: anywhere;

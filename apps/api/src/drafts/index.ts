@@ -8,7 +8,7 @@ import {
 import type { Env } from "../env";
 import { usageTally } from "../providers/usage";
 import type { Store } from "../store/types";
-import { currentTasks } from "../tasks";
+import { currentDraftSubjects } from "../tasks";
 import { type DraftWriter, sampleWriter } from "./sample";
 
 /**
@@ -84,7 +84,7 @@ export async function writeDraft(draftId: string, deps: DraftDeps): Promise<Wrot
     if (!draft || !location || !organization) return fail("The task is no longer there.");
 
     const sample = deps.sampleData || organization.is_test;
-    const task = (await currentTasks(store, location, sample)).find(
+    const task = (await currentDraftSubjects(store, location, sample)).find(
       (candidate) => candidate.id === draft.recommendation_id,
     );
     const request = draftRequest(location, task);

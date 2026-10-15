@@ -1,4 +1,12 @@
-import { type DraftsStanding, type Location, type Task, WHAT_WE_DO_MAX } from "@nearcited/shared";
+import {
+  type DraftsStanding,
+  type Location,
+  pageClosing,
+  pageParts,
+  pageToCopy,
+  type Task,
+  WHAT_WE_DO_MAX,
+} from "@nearcited/shared";
 import { useMutation } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
 import { Link } from "react-router";
@@ -10,7 +18,8 @@ import { ErrorNote } from "./ErrorNote";
 import { LongField } from "./Field";
 
 interface TaskDraftProps {
-  task: Task;
+  /** A source's task or a page's: what has a draft. */
+  task: Pick<Task, "id" | "draft" | "draft_kind">;
   location: Location;
   /** Where the organization's month of drafts stands. */
   standing: DraftsStanding;
@@ -73,10 +82,28 @@ export function TaskDraft({
       {draft?.text && (
         <>
           <p>{draftLabel(draft)}</p>
-          <p className="draft-text">{draft.text}</p>
+          {draft.kind === "page" ? (
+            <PageCopy text={draft.text} closing={pageClosing(location)} />
+          ) : (
+            <p className="draft-text">{draft.text}</p>
+          )}
           <div className="paste-actions">
-            <button type="button" className="secondary" onClick={() => copy(draft.text ?? "")}>
-              {copied === "yes" ? "Copied" : "Copy the draft"}
+            <button
+              type="button"
+              className="secondary"
+              onClick={() =>
+                copy(
+                  draft.kind === "page"
+                    ? pageToCopy(draft.text ?? "", pageClosing(location))
+                    : (draft.text ?? ""),
+                )
+              }
+            >
+              {copied === "yes"
+                ? "Copied"
+                : draft.kind === "page"
+                  ? "Copy the page"
+                  : "Copy the draft"}
             </button>
             <span role="status">
               {copied === "no" && "It could not be copied for you. Select it above and copy it."}
@@ -135,6 +162,35 @@ export function TaskDraft({
           </form>
         ))}
       <ErrorNote error={ask.error} />
+    </div>
+  );
+}
+
+/**
+ * A page's copy as it would read: its title, its headings and paragraphs, and the closing line,
+ * which is composed by rule from the location's details and said to be so.
+ */
+function PageCopy({ text, closing }: { text: string; closing: string }) {
+  const { title, blocks } = pageParts(text);
+  return (
+    <div className="page-copy">
+      <h4 className="page-title">{title}</h4>
+      {blocks.map((block, index) =>
+        block.heading ? (
+          // The copy is read once as written, so where a block falls is what tells them apart.
+          // biome-ignore lint/suspicious/noArrayIndexKey: the blocks never move.
+          <h5 key={index} className="page-heading">
+            {block.text}
+          </h5>
+        ) : (
+          // biome-ignore lint/suspicious/noArrayIndexKey: the blocks never move.
+          <p key={index} className="page-para">
+            {block.text}
+          </p>
+        ),
+      )}
+      <p className="page-para">{closing}</p>
+      <p className="page-closing-note">The last line is added from this location's details.</p>
     </div>
   );
 }

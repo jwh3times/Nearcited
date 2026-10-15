@@ -436,6 +436,7 @@ describe("writing a draft", () => {
           what_we_do: SAID,
           host: "travel.usnews.com",
           url: GUIDE,
+          prompt: null,
         },
       },
       expect.any(Function),

@@ -933,6 +933,35 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
     expect(await aliceStore.removeListing(location.id, "angi.com")).toBe(true);
     expect(await aliceStore.listListings(location.id)).toEqual([]);
 
+    // Where a page for a prompt is: given by a member, for a page task only.
+    const { data: pageTask } = await service
+      .from("recommendations")
+      .insert({
+        location_id: location.id,
+        rule: `page:${crypto.randomUUID()}`,
+        title: "Publish a page",
+        detail: "Detail",
+      })
+      .select("id")
+      .single()
+      .throwOnError();
+    const pageAt = "https://joespizza.example/late-night";
+    expect(await bobStore.setPromptPage(pageTask.id, pageAt)).toBeNull();
+    expect(await aliceStore.setPromptPage(pageTask.id, pageAt)).toEqual({
+      recommendation_id: pageTask.id,
+      url: pageAt,
+      set_by_email: "alice@example.com",
+      set_at: expect.any(String),
+    });
+    expect((await aliceStore.listPromptPages(location.id)).map((kept) => kept.url)).toEqual([
+      pageAt,
+    ]);
+    expect(await bobStore.listPromptPages(location.id)).toEqual([]);
+    expect(await bobStore.removePromptPage(pageTask.id)).toBe(false);
+    expect(await aliceStore.removePromptPage(pageTask.id)).toBe(true);
+    expect(await aliceStore.listPromptPages(location.id)).toEqual([]);
+    await service.from("recommendations").delete().eq("id", pageTask.id).throwOnError();
+
     // A visit is counted for whoever holds the site's key, signed in or not: on a plan that
     // includes visits, for a page on the location's own site.
     const anyone = createSupabaseStore(client(await token({ role: "anon" })));

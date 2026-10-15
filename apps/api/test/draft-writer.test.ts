@@ -60,6 +60,7 @@ const given: DraftGiven = {
   what_we_do: "Wood-fired pizza and fresh pasta, family-run since 1998.",
   host: "travel.usnews.com",
   url: null,
+  prompt: null,
 };
 
 const tuning: DraftsTuning = {

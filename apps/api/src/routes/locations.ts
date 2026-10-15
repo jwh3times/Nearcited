@@ -2,13 +2,17 @@ import {
   ActivateLocationSchema,
   buildActionPlan,
   buildDetailsFix,
+  buildPageTasks,
   buildTasks,
   CITING_SURFACES,
   type DetailsEvidence,
+  type DraftKind,
   draftsStanding,
   type LocationDetail,
   LocationInputSchema,
   MAX_SCANS_SINCE,
+  type PageEvidence,
+  poolWindow,
   RecommendationUpdateSchema,
   SCAN_WINDOW,
   SURFACES,
@@ -45,18 +49,29 @@ locationRoutes.get("/locations/:id", async (c) => {
   // Generated and real results never share a window, so which one to read is decided first. A
   // test organization's are generated even in a live deployment.
   const sample = usesSampleData(c.env) || organization?.is_test === true;
-  const [queries, [latest], recommendations, recent, site, alerts, drafts, listings, allowanceUse] =
-    await Promise.all([
-      store.listQueries(location.id),
-      store.listScans(location.id, 1),
-      store.listRecommendations(location.id),
-      store.listRecentResults(location.id, SCAN_WINDOW, sample),
-      store.getSiteCheck(location.id),
-      store.listAlerts(location.id, sample),
-      store.listDrafts(location.id),
-      store.listListings(location.id),
-      store.getAllowanceUse(location.organization_id),
-    ]);
+  const [
+    queries,
+    [latest],
+    recommendations,
+    recent,
+    site,
+    alerts,
+    drafts,
+    listings,
+    pages,
+    allowanceUse,
+  ] = await Promise.all([
+    store.listQueries(location.id),
+    store.listScans(location.id, 1),
+    store.listRecommendations(location.id),
+    store.listRecentResults(location.id, SCAN_WINDOW, sample),
+    store.getSiteCheck(location.id),
+    store.listAlerts(location.id, sample),
+    store.listDrafts(location.id),
+    store.listListings(location.id),
+    store.listPromptPages(location.id),
+    store.getAllowanceUse(location.organization_id),
+  ]);
   // A drop on a prompt retired since the last scan has nothing left to say. The next scan
   // clears it; until then it is not shown.
   const asked = new Set(queries.filter((query) => query.is_active).map((query) => query.id));
@@ -67,31 +82,40 @@ locationRoutes.get("/locations/:id", async (c) => {
   // read separately from the window: the window moves on, and the mark stays where it was put.
   const citing = (scans: Awaited<typeof recent>) =>
     scans.flat().filter((result) => CITING_SURFACES.includes(result.surface));
-  const evidence = new Map<string, TaskEvidence & DetailsEvidence>(
+  const around = new Map(
     await Promise.all(
       recommendations
         .filter(
           (recommendation) => recommendation.acted_at && recommendation.status !== "dismissed",
         )
         .map(async (recommendation) => {
-          const around = await store.listResultsAround(
+          const scans = await store.listResultsAround(
             location.id,
             recommendation.acted_at ?? "",
             SCAN_WINDOW,
             MAX_SCANS_SINCE,
             sample,
           );
-          return [
-            recommendation.id,
-            {
-              before: citing(around.before),
-              since: citing(around.since),
-              scans_since: around.since.length,
-            },
-          ] as const;
+          return [recommendation.id, scans] as const;
         }),
     ),
   );
+  const evidence = new Map<string, TaskEvidence & DetailsEvidence>(
+    [...around].map(([id, scans]) => [
+      id,
+      { before: citing(scans.before), since: citing(scans.since), scans_since: scans.since.length },
+    ]),
+  );
+  // A page's prompt is counted over every assistant's answers to it, cited or not.
+  const pageEvidence = new Map<string, PageEvidence>(
+    [...around].map(([id, scans]) => [
+      id,
+      { before: scans.before.flat(), since: scans.since.flat() },
+    ]),
+  );
+  // No task is offered a draft this build could only refuse to write.
+  const writes = (kind: DraftKind) =>
+    sample || writesRealDrafts(c.env, c.get("deployment").draft_kinds, kind);
 
   const detail: LocationDetail = {
     location,
@@ -129,8 +153,17 @@ locationRoutes.get("/locations/:id", async (c) => {
       evidence,
       drafts,
       listings,
-      // No task is offered a draft this build could only refuse to write.
-      writes: (kind) => sample || writesRealDrafts(c.env, c.get("deployment").draft_kinds, kind),
+      writes,
+    }),
+    page_tasks: buildPageTasks({
+      name: location.name,
+      recommendations,
+      queries,
+      results: poolWindow(recent),
+      evidence: pageEvidence,
+      drafts,
+      pages,
+      writes,
     }),
     drafts: draftsStanding(
       organization?.allowances ?? {},

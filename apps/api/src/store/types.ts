@@ -33,6 +33,7 @@ import type {
   PlatformRole,
   PriceChange,
   PriceChangeNotice,
+  PromptPage,
   ProviderUsage,
   Recommendation,
   RecommendationStatus,
@@ -274,6 +275,19 @@ export interface Store {
    * who is not a member of the location's organization.
    */
   removeListing(locationId: string, site: string): Promise<boolean>;
+  /** Where a location's pages are, one for each page task a member gave one for, for whoever can read it. */
+  listPromptPages(locationId: string): Promise<PromptPage[]>;
+  /**
+   * A member gives where the page for a page task is, the first time or in place of the one
+   * before. Null for anyone who is not a member of the location's organization, and for a task
+   * that is not a page's.
+   */
+  setPromptPage(recommendationId: string, url: string): Promise<PromptPage | null>;
+  /**
+   * A member takes where a task's page is away. False when there was none, and for anyone who is
+   * not a member of the location's organization.
+   */
+  removePromptPage(recommendationId: string): Promise<boolean>;
   /**
    * A location's visits from assistants over the last `days` days, today included, added up by
    * day and assistant and by page, for whoever can read the location. For anyone else there is

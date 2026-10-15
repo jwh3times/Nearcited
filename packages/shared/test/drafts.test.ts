@@ -29,6 +29,7 @@ const given: DraftGiven = {
   what_we_do: joes.what_we_do,
   host: task.host,
   url: task.url,
+  prompt: null,
 };
 
 describe("which tasks have a draft", () => {

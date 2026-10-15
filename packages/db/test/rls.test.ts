@@ -5131,6 +5131,14 @@ describe("the operator", () => {
       ]);
     });
 
+    it("may be the copy for a page that answers a prompt", async () => {
+      await db.query("update public.drafts set kind = 'page' where recommendation_id = $1", [task]);
+      expect(await drafts()).toMatchObject([{ kind: "page" }]);
+      await db.query("update public.drafts set kind = 'listing' where recommendation_id = $1", [
+        task,
+      ]);
+    });
+
     it("have what they used recorded by the worker, for no surface, where the operator's spend counts it", async () => {
       const [draft] = await drafts();
       const insert = `insert into public.provider_usage
@@ -5370,6 +5378,118 @@ describe("the operator", () => {
         limits?.max_locations ?? 1,
         theirs,
       ]);
+    });
+  });
+
+  describe("where a page for a prompt is", () => {
+    let main: string;
+    let task: string;
+    let source: string;
+    const PAGE = "https://joespizza.example/late-night";
+    const set = "select url, set_by_email from public.set_prompt_page($1, $2)";
+    const remove = "select public.remove_prompt_page($1) as removed";
+    const pages = () =>
+      rows<{ url: string; set_by_email: string | null }>(
+        "select url, set_by_email from public.prompt_pages where location_id = $1",
+        [main],
+      );
+
+    beforeAll(async () => {
+      const [location] = await rows<{ id: string }>(
+        "select id from public.locations where organization_id = $1 order by created_at limit 1",
+        [theirs],
+      );
+      main = location?.id ?? "";
+      const [page, other] = await rows<{ id: string }>(
+        `insert into public.recommendations (location_id, rule, title, detail)
+         values ($1, 'page:' || gen_random_uuid(), 'Publish a page', 'd'),
+                ($1, 'source:pages.example', 'Check your listing', 'd')
+         returning id`,
+        [main],
+      );
+      task = page?.id ?? "";
+      source = other?.id ?? "";
+    });
+    afterAll(async () => {
+      await db.query("delete from public.recommendations where id in ($1, $2)", [task, source]);
+    });
+
+    it("is given by a member of the organization, for a page task, and by nobody else", async () => {
+      for (const user of [bob, operator]) {
+        expect(await as("authenticated", user, () => rows(set, [task, PAGE])), user).toEqual([]);
+      }
+      expect(await as("service_role", null, () => rows(set, [task, PAGE]))).toEqual([]);
+      await expect(as("anon", null, () => db.query(set, [task, PAGE]))).rejects.toThrow(
+        /permission denied/,
+      );
+      // Only a page task has a page.
+      expect(await as("authenticated", alice, () => rows(set, [source, PAGE]))).toEqual([]);
+      expect(await pages()).toEqual([]);
+
+      expect(await as("authenticated", alice, () => rows(set, [task, PAGE]))).toEqual([
+        { url: PAGE, set_by_email: "alice@example.com" },
+      ]);
+      expect(await as("authenticated", alice, () => rows(set, [task, `${PAGE}-2`]))).toEqual([
+        { url: `${PAGE}-2`, set_by_email: "alice@example.com" },
+      ]);
+      expect(await pages()).toHaveLength(1);
+    });
+
+    it("is read by the members and the operator, and written by neither but through the function", async () => {
+      const read = "select url from public.prompt_pages where location_id = $1";
+      for (const user of [alice, operator]) {
+        expect(await as("authenticated", user, () => rows(read, [main])), user).toEqual([
+          { url: `${PAGE}-2` },
+        ]);
+      }
+      expect(await as("authenticated", bob, () => rows(read, [main]))).toEqual([]);
+      await expect(as("anon", null, () => db.query(read, [main]))).rejects.toThrow(
+        /permission denied/,
+      );
+      for (const sql of [
+        `insert into public.prompt_pages (location_id, recommendation_id, url) values ('${main}', '${source}', '${PAGE}')`,
+        "update public.prompt_pages set url = 'https://joespizza.example/planted'",
+        "delete from public.prompt_pages",
+      ]) {
+        for (const user of [alice, operator]) {
+          await expect(
+            as("authenticated", user, () => db.query(sql)),
+            sql,
+          ).rejects.toThrow(/permission denied/);
+        }
+      }
+      expect(await pages()).toHaveLength(1);
+    });
+
+    it("holds only an address to follow over https", async () => {
+      for (const url of [
+        "javascript:alert(1)",
+        "http://joespizza.example/a",
+        `https://x.example/${"a".repeat(500)}`,
+      ]) {
+        await expect(
+          as("authenticated", alice, () => db.query(set, [task, url])),
+          url.slice(0, 30),
+        ).rejects.toThrow(/violates check constraint/);
+      }
+    });
+
+    it("is taken away by a member, and by nobody else, and goes with its task", async () => {
+      for (const user of [bob, operator]) {
+        expect(await as("authenticated", user, () => rows(remove, [task])), user).toEqual([
+          { removed: false },
+        ]);
+      }
+      expect(await as("authenticated", alice, () => rows(remove, [task]))).toEqual([
+        { removed: true },
+      ]);
+      expect(await as("authenticated", alice, () => rows(remove, [task]))).toEqual([
+        { removed: false },
+      ]);
+
+      await as("authenticated", alice, () => rows(set, [task, PAGE]));
+      await db.query("delete from public.recommendations where id = $1", [task]);
+      expect(await pages()).toEqual([]);
     });
   });
 

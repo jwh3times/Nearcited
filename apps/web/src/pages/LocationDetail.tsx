@@ -19,6 +19,7 @@ import { ErrorNote } from "../components/ErrorNote";
 import { Field } from "../components/Field";
 import { LocationEditor } from "../components/LocationEditor";
 import { NamedInstead } from "../components/NamedInstead";
+import { PageTasks } from "../components/PageTasks";
 import { PausedByPlan } from "../components/PausedByPlan";
 import { PromptGrid } from "../components/PromptGrid";
 import { Quote } from "../components/Quote";
@@ -69,7 +70,9 @@ export function LocationDetail() {
     queryFn: () => api.getLocation(id),
     // Poll only while a scan is under way or a draft is being written.
     refetchInterval: (query) =>
-      inFlight(query.state.data?.latest_scan ?? null) || draftsBeingWritten(query.state.data?.tasks)
+      inFlight(query.state.data?.latest_scan ?? null) ||
+      draftsBeingWritten(query.state.data?.tasks) ||
+      draftsBeingWritten(query.state.data?.page_tasks)
         ? WRITING_MS
         : false,
   });
@@ -125,6 +128,7 @@ export function LocationDetail() {
     site,
     action_plan: steps,
     tasks,
+    page_tasks: pageTasks,
     connections,
     alerts,
     details_fix: detailsFix,
@@ -142,7 +146,10 @@ export function LocationDetail() {
   // The action plan covers what the sources and the website check found, with the evidence
   // attached, so those recommendations are not listed a second time below it.
   const inPlan = (rule: string) =>
-    rule.startsWith("source:") || rule.startsWith("site:") || rule === "own_site_uncited";
+    rule.startsWith("source:") ||
+    rule.startsWith("site:") ||
+    rule.startsWith("page:") ||
+    rule === "own_site_uncited";
   const open = recommendations.filter(
     (recommendation) => recommendation.status === "open" && !inPlan(recommendation.rule),
   );
@@ -427,6 +434,15 @@ export function LocationDetail() {
                   ? "The website has not been checked yet. It is read as part of the next scan."
                   : "There is no website on file for this location. Add one under Settings and the next scan will read it."}
               </p>
+            )}
+            {pageTasks.length > 0 && (
+              <PageTasks
+                tasks={pageTasks}
+                location={location}
+                drafts={drafts}
+                onChanged={refresh}
+                readOnly={readOnly}
+              />
             )}
             <VisitLine
               location={location}

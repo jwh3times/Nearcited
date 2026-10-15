@@ -28,16 +28,18 @@ const line = (label: string, value: string | null) => `${label}: ${value ?? "not
  * else: this is all the model is told about the business.
  */
 export function setOut(given: DraftGiven): string {
-  return [
+  const lines = [
     line("Business name", given.name),
     line("City", given.city),
     line("State or region", given.region),
     line("Category", given.category),
     line("Website", given.website),
     line("What the business does, in its owner's words", given.what_we_do),
-    line("The site", given.host),
-    line("The page", given.url),
-  ].join("\n");
+  ];
+  // A page answers a prompt on the business's own site, so it has no other site or page to name.
+  if (given.prompt !== null)
+    return [...lines, line("The question the page answers", given.prompt)].join("\n");
+  return [...lines, line("The site", given.host), line("The page", given.url)].join("\n");
 }
 
 export interface ClaudeDraftOptions {

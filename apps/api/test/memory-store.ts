@@ -14,6 +14,7 @@ import type {
   Plan,
   PriceChange,
   PriceChangeNotice,
+  PromptPage,
   ProviderUsage,
   Recommendation,
   Scan,
@@ -112,6 +113,8 @@ export interface MemoryDb {
   })[];
   /** Every listing: one for a location on a site. */
   listings: Listing[];
+  /** Where each page task's page is, with the location it belongs to. */
+  promptPages: (PromptPage & { location_id: string })[];
   /** Every location's line: the key its site carries, and the last day it answered a check. */
   visitLines: Map<string, { key: string; key_made_at: string; checked_on: string | null }>;
   /** The visits counted. No entry is a visit: each is how many, for a day, assistant and page. */
@@ -211,6 +214,7 @@ export function createMemoryDb(): MemoryDb {
     actions: [],
     drafts: [],
     listings: [],
+    promptPages: [],
     visitLines: new Map(),
     visits: [],
     alerts: [],
@@ -772,6 +776,47 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
       );
       if (at < 0) return false;
       db.listings.splice(at, 1);
+      return true;
+    },
+
+    async listPromptPages(locationId) {
+      if (!readsLocation(locationId)) return [];
+      return db.promptPages
+        .filter((page) => page.location_id === locationId)
+        .sort((a, b) => a.set_at.localeCompare(b.set_at))
+        .map(({ location_id: _, ...page }) => page);
+    },
+
+    // Mirrors set_prompt_page(): a member of the location's organization, and a page task.
+    async setPromptPage(recommendationId, url) {
+      const recommendation = db.recommendations.find((r) => r.id === recommendationId);
+      if (
+        userId === null ||
+        !recommendation?.rule.startsWith("page:") ||
+        !visibleLocation(recommendation.location_id)
+      ) {
+        return null;
+      }
+      const set = {
+        url,
+        set_by_email: db.emails.get(userId) ?? null,
+        set_at: db.now ?? timestamp(),
+      };
+      const kept = db.promptPages.find((page) => page.recommendation_id === recommendationId);
+      const page = kept
+        ? Object.assign(kept, set)
+        : { location_id: recommendation.location_id, recommendation_id: recommendationId, ...set };
+      if (!kept) db.promptPages.push(page);
+      const { location_id: _, ...sent } = page;
+      return { ...sent };
+    },
+
+    // Mirrors remove_prompt_page().
+    async removePromptPage(recommendationId) {
+      const at = db.promptPages.findIndex((page) => page.recommendation_id === recommendationId);
+      const page = db.promptPages[at];
+      if (userId === null || !page || !visibleLocation(page.location_id)) return false;
+      db.promptPages.splice(at, 1);
       return true;
     },
 
