@@ -224,6 +224,7 @@ export function createMemoryDb(): MemoryDb {
     actionKindTerms: new Map([
       ["sample", { allowance: null, keeps_seen_days: 30 }],
       ["wordpress_details", { allowance: "wordpress", keeps_seen_days: null }],
+      ["wordpress_page", { allowance: "wordpress", keeps_seen_days: null }],
     ]),
     sampleLines: new Map(),
     connections: [],
@@ -814,6 +815,7 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         url,
         set_by_email: db.emails.get(userId) ?? null,
         set_at: db.now ?? timestamp(),
+        action_id: null,
       };
       const kept = db.promptPages.find((page) => page.recommendation_id === recommendationId);
       const page = kept
@@ -822,6 +824,32 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
       if (!kept) db.promptPages.push(page);
       const { location_id: _, ...sent } = page;
       return { ...sent };
+    },
+
+    // Mirrors keep_published_page(): the task the action does, over https.
+    async keepPublishedPage(actionId, url) {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      const action = db.actions.find(
+        (candidate) =>
+          candidate.id === actionId &&
+          (candidate.status === "approved" || candidate.status === "done"),
+      );
+      if (!action?.recommendation_id || !url.startsWith("https://") || url.length > 500) {
+        return false;
+      }
+      const set = { url, set_by_email: null, set_at: db.now ?? timestamp(), action_id: actionId };
+      const kept = db.promptPages.find(
+        (page) => page.recommendation_id === action.recommendation_id,
+      );
+      if (kept) Object.assign(kept, set);
+      else {
+        db.promptPages.push({
+          location_id: action.location_id,
+          recommendation_id: action.recommendation_id,
+          ...set,
+        });
+      }
+      return true;
     },
 
     // Mirrors remove_prompt_page().
@@ -1044,6 +1072,7 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         )) {
           Object.assign(marked, { acted_at: null, acted_by_action: null });
         }
+        db.promptPages = db.promptPages.filter((page) => page.action_id !== action.takes_back);
       }
       if (outcome === "failed") {
         Object.assign(action, { status: "failed", failed_at: now, failure: why ?? null });

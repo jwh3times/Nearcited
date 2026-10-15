@@ -6,6 +6,8 @@ import {
   actionText,
   editable,
   isMarkup,
+  isPage,
+  pageAddress,
   TAKE_BACK_QUESTION,
   whatItReplaced,
   writtenBy,
@@ -116,11 +118,18 @@ function Proposal({
           <label className="stack-tight">
             <span className="small muted">What it would say. {writtenBy(action)}.</span>
             <textarea
-              rows={3}
+              rows={isPage(action) ? 14 : 3}
               value={text}
               disabled={busy}
               onChange={(event) => setText(event.target.value)}
             />
+            {isPage(action) && (
+              <span className="small muted">
+                The first line is the page's title, and a line starting “## ” is a heading. It is
+                published at {pageAddress(text)} on your site, with your business's name, address
+                and phone number added at the end.
+              </span>
+            )}
           </label>
         ))}
       <p className="small muted">{actionState(action, formatDay)}</p>
@@ -272,5 +281,6 @@ function Shown({
       </pre>
     );
   }
+  if (isPage(action)) return <p className="action-copy">{text}</p>;
   return block ? <p>{text}</p> : <span>{text}</span>;
 }

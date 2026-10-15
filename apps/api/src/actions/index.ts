@@ -8,13 +8,23 @@ import {
   DETAILS_RULE,
   detailsOnPage,
   EDITABLE_ACTION_KINDS,
+  type Location,
+  pageBlocks,
+  pageClosing,
+  pageParts,
+  pageSlug,
+  pageWords,
+  promptOfRule,
   withDetails,
 } from "@nearcited/shared";
 import { readWordPressSignIn, SignInRefused } from "../connections";
 import { open } from "../connections/seal";
 import {
+  createPage,
   mayAddScripts,
   readFrontPage,
+  readPageAt,
+  trashPage,
   type WordPressDeps,
   WordPressRefused,
   writePageContent,
@@ -44,14 +54,23 @@ interface Target {
   match: ConnectionMatch;
   signIn: string;
   outside: WordPressDeps;
+  /** The action being carried out. */
+  action: Action;
+  /** The location it is for. */
+  location: Location;
 }
 
 /** How one kind of action reads what is there now and makes its change. */
 interface ActionHandler {
   /** What is there now, as the text a member would be shown. Null when there is nothing. */
   current(target: Target): Promise<string | null>;
-  /** Puts the text there, or takes away what is there where it is null. */
-  apply(target: Target, text: string | null): Promise<void>;
+  /**
+   * Puts the text there, or takes away what is there where it is null. Says where it put it,
+   * for a kind whose work has an address of its own.
+   */
+  apply(target: Target, text: string | null): Promise<string | undefined>;
+  /** Where what the action put there is, for a kind whose work has an address of its own. */
+  where?(target: Target): Promise<string | undefined>;
 }
 
 /**
@@ -60,8 +79,10 @@ interface ActionHandler {
  */
 const sample: ActionHandler = {
   current: ({ store, connection, match }) => store.getSampleLine(connection.id, match.external_id),
-  apply: ({ store, connection, match }, text) =>
-    store.setSampleLine(connection.id, match.external_id, text),
+  async apply({ store, connection, match }, text) {
+    await store.setSampleLine(connection.id, match.external_id, text);
+    return undefined;
+  },
 };
 
 /** The site's home page, which has to be a page of its own for the block to go on it. */
@@ -85,12 +106,62 @@ const wordpressDetails: ActionHandler = {
   async apply({ signIn, outside }, text) {
     const { site, page } = await homePage(signIn, outside);
     await writePageContent(site, page.id, withDetails(page.raw, text), outside);
+    return undefined;
+  },
+};
+
+/**
+ * The copy a page action is about: what it puts there, or, taking one back, what was put there.
+ * Its title says the page's address.
+ */
+const copyOf = (action: Action): string => actionText(action) ?? action.seen?.text ?? "";
+const addressOf = (copy: string) => pageSlug(pageParts(copy).title);
+/** What stands for a page at the address that is not the one the action is about. */
+const SOMEBODY_ELSES = "Another page is at this address.";
+
+/**
+ * A page task's copy, published as a new page of the WordPress site. What is there is the page at
+ * the address the copy's title makes, and it counts as the product's only while it still says
+ * what was published there; the closing line is the location's details as they are now. Taking it
+ * back moves that page to WordPress's trash. Nothing else on the site is touched.
+ */
+const wordpressPage: ActionHandler = {
+  async current({ signIn, outside, action }) {
+    const copy = copyOf(action);
+    const page = await readPageAt(readWordPressSignIn(signIn), addressOf(copy), outside);
+    if (!page) return null;
+    return pageWords(page.raw).startsWith(pageWords(pageBlocks(copy, null)))
+      ? copy
+      : SOMEBODY_ELSES;
+  },
+  async apply({ signIn, outside, action, location }, text) {
+    const site = readWordPressSignIn(signIn);
+    if (text === null) {
+      const page = await readPageAt(site, addressOf(copyOf(action)), outside);
+      if (page) await trashPage(site, page.id, outside);
+      return undefined;
+    }
+    const made = await createPage(
+      site,
+      {
+        title: pageParts(text).title,
+        slug: addressOf(text),
+        content: pageBlocks(text, pageClosing(location)),
+      },
+      outside,
+    );
+    return made.link;
+  },
+  async where({ signIn, outside, action }) {
+    return (await readPageAt(readWordPressSignIn(signIn), addressOf(copyOf(action)), outside))
+      ?.link;
   },
 };
 
 const HANDLERS: Record<ActionKind, ActionHandler> = {
   sample,
   wordpress_details: wordpressDetails,
+  wordpress_page: wordpressPage,
 };
 
 /** What the sample listing of a location should open with, composed by rule from its details. */
@@ -119,20 +190,19 @@ export async function proposeAfterSync(connectionId: string, deps: ActionDeps): 
   } catch {
     return 0;
   }
-  if (connection.kind === "wordpress") return proposeDetails(connection, signIn, deps);
+  if (connection.kind === "wordpress") {
+    return (
+      (await proposeDetails(connection, signIn, deps)) +
+      (await proposePages(connection, signIn, deps))
+    );
+  }
 
   let proposed = 0;
   for (const match of connection.matches) {
     const location = await store.getLocation(match.location_id);
     if (!location) continue;
     const text = sampleOpeningLine(location);
-    const now = await sample.current({
-      store,
-      connection,
-      match,
-      signIn,
-      outside: {},
-    });
+    const now = await store.getSampleLine(connection.id, match.external_id);
     if (now === text) continue;
     const made = await store.proposeAction({
       location_id: location.id,
@@ -202,6 +272,71 @@ async function proposeDetails(
     if (made) proposed++;
   }
   return proposed;
+}
+
+/**
+ * Offers to publish each page task's copy on a WordPress site, for the location matched to it:
+ * where the copy has been written, the task is still to do, nobody has said where its page is
+ * already, and no page is at the address its title makes. The copy is the task's draft, and the
+ * member may change it before saying yes.
+ */
+async function proposePages(
+  connection: Connection,
+  signIn: string,
+  { store, outside = {} }: ActionDeps,
+): Promise<number> {
+  const site = readWordPressSignIn(signIn);
+  let proposed = 0;
+  for (const match of connection.matches) {
+    const [recommendations, drafts, pages] = await Promise.all([
+      store.listRecommendations(match.location_id),
+      store.listDrafts(match.location_id),
+      store.listPromptPages(match.location_id),
+    ]);
+    for (const task of recommendations) {
+      if (task.status !== "open" || !promptOfRule(task.rule)) continue;
+      if (pages.some((page) => page.recommendation_id === task.id)) continue;
+      const draft = drafts.find((kept) => kept.recommendation_id === task.id);
+      if (draft?.kind !== "page" || !draft.text) continue;
+      const { title } = pageParts(draft.text);
+      try {
+        // An address already taken is the owner's page, and nothing is published over it.
+        if (!title || (await readPageAt(site, pageSlug(title), outside))) continue;
+      } catch (error) {
+        console.error(`Connection ${connection.id}: its pages could not be read`, error);
+        return proposed;
+      }
+      const made = await store.proposeAction({
+        location_id: match.location_id,
+        kind: "wordpress_page",
+        connection_id: connection.id,
+        subject: `page:${task.id}`,
+        basis: draft.text,
+        summary: `Publish the page “${title.length > 200 ? `${title.slice(0, 199)}…` : title}” on your site`,
+        seen: { text: null },
+        proposed_text: draft.text,
+        written_by: draft.sample_data ? "rule" : "model",
+        recommendation_id: task.id,
+      });
+      if (made) proposed++;
+    }
+  }
+  return proposed;
+}
+
+/**
+ * The WordPress connection to read once a draft is written, where the draft is a page's copy and
+ * its location's site is connected: reading it is what proposes publishing the page, so the owner
+ * need not wait for the daily run. Null where there is none.
+ */
+export async function connectionToPublishWith(
+  store: Store,
+  draftId: string,
+): Promise<string | null> {
+  const draft = await store.getDraft(draftId);
+  if (draft?.kind !== "page" || draft.status !== "written") return null;
+  const connections = await store.listLocationConnections(draft.location_id);
+  return connections.find((connection) => connection.kind === "wordpress")?.connection_id ?? null;
 }
 
 /** How many times an action is tried before it is marked failed. */
@@ -287,10 +422,16 @@ export async function carryOutAction(
   }
 
   const handler = HANDLERS[action.kind];
-  const target = { store, connection, match, signIn, outside };
+  if (!location) return fail("The location is no longer there.");
+  const target = { store, connection, match, signIn, outside, action, location };
+  // Where a kind's work has an address of its own, it is kept for the task the action did.
+  const keep = async (address: string | undefined) => {
+    if (address && text !== null) await store.keepPublishedPage(actionId, address);
+  };
   try {
     const now = await handler.current(target);
     if (now === text) {
+      await keep(await handler.where?.(target));
       await store.finishAction(actionId, "done");
       return "done";
     }
@@ -298,7 +439,7 @@ export async function carryOutAction(
       await store.finishAction(actionId, "out_of_date");
       return "out_of_date";
     }
-    await handler.apply(target, text);
+    await keep(await handler.apply(target, text));
     await store.finishAction(actionId, "done");
     return "done";
   } catch (error) {

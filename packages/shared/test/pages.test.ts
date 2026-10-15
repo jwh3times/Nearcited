@@ -4,11 +4,13 @@ import {
   buildPageTasks,
   citesPage,
   MIN_ANSWERS_FOR_PAGE,
+  pageBlocks,
   pageClosing,
   pageParts,
   pageRule,
   pageSlug,
   pageToCopy,
+  pageWords,
   promptOfRule,
   promptsLeftOut,
   readPageAddress,
@@ -171,6 +173,7 @@ describe("the page tasks shown", () => {
           url: page,
           set_by_email: null,
           set_at: "2026-10-02T00:00:00Z",
+          action_id: null,
         },
       ],
     });
@@ -279,5 +282,31 @@ describe("a page's copy", () => {
     };
     expect(factsNobodyGave("Pizza open after 11 in Raleigh.", given)).toEqual([]);
     expect(factsNobodyGave("Open until 2 every night.", given)).toEqual(["2"]);
+  });
+});
+
+describe("a page's copy as WordPress blocks", () => {
+  const text = 'Late night pizza\n\nWe <b>bake</b> & "serve".\n\n## Where\n\nRaleigh.';
+
+  it("is a block for each heading and paragraph, as text, with the closing line last", () => {
+    expect(pageBlocks(text, "Joe's Pizza, Raleigh.")).toBe(
+      [
+        "<!-- wp:paragraph -->\n<p>We &lt;b&gt;bake&lt;/b&gt; &amp; &quot;serve&quot;.</p>\n<!-- /wp:paragraph -->",
+        '<!-- wp:heading -->\n<h2 class="wp-block-heading">Where</h2>\n<!-- /wp:heading -->',
+        "<!-- wp:paragraph -->\n<p>Raleigh.</p>\n<!-- /wp:paragraph -->",
+        "<!-- wp:paragraph -->\n<p>Joe's Pizza, Raleigh.</p>\n<!-- /wp:paragraph -->",
+      ].join("\n\n"),
+    );
+    expect(pageBlocks(text, null)).not.toContain("Joe's Pizza");
+  });
+
+  it("says the same words whatever WordPress did to the HTML", () => {
+    const blocks = pageBlocks(text, "Joe's Pizza, Raleigh.");
+    expect(pageWords(blocks)).toBe(
+      'We <b>bake</b> & "serve". Where Raleigh. Joe\'s Pizza, Raleigh.',
+    );
+    expect(pageWords("<p>Joe&#039;s</p>\n\n<p>  Raleigh </p>")).toBe("Joe's Raleigh");
+    // A comment that never ends takes the rest of the page with it, quickly.
+    expect(pageWords(`<p>Before</p><!--${"<!--".repeat(20000)}`)).toBe("Before");
   });
 });

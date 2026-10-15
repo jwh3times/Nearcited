@@ -301,6 +301,11 @@ export interface Store {
    */
   removePromptPage(recommendationId: string): Promise<boolean>;
   /**
+   * Keeps where a page an action published is, for the task the action does. Worker only. False
+   * where the action does no task, or the address is not one to follow over https.
+   */
+  keepPublishedPage(actionId: string, url: string): Promise<boolean>;
+  /**
    * A location's visits from assistants over the last `days` days, today included, added up by
    * day and assistant and by page, for whoever can read the location. For anyone else there is
    * nothing to add up.

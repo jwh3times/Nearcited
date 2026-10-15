@@ -332,3 +332,61 @@ export function readPageAddress(website: string | null, pasted: string): ReadPag
   }
   return { url: address.href };
 }
+
+/** Text made safe to stand in a page's HTML. */
+const asText = (text: string) =>
+  text
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+
+/**
+ * A page's copy as WordPress blocks: each heading and paragraph a block of its own, and the
+ * closing line last, where there is one. Everything is written as text, so nothing in the copy,
+ * whoever wrote or changed it, becomes markup on the business's site. The title is the page's own
+ * and is not here.
+ */
+export function pageBlocks(text: string, closing: string | null): string {
+  const { blocks } = pageParts(text);
+  const paragraph = (words: string) =>
+    `<!-- wp:paragraph -->\n<p>${asText(words)}</p>\n<!-- /wp:paragraph -->`;
+  return [
+    ...blocks.map((block) =>
+      block.heading
+        ? `<!-- wp:heading -->\n<h2 class="wp-block-heading">${asText(block.text)}</h2>\n<!-- /wp:heading -->`
+        : paragraph(block.text),
+    ),
+    ...(closing === null ? [] : [paragraph(closing)]),
+  ].join("\n\n");
+}
+
+/**
+ * What a page says, as it is compared: its words without the markup around them, with the
+ * entities read and the spaces between them made one. Two pages that say the same thing compare
+ * equal whatever WordPress did to how the HTML was written.
+ */
+export function pageWords(raw: string): string {
+  // Comments first, by hand: a pattern for "anything up to the end of the comment" is tried again
+  // from every opening of one that never ends, which takes the square of the length.
+  let text = "";
+  let at = 0;
+  while (at < raw.length) {
+    const open = raw.indexOf("<!--", at);
+    if (open === -1) break;
+    text += `${raw.slice(at, open)} `;
+    const close = raw.indexOf("-->", open + 4);
+    at = close === -1 ? raw.length : close + 3;
+  }
+  text += raw.slice(at);
+  return text
+    .replace(/<[^>]*>/g, " ")
+    .replaceAll("&quot;", '"')
+    .replaceAll("&#039;", "'")
+    .replaceAll("&#8217;", "\u2019")
+    .replaceAll("&lt;", "<")
+    .replaceAll("&gt;", ">")
+    .replaceAll("&amp;", "&")
+    .replace(/\s+/g, " ")
+    .trim();
+}

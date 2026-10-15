@@ -1128,19 +1128,20 @@ export type ConnectionMessage = z.infer<typeof ConnectionMessageSchema>;
 /**
  * The kinds of action: what the product can do outside itself for a business. `sample` changes
  * a made-up line on a sample listing, where the data is generated. `wordpress_details` puts the
- * business details block at the end of a WordPress home page (`wordpress.ts`). See
+ * business details block at the end of a WordPress home page (`wordpress.ts`), and
+ * `wordpress_page` publishes a page task's copy as a new page of the site (`pages.ts`). See
  * `docs/adr/0014-only-the-worker-carries-out-an-action.md`.
  */
-export const ACTION_KINDS = ["sample", "wordpress_details"] as const;
+export const ACTION_KINDS = ["sample", "wordpress_details", "wordpress_page"] as const;
 export const ActionKindSchema = z.enum(ACTION_KINDS);
 export type ActionKind = z.infer<typeof ActionKindSchema>;
 
 /**
  * The kinds of action whose text a member may change before saying yes. The details block is
  * composed by rule from what the location holds and goes onto a business's site as it is, so it
- * is approved as proposed or declined.
+ * is approved as proposed or declined. A page's copy is prose, written onto the page as text.
  */
-export const EDITABLE_ACTION_KINDS: readonly ActionKind[] = ["sample"];
+export const EDITABLE_ACTION_KINDS: readonly ActionKind[] = ["sample", "wordpress_page"];
 
 /**
  * Where an action stands. `proposed` waits for a member's yes. `approved` is on its way to
@@ -1637,6 +1638,8 @@ export const PromptPageSchema = z.object({
   url: z.string(),
   set_by_email: z.string().nullable(),
   set_at: Timestamp,
+  /** The action that published it, where Nearcited did. Null for an address a member gave. */
+  action_id: Id.nullable(),
 });
 export type PromptPage = z.infer<typeof PromptPageSchema>;
 

@@ -1826,6 +1826,12 @@ mark {
   overflow-wrap: anywhere;
 }
 
+/* A page's copy, as it would be published: its lines kept. */
+.action-copy {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 /* What was there, where that is markup: under its label, with the room to read it. */
 .action li.action-pair-code {
   flex-direction: column;

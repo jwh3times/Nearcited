@@ -985,11 +985,17 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
       url: pageAt,
       set_by_email: "alice@example.com",
       set_at: expect.any(String),
+      action_id: null,
     });
     expect((await aliceStore.listPromptPages(location.id)).map((kept) => kept.url)).toEqual([
       pageAt,
     ]);
     expect(await bobStore.listPromptPages(location.id)).toEqual([]);
+    // Where a page an action published is kept by the worker alone.
+    await expect(aliceStore.keepPublishedPage(crypto.randomUUID(), pageAt)).rejects.toMatchObject({
+      kind: "forbidden",
+    });
+    expect(await worker.keepPublishedPage(crypto.randomUUID(), pageAt)).toBe(false);
     expect(await bobStore.removePromptPage(pageTask.id)).toBe(false);
     expect(await aliceStore.removePromptPage(pageTask.id)).toBe(true);
     expect(await aliceStore.listPromptPages(location.id)).toEqual([]);

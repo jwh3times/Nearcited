@@ -12,9 +12,16 @@ owner writes on it too, often in a builder the product cannot see into, and what
 theirs in a way a directory's fields are not. This record is how far the product's writing goes.
 
 **The product adds; it does not edit what the owner wrote.** It may add the business details block
-at the end of the home page, and (in the next step) publish new pages of its own. It never
+at the end of the home page, and publish a page task's copy as a new page of its own, at an
+address nothing else is at. It never
 rewrites or deletes the owner's text, and never touches menus, themes, plugins, other pages or an
 SEO plugin's settings. What it adds is marked as its own, so it can be found again.
+
+**A page is published as text.** Its copy, written by a model and perhaps changed by a member,
+goes onto the site as headings and paragraphs, with every character written as text, so nothing
+anyone typed becomes markup on the business's site. The closing line with the business's details
+is composed by rule. A page counts as the product's only while it still says what was published:
+an owner who rewrites it has made it theirs.
 
 **It may change what it made, on approval.** When the details on file change, it proposes
 updating its own block. The proposal shows the block that is there and the one that would replace
@@ -27,14 +34,16 @@ meanwhile is kept, because the page is read again just before it is saved.
 
 **A change it composed by rule is approved as it is.** The details block is built from what the
 location holds and goes onto the site as markup. A member approves it or declines it; it is not
-edited first, so nothing typed into a box goes onto the business's home page as code.
+edited first, so nothing typed into a box goes onto the business's home page as code. A page's copy is prose and may be changed first, since it is written onto
+the page as text.
 
 **Taking back is a new action that removes only what the action put there.** Any member may ask.
 It is made already approved by whoever asked, as asking again after a failure is, and points at
 the action it takes back, so the record keeps who asked for each. It puts back what was there
 before only while what the action left is still there: if someone has changed it since, nothing
 is written. It is refused for an action something later has changed, which is the one to take
-back instead. The task the action marked done is no longer marked by it. A thing taken back is
+back instead. The task the action marked done is no longer marked by it. A page taken back goes
+to WordPress's trash, from which its owner can restore it for thirty days. A thing taken back is
 not proposed again until what it rests on changes, as a thing that was declined is not.
 
 ## Considered options

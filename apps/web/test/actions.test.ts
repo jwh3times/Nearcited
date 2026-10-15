@@ -7,6 +7,8 @@ import {
   editable,
   hasActions,
   isMarkup,
+  isPage,
+  pageAddress,
   whatItReplaced,
   writtenBy,
 } from "../src/lib/actions";
@@ -241,5 +243,17 @@ describe("what a member may do with what an action puts there", () => {
         day,
       ),
     ).toBe("Done on 2026-10-14. Asked for by bob@example.com.");
+  });
+});
+
+describe("a page's copy in an action", () => {
+  it("is prose a member may change, published at the address its title makes", () => {
+    const page = action({ kind: "wordpress_page" });
+    expect(isPage(page)).toBe(true);
+    expect(editable(page)).toBe(true);
+    expect(isMarkup(page)).toBe(false);
+    expect(pageAddress("Late-night pizza in Raleigh, NC\n\nWe bake.")).toBe(
+      "/late-night-pizza-in-raleigh-nc/",
+    );
   });
 });
