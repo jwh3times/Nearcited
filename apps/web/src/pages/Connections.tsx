@@ -41,6 +41,9 @@ export function Connections({ organization }: { organization: Organization }) {
 
   const { current, removed } = splitConnections(found.data?.connections ?? []);
   const canManage = found.data?.can_manage ?? false;
+  // A WordPress site is connected by approving on the site, from its location's Website tab.
+  const here = found.data?.available.filter((kind) => kind !== "wordpress") ?? [];
+  const fromLocation = found.data?.available.includes("wordpress") ?? false;
 
   return (
     <main className="page">
@@ -73,7 +76,7 @@ export function Connections({ organization }: { organization: Organization }) {
             />
           ))}
 
-          {found.data?.available.map((kind) => (
+          {here.map((kind) => (
             <div key={kind} className="button-row">
               <button
                 type="button"
@@ -86,6 +89,11 @@ export function Connections({ organization }: { organization: Organization }) {
               </button>
             </div>
           ))}
+          {fromLocation && (
+            <p className="small muted">
+              A WordPress site is connected from the Website tab of the location it belongs to.
+            </p>
+          )}
           {found.data && found.data.available.length === 0 && (
             <p className="small muted">Nothing can be connected here yet.</p>
           )}

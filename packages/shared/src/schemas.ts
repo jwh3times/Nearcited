@@ -956,14 +956,16 @@ export type RecommendationUpdate = z.output<typeof RecommendationUpdateSchema>;
 
 /**
  * The kinds of outside account that can be connected. `sample` stands in for a real one where
- * the data is generated. See `docs/adr/0013-a-sign-in-is-sealed-by-the-worker.md`.
+ * the data is generated. `wordpress` is a business's own WordPress site (`wordpress.ts`). See
+ * `docs/adr/0013-a-sign-in-is-sealed-by-the-worker.md`.
  */
-export const CONNECTION_KINDS = ["sample"] as const;
+export const CONNECTION_KINDS = ["sample", "wordpress"] as const;
 export const ConnectionKindSchema = z.enum(CONNECTION_KINDS);
 export type ConnectionKind = z.infer<typeof ConnectionKindSchema>;
 
 export const CONNECTION_KIND_LABELS: Record<ConnectionKind, string> = {
   sample: "Sample account",
+  wordpress: "WordPress site",
 };
 
 /**
@@ -972,6 +974,7 @@ export const CONNECTION_KIND_LABELS: Record<ConnectionKind, string> = {
  */
 export const CONNECTION_KIND_ALLOWANCES: Record<ConnectionKind, string | null> = {
   sample: null,
+  wordpress: "wordpress",
 };
 
 /**
@@ -1078,6 +1081,38 @@ export type OrganizationConnections = z.infer<typeof OrganizationConnectionsSche
 /** What is sent to connect an account. */
 export const ConnectionInputSchema = z.object({ kind: ConnectionKindSchema });
 export type ConnectionInput = z.infer<typeof ConnectionInputSchema>;
+
+/**
+ * What checking a location's website for WordPress found (`wordpress.ts`): `ready` to send its
+ * owner to approve, `not_wordpress`, `passwords_off` (WordPress, with application passwords
+ * switched off), `unreachable`, or `no_website` on file.
+ */
+export const WORDPRESS_CHECKS = [
+  "ready",
+  "not_wordpress",
+  "passwords_off",
+  "unreachable",
+  "no_website",
+] as const;
+export const WordPressCheckSchema = z.object({
+  verdict: z.enum(WORDPRESS_CHECKS),
+  /** Where the site asks its owner to approve the connection. Only when `ready`. */
+  authorize_url: z.string().nullable(),
+  /** What the site calls itself, when it said. */
+  site_name: z.string().nullable(),
+});
+export type WordPressCheck = z.infer<typeof WordPressCheckSchema>;
+
+/**
+ * What WordPress hands back once its owner approves: the site, their user name and the
+ * application password it made. Sent once, to be sealed, and never returned.
+ */
+export const WordPressApprovedSchema = z.object({
+  site_url: z.string().trim().min(1).max(500),
+  user_login: z.string().trim().min(1).max(200),
+  password: z.string().trim().min(1).max(200),
+});
+export type WordPressApproved = z.infer<typeof WordPressApprovedSchema>;
 
 /** What the worker is asked to do for one connection. */
 export const CONNECTION_STEPS = ["remove", "sync"] as const;

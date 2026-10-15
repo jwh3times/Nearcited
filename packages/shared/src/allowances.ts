@@ -22,6 +22,9 @@ export const ALLOWANCE_KINDS: Record<string, AllowanceKind> = {
   // Visits to a business's own site that came from an assistant (`visits.ts`).
   // `VISITS_ALLOWANCE` there is this key.
   visits: { counted: false, name: "Visits from assistants counted" },
+  // Changing a business's own WordPress site, on approval (`wordpress.ts`).
+  // `WORDPRESS_ALLOWANCE` there is this key.
+  wordpress: { counted: false, name: "Publishing to your WordPress site" },
 };
 
 /** The most a plan may give of a counted kind, for each location, in a month. */

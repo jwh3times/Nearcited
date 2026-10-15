@@ -29,6 +29,7 @@ import {
   allowanceErrors,
   allowedEachMonth,
   CITING_SURFACES,
+  CONNECTION_KIND_ALLOWANCES,
   DRAFTS_ALLOWANCE,
   hostOf,
   LONGEST_PATH,
@@ -155,6 +156,8 @@ export interface MemoryDb {
   connectionKindAllowances: Map<string, string>;
   /** Each connection's sign-in as it was sealed, by connection. Only the worker reads it. */
   connectionSecrets: Map<string, string>;
+  /** The location each connection was made from, until its first sync matches it there. */
+  connectionsFrom: Map<string, string>;
   /**
    * The `allowance_kinds` table: each kind, and whether it is counted. It starts as the kinds
    * this build lists. A test adds one to stand for a kind a migration made before the Worker
@@ -222,8 +225,14 @@ export function createMemoryDb(): MemoryDb {
     sampleLines: new Map(),
     connections: [],
     connectionHealth: new Map(),
-    connectionKindAllowances: new Map(),
+    // As the migrations leave it: a kind with an allowance it needs.
+    connectionKindAllowances: new Map(
+      Object.entries(CONNECTION_KIND_ALLOWANCES).filter(
+        (entry): entry is [string, string] => entry[1] !== null,
+      ),
+    ),
     connectionSecrets: new Map(),
+    connectionsFrom: new Map(),
     allowanceKinds: new Map(
       Object.entries(ALLOWANCE_KINDS).map(([key, kind]) => [key, kind.counted]),
     ),
@@ -1185,8 +1194,18 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
 
     async createConnection(connection) {
       if (!managesOrg(connection.organization_id)) return null;
+      const from = connection.for_location ?? null;
+      if (
+        from !== null &&
+        !db.locations.some(
+          (location) =>
+            location.id === from && location.organization_id === connection.organization_id,
+        )
+      ) {
+        return null;
+      }
       if (connection.sealed === "") throw new StoreError("unexpected", "made with its sign-in");
-      const { sealed, ...row } = connection;
+      const { sealed, for_location: _, ...row } = connection;
       const made: Connection = {
         ...row,
         status: "working",
@@ -1208,6 +1227,7 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
       }
       db.connections.push(made);
       db.connectionSecrets.set(made.id, sealed);
+      if (from !== null) db.connectionsFrom.set(made.id, from);
       return made;
     },
 
@@ -1296,6 +1316,25 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
       for (const match of connection.matches) {
         const now = choices.find((choice) => choice.id === match.external_id);
         if (now) match.external_label = now.label;
+      }
+      // Mirrors record_connection_sync(): matched once to where it was made from, if it can be.
+      const from = db.connectionsFrom.get(id);
+      const [only] = choices;
+      if (from !== undefined) {
+        const taken = db.connections.some(
+          (other) =>
+            other.kind === connection.kind &&
+            other.matches.some((match) => match.location_id === from),
+        );
+        if (choices.length === 1 && only && !taken) {
+          connection.matches.push({
+            location_id: from,
+            external_id: only.id,
+            external_label: only.label,
+            matched_at: db.now ?? timestamp(),
+          });
+        }
+        db.connectionsFrom.delete(id);
       }
       return true;
     },

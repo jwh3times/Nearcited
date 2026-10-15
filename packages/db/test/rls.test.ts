@@ -3772,6 +3772,107 @@ describe("the operator", () => {
       await db.query("delete from public.organizations where id = $1", [gone?.id]);
       expect(await sealedFor(id)).toEqual([]);
     });
+
+    describe("made from a location", () => {
+      const fromHere = "c1000000-0000-4000-8000-0000000000f1";
+      const twoThings = "c1000000-0000-4000-8000-0000000000f2";
+      const elsewhereMade = "c1000000-0000-4000-8000-0000000000f3";
+      const createFrom =
+        "select id from public.create_connection($1, $2, 'sample', 'From a location', 'sealed', $3)";
+      const sync = "select public.record_connection_sync($1, $2::jsonb) as recorded";
+      const forLocation = (id: string) =>
+        rows<{ for_location: string | null }>(
+          "select for_location from public.connections where id = $1",
+          [id],
+        );
+      const matchesOf = (id: string) =>
+        rows<{ location_id: string; external_id: string }>(
+          "select location_id, external_id from public.connection_locations where connection_id = $1",
+          [id],
+        );
+      let site: string;
+      let other: string;
+      let notTheirs: string;
+
+      beforeAll(async () => {
+        const [limits] = await rows<{ max_locations: number }>(
+          "select max_locations from public.organizations where id = $1",
+          [theirs],
+        );
+        await db.query("update public.organizations set max_locations = $1 where id = $2", [
+          (limits?.max_locations ?? 1) + 2,
+          theirs,
+        ]);
+        const made = await rows<{ id: string }>(
+          "insert into public.locations (organization_id, name, city) values ($1, 'Site', 'Raleigh'), ($1, 'Other', 'Raleigh') returning id",
+          [theirs],
+        );
+        site = made[0]?.id ?? "";
+        other = made[1]?.id ?? "";
+        const [outside] = await rows<{ id: string }>(
+          "select l.id from public.locations l where l.organization_id <> $1 limit 1",
+          [theirs],
+        );
+        notTheirs = outside?.id ?? "";
+      });
+      afterAll(async () => {
+        await db.query("delete from public.connections where id = any($1::uuid[])", [
+          [fromHere, twoThings, elsewhereMade],
+        ]);
+        await db.query("delete from public.locations where id = any($1::uuid[])", [[site, other]]);
+      });
+
+      it("only from a location of the organization's own", async () => {
+        expect(
+          await as("authenticated", alice, () =>
+            rows(createFrom, [theirs, elsewhereMade, notTheirs]),
+          ),
+        ).toEqual([]);
+        expect(
+          await as("authenticated", alice, () => rows(createFrom, [theirs, fromHere, site])),
+        ).toEqual([{ id: fromHere }]);
+        expect(await forLocation(fromHere)).toEqual([{ for_location: site }]);
+      });
+
+      it("is matched there by its first sync when it reaches one thing, and only then", async () => {
+        const one = JSON.stringify([{ id: "https://joes.example", label: "Joe's" }]);
+        expect(await as("service_role", null, () => rows(sync, [fromHere, one]))).toEqual([
+          { recorded: true },
+        ]);
+        expect(await matchesOf(fromHere)).toEqual([
+          { location_id: site, external_id: "https://joes.example" },
+        ]);
+        expect(await forLocation(fromHere)).toEqual([{ for_location: null }]);
+
+        // The owner takes it away; a later sync does not put it back.
+        await as("authenticated", alice, () =>
+          db.query("select public.unmatch_connection_location($1, $2)", [fromHere, site]),
+        );
+        await as("service_role", null, () => db.query(sync, [fromHere, one]));
+        expect(await matchesOf(fromHere)).toEqual([]);
+      });
+
+      it("is left for the owner where it reaches more than one thing, or the place is taken", async () => {
+        const two = JSON.stringify([
+          { id: "a", label: "A" },
+          { id: "b", label: "B" },
+        ]);
+        await as("authenticated", alice, () => rows(createFrom, [theirs, twoThings, other]));
+        await as("service_role", null, () => db.query(sync, [twoThings, two]));
+        expect(await matchesOf(twoThings)).toEqual([]);
+        expect(await forLocation(twoThings)).toEqual([{ for_location: null }]);
+
+        // A location already matched to an account of the same kind keeps that one.
+        await as("authenticated", alice, () =>
+          db.query("select public.match_connection_location($1, $2, 'a')", [twoThings, site]),
+        );
+        await as("authenticated", alice, () => rows(createFrom, [theirs, elsewhereMade, site]));
+        const one = JSON.stringify([{ id: "c", label: "C" }]);
+        await as("service_role", null, () => db.query(sync, [elsewhereMade, one]));
+        expect(await matchesOf(elsewhereMade)).toEqual([]);
+        expect(await matchesOf(twoThings)).toEqual([{ location_id: site, external_id: "a" }]);
+      });
+    });
   });
 
   describe("actions", () => {

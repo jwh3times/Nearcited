@@ -8,6 +8,11 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router";
 import { App } from "./App";
+import { keepHandedBack } from "./lib/wordpress";
+
+// Before anything is drawn or fetched: WordPress sends its owner back with a password on the
+// address, which comes off it here.
+keepHandedBack();
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } },
