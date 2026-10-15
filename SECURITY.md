@@ -95,6 +95,12 @@ Nearcited is multi-tenant, and tenant isolation is enforced by Postgres row-leve
   block on it is no longer what the member was shown. Also getting text of a member's or a
   caller's choosing into that block: approving with a `text` for a kind that is approved as
   proposed (`not_editable`), or having `carryOutAction` write an `approved_text` for one.
+- Getting markup onto a business's site through a page's copy: a published page whose content is
+  anything but blocks of text with every character escaped (`pageBlocks`), so that a heading or
+  paragraph, however a model or a member wrote it, becomes a tag, script or shortcode. Also
+  publishing over a page the owner has at that address (`current` must find nothing, or a page
+  that still starts with the copy), deleting rather than trashing a page taken back, or keeping a
+  published page's link as anyone but the Worker (`keep_published_page()`).
 - Taking back what an action did, or keeping what it replaced past its day: clearing a task an
   action marked done, or writing `recommendations.acted_by_action`, as a signed-in user; or finding
   a copy of what an action replaced anywhere but `seen`, which `drop_expired_seen()` clears once

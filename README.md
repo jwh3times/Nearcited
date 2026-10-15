@@ -160,9 +160,10 @@ answers the prompt in plain words, which an assistant could read for it. The Web
 them under "Pages that answer your prompts" (the Overview leaves them out), and the task clears when
 an answer to the prompt names the business. Its draft is the copy for the page, written the same way
 as the others: a title, headings and paragraphs, followed by a closing line the product composes from
-the location's name, address and phone number. The owner copies the page, publishes it themselves,
-marks the task done and says where it is (an address on the location's own site, which is kept and
-never opened), so the scans can count the answers that cited it beside the answers that named the
+the location's name, address and phone number. On a location with a connected WordPress site the
+product proposes publishing the page, and publishes it on approval, keeping its link; otherwise the
+owner copies the page, publishes it themselves, marks the task done and says where it is (an
+address on the location's own site, which is kept and never opened), so the scans can count the answers that cited it beside the answers that named the
 business. Nothing says the page caused a change.
 
 On real data Claude writes the draft, through Anthropic's API with no tools: it is told what to
@@ -249,7 +250,7 @@ is a WordPress that can hand out an application password, sends the owner to Wor
 the sign-in. The worker's first sync reads the one site and matches it to that location. Removing
 the connection deletes the password at the site. Nothing else is read from an account, and the
 only things done through one are the sample action and, on a WordPress site, adding the business
-details to the home page, both below (see [What is not built](#what-is-not-built)).
+details to the home page and publishing a page's copy as a new page, all below (see [What is not built](#what-is-not-built)).
 
 An **action** is one thing the product does outside itself for a location, and nothing is done until
 a member of the organization says yes. After the worker reads a connected account, it proposes what
@@ -584,7 +585,7 @@ The migrations in `supabase/migrations/` define everything.
 | `action_kind_terms` | What each kind of action is held to: the allowance it takes from, if any, and how many days what it replaced may be kept, if limited. Row-level security is on with no policy and no grant to any API role, the operator included: only the database's own functions read it. |
 | `sample_listings` | What the sample account's listings say (an opening line): the outside world for the sample kind of action, which has none. Row-level security is on with no policy and no grant to any API role, the operator included: only the Worker reads or writes it. |
 | `drafts` | Wording written for one of a location's tasks (a recommendation): one row for a task, and asking again replaces what it holds. Where the ask in hand stands (`status` `asked`, `written` or `failed`; who asked, as the address they had then, and when; why the last ask wrote nothing, as `failure`), and the draft last written, which stays while another is being written and when that fails: its `kind` (`note`, `listing` or `page`), its `text` (up to 4,000 characters), when it was written, whether it is sample text (`sample_data`), and the model that wrote it, null for sample text, which no route sends. `writing_since`, `attempts` and `allowance_month` are the Worker's bookkeeping, and no route sends them: whether a worker is on it, which try this is, and the month whose allowance it holds one of. Read by whoever can read the location and by the operator; written by no API role directly, only through `ask_draft()`, which answers a member of the location's organization alone (the operator and the Worker get no row), and the Worker's `claim_draft()`, which takes one from the month's allowance, and `finish_draft()`, which keeps what was written or gives the allowance back when nothing was. Deleted with its task and with its location. |
-| `prompt_pages` | Where the page for one of a location's page tasks is, as a member gave it: one row for a task (`recommendation_id`, unique), an https address of at most 500 characters, who set it (as the address they had then) and when. That it is on the location's own website is the API's to check, and nothing opens it. Read by whoever can read the location and by the operator; written by no API role directly, only through `set_prompt_page()` and `remove_prompt_page()`, which answer a member of the location's organization alone and, for the first, only for a `page:` recommendation (the operator and the Worker get no row). Deleted with its task and with its location. |
+| `prompt_pages` | Where the page for one of a location's page tasks is, as a member gave it: one row for a task (`recommendation_id`, unique), an https address of at most 500 characters, who set it (as the address they had then) and when. That it is on the location's own website is the API's to check, and nothing opens it. Read by whoever can read the location and by the operator; written by no API role directly, only through `set_prompt_page()` and `remove_prompt_page()`, which answer a member of the location's organization alone and, for the first, only for a `page:` recommendation (the operator and the Worker get no row). `action_id`, when the page is one the product published: the action that did it, which keeps the link until that action is taken back (taking it back deletes the row). `keep_published_page()` writes that row and is called by the Worker alone; it keeps https addresses of at most 500 characters only, and `set_prompt_page()` clears `action_id`, since an address a member gives is theirs. Deleted with its task and with its location. |
 | `listings` | The address of a location's own page on a site, as a member gave it (on `google.com`, the review link Google gives a business): one row for a location and a site, kept for the location and not for the task that asked for it. `site` is the name on the list of known sites in lower case (`bbb.org`, never `www.bbb.org`), `url` is an https address of at most 500 characters, and who set it (as the address they had then) and when are kept. A location holds at most 50. The database holds to the address's form and the count; that the site is one a task asks for a listing on, and that the address is a page on it (on `google.com`, a link of Google's), are the API's to check, and nothing opens the address. Read by whoever can read the location and by the operator; written by no API role directly, only through `set_listing()` and `remove_listing()`, which answer a member of the location's organization alone (the operator and the Worker get no row, and a call to remove one answers false). Deleted with its location. |
 | `visit_lines` | A location's line: the `key` the line on its own site carries (32 characters of hex, made with the location by a trigger, and no secret, since it is in the site's source), when it was made (`key_made_at`, which an owner or admin replacing the key resets) and the last day (UTC) the line answered a check from the location's own site (`checked_on`). Read by whoever can read the location and by the operator; written by no API role directly: a trigger makes it with the location, and only `check_visit_line()`, which answers anyone holding the key, and `replace_site_key()`, which gives the location a new key (and a new `key_made_at`, with `checked_on` cleared) and answers an owner or an admin of the location's organization alone, change it. Deleted with its location. |
 | `visits` | The visits from an assistant that a location's own site reported: one row for a location, a day (UTC), an assistant (`chatgpt`, `gemini`, `perplexity`, `copilot` or `claude`) and a page, with how many (`count`). The page is a path of at most 200 characters without what follows a question mark, or empty for the visits to every page past the fiftieth of a day, which are counted together. No row is a visit: there is no time of day and nothing about the visitor. Read by whoever can read the location and by the operator; no caller who is not signed in can read it, and no API role writes it directly, only `record_visit()`, which answers anyone holding a location's key. A location can hold up to 255 rows a day, so the counts are read added up and never row by row, by `location_visits()`: a plain function that runs as the caller, so it adds up only what the caller may read (a member's own location, or everything for the operator) and is callable by no one who is not signed in. Deleted with its location. |
@@ -809,8 +810,8 @@ pnpm sync:agents
   zone. How the line's reading is limited (the builders' menus, what each assistant sends) is in
   the known gaps of [docs/architecture.md](docs/architecture.md).
 - **Most kinds of draft.** There are three: the note to the author of a page, the description for
-  a listing, and the copy for a page on the business's own site. Publishing that page is not built:
-  the owner does it, and says where it is. A task about asking
+  a listing, and the copy for a page on the business's own site. The product publishes that page only on a
+  connected WordPress site, on approval; elsewhere the owner does it and says where it is. A task about asking
   customers for reviews has no draft, since the product writes nothing to a business's customers.
   A real draft needs instructions for its kind in the private tuning, so a deployment writes none
   on real data until it has them, and one that has them for a note and not for a listing writes
@@ -827,19 +828,22 @@ pnpm sync:agents
 - **Anything that works from a connection.** An owner or admin can connect a sample account or a
   location's WordPress site, and remove either. Beyond the WordPress site itself (its one
   choice) and the front page it reads before proposing, nothing reads anything from an account. The
-  one thing published to a WordPress site is the business details block on a home page that is a
-  page; the owner still puts any other page on their site themselves. There is no other real kind
+  things published to a WordPress site are the business details block on a home page that is a
+  page and a page task's copy as a new page; the owner still puts anything else on their site
+  themselves. There is no other real kind
   of connection (a Google profile, a customer source). The other thing done through a connection is
   the sample kind of action, which sets the opening line of a made-up listing. The sample kind never fails and needs no allowance;
   a WordPress connection breaks when the site refuses its password and pauses when a plan stops
   including it. Signing in
   again to a connection that refused its sign-in, without removing it, is not built: it is removed
   and connected again.
-- **Most real kinds of action.** One is built: the business details on a WordPress home page
+- **Most real kinds of action.** Two are built: the business details on a WordPress home page and
+  a page task's copy published as a new page there
   ([ADR 0014](docs/adr/0014-only-the-worker-carries-out-an-action.md) and
-  [ADR 0018](docs/adr/0018-on-a-business-site-the-product-changes-only-what-it-made.md)). It takes
-  from an allowance that counts nothing, and nothing limits how long what it replaced is kept. A
-  site whose front page shows the latest posts is offered nothing, and a page builder or caching
+  [ADR 0018](docs/adr/0018-on-a-business-site-the-product-changes-only-what-it-made.md)). Both take
+  from an allowance that counts nothing, and nothing limits how long what they replaced is kept.
+  A page is not proposed where a page already sits at the address its title makes, and one
+  that is taken back goes to WordPress's trash. A site whose front page shows the latest posts is offered nothing, and a page builder or caching
   plugin may keep the block from showing. The sample kind is given 30 days to keep what it
   replaced, so that dropping can be seen, and does no task's work.
 - **A comparison of the structured details with what is on file.** The on-page check passes for a

@@ -4688,6 +4688,14 @@ describe("the operator", () => {
         expect(await kept()).toEqual([
           { url: "https://joes.example/p", action_id: published, set_by: null },
         ]);
+        // A member's address in its place is theirs.
+        await as("authenticated", member, () =>
+          db.query("select public.set_prompt_page($1, 'https://joes.example/theirs')", [page?.id]),
+        );
+        expect(await kept()).toEqual([
+          { url: "https://joes.example/theirs", action_id: null, set_by: member },
+        ]);
+        await as("service_role", null, () => rows(keep, [published, "https://joes.example/p"]));
 
         const [back] = await as("authenticated", member, () =>
           rows<{ id: string }>("select id from public.take_back_action($1)", [published]),

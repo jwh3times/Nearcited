@@ -306,6 +306,8 @@ describe("a page's copy as WordPress blocks", () => {
       'We <b>bake</b> & "serve". Where Raleigh. Joe\'s Pizza, Raleigh.',
     );
     expect(pageWords("<p>Joe&#039;s</p>\n\n<p>  Raleigh </p>")).toBe("Joe's Raleigh");
+    // A block's settings live in its comment, and may hold anything.
+    expect(pageWords('<!-- wp:html {"a":"b > c"} --><p>Words</p>')).toBe("Words");
     // A comment that never ends takes the rest of the page with it, quickly.
     expect(pageWords(`<p>Before</p><!--${"<!--".repeat(20000)}`)).toBe("Before");
   });

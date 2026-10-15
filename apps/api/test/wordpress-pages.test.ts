@@ -81,7 +81,10 @@ const wordpress: typeof fetch = async (input, init) => {
   });
   if (url.pathname === "/wp-json/wp/v2/pages" && method === "GET") {
     const slug = url.searchParams.get("slug");
-    return json(pages.filter((page) => page.slug === slug && page.status !== "trash").map(shown));
+    const statuses = (url.searchParams.get("status") ?? "publish").split(",");
+    return json(
+      pages.filter((page) => page.slug === slug && statuses.includes(page.status)).map(shown),
+    );
   }
   if (url.pathname === "/wp-json/wp/v2/pages" && method === "POST") {
     const body = JSON.parse(String(init?.body)) as Omit<Page, "id">;
@@ -270,6 +273,22 @@ describe("proposing to publish a page's copy", () => {
     ];
     const taken = await withCopy();
     expect(await proposeAfterSync(taken.connection.id, await worker())).toBe(0);
+    // A page in the trash is not at the address.
+    const [owners] = pages;
+    if (owners) owners.status = "trash";
+    expect(await proposeAfterSync(taken.connection.id, await worker())).toBe(1);
+  });
+
+  it("offers nothing where a member has said where the task's page is", async () => {
+    const { connection, location, task } = await withCopy();
+    expect(
+      (
+        await call(bob, "PUT", `/locations/${location.id}/tasks/${task.id}/page`, {
+          url: `${SITE}/our-own-page`,
+        })
+      ).status,
+    ).toBe(200);
+    expect(await proposeAfterSync(connection.id, await worker())).toBe(0);
   });
 
   it("is asked for once the copy is written, by reading the site again", async () => {
