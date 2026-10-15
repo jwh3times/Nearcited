@@ -1,4 +1,4 @@
-import type { Action, LocationActions } from "@nearcited/shared";
+import { type Action, EDITABLE_ACTION_KINDS, type LocationActions } from "@nearcited/shared";
 import { api } from "./api";
 
 /** How often the page asks again while the worker is carrying something out. */
@@ -35,7 +35,9 @@ export const writtenBy = (action: Action): string =>
  */
 export function actionState(action: Action, day: (iso: string) => string): string {
   const approver = action.approved_by_email ?? "someone who has left";
-  const approved = `Approved by ${approver}${action.approved_text ? ", who changed the text" : ""}.`;
+  const approved = action.takes_back
+    ? `Asked for by ${approver}.`
+    : `Approved by ${approver}${action.approved_text ? ", who changed the text" : ""}.`;
   switch (action.status) {
     case "proposed":
       return `Waiting for a yes until ${day(action.lapses_at)}.`;
@@ -76,3 +78,15 @@ export function whatItReplaced(action: Action, day: (iso: string) => string): st
   if (action.seen === null) return null;
   return action.seen.text ?? "Nothing";
 }
+
+/** Whether a member may change what an action would put there before saying yes. */
+export const editable = (action: Pick<Action, "kind">): boolean =>
+  EDITABLE_ACTION_KINDS.includes(action.kind);
+
+/** Whether what an action puts there is markup, shown as it is written rather than as prose. */
+export const isMarkup = (action: Pick<Action, "kind">): boolean =>
+  action.kind === "wordpress_details";
+
+/** What the page asks before taking an action back. */
+export const TAKE_BACK_QUESTION =
+  "Take this back? Nearcited will put back what was there before, as long as nobody has changed it since. Your organization's owners are told, as for anything else Nearcited does.";

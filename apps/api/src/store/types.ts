@@ -248,6 +248,13 @@ export interface Store {
    */
   retryAction(id: string): Promise<Action | null>;
   /**
+   * A member asks to have an action that was done taken back: a new action, already approved by
+   * them, that puts back what was there before. Null for anyone who is not a member of the
+   * location's organization. Throws a limit for one that was not done, one whose record of what
+   * it replaced is gone, one of a thing with something open, and one changed since.
+   */
+  takeBackAction(id: string): Promise<Action | null>;
+  /**
    * A location's alerts that the worker has not cleared, newest first, for whoever can read the
    * location. The dismissed ones are among them: a dismissed alert is still current, which is
    * what keeps the same thing from being raised again. Only those from scans of the given kind,
@@ -611,7 +618,7 @@ export interface Store {
   listStalledDrafts(before: string): Promise<string[]>;
   /** What one of the sample account's listings says. Worker only. */
   getSampleLine(connectionId: string, externalId: string): Promise<string | null>;
-  setSampleLine(connectionId: string, externalId: string, line: string): Promise<void>;
+  setSampleLine(connectionId: string, externalId: string, line: string | null): Promise<void>;
   /** One connection, for whoever may read its organization. The worker reads any. */
   getConnection(id: string): Promise<Connection | null>;
   /**

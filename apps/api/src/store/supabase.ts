@@ -194,7 +194,7 @@ const ORGANIZATION_COLUMNS =
 
 // What a member is sent of an action. `subject` and `basis` are the worker's own bookkeeping.
 const ACTION_COLUMNS =
-  "id, location_id, kind, connection_id, summary, seen, seen_dropped_at, proposed_text, written_by, status, proposed_at, lapses_at, approved_by_email, approved_at, approved_text, declined_by_email, declined_at, decline_reason, done_at, failed_at, failure, lapsed_at, lapse_reason, retry_of";
+  "id, location_id, kind, connection_id, summary, seen, seen_dropped_at, proposed_text, written_by, status, proposed_at, lapses_at, approved_by_email, approved_at, approved_text, declined_by_email, declined_at, decline_reason, done_at, failed_at, failure, lapsed_at, lapse_reason, retry_of, takes_back";
 
 const DRAFT_COLUMNS =
   "id, location_id, recommendation_id, status, asked_by_email, asked_at, failure, kind, text, written_at, sample_data";
@@ -365,6 +365,15 @@ export function createSupabaseStore(
         .select(ACTION_COLUMNS)
         .maybeSingle();
       if (error) fail("Decline an action", error);
+      return data ? ActionSchema.parse(data) : null;
+    },
+
+    async takeBackAction(id) {
+      const { data, error } = await db
+        .rpc("take_back_action", { action: id })
+        .select(ACTION_COLUMNS)
+        .maybeSingle();
+      if (error) fail("Take an action back", error);
       return data ? ActionSchema.parse(data) : null;
     },
 

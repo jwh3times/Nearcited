@@ -166,6 +166,8 @@ export const api = {
     json(ActionSchema, "POST", `/actions/${id}/decline`, reason ? { reason } : {}),
   /** Asks for a failed action again. */
   retryAction: (id: string) => json(ActionSchema, "POST", `/actions/${id}/retry`),
+  /** Asks for what an action did to be taken back: a new action, approved by whoever asked. */
+  takeBackAction: (id: string) => json(ActionSchema, "POST", `/actions/${id}/take-back`),
   /** Takes an alert off the page. It is raised again only once it has ended and begun afresh. */
   dismissAlert: (id: string) => json(AlertSchema, "POST", `/alerts/${id}/dismiss`),
   /** What an organization has connected, what it could connect, and whether the reader may. */

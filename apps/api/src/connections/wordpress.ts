@@ -385,3 +385,105 @@ export async function withdrawPassword(
     return error instanceof WordPressRefused;
   }
 }
+
+/** A page of the site, as its editor holds it. */
+export interface WordPressPage {
+  id: number;
+  /** Its content as written, before WordPress lays it out. */
+  raw: string;
+  link: string;
+}
+
+/** Reads one page as its editor holds it, or null where the site has no such page. */
+export async function readPage(
+  signIn: WordPressSignIn,
+  id: number,
+  deps: WordPressDeps = {},
+): Promise<WordPressPage | null> {
+  const response = await signedIn(
+    signIn,
+    route(signIn.api, `wp/v2/pages/${id}`, { context: "edit", _fields: "id,link,content,status" }),
+    {},
+    deps,
+  );
+  if (response.status === 404 || response.status === 410) {
+    await response.body?.cancel().catch(() => {});
+    return null;
+  }
+  const body = (await readJson(response)) as {
+    id?: unknown;
+    link?: unknown;
+    status?: unknown;
+    content?: { raw?: unknown };
+  } | null;
+  if (response.status !== 200 || !body || typeof body.content?.raw !== "string") {
+    throw new SiteUnreachable(`The site answered ${response.status} for a page.`);
+  }
+  if (body.status === "trash") return null;
+  return {
+    id,
+    raw: body.content.raw,
+    link: typeof body.link === "string" ? body.link : signIn.site,
+  };
+}
+
+/**
+ * The page the site shows as its home page, where it is a page of its own. Null where the home
+ * page is the list of latest posts, which has no content of its own to add to.
+ */
+export async function readFrontPage(
+  signIn: WordPressSignIn,
+  deps: WordPressDeps = {},
+): Promise<WordPressPage | null> {
+  const index = await signedIn(
+    signIn,
+    route(signIn.api, "", { _fields: "show_on_front,page_on_front" }),
+    {},
+    deps,
+  );
+  const body = (await readJson(index)) as {
+    show_on_front?: unknown;
+    page_on_front?: unknown;
+  } | null;
+  if (index.status !== 200 || !body)
+    throw new SiteUnreachable(`The site answered ${index.status}.`);
+  const id = body.page_on_front;
+  if (body.show_on_front !== "page" || typeof id !== "number" || id <= 0) return null;
+  return readPage(signIn, id, deps);
+}
+
+/**
+ * Whether the account may put any HTML on a page, a script included. WordPress strips a script
+ * from what anyone else saves, so the details block is offered only where this is true.
+ */
+export async function mayAddScripts(
+  signIn: WordPressSignIn,
+  deps: WordPressDeps = {},
+): Promise<boolean> {
+  const me = await signedIn(
+    signIn,
+    route(signIn.api, "wp/v2/users/me", { context: "edit", _fields: "capabilities" }),
+    {},
+    deps,
+  );
+  const body = (await readJson(me)) as { capabilities?: Record<string, unknown> } | null;
+  if (me.status !== 200 || !body) throw new SiteUnreachable(`The site answered ${me.status}.`);
+  return body.capabilities?.unfiltered_html === true;
+}
+
+/** Saves a page's content as written. */
+export async function writePageContent(
+  signIn: WordPressSignIn,
+  id: number,
+  raw: string,
+  deps: WordPressDeps = {},
+): Promise<void> {
+  const response = await signedIn(
+    signIn,
+    route(signIn.api, `wp/v2/pages/${id}`, { _fields: "id" }),
+    { method: "POST", body: { content: raw } },
+    deps,
+  );
+  await response.body?.cancel().catch(() => {});
+  if (response.status !== 200) throw new SiteUnreachable(`The site answered ${response.status}.`);
+}

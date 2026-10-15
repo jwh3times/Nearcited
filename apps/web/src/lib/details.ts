@@ -32,14 +32,18 @@ export function detailsProof(fix: Pick<DetailsFix, "before" | "since">): {
  * details there. `day` writes a date the way the page does.
  */
 export function detailsStatus(
-  fix: Pick<DetailsFix, "acted_at" | "checked_since">,
+  fix: Pick<DetailsFix, "acted_at" | "acted_by_action" | "checked_since">,
   missing: boolean,
   day: (iso: string) => string,
 ): string | null {
   if (!fix.acted_at) return null;
-  const marked = `Marked done ${day(fix.acted_at)}.`;
+  const marked = fix.acted_by_action
+    ? `Added to your home page by Nearcited on ${day(fix.acted_at)}.`
+    : `Marked done ${day(fix.acted_at)}.`;
   if (!fix.checked_since) return missing ? `${marked} The next scan will look for it.` : marked;
-  return missing
-    ? `${marked} The scan since did not find it on the page.`
-    : `${marked} The scan since found it on the page.`;
+  if (!missing) return `${marked} The scan since found it on the page.`;
+  // Nearcited saved it in the page, so what keeps it from being seen is how the page is shown.
+  return fix.acted_by_action
+    ? `${marked} The scan since did not find it on the page. A page builder such as Elementor, or a caching plugin, may be keeping it from showing. You can take it back on the Actions tab.`
+    : `${marked} The scan since did not find it on the page.`;
 }

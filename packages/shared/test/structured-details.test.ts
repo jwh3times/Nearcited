@@ -190,6 +190,7 @@ describe("buildDetailsFix", () => {
     expect(fixFor([recommendation()])).toEqual({
       id: "00000000-0000-4000-8000-0000000000d1",
       acted_at: null,
+      acted_by_action: null,
       checked_since: false,
       before: null,
       since: null,
@@ -211,6 +212,7 @@ describe("buildDetailsFix", () => {
     expect(fixFor([marked], evidence)).toEqual({
       id: marked.id,
       acted_at: "2026-10-05T09:00:00Z",
+      acted_by_action: null,
       checked_since: true,
       before: { answers: 3, cited: 1 },
       since: { answers: 2, cited: 2 },

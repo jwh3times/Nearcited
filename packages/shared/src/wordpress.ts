@@ -55,3 +55,53 @@ export function sameSite(a: string, b: string): boolean {
     return false;
   }
 }
+
+/**
+ * Where the business details block sits in a page's content: between these two comments, which
+ * mark it as the product's own. Nothing outside them is the product's, and nothing outside them
+ * is changed (`docs/adr/0018-on-a-business-site-the-product-changes-only-what-it-made.md`).
+ */
+const DETAILS_OPEN = "<!-- nearcited:details -->";
+const DETAILS_CLOSE = "<!-- /nearcited:details -->";
+/** The block editor's own wrapping, so the editor shows the block as Custom HTML and keeps it. */
+const HTML_OPEN = "<!-- wp:html -->";
+const HTML_CLOSE = "<!-- /wp:html -->";
+
+/** Where the product's block is in `raw`, wrapping and all, or null where it has none. */
+function detailsSpan(raw: string): { start: number; end: number; inner: string } | null {
+  const open = raw.indexOf(DETAILS_OPEN);
+  if (open === -1) return null;
+  const close = raw.indexOf(DETAILS_CLOSE, open + DETAILS_OPEN.length);
+  if (close === -1) return null;
+  let start = open;
+  let end = close + DETAILS_CLOSE.length;
+  const before = raw.slice(0, start).trimEnd();
+  const after = raw.slice(end).trimStart();
+  if (before.endsWith(HTML_OPEN) && after.startsWith(HTML_CLOSE)) {
+    start = before.length - HTML_OPEN.length;
+    end = raw.length - after.length + HTML_CLOSE.length;
+  }
+  return { start, end, inner: raw.slice(open + DETAILS_OPEN.length, close).trim() };
+}
+
+/** The product's details block on a page, as its content holds it, or null where it has none. */
+export function detailsOnPage(raw: string): string | null {
+  return detailsSpan(raw)?.inner || null;
+}
+
+/**
+ * A page's content with the product's details block put at its end, in place of the one that was
+ * there, or taken away where `block` is null. The rest of the content is kept as it was. A page
+ * written in the block editor gets it as a Custom HTML block; one written in the classic editor
+ * gets it as it is, since a block there would change how WordPress lays out the rest.
+ */
+export function withDetails(raw: string, block: string | null): string {
+  const span = detailsSpan(raw);
+  const rest = span ? `${raw.slice(0, span.start).trimEnd()}${raw.slice(span.end)}` : raw;
+  const kept = rest.trimEnd();
+  if (block === null) return kept;
+  const marked = `${DETAILS_OPEN}\n${block}\n${DETAILS_CLOSE}`;
+  const blocks = kept === "" || kept.includes("<!-- wp:");
+  const added = blocks ? `${HTML_OPEN}\n${marked}\n${HTML_CLOSE}` : marked;
+  return kept === "" ? added : `${kept}\n\n${added}`;
+}

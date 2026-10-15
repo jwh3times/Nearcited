@@ -249,6 +249,7 @@ export default {
           const outcome = await carryOutAction(action.data.action_id, {
             store,
             key: await sealingKey(env.CONNECTIONS_KEY),
+            outside: { localOrigin: env.WORDPRESS_LOCAL_ORIGIN ?? null },
           });
           console.log(`${what}: ${outcome}`);
           // The thing had changed since the member was shown it. Reading the account again now

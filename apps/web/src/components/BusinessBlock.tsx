@@ -98,7 +98,7 @@ export function BusinessBlock({ location, onOpenSettings, fix, onMarked }: Busin
       {fix && (
         <>
           <DetailsProof fix={fix} missing />
-          {onMarked && (
+          {onMarked && !fix.acted_by_action && (
             <div className="paste-actions">
               <button
                 type="button"

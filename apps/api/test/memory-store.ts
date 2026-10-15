@@ -221,7 +221,10 @@ export function createMemoryDb(): MemoryDb {
     visitLines: new Map(),
     visits: [],
     alerts: [],
-    actionKindTerms: new Map([["sample", { allowance: null, keeps_seen_days: 30 }]]),
+    actionKindTerms: new Map([
+      ["sample", { allowance: null, keeps_seen_days: 30 }],
+      ["wordpress_details", { allowance: "wordpress", keeps_seen_days: null }],
+    ]),
     sampleLines: new Map(),
     connections: [],
     connectionHealth: new Map(),
@@ -400,6 +403,7 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
     lapsed_at: null,
     lapse_reason: null,
     retry_of: null,
+    takes_back: null,
     attempts: 0,
     carrying_since: null,
     told_at: null,
@@ -879,6 +883,47 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
     },
 
     // Mirrors retry_action(): a new action, approved by whoever asked, pointing at the failed one.
+    // Mirrors take_back_action(): a done action, nothing open for its thing, nothing done since.
+    async takeBackAction(id) {
+      const done = db.actions.find((candidate) => candidate.id === id);
+      if (!done || !visibleLocation(done.location_id)) return null;
+      if (done.status !== "done") {
+        throw new StoreError("limit", "Only something that was done can be taken back.");
+      }
+      if (done.seen_dropped_at !== null) {
+        throw new StoreError("limit", "What it replaced is no longer kept.");
+      }
+      if (openFor(done.location_id, done.kind, done.subject)) {
+        throw new StoreError("limit", "There is already one of these waiting or on its way.");
+      }
+      const since = db.actions.some(
+        (other) =>
+          other.location_id === done.location_id &&
+          other.kind === done.kind &&
+          other.subject === done.subject &&
+          other.status === "done" &&
+          (other.done_at ?? "") > (done.done_at ?? ""),
+      );
+      if (since) throw new StoreError("limit", "Something done since has changed this.");
+      const now = db.now ?? new Date().toISOString();
+      const back = {
+        ...newAction(done, now),
+        basis: `take-back:${done.id}`,
+        summary: `Take back: ${done.summary}`.slice(0, 300),
+        seen: { text: done.approved_text ?? done.proposed_text },
+        proposed_text: done.seen?.text ?? null,
+        written_by: "rule" as const,
+        recommendation_id: null,
+        seen_until: null,
+        status: "approved" as const,
+        approved_by_email: db.emails.get(userId ?? "") ?? null,
+        approved_at: now,
+        takes_back: done.id,
+      };
+      db.actions.push(back);
+      return sentAction(back);
+    },
+
     async retryAction(id) {
       const failed = db.actions.find((candidate) => candidate.id === id);
       if (!failed || !visibleLocation(failed.location_id)) return null;
@@ -906,13 +951,16 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
     // nor once the month's allowance has no room.
     async proposeAction(action) {
       if (userId !== null) throw new StoreError("forbidden", "worker only");
+      // A no, or a yes taken back, on the same basis.
       const declined = db.actions.some(
         (kept) =>
           kept.location_id === action.location_id &&
           kept.kind === action.kind &&
           kept.subject === action.subject &&
-          kept.status === "declined" &&
-          kept.basis === action.basis,
+          kept.basis === action.basis &&
+          (kept.status === "declined" ||
+            (kept.status === "done" &&
+              db.actions.some((back) => back.takes_back === kept.id && back.status === "done"))),
       );
       if (declined || openFor(action.location_id, action.kind, action.subject)) return null;
       if (!hasRoom(action.location_id, action.kind)) return null;
@@ -989,6 +1037,14 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         Object.assign(task, { acted_at: now, acted_by_action: action.id });
       }
       if (outcome === "done") Object.assign(action, { status: "done", done_at: now });
+      // Taking one back takes away the mark it put on its task.
+      if (outcome === "done" && action.takes_back) {
+        for (const marked of db.recommendations.filter(
+          (r) => r.acted_by_action === action.takes_back,
+        )) {
+          Object.assign(marked, { acted_at: null, acted_by_action: null });
+        }
+      }
       if (outcome === "failed") {
         Object.assign(action, { status: "failed", failed_at: now, failure: why ?? null });
       }
@@ -1177,7 +1233,8 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
 
     async setSampleLine(connectionId, externalId, line) {
       if (userId !== null) throw new StoreError("forbidden", "worker only");
-      db.sampleLines.set(`${connectionId}:${externalId}`, line);
+      if (line === null) db.sampleLines.delete(`${connectionId}:${externalId}`);
+      else db.sampleLines.set(`${connectionId}:${externalId}`, line);
     },
 
     async listConnections(organizationId) {

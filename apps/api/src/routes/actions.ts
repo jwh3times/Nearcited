@@ -2,6 +2,7 @@ import {
   type Action,
   ActionApprovalSchema,
   ActionDeclineSchema,
+  EDITABLE_ACTION_KINDS,
   type LocationActions,
 } from "@nearcited/shared";
 import type { Context } from "hono";
@@ -79,6 +80,17 @@ actionRoutes.post("/actions/:actionId/approve", async (c) => {
   const id = uuidParam(c, "actionId", "Action");
   const { text } = await parseJson(c, ActionApprovalSchema);
   await requireNotice(c, id);
+  // What a rule composed from the location's details goes onto a site as it is.
+  if (text !== undefined) {
+    const kept = await c.get("store").getAction(id);
+    if (kept && !EDITABLE_ACTION_KINDS.includes(kept.kind)) {
+      throw new ApiError(
+        422,
+        "not_editable",
+        "This change is made as it was proposed. Approve it or decline it.",
+      );
+    }
+  }
   const action = await c.get("store").approveAction(id, text);
   if (!action) throw notFound("Action");
   await queueCarryOut(c.env.SCAN_QUEUE, action);
@@ -102,6 +114,20 @@ actionRoutes.post("/actions/:actionId/retry", async (c) => {
   const id = uuidParam(c, "actionId", "Action");
   await requireNotice(c, id);
   const action = await c.get("store").retryAction(id);
+  if (!action) throw notFound("Action");
+  await queueCarryOut(c.env.SCAN_QUEUE, action);
+  return c.json(action, 201);
+});
+
+/**
+ * Asks to have an action that was done taken back. It is a new action, approved by whoever asked,
+ * which puts back what was there before, where that is still what the action left. Any member of
+ * the location's organization; to anyone else, the operator included, the action is not found.
+ */
+actionRoutes.post("/actions/:actionId/take-back", async (c) => {
+  const id = uuidParam(c, "actionId", "Action");
+  await requireNotice(c, id);
+  const action = await c.get("store").takeBackAction(id);
   if (!action) throw notFound("Action");
   await queueCarryOut(c.env.SCAN_QUEUE, action);
   return c.json(action, 201);

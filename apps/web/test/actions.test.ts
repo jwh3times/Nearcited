@@ -4,7 +4,9 @@ import {
   actionState,
   actionsQuery,
   actionText,
+  editable,
   hasActions,
+  isMarkup,
   whatItReplaced,
   writtenBy,
 } from "../src/lib/actions";
@@ -34,6 +36,7 @@ const action = (extra: Partial<Action> = {}): Action => ({
   lapsed_at: null,
   lapse_reason: null,
   retry_of: null,
+  takes_back: null,
   ...extra,
 });
 const day = (iso: string) => iso.slice(0, 10);
@@ -215,5 +218,28 @@ describe("actionState for an action that was out of date", () => {
     ).toBe(
       "Not done: what it would have replaced could no longer be kept, so it could not be checked. Approved by bob@example.com.",
     );
+  });
+});
+
+describe("what a member may do with what an action puts there", () => {
+  it("is change it first for the sample kind, and not for the details block, which is shown as code", () => {
+    expect(editable(action())).toBe(true);
+    expect(isMarkup(action())).toBe(false);
+    expect(editable(action({ kind: "wordpress_details" }))).toBe(false);
+    expect(isMarkup(action({ kind: "wordpress_details" }))).toBe(true);
+  });
+
+  it("says who asked for one to be taken back, not who approved it", () => {
+    expect(
+      actionState(
+        action({
+          status: "done",
+          done_at: "2026-10-14T09:00:00.000Z",
+          approved_by_email: "bob@example.com",
+          takes_back: "ac000000-0000-4000-8000-000000000002",
+        }),
+        day,
+      ),
+    ).toBe("Done on 2026-10-14. Asked for by bob@example.com.");
   });
 });

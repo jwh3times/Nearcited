@@ -125,8 +125,13 @@ pass `pnpm check` and run in mock mode without it.
   allowance it takes from, and how many days what it replaced may be kept. `claim_action()` takes
   from the month and `finish_action()` gives it back when the thing was not done and marks the
   task the action did: count an action nowhere else, and add no path by which a member clears a
-  task an action marked. What an action read from outside is kept in `seen` and nowhere else, so
-  that `drop_expired_seen()` can drop it on its day.
+  task an action marked, but taking that action back. What an action read from outside is kept in `seen` and nowhere else, so
+  that `drop_expired_seen()` can drop it on its day. On a business's own site an action adds or
+  changes only what the product made, marked as its own, and compares only that part before it
+  writes (`docs/adr/0018-on-a-business-site-the-product-changes-only-what-it-made.md`): never
+  edit the owner's text, menus, themes or plugins. A change composed by rule is approved as it
+  is (`EDITABLE_ACTION_KINDS`). Taking back is a new action made only by `take_back_action()`,
+  which a member asks for, and it removes only what the action put there.
 - **Only the worker raises or clears an alert, and an alert is kept, not worked out again.**
   `complete_scan()` writes the alerts a scan raises and clears (`deriveAlerts`,
   `packages/shared/src/alerts.ts`). A request only dismisses one, through `dismiss_alert()`, which
