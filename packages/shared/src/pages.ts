@@ -361,26 +361,37 @@ export function pageBlocks(text: string, closing: string | null): string {
   ].join("\n\n");
 }
 
+/** `text` with every span from `open` to `close` made a space, read once from start to end. */
+function between(text: string, open: string, close: string, dropUnclosed: boolean): string {
+  let kept = "";
+  let at = 0;
+  while (at < text.length) {
+    const start = text.indexOf(open, at);
+    if (start === -1) break;
+    const end = text.indexOf(close, start + open.length);
+    // No close after this opening means none after any later one either.
+    if (end === -1) {
+      kept += dropUnclosed ? `${text.slice(at, start)} ` : text.slice(at);
+      return kept;
+    }
+    kept += `${text.slice(at, start)} `;
+    at = end + close.length;
+  }
+  return kept + text.slice(at);
+}
+
 /**
  * What a page says, as it is compared: its words without the markup around them, with the
  * entities read and the spaces between them made one. Two pages that say the same thing compare
  * equal whatever WordPress did to how the HTML was written.
  */
 export function pageWords(raw: string): string {
-  // Comments first, by hand: a pattern for "anything up to the end of the comment" is tried again
-  // from every opening of one that never ends, which takes the square of the length.
-  let text = "";
-  let at = 0;
-  while (at < raw.length) {
-    const open = raw.indexOf("<!--", at);
-    if (open === -1) break;
-    text += `${raw.slice(at, open)} `;
-    const close = raw.indexOf("-->", open + 4);
-    at = close === -1 ? raw.length : close + 3;
-  }
-  text += raw.slice(at);
-  return text
-    .replace(/<[^>]*>/g, " ")
+  // By hand, in one pass each: a pattern for "anything up to the end of a comment" or "of a tag"
+  // is tried again from every opening of one that never ends, which takes the square of the
+  // length. A comment left open takes the rest with it; a "<" left open is text, as a browser
+  // would show it.
+  const tagless = between(between(raw, "<!--", "-->", true), "<", ">", false);
+  return tagless
     .replaceAll("&quot;", '"')
     .replaceAll("&#039;", "'")
     .replaceAll("&#8217;", "\u2019")

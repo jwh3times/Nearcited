@@ -310,5 +310,8 @@ describe("a page's copy as WordPress blocks", () => {
     expect(pageWords('<!-- wp:html {"a":"b > c"} --><p>Words</p>')).toBe("Words");
     // A comment that never ends takes the rest of the page with it, quickly.
     expect(pageWords(`<p>Before</p><!--${"<!--".repeat(20000)}`)).toBe("Before");
+    // And a "<" that never closes is text, however many of them there are.
+    expect(pageWords(`<p>a</p>${"<".repeat(50000)}`)).toBe(`a ${"<".repeat(50000)}`);
+    expect(pageWords("<p>a &lt; b</p>")).toBe("a < b");
   });
 });

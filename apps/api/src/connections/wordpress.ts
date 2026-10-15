@@ -154,10 +154,28 @@ interface Found {
   authorize: string | null;
 }
 
+/**
+ * The address a `Link` header names as the site's interface, `rel="https://api.w.org/"`, or
+ * undefined. Read by splitting, not by a pattern: the header is the site's to write, and a
+ * pattern for "anything up to the next >" is tried again from every "<" of one that never closes.
+ */
+export function interfaceLink(header: string): string | undefined {
+  for (const part of header.split(",")) {
+    const close = part.indexOf(">");
+    const start = part.indexOf("<");
+    if (start === -1 || close < start) continue;
+    const params = part
+      .slice(close + 1)
+      .split(";")
+      .map((param) => param.trim());
+    if (params.includes('rel="https://api.w.org/"')) return part.slice(start + 1, close).trim();
+  }
+  return undefined;
+}
+
 /** Where the interface is: the address the home page names for it, or `/wp-json/` beside it. */
 function apiRoot(response: Response, home: URL, deps: WordPressDeps): URL | null {
-  const links = response.headers.get("Link") ?? "";
-  const named = /<([^>]+)>\s*;\s*rel="https:\/\/api\.w\.org\/"/.exec(links)?.[1];
+  const named = interfaceLink(response.headers.get("Link") ?? "");
   const root = named ? siteAddress(named, deps, home) : new URL("/wp-json/", home);
   return root && sameSite(root.href, home.href) ? root : null;
 }

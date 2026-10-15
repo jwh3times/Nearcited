@@ -12,6 +12,7 @@ import { open, seal, sealingKey } from "../src/connections/seal";
 import {
   checkWordPress,
   decodeEntities,
+  interfaceLink,
   readSite,
   route,
   signInWith,
@@ -293,6 +294,17 @@ describe("what a WordPress connection reaches, and taking it back", () => {
       route("https://joespizza.example/?rest_route=/", "wp/v2/users/me", { context: "edit" }).href,
     ).toBe("https://joespizza.example/?rest_route=%2Fwp%2Fv2%2Fusers%2Fme&context=edit");
     expect(route(`${SITE}/wp-json`, "wp/v2/pages").href).toBe(`${SITE}/wp-json/wp/v2/pages`);
+  });
+
+  it("finds the interface among the links a home page names, whatever else is there", () => {
+    expect(
+      interfaceLink(
+        '<https://joespizza.example/wp-json/wp/v2/pages/7>; rel="alternate"; type="application/json", <https://joespizza.example/wp-json/>; rel="https://api.w.org/"',
+      ),
+    ).toBe("https://joespizza.example/wp-json/");
+    expect(interfaceLink('<https://joespizza.example/?p=7>; rel="shortlink"')).toBeUndefined();
+    expect(interfaceLink("")).toBeUndefined();
+    expect(interfaceLink("<".repeat(100000))).toBeUndefined();
   });
 
   it("reads a site's name as WordPress writes it", () => {
