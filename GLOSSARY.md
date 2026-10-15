@@ -29,6 +29,12 @@ system works; this file only settles vocabulary.
   minutes when the owner does it themselves, and marked done by the owner or by the action that
   did it. A step of the action plan states an observation; a task is the work that follows from
   it. See `docs/adr/0011-the-product-does-the-work-and-the-owner-approves.md`.
+- **Page task**: the work of publishing a page on the business's own site that answers one of its
+  prompts, because no answer to that prompt named the business. Marked done by the owner or by the
+  action that published it, and shown with how often the answers to that prompt named the business
+  before and since. Not a task about a source: it follows from a prompt.
+- **Page copy**: the draft for a page task: a title and the page under it, ending with a line
+  composed by rule from the location's details.
 - **Listing**: a business's own page on a site, as its owner gave it: where a customer is sent to
   find the business there. One for a location on a site, kept for the location and not for the
   task that asked for it. Not the page an assistant cited, which is often a list or somebody
@@ -68,8 +74,8 @@ system works; this file only settles vocabulary.
 - **First sighting**: the alert that the written answers have begun to name a business, or to
   cite a site, that no written answer of any earlier scan on record named or cited. Said once,
   and of the whole record, not of the scan window.
-- **Draft**: wording written for one of an owner's tasks: the note to a page's author, or the
-  description for a listing. A member asks for it, a model writes it, and it is labelled as a
+- **Draft**: wording written for one of an owner's tasks: the note to a page's author, the
+  description for a listing, or the copy for a page task. A member asks for it, a model writes it, and it is labelled as a
   model's. It states nothing about
   the business beyond what the location holds and what its owner said it does. There is one for
   a task, and writing it again replaces it. The owner sends or publishes it themselves, or

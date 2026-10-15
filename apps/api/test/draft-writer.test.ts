@@ -60,6 +60,7 @@ const given: DraftGiven = {
   what_we_do: "Wood-fired pizza and fresh pasta, family-run since 1998.",
   host: "travel.usnews.com",
   url: null,
+  prompt: null,
 };
 
 const tuning: DraftsTuning = {
@@ -102,6 +103,18 @@ describe("what a model is told about the business", () => {
         "The page: https://x.example/guide",
       ].join("\n"),
     );
+  });
+
+  it("is, for a page, the prompt it answers in place of a site and a page", () => {
+    const page = { ...given, host: "joespizza.example", prompt: "pizza open after 11 in Raleigh" };
+    const lines = setOut(page).split("\n");
+    expect(lines.slice(-1)).toEqual([
+      "The question the page answers: pizza open after 11 in Raleigh",
+    ]);
+    expect(lines.some((line) => line.startsWith("The site") || line.startsWith("The page"))).toBe(
+      false,
+    );
+    expect(factsNobodyGave(setOut(page), page)).toEqual([]);
   });
 
   it("says a detail is not on file, so the model is not left to fill a blank", () => {

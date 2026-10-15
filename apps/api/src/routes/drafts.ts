@@ -4,7 +4,7 @@ import type { AppEnv } from "../app";
 import { writesRealDrafts } from "../drafts";
 import { ApiError, notFound } from "../errors";
 import { usesSampleData } from "../providers";
-import { currentTasks } from "../tasks";
+import { currentDraftSubjects } from "../tasks";
 import { uuidParam } from "../validation";
 import { requireLocation } from "./locations";
 
@@ -41,7 +41,7 @@ draftRoutes.post("/locations/:locationId/tasks/:taskId/draft", async (c) => {
   );
   if (!organization) throw notFound("Task");
   const sample = usesSampleData(c.env) || organization.is_test;
-  const task = (await currentTasks(store, location, sample)).find(
+  const task = (await currentDraftSubjects(store, location, sample)).find(
     (candidate) => candidate.id === taskId,
   );
   if (!task) throw notFound("Task");

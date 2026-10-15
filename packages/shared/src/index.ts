@@ -9,6 +9,7 @@ export * from "./inputs";
 export * from "./limits";
 export * from "./listings";
 export * from "./operator";
+export * from "./pages";
 export * from "./recommendations";
 export * from "./schemas";
 export * from "./scoring";

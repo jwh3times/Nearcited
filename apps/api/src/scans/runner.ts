@@ -207,7 +207,7 @@ export async function runScan(scanId: string, deps: RunScanDeps): Promise<ScanOu
     await store.completeScan(scanId, {
       score,
       results,
-      recommendations: deriveRecommendations(location, pooled, site),
+      recommendations: deriveRecommendations(location, pooled, site, queries),
       site,
       alerts,
     });

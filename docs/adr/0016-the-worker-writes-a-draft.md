@@ -17,7 +17,10 @@ directory, or about a review site that does not let a business ask for reviews: 
 claimed and filled in, and the field that takes writing is the description. A task whose work is
 asking customers for reviews has none, since the product writes nothing to a business's
 customers. A task about a site of a kind nobody knows has none either: nobody knows what the site
-would take.
+would take. A third kind came with issue #140: the copy for a page on the business's own site that
+answers one of its prompts, for a task raised where no answer to that prompt named the business.
+It is written from the same details and the prompt, and nothing else, and its closing line, with
+the address and phone number on file, is composed by rule, not written.
 
 **A draft is asked for, not written when a task is opened.** A member presses a button on the
 task. A plan gives a number of drafts a month, and writing one for every task a page shows would

@@ -1453,11 +1453,12 @@ export type NamedCount = z.infer<typeof NamedCountSchema>;
 
 /** One piece of work for an owner, because of one source. Composed by rule, never by a model. */
 /**
- * The kinds of draft: wording written for a task. `note` is a note to the author of a page, and
- * `listing` the description a directory or review site asks a business for. See
+ * The kinds of draft: wording written for a task. `note` is a note to the author of a page,
+ * `listing` the description a directory or review site asks a business for, and `page` the copy
+ * for a page on the business's own site that answers one of its prompts. See
  * `docs/adr/0016-the-worker-writes-a-draft.md`.
  */
-export const DRAFT_KINDS = ["note", "listing"] as const;
+export const DRAFT_KINDS = ["note", "listing", "page"] as const;
 export const DraftKindSchema = z.enum(DRAFT_KINDS);
 export type DraftKind = z.infer<typeof DraftKindSchema>;
 
@@ -1573,6 +1574,64 @@ export const TaskSchema = z.object({
 });
 export type Task = z.infer<typeof TaskSchema>;
 
+/**
+ * Of the answers to one prompt, how many named the business, and how many cited the page that
+ * answers it. `cited` is null while nobody has said where the page is.
+ */
+export const PromptCountSchema = z.object({
+  answers: z.number().int().nonnegative(),
+  named: z.number().int().nonnegative(),
+  cited: z.number().int().nonnegative().nullable(),
+});
+export type PromptCount = z.infer<typeof PromptCountSchema>;
+
+/** Where the page for a page task is, as a member gave it. */
+export const PromptPageSchema = z.object({
+  /** The task it is the page for. */
+  recommendation_id: Id,
+  url: z.string(),
+  set_by_email: z.string().nullable(),
+  set_at: Timestamp,
+});
+export type PromptPage = z.infer<typeof PromptPageSchema>;
+
+/** What a member gives for where a page is. Its form is checked by `readPageAddress`. */
+export const PromptPageInputSchema = z.object({
+  url: z.string().trim().min(1, "Paste the address of the page").max(2000),
+});
+export type PromptPageInput = z.infer<typeof PromptPageInputSchema>;
+
+/**
+ * A page on the business's own site that would answer one of its prompts, because no answer to
+ * that prompt named the business. Composed by rule; only the copy for the page, its draft, is
+ * written by a model.
+ */
+export const PageTaskSchema = z.object({
+  /** The recommendation the task stands on, which is what marking it done updates. */
+  id: Id,
+  tracked_query_id: Id,
+  /** The prompt, as the location tracks it. */
+  prompt: z.string(),
+  title: z.string(),
+  /** The observation the task rests on, with its counts. */
+  summary: z.string(),
+  /** False once an answer to the prompt named the business. */
+  open: z.boolean(),
+  acted_at: Timestamp.nullable(),
+  /** The action that did the work, when one did. The mark then stays. */
+  acted_by_action: Id.nullable(),
+  /** Counted over the scans before `acted_at` and over those since. Null until it is marked. */
+  before: PromptCountSchema.nullable(),
+  since: PromptCountSchema.nullable(),
+  /** `page` while the copy can be written for it now, else null. */
+  draft_kind: DraftKindSchema.nullable(),
+  /** Its draft, once one has been asked for. */
+  draft: DraftSchema.nullable(),
+  /** Where the page is, once a member said. */
+  page: PromptPageSchema.nullable(),
+});
+export type PageTask = z.infer<typeof PageTaskSchema>;
+
 /** Of a set of answers, how many cited the business's own website. */
 export const CitedCountSchema = z.object({
   answers: z.number().int().nonnegative(),
@@ -1612,6 +1671,8 @@ export const LocationDetailSchema = z.object({
   action_plan: z.array(ActionPlanStepSchema),
   /** The work that follows from the sources, with whether it has been done and what moved. */
   tasks: z.array(TaskSchema),
+  /** A page to publish for each prompt no answer named the business for, and those done. */
+  page_tasks: z.array(PageTaskSchema),
   /** Where the organization's month of drafts stands. */
   drafts: DraftsStandingSchema,
   /** The connected accounts this location is matched to. */

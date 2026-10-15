@@ -147,6 +147,7 @@ export const defaultTuning: Tuning = {
       note: "Write a short note from the owner of the business to the author of the page, asking to be considered for it. Use only the details given.",
       listing:
         "Write a short description of the business for its listing on the site. Use only the details given.",
+      page: "Write a page for the business's own website that answers the question. Put its title on the first line. Use only the details given.",
     },
   },
 };

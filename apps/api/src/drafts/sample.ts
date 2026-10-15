@@ -35,6 +35,15 @@ const SAMPLE: Record<DraftKind, (given: DraftGiven) => string> = {
     ]
       .filter((line) => line !== null)
       .join(" "),
+  page: (given) =>
+    [
+      `${given.prompt ?? given.name}: ${given.name} in ${place(given)}`,
+      `${given.name} is in ${place(given)}. ${given.what_we_do}`,
+      "## What we do",
+      given.what_we_do,
+      "## Where to find us",
+      `${given.name} serves ${place(given)}.`,
+    ].join("\n\n"),
 };
 
 /**

@@ -19,6 +19,7 @@ import {
   type PlatformRole,
   PlatformRoleSchema,
   PriceChangeSchema,
+  PromptPageSchema,
   RecommendationSchema,
   ScanResultSchema,
   ScanSchema,
@@ -199,6 +200,7 @@ const DRAFT_COLUMNS =
   "id, location_id, recommendation_id, status, asked_by_email, asked_at, failure, kind, text, written_at, sample_data";
 
 const LISTING_COLUMNS = "location_id, site, url, set_by_email, set_at";
+const PROMPT_PAGE_COLUMNS = "recommendation_id, url, set_by_email, set_at";
 
 const LINE_COLUMNS = "location_id, key, key_made_at, checked_on";
 
@@ -486,6 +488,33 @@ export function createSupabaseStore(
         on_site: site,
       });
       if (error) fail("Remove a listing", error);
+      return data === true;
+    },
+
+    async listPromptPages(locationId) {
+      const { data, error } = await db
+        .from("prompt_pages")
+        .select(PROMPT_PAGE_COLUMNS)
+        .eq("location_id", locationId)
+        .order("set_at");
+      if (error) fail("List pages", error);
+      return PromptPageSchema.array().parse(data);
+    },
+
+    async setPromptPage(recommendationId, url) {
+      const { data, error } = await db
+        .rpc("set_prompt_page", { recommendation: recommendationId, address: url })
+        .select(PROMPT_PAGE_COLUMNS)
+        .maybeSingle();
+      if (error) fail("Set where a page is", error);
+      return data ? PromptPageSchema.parse(data) : null;
+    },
+
+    async removePromptPage(recommendationId) {
+      const { data, error } = await db.rpc("remove_prompt_page", {
+        recommendation: recommendationId,
+      });
+      if (error) fail("Remove where a page is", error);
       return data === true;
     },
 

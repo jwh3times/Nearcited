@@ -1,10 +1,12 @@
 import { hostOf } from "./analysis";
+import { pageRule, pageTaskTitle, promptsLeftOut } from "./pages";
 import {
   CITING_SURFACES,
   type SiteCheck,
   SURFACE_LABELS,
   SURFACES_BY_KIND,
   type Surface,
+  type TrackedQuery,
 } from "./schemas";
 import { summarizeBySurface } from "./scoring";
 import { SITE_CHECKS } from "./site";
@@ -24,6 +26,7 @@ interface LocationFacts {
 }
 
 interface ResultFacts {
+  tracked_query_id?: string;
   surface: Surface;
   mentioned: boolean;
   competitors: string[];
@@ -65,11 +68,15 @@ function mostNamed(results: readonly ResultFacts[], limit: number): string[] {
  * - `site:<check>`: the on-page check of the business's home page found something an assistant
  *   cannot read past. Clears when the next scan's fetch of the page passes that check. `site` is
  *   null when the page was not checked, which makes no claim either way.
+ * - `page:<prompt>`: no assistant answer to an active prompt named the business, of at least
+ *   four, and the location has a website to publish a page on (`promptsLeftOut`). Clears when an
+ *   answer to that prompt names the business.
  */
 export function deriveRecommendations(
   location: LocationFacts,
   results: readonly ResultFacts[],
   site: SiteCheck | null = null,
+  queries: readonly Pick<TrackedQuery, "id" | "kind" | "text" | "is_active">[] = [],
 ): DerivedRecommendation[] {
   const recommendations: DerivedRecommendation[] = [];
 
@@ -131,6 +138,14 @@ export function deriveRecommendations(
       rule: "own_site_uncited",
       title: "Assistants are not reading your website",
       detail: `None of the ${answers.length} assistant answers cited ${ownHost}. Make sure its home page says in plain text what the business does and where, so there is something to quote. This clears when an answer cites the site.`,
+    });
+  }
+
+  for (const { query, answers: asked } of promptsLeftOut(location.website, queries, results)) {
+    recommendations.push({
+      rule: pageRule(query.id),
+      title: pageTaskTitle(query.text),
+      detail: `None of the ${asked} assistant answers to “${query.text}” named ${location.name}. A page on ${ownHost} that answers it in plain words gives an assistant something of yours to read for it. This clears when an answer to it names the business.`,
     });
   }
 

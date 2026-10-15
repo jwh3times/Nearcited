@@ -130,6 +130,27 @@ export async function withUnnamedSource(locationId: string, host: string): Promi
 }
 
 /**
+ * Gives a location a page task for its first prompt, as a scan's rule would once no answer to the
+ * prompt had named the business. Returns the prompt. Local stack only.
+ */
+export async function withPageTask(account: Account, locationId: string): Promise<string> {
+  const detail = await api<{ queries: { id: string; text: string }[] }>(
+    account,
+    "GET",
+    `/locations/${locationId}`,
+  );
+  const [query] = detail.queries;
+  if (!query) throw new Error("The location has no prompt to write a page for.");
+  await asWorker("recommendations", {
+    location_id: locationId,
+    rule: `page:${query.id}`,
+    title: `Publish a page that answers “${query.text}”`,
+    detail: "Detail",
+  });
+  return query.text;
+}
+
+/**
  * Gives an organization `each` drafts a month for the one location it is made to cover, as a
  * plan that includes drafts would. Local stack only.
  */

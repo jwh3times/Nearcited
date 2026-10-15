@@ -35,6 +35,7 @@ import {
   PlanSchema,
   type PlanSettings,
   PriceChangeSchema,
+  PromptPageSchema,
   PublicAuditSchema,
   RecommendationSchema,
   type RecommendationStatus,
@@ -213,6 +214,11 @@ export const api = {
     json(ListingSchema, "PUT", `/locations/${locationId}/listings/${site}`, { url }),
   removeListing: (locationId: string, site: string) =>
     send("DELETE", `/locations/${locationId}/listings/${site}`).then(() => undefined),
+  /** Says where the page for a page task is, the first time or in place of another. */
+  setPromptPage: (locationId: string, taskId: string, url: string) =>
+    json(PromptPageSchema, "PUT", `/locations/${locationId}/tasks/${taskId}/page`, { url }),
+  removePromptPage: (locationId: string, taskId: string) =>
+    send("DELETE", `/locations/${locationId}/tasks/${taskId}/page`).then(() => undefined),
   /** A location's line: the key its site carries, the line to paste, and when it last answered. */
   getLine: (locationId: string) => json(LocationLineSchema, "GET", `/locations/${locationId}/line`),
   /** A location's visits from assistants over the last thirty days, added up. */

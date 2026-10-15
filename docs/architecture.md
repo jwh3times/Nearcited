@@ -267,7 +267,7 @@ It is a statement about answers, not about pages. "Named in 0 of 6" means none o
 that cited the site named the business. Nothing fetches the site to see whether the business is
 on it.
 
-Two recommendation rules read it (`packages/shared/src/recommendations.ts`):
+Two recommendation rules read it (`packages/shared/src/recommendations.ts`), and a third, `page:<prompt>`, is described under "Tasks":
 
 - `source:<host>`: a site other than the business's own, cited in at least two answers, where no
   answer that cited it named the business, and that does not look like a competitor's own site (see
@@ -377,7 +377,7 @@ is also matched with "&" or "and" dropped.
 A location's on-page check is kept in `scans.site_check`, written by the worker just before it
 completes the scan, so the page can show the whole checklist and the plan can give reasons. The
 recommendations a scan stores are unchanged; the location page leaves the ones the plan already
-covers (`source:*`, `site:*`, `own_site_uncited`) out of its list.
+covers (`source:*`, `site:*`, `own_site_uncited`) out of its list, and `page:*` too, which the Website tab shows as page tasks (see "Tasks").
 
 The block from "The on-page check" is shown on the `fix_website` step while `structured_data`
 fails, with its mark done. The location page puts it there; `buildActionPlan` does not carry it,
@@ -416,6 +416,31 @@ from counts the product holds; nothing a model wrote is in one.
   mark does not. With fewer than `MIN_ANSWERS_SINCE` (2) answers since, the page says it is too
   early to compare. The two counts are set side by side; nothing says the work caused the change.
   The mark on the structured details uses the same read (see "The on-page check").
+- **A page task is a `page:<tracked_query_id>` recommendation** (`packages/shared/src/pages.ts`),
+  raised by `deriveRecommendations` through `promptsLeftOut`: an active assistant prompt (not a
+  Google one) with at least `MIN_ANSWERS_FOR_PAGE` (4) assistant answers in the scan window, none of
+  which named the business, for a location with a website to put the page on. The runner passes it
+  the location's queries. It clears, as any recommendation does, when an answer to that prompt names
+  the business. It is not a task about a source, so `buildTasks` does not carry it and the Overview
+  list leaves it out. `buildPageTasks` makes it `page_tasks` on `GET /api/locations/:id`
+  (`PageTaskSchema`), which the Website tab shows as "Pages that answer your prompts": the prompt, the
+  count of answers and how many named the business, a mark done (the same `PATCH
+  /api/recommendations/:id`) and its draft. A task marked done is kept in view while its prompt has
+  since been named, as the other tasks are. For a marked task it sets side by side how many answers to
+  the prompt named the business over the scans before the mark and over those since (`before` and
+  `since`, a `PromptCount`, read by `Store.listResultsAround`); nothing says the page caused the
+  change. Once a member says where the page is, `since.cited` also counts the answers that cited it
+  (`citesPage`, which ignores `www.`, case, a trailing slash and anything after `?` or `#`).
+- **Where the page is.** `PUT` and `DELETE /api/locations/:locationId/tasks/:taskId/page`
+  (`apps/api/src/routes/pages.ts`) keep or take away the address in `prompt_pages`, one row for a task
+  (`recommendation_id` is unique). Only the form is checked, by `readPageAddress`: https, on the
+  location's own website or a subdomain of it, not its home page, at most `PAGE_URL_MAX` (500)
+  characters, without the part after `#`; a failure is 422. Nothing opens the address. Only a
+  member writes it, through `set_prompt_page()` and `remove_prompt_page()`, which are security-definer
+  functions that answer a member of the location's organization and only for a `page:` task: to
+  anyone else, the operator included, and for any other task, the route answers 404.
+  `prompt_pages` has a `select` policy for whoever can read the location and one for the operator, and
+  no write grant for any API role. It is deleted with its task and with its location.
 - A dismissed recommendation has no task. Ticks on action-plan steps are still kept in the browser
   only. The operator's read-only view hides the buttons.
 - A task about a page somebody wrote (`editorial`) can have a draft, the note to its author, and
@@ -556,7 +581,7 @@ from counts the product holds; nothing a model wrote is in one.
   the code or the card, and it is not a draft: no worker writes it, no allowance is taken from and
   nothing is recorded for it.
 - Not built: a review-form link on any site but those two (Google's is the link its owner pastes,
-  and none is made from a place ID), page copy as a task (and so a draft of it), and anything the
+  and none is made from a place ID), publishing a page for the owner, and anything the
   product does outside itself for real. Approvals and actions exist (see
   "Actions") but the only kind is a sample one, which does no task's work, so no action has marked a task.
 
@@ -1229,8 +1254,8 @@ reading through an account sees the tab and has no buttons.
 ## Drafts
 
 A draft is wording written for one of an owner's tasks, so that the owner has less to write: the
-note to the author of a page, or the description a directory or review site asks a business for
-(`drafts`; the terms are in `GLOSSARY.md`, the decision in
+note to the author of a page, the description a directory or review site asks a business for, or
+the copy for a page on the business's own site that answers one of its prompts (`drafts`; the terms are in `GLOSSARY.md`, the decision in
 `docs/adr/0016-the-worker-writes-a-draft.md`). It is `asked`, then `written` or `failed`. The
 product sends nothing: the owner copies it and changes it wherever it is going. On sample data the text is generated; on real data Claude writes it, from the
 instructions the private tuning holds for its kind.
@@ -1240,8 +1265,9 @@ instructions the private tuning holds for its kind.
   `reviews_unasked`, a review site that does not let a business ask for reviews, whose listing is
   claimed and filled in. There is none for `reviews`, whose work is asking customers and which the
   product writes nothing to (the request to send that task hands over is composed by rule and the
-  code to print is drawn, and neither is written; see "Tasks"), or for `unknown`. The two kinds are
-  `DRAFT_KINDS` (`packages/shared/src/schemas.ts`), and the check on `drafts.kind` takes both. A draft of either
+  code to print is drawn, and neither is written; see "Tasks"), or for `unknown`. A page task
+  (see "Tasks") has the third kind, `page`, and no site: `draftKindFor` is not asked about it. The three kinds are
+  `DRAFT_KINDS` (`packages/shared/src/schemas.ts`), and the check on `drafts.kind` takes all three. A draft of any
   kind is asked for, written, checked, kept and counted the same way, against the one monthly
   number. `buildTasks` puts it on a task as `draft_kind` only while the task is still to do and only
   where a draft of that kind can be written, and puts the task's own `draft` beside it, kept after
@@ -1257,8 +1283,10 @@ instructions the private tuning holds for its kind.
   a task keeps its `draft_kind` on a plan with no drafts, and the card offers nothing there because
   the month's `allowed` is null (`draftsStanding`, below).
 - **A member asks, and a request records it.** `POST /api/locations/:locationId/tasks/:taskId/draft`
-  reads the location's tasks as they stand (`currentTasks`, `apps/api/src/tasks.ts`: the same pool
-  the rates use, without the counts either side of a mark, and for the kind of data the page shows)
+  reads the location's tasks as they stand (`currentDraftSubjects`, `apps/api/src/tasks.ts`: the
+  source tasks of `currentTasks`, the same pool the rates use, and the page tasks of `buildPageTasks`, each
+  reduced to what its draft is written for, without the counts either side of a mark, and for the
+  kind of data the page shows)
   and refuses what it can before anything is recorded (`draftRequest`): 409 `no_draft` for a task
   that is gone or has no wording to write, and 409 `what_we_do_missing` until the location has said
   what the business does (`locations.what_we_do`), because without it a draft would be a name and a
@@ -1293,7 +1321,9 @@ instructions the private tuning holds for its kind.
   write) the ask is failed with "Drafts cannot be written here yet." and the month given back.
 - **A draft is written from what is held, and nothing from the answers.** `DraftGiven` is the
   location's name, city, region, category and website, `what_we_do`, the site the task is about and
-  the page of it the answers cited most. A detail not on file is null and is not filled in. What an
+  the page of it the answers cited most, and, for a page, `prompt`, the prompt it answers as the
+  location tracks it (null for the other kinds). For a page the site is the business's own, and
+  the prompt counts as given, so the check below lets it be repeated. A detail not on file is null and is not filled in. What an
   assistant said about the business is the thing measured and is not given. A writer
   (`DraftWriter`) only writes: it names the kinds it writes, returns text, and reports what each
   call used (`onUsage`). Whether the text may be kept is decided here.
@@ -1306,7 +1336,7 @@ instructions the private tuning holds for its kind.
   catches an invented phone number, year, price, link or address to write to, and does not catch a
   boast. It runs on whatever wrote the text.
 - **Sample text is nobody's writing.** For sample data, `sampleWriter` (`apps/api/src/drafts/sample.ts`)
-  generates the text for the kind from `DraftGiven` (a note, or one short paragraph for a listing)
+  generates the text for the kind from `DraftGiven` (a note, one short paragraph for a listing, or a short titled page)
   and calls nothing. It goes through the same check and the same count, and is kept with
   `sample_data` true and no `model`. The page labels it as sample text that no model wrote, and a
   real draft as a model's.
@@ -1317,7 +1347,8 @@ instructions the private tuning holds for its kind.
   tuning, so a build writes a kind on real data only if its private tuning has instructions for that
   kind (a build with them for a note and none for a listing writes notes and refuses to ask for
   listings); the user message is `setOut(given)`: `DraftGiven` one detail to a line, each with its
-  name, and "not on file" for one that is null, the same way every time. The model, its effort and
+  name, and "not on file" for one that is null, the same way every time. For a page it ends with
+  "The question the page answers" in place of the site and page lines. The model, its effort and
   the longest a draft may run (`max_tokens`) are the tuning's too. It makes one call per write,
   with a 60-second timeout and no retries, since a draft that fails is not counted and its reader
   asks again. It joins the text blocks of the answer and throws on a refusal or an answer that did
@@ -1356,7 +1387,16 @@ instructions the private tuning holds for its kind.
   `attempts`, `allowance_month` and `model` are the worker's bookkeeping, and no route sends them. A
   draft is deleted with its task and with its location.
 
-On the Overview tab each task card shows its draft (`TaskDraft`). "Write a draft" asks for one; if the
+- **Page copy is read by rule, and ends with a closing line the product composes.** The copy's
+  first line that is not blank is its title, a block starting `## ` is a heading and any other is a
+  paragraph (`pageParts`). The owner copies it whole with `pageToCopy`: the copy, then
+  `pageClosing`, composed by rule from the location's name, address, region, postal code and its
+  phone number formatted for its country, each only where on file; no model writes it. `pageSlug`
+  makes an address from a title, for publishing, which is not built.
+
+On the Overview tab each task card shows its draft (`TaskDraft`). The Website tab's page tasks use
+the same card, which for page copy shows it as a page, offers "Copy the page" and "Mark published"
+(which marks the task done) and, once marked, asks "Where is the page?". "Write a draft" asks for one; if the
 location has not said what the business does, the card asks first, under "What we do", and saves
 it to the location (`PATCH /api/locations/:id`) before asking. While a draft is `asked` the card says one
 is being written and the location page asks again every two seconds. A written draft is shown with a
@@ -1726,8 +1766,9 @@ drop it.
   been measured only in a trial, whose readings are kept privately: a draft's use is recorded, so
   the figure can be read from `provider_usage` once real drafts are written, and a month given back does not return what a failed write cost, so a
   writer that keeps failing the check is paid for twice an ask and shows only in the operator's
-  spend. Two kinds of draft exist, the note to the author of a page and the description for a
-  listing; copy for a page on the business's own site is not built. The check on what a draft states
+  spend. Three kinds of draft exist: the note to the author of a page, the description for a
+  listing and the copy for a page on the business's own site. Nothing publishes that page; the owner
+  does, and says where it is. The check on what a draft states
   reads characters and not meaning.
 - A listing is kept as a member gave it, and only its form is checked: an address on the right
   site that leads to no page, or to another business's, is kept, because nothing opens it (see

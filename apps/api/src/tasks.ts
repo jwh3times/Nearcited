@@ -1,8 +1,11 @@
 import {
+  buildPageTasks,
   buildTasks,
   CITING_SURFACES,
   type Draft,
+  type DraftKind,
   type Location,
+  pageDraftSubject,
   poolWindow,
   SCAN_WINDOW,
   type ScanResult,
@@ -49,4 +52,44 @@ export async function currentTasks(
     drafts,
     listings: [],
   });
+}
+
+/** A task a draft can be asked for, of either sort: what the draft is written for. */
+export interface DraftSubject {
+  id: string;
+  draft_kind: DraftKind | null;
+  host: string;
+  url: string | null;
+  prompt: string | null;
+}
+
+/**
+ * Every task a draft can be asked for at a location as things stand now: the sources' tasks and
+ * the pages' (`pages.ts`), each reduced to what its draft is written for. What a draft is asked
+ * for against, and what the worker writes one from.
+ */
+export async function currentDraftSubjects(
+  store: Store,
+  location: Location,
+  sample: boolean,
+): Promise<DraftSubject[]> {
+  const [tasks, recommendations, queries, recent] = await Promise.all([
+    currentTasks(store, location, sample),
+    store.listRecommendations(location.id),
+    store.listQueries(location.id),
+    store.listRecentResults(location.id, SCAN_WINDOW, sample),
+  ]);
+  const pages = buildPageTasks({
+    name: location.name,
+    recommendations,
+    queries,
+    results: poolWindow(recent),
+    evidence: new Map(),
+    drafts: [],
+    pages: [],
+  });
+  return [
+    ...tasks.map(({ id, draft_kind, host, url }) => ({ id, draft_kind, host, url, prompt: null })),
+    ...pages.map((page) => pageDraftSubject(page, location.website)),
+  ];
 }

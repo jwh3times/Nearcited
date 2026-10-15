@@ -539,6 +539,29 @@ describe("the scan window", () => {
     expect(recommendations[0]?.detail).toContain("any of 2 checks");
   });
 
+  it("asks for a page for a prompt none of the window's four answers named the business for", async () => {
+    await scan(silent);
+    const [query] = await worker.listQueries(locationId);
+    // Two answers say too little.
+    expect((await worker.listRecommendations(locationId)).map((r) => r.rule)).not.toContain(
+      `page:${query?.id}`,
+    );
+    await scan(silent);
+    const page = (await worker.listRecommendations(locationId)).find(
+      (recommendation) => recommendation.rule === `page:${query?.id}`,
+    );
+    expect(page).toMatchObject({
+      status: "open",
+      title: "Publish a page that answers “best pizza in Raleigh”",
+    });
+    // An answer that names the business clears it.
+    await scan(providers);
+    expect(
+      (await worker.listRecommendations(locationId)).find((r) => r.rule === `page:${query?.id}`)
+        ?.status,
+    ).toBe("done");
+  });
+
   it("records the kind of scan and never mixes sample scans with real ones", async () => {
     const sample = await scan(providers, { sampleData: true });
     expect(sample.stored?.sample_data).toBe(true);

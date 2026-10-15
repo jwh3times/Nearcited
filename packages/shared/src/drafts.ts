@@ -30,6 +30,7 @@ const DRAFT_FOR: Partial<Record<SourceKind, DraftKind>> = {
   reviews_unasked: "listing",
   // `reviews` has none: its work is asking customers, and the product writes no request to them.
   // `unknown` has none: nobody knows what the site would take.
+  // `page` is for no site: it is the copy for a page of the business's own (`pages.ts`).
 };
 
 /** The kind of draft a task about a site of this kind has, or null when it has no wording to write. */
@@ -46,10 +47,12 @@ export interface DraftGiven {
   website: string | null;
   /** What the business does, in its owner's words. */
   what_we_do: string;
-  /** The site the task is about. */
+  /** The site the task is about: for a page, the business's own. */
   host: string;
   /** The page of that site an answer cited most, when the window still has one. */
   url: string | null;
+  /** The prompt a page answers, as the location tracks it. Null for every other kind. */
+  prompt: string | null;
 }
 
 type DraftLocation = Pick<
@@ -77,7 +80,7 @@ export interface DraftRequest {
  */
 export function draftRequest(
   location: DraftLocation,
-  task: Pick<Task, "host" | "url" | "draft_kind"> | undefined,
+  task: (Pick<Task, "host" | "url" | "draft_kind"> & { prompt?: string | null }) | undefined,
 ): DraftRequest | NoDraft {
   if (!task?.draft_kind) return "no_draft";
   if (!location.what_we_do) return "what_we_do_missing";
@@ -92,6 +95,7 @@ export function draftRequest(
       what_we_do: location.what_we_do,
       host: task.host,
       url: task.url,
+      prompt: task.prompt ?? null,
     },
   };
 }
@@ -146,6 +150,7 @@ export function factsNobodyGave(text: string, given: DraftGiven): string[] {
     given.what_we_do,
     given.host,
     given.url,
+    given.prompt,
   ]
     .filter((part) => part !== null)
     .join("\n");
