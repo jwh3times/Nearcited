@@ -144,7 +144,7 @@ export async function withPageTask(account: Account, locationId: string): Promis
   await asWorker("recommendations", {
     location_id: locationId,
     rule: `page:${query.id}`,
-    title: "Publish a page",
+    title: `Publish a page that answers “${query.text}”`,
     detail: "Detail",
   });
   return query.text;

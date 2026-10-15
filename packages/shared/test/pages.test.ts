@@ -113,7 +113,10 @@ describe("the page tasks shown", () => {
         recommendation(pageRule(PASTA)),
         recommendation("source:yelp.com"),
         recommendation(pageRule(PIZZA)),
-        recommendation(pageRule(KEYWORD), { status: "dismissed" }),
+        recommendation(pageRule(KEYWORD), {
+          status: "dismissed",
+          acted_at: "2026-10-02T00:00:00Z",
+        }),
         recommendation("page:gone"),
       ],
     });
@@ -192,6 +195,7 @@ describe("a page's address", () => {
     expect(readPageAddress(site, "http://shop.joespizza.example/a")).toEqual({
       url: "https://shop.joespizza.example/a",
     });
+    expect(readPageAddress(site, "https://notjoespizza.example/a")).toHaveProperty("problem");
     expect(readPageAddress(site, "https://joespizza.example.evil/a")).toEqual({
       problem:
         "That address is not on joespizza.example. Paste the address of the page on your site.",

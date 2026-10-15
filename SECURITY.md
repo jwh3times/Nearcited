@@ -70,6 +70,11 @@ Nearcited is multi-tenant, and tenant isolation is enforced by Postgres row-leve
   location's organization: calling `set_listing()` or `remove_listing()` for a location the caller
   is not a member of, the operator included, or writing `listings` directly. Also getting one kept
   that is not an address over https, or getting the product to open one.
+- Giving the address of a page task's page, or taking it away, as anyone but a member of the
+  location's organization: calling `set_prompt_page()` or `remove_prompt_page()` for a location the
+  caller is not a member of, the operator included, or for a task that is not a page task, or
+  writing `prompt_pages` directly. Also getting one kept that is not an address over https, or
+  getting the product to open one.
 - Taking back what an action did, or keeping what it replaced past its day: clearing a task an
   action marked done, or writing `recommendations.acted_by_action`, as a signed-in user; or finding
   a copy of what an action replaced anywhere but `seen`, which `drop_expired_seen()` clears once
