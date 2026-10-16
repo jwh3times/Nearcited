@@ -444,7 +444,13 @@ export function LocationDetail() {
                 drafts={drafts}
                 onChanged={refresh}
                 readOnly={readOnly}
-                publishes={connections.some((connection) => connection.kind === "wordpress")}
+                publishesTo={
+                  connections.some((connection) => connection.kind === "wordpress")
+                    ? "wordpress"
+                    : connections.some((connection) => connection.kind === "hosted_pages")
+                      ? "hosted_pages"
+                      : null
+                }
               />
             )}
             <WordPressConnect

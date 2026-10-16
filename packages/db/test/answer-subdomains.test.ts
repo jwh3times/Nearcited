@@ -447,4 +447,102 @@ describe("answer subdomains", () => {
       }
     });
   });
+
+  describe("publishing a hosted page on approval", () => {
+    let site: string;
+    let connection: string;
+    const actionFor = async (status: string, kind = "hosted_page") => {
+      const [made] = await rows<{ id: string }>(
+        `insert into public.actions (location_id, kind, connection_id, subject, basis, summary, seen, proposed_text, written_by, status)
+         values ($1, $2, $3, $5, 'copy', 'Publish', '{"text": null}', 'copy', 'model', $4) returning id`,
+        [site, kind, connection, status, `page:${crypto.randomUUID()}`],
+      );
+      return made?.id ?? "";
+    };
+    const publish = (action: string, slug = "late-night") =>
+      as("service_role", null, () =>
+        rows<{ address: string | null }>(
+          "select public.publish_hosted_page($1, $2, 'Late night', 'Late night\n\nWords.') as address",
+          [action, slug],
+        ),
+      ).then(([row]) => row?.address ?? null);
+
+    beforeAll(async () => {
+      site = await locationOf(pro, "https://www.publishing.example", "Publishing Pizza");
+      connection = crypto.randomUUID();
+      await as("authenticated", owner, () =>
+        db.query(create, [site, connection, "answers", "h".repeat(12)]),
+      );
+    });
+
+    it("takes from the hosted pages allowance", async () => {
+      expect(
+        await rows(
+          "select allowance, keeps_seen_days from public.action_kind_terms where kind = 'hosted_page'",
+        ),
+      ).toEqual([{ allowance: "hosted_pages", keeps_seen_days: null }]);
+    });
+
+    it("is done by the worker alone", async () => {
+      const action = await actionFor("approved");
+      for (const sql of [
+        `select public.publish_hosted_page('${action}', 'x', 'X', 'X')`,
+        `select public.take_back_hosted_page('${action}')`,
+      ]) {
+        for (const [role, user] of [
+          ["authenticated", owner],
+          ["anon", null],
+        ] as const) {
+          await expect(
+            as(role, user, () => db.query(sql)),
+            `${role} ${sql}`,
+          ).rejects.toThrow(/permission denied/);
+        }
+      }
+    });
+
+    it("serves an approved action's page once the subdomain is live, at one address at a time", async () => {
+      const action = await actionFor("approved");
+      expect(await publish(action)).toBeNull();
+      await db.query(
+        "update public.answer_subdomains set live_at = now() where connection_id = $1",
+        [connection],
+      );
+      expect(await publish(await actionFor("proposed"))).toBeNull();
+      expect(await publish(await actionFor("approved", "wordpress_page"))).toBeNull();
+      expect(await publish(action)).toBe("https://answers.publishing.example/late-night");
+      await expect(publish(await actionFor("approved"))).rejects.toThrow(
+        /hosted_pages_live|duplicate/,
+      );
+      expect(
+        await as("anon", null, () =>
+          rows<{ answer: { kind: string } }>(
+            "select public.hosted_page('answers.publishing.example', '/late-night') as answer",
+          ),
+        ),
+      ).toMatchObject([{ answer: { kind: "page", title: "Late night" } }]);
+
+      // Taken back, its address answers that it is gone, and the address is free again.
+      expect(
+        await as("service_role", null, () =>
+          rows("select public.take_back_hosted_page($1) as taken", [action]),
+        ),
+      ).toEqual([{ taken: true }]);
+      expect(
+        await as("service_role", null, () =>
+          rows("select public.take_back_hosted_page($1) as taken", [action]),
+        ),
+      ).toEqual([{ taken: false }]);
+      expect(
+        await as("anon", null, () =>
+          rows<{ answer: { kind: string } }>(
+            "select public.hosted_page('answers.publishing.example', '/late-night') as answer",
+          ),
+        ),
+      ).toMatchObject([{ answer: { kind: "gone" } }]);
+      expect(await publish(await actionFor("approved"))).toBe(
+        "https://answers.publishing.example/late-night",
+      );
+    });
+  });
 });

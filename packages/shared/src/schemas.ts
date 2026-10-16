@@ -1256,10 +1256,16 @@ export type ConnectionMessage = z.infer<typeof ConnectionMessageSchema>;
  * The kinds of action: what the product can do outside itself for a business. `sample` changes
  * a made-up line on a sample listing, where the data is generated. `wordpress_details` puts the
  * business details block at the end of a WordPress home page (`wordpress.ts`), and
- * `wordpress_page` publishes a page task's copy as a new page of the site (`pages.ts`). See
+ * `wordpress_page` publishes a page task's copy as a new page of the site (`pages.ts`), and
+ * `hosted_page` serves it on the location's answer subdomain (`hosted-pages.ts`). See
  * `docs/adr/0014-only-the-worker-carries-out-an-action.md`.
  */
-export const ACTION_KINDS = ["sample", "wordpress_details", "wordpress_page"] as const;
+export const ACTION_KINDS = [
+  "sample",
+  "wordpress_details",
+  "wordpress_page",
+  "hosted_page",
+] as const;
 export const ActionKindSchema = z.enum(ACTION_KINDS);
 export type ActionKind = z.infer<typeof ActionKindSchema>;
 
@@ -1268,7 +1274,11 @@ export type ActionKind = z.infer<typeof ActionKindSchema>;
  * composed by rule from what the location holds and goes onto a business's site as it is, so it
  * is approved as proposed or declined. A page's copy is prose, written onto the page as text.
  */
-export const EDITABLE_ACTION_KINDS: readonly ActionKind[] = ["sample", "wordpress_page"];
+export const EDITABLE_ACTION_KINDS: readonly ActionKind[] = [
+  "sample",
+  "wordpress_page",
+  "hosted_page",
+];
 
 /**
  * Where an action stands. `proposed` waits for a member's yes. `approved` is on its way to

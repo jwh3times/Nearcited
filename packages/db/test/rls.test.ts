@@ -4220,6 +4220,7 @@ describe("the operator", () => {
         // The business's own site limits nothing about how long its page may be kept.
         { kind: "wordpress_details", allowance: "wordpress", keeps_seen_days: null },
         { kind: "wordpress_page", allowance: "wordpress", keeps_seen_days: null },
+        { kind: "hosted_page", allowance: "hosted_pages", keeps_seen_days: null },
       ]);
     });
 

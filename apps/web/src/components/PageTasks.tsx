@@ -22,8 +22,11 @@ interface PageTasksProps {
   onChanged: () => unknown;
   /** True while the operator is reading a customer's account: the tasks are shown, not acted on. */
   readOnly: boolean;
-  /** Whether the location's WordPress site is connected, so a page's copy is offered for publishing. */
-  publishes: boolean;
+  /**
+   * Where a page's copy is offered for publishing: the location's WordPress site, its answer
+   * subdomain, or nowhere.
+   */
+  publishesTo: "wordpress" | "hosted_pages" | null;
 }
 
 /**
@@ -37,7 +40,7 @@ export function PageTasks({
   drafts,
   onChanged,
   readOnly,
-  publishes,
+  publishesTo,
 }: PageTasksProps) {
   const mark = useMutation({
     mutationFn: ({ id, acted }: { id: string; acted: boolean }) =>
@@ -83,10 +86,13 @@ export function PageTasks({
                   isOwner={isOwner}
                   onChanged={onChanged}
                 />
-                {publishes && task.open && !task.page && task.draft?.text && (
+                {publishesTo && task.open && !task.page && task.draft?.text && (
                   <p className="task-proof">
-                    Nearcited asks to publish this page on your WordPress site. Approve it, or
-                    change it first, on the Actions tab.
+                    Nearcited asks to publish this page{" "}
+                    {publishesTo === "wordpress"
+                      ? "on your WordPress site"
+                      : "on your answer subdomain"}
+                    . Approve it, or change it first, on the Actions tab.
                   </p>
                 )}
                 {task.acted_at && (

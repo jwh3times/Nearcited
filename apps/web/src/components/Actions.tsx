@@ -126,8 +126,8 @@ function Proposal({
             {isPage(action) && (
               <span className="small muted">
                 The first line is the page's title, and a line starting “## ” is a heading. It is
-                published at {pageAddress(text)} on your site, with your business's name, address
-                and phone number added at the end.
+                published at {pageAddress(action, text)}, with your business's name, address and
+                phone number added at the end.
               </span>
             )}
           </label>

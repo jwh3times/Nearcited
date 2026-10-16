@@ -98,7 +98,13 @@ export const TAKE_BACK_QUESTION =
   "Take this back? Nearcited will put back what was there before, as long as nobody has changed it since. Your organization's owners are told, as for anything else Nearcited does.";
 
 /** Whether what an action puts there is a page's copy: prose of some length, laid out in blocks. */
-export const isPage = (action: Pick<Action, "kind">): boolean => action.kind === "wordpress_page";
+export const isPage = (action: Pick<Action, "kind">): boolean =>
+  action.kind === "wordpress_page" || action.kind === "hosted_page";
 
-/** Where a page's copy is published on the site: the address its title makes. */
-export const pageAddress = (copy: string): string => `/${pageSlug(pageParts(copy).title)}/`;
+/** Where a page's copy is published: the address its title makes, on the site or the subdomain. */
+export function pageAddress(action: Pick<Action, "kind">, copy: string): string {
+  const slug = pageSlug(pageParts(copy).title);
+  return action.kind === "hosted_page"
+    ? `/${slug} on your answer subdomain`
+    : `/${slug}/ on your site`;
+}

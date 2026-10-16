@@ -42,6 +42,7 @@ import {
   websiteDomain,
 } from "@nearcited/shared";
 import {
+  type HostedPage,
   type KeptAnswerSubdomain,
   type NewAction,
   type PriceVersion,
@@ -169,6 +170,8 @@ export interface MemoryDb {
     KeptAnswerSubdomain,
     "connected_at" | "status" | "paused_at" | "removal_reason" | "removed_at"
   > & { released_at: string | null })[];
+  /** The `hosted_pages` table: every page served on an answer subdomain, and taken back. */
+  hostedPages: HostedPage[];
   /**
    * The `allowance_kinds` table: each kind, and whether it is counted. It starts as the kinds
    * this build lists. A test adds one to stand for a kind a migration made before the Worker
@@ -236,6 +239,7 @@ export function createMemoryDb(): MemoryDb {
       ["sample", { allowance: null, keeps_seen_days: 30 }],
       ["wordpress_details", { allowance: "wordpress", keeps_seen_days: null }],
       ["wordpress_page", { allowance: "wordpress", keeps_seen_days: null }],
+      ["hosted_page", { allowance: "hosted_pages", keeps_seen_days: null }],
     ]),
     sampleLines: new Map(),
     connections: [],
@@ -249,6 +253,7 @@ export function createMemoryDb(): MemoryDb {
     connectionSecrets: new Map(),
     connectionsFrom: new Map(),
     answerSubdomains: [],
+    hostedPages: [],
     allowanceKinds: new Map(
       Object.entries(ALLOWANCE_KINDS).map(([key, kind]) => [key, kind.counted]),
     ),
@@ -1705,6 +1710,67 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         );
       const connection = db.connections.find((c) => c.id === latest?.connection_id);
       return latest && connection ? keptAnswerSubdomain(latest, connection) : null;
+    },
+
+    async getHostedPage(connectionId, slug) {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      return (
+        db.hostedPages.find(
+          (page) =>
+            page.connection_id === connectionId &&
+            page.slug === slug &&
+            page.taken_back_at === null,
+        ) ?? null
+      );
+    },
+
+    // Mirrors publish_hosted_page(): an approved action's page, on its live answer subdomain.
+    async publishHostedPage(actionId, page) {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      const action = db.actions.find(
+        (candidate) =>
+          candidate.id === actionId &&
+          candidate.kind === "hosted_page" &&
+          candidate.status === "approved",
+      );
+      const kept = db.answerSubdomains.find(
+        (row) =>
+          row.connection_id === action?.connection_id &&
+          row.live_at !== null &&
+          row.released_at === null,
+      );
+      if (!action || !kept?.location_id) return null;
+      if (
+        db.hostedPages.some(
+          (other) =>
+            other.connection_id === kept.connection_id &&
+            other.slug === page.slug &&
+            other.taken_back_at === null,
+        )
+      ) {
+        throw new StoreError("conflict", "Another page is served at that address.");
+      }
+      db.hostedPages.push({
+        id: crypto.randomUUID(),
+        connection_id: kept.connection_id,
+        location_id: kept.location_id,
+        recommendation_id: action.recommendation_id,
+        action_id: action.id,
+        ...page,
+        published_at: db.now ?? timestamp(),
+        taken_back_at: null,
+      });
+      return `https://${kept.hostname}/${page.slug}`;
+    },
+
+    async takeBackHostedPage(actionId) {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      const page = db.hostedPages.find(
+        (candidate) => candidate.action_id === actionId && candidate.taken_back_at === null,
+      );
+      if (!page) return false;
+      page.taken_back_at = db.now ?? timestamp();
+      return true;
     },
 
     async getAnswerSubdomain(connectionId) {
