@@ -1175,12 +1175,21 @@ only a WordPress connection or an answer subdomain can break or pause in practic
   answer subdomain still working, not yet live and connected in the last thirty days, that has not
   been checked for ten minutes (`answer_subdomains_to_check()`, at most 100 a run), so an owner who has just added the record
   sees it work within minutes. The daily run calls `expire_unclaimed_answer_subdomains()`
-  (`expireUnclaimedAnswerSubdomains`, worker only), which starts the removal of each not registered
-  thirty days after it was made (`RECORD_WAIT_DAYS`: its record never pointed at its target) with `removal_reason` `unclaimed`, and queues
-  its removal.
+  (`expireUnclaimedAnswerSubdomains`, worker only), which starts the removal of each not live
+  thirty days after it was made (`RECORD_WAIT_DAYS`: its record never pointed at its target, or its
+  certificate was never issued) with `removal_reason` `unclaimed`, and queues its removal. A
+  location's deletion starts the removal of its answer subdomain (`removal_reason` `location`),
+  which the sweep of stalled removals finishes within half an hour.
 - **Removing one deletes the custom hostname and tells the owners.** `removeConnection` takes the
   hostname off Cloudflare where it was registered, calls `finish_connection_removal()`, which lets
-  the name go, and emails the owners to delete their record, saying why (asked or unclaimed).
+  the name go, and emails the owners to delete their record, saying why (asked, plan, unclaimed or
+  location). The card then says which name was removed and why, until another is set up.
+- **A name is checked before it is taken.** The request refuses a name that already resolves, so
+  nothing using it breaks, unless it is a CNAME to one of Nearcited's own targets, left from an
+  attempt that was let go. A website at a site builder's own address (`BUILDER_DOMAINS`, such as
+  `wixsite.com`) has no domain of its owner's, so the card offers nothing there
+  (`no_own_domain`). The card warns when the website has moved to another registered domain
+  (`underWebsite`); a move within the same one, such as to `shop.`, still matches.
 - **Hosted pages are an allowance, included or not.** `hosted_pages` has no number. Migration
   `20261016100000_hosted_pages_kind.sql` added the kind of connection and
   `20261016110000_answer_subdomains.sql` the table, the functions, the allowance's entry in

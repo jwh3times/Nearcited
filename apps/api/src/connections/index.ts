@@ -6,7 +6,7 @@ import {
   type ConnectionMessage,
   type Organization,
 } from "@nearcited/shared";
-import { buildAnswerSubdomainEmail } from "../email/answer-subdomain";
+import { type AnswerSubdomainEmail, buildAnswerSubdomainEmail } from "../email/answer-subdomain";
 import { buildConnectionBrokenEmail } from "../email/connection-broken";
 import type { Email } from "../email/report";
 import type { Env } from "../env";
@@ -253,6 +253,31 @@ export async function removeConnection(
   return (await store.finishConnectionRemoval(connectionId)) ? "removed" : "not_waiting";
 }
 
+/** Keeps that a sync failed, and tells the owners and admins where that broke the connection. */
+async function recordFailure(connectionId: string, refused: boolean, deps: ConnectionDeps) {
+  const outcome = await deps.store.recordConnectionFailure(connectionId, refused);
+  if (!outcome?.newly_broken) return;
+  const broken = await deps.store.getConnection(connectionId);
+  // A failure to tell must not undo what was recorded: the daily run tells them later.
+  if (broken) {
+    await tellBroken(broken, false, deps).catch((sendError) =>
+      console.error(`Connection ${connectionId}: its owners could not be told`, sendError),
+    );
+  }
+}
+
+/** Queues the worker to finish the removal of each connection whose removal was started. */
+async function queueRemovals(
+  ids: string[],
+  queue: Pick<Queue<ConnectionMessage>, "sendBatch">,
+): Promise<number> {
+  if (ids.length === 0) return 0;
+  await queue.sendBatch(
+    ids.map((id) => ({ body: { connection_id: id, step: "remove" as const } })),
+  );
+  return ids.length;
+}
+
 /**
  * Syncs one connection: reads what its sign-in reaches and keeps that. Only the worker can,
  * because only it can read the sign-in. Safe to run twice.
@@ -276,15 +301,7 @@ export async function syncConnection(
       return (await checkAnswerSubdomain(connection, deps)) ? "synced" : "not_working";
     } catch (error) {
       console.error(`Connection ${connectionId}: its check failed`, error);
-      const outcome = await store.recordConnectionFailure(connectionId, false);
-      if (outcome?.newly_broken) {
-        const broken = await store.getConnection(connectionId);
-        if (broken) {
-          await tellBroken(broken, false, deps).catch((sendError) =>
-            console.error(`Connection ${connectionId}: its owners could not be told`, sendError),
-          );
-        }
-      }
+      await recordFailure(connectionId, false, deps);
       return "failed";
     }
   }
@@ -311,16 +328,7 @@ export async function syncConnection(
       `Connection ${connectionId}: its sync ${refused ? "was refused" : "failed"}`,
       error,
     );
-    const outcome = await store.recordConnectionFailure(connectionId, refused);
-    if (outcome?.newly_broken) {
-      const broken = await store.getConnection(connectionId);
-      // A failure to tell must not undo what was recorded: the daily run tells them later.
-      if (broken) {
-        await tellBroken(broken, false, deps).catch((sendError) =>
-          console.error(`Connection ${connectionId}: its owners could not be told`, sendError),
-        );
-      }
-    }
+    await recordFailure(connectionId, refused, deps);
     return refused ? "refused" : "failed";
   }
   return (await store.recordConnectionSync(connectionId, reached.choices))
@@ -370,12 +378,7 @@ export async function expirePausedConnections(
   store: Store,
   queue: Pick<Queue<ConnectionMessage>, "sendBatch">,
 ): Promise<number> {
-  const expired = await store.expirePausedConnections();
-  if (expired.length === 0) return 0;
-  await queue.sendBatch(
-    expired.map((id) => ({ body: { connection_id: id, step: "remove" as const } })),
-  );
-  return expired.length;
+  return queueRemovals(await store.expirePausedConnections(), queue);
 }
 
 /** The most connections one run of the schedule queues, which is one `sendBatch`. */
@@ -452,7 +455,7 @@ async function tellAboutSubdomain(
   organizationId: string,
   locationId: string | null,
   hostname: string,
-  event: "live" | "asked" | "plan" | "unclaimed",
+  event: AnswerSubdomainEmail["event"],
   { store, send, appUrl }: ConnectionDeps,
 ): Promise<boolean> {
   if (!send || !appUrl) return false;
@@ -589,17 +592,12 @@ export async function requeueAnswerSubdomainChecks(
 }
 
 /**
- * Starts the removal of every answer subdomain whose record has not appeared in thirty days, and
+ * Starts the removal of every answer subdomain that has not started working in thirty days, and
  * queues the worker to finish each and tell its owners. Returns how many.
  */
 export async function expireUnclaimedAnswerSubdomains(
   store: Store,
   queue: Pick<Queue<ConnectionMessage>, "sendBatch">,
 ): Promise<number> {
-  const expired = await store.expireUnclaimedAnswerSubdomains();
-  if (expired.length === 0) return 0;
-  await queue.sendBatch(
-    expired.map((id) => ({ body: { connection_id: id, step: "remove" as const } })),
-  );
-  return expired.length;
+  return queueRemovals(await store.expireUnclaimedAnswerSubdomains(), queue);
 }

@@ -32,7 +32,6 @@ import {
   expirePausedConnections,
   expireUnclaimedAnswerSubdomains,
   type Hosting,
-  hostingConfigured,
   remindBrokenConnections,
   removeConnection,
   requeueAnswerSubdomainChecks,
@@ -69,7 +68,7 @@ const app = createApp({
 /** Where this deployment registers answer subdomains, if it can. */
 const hostingOf = (env: Env): Hosting => ({
   cloudflare:
-    hostingConfigured(env) && env.CLOUDFLARE_HOSTNAMES_TOKEN && env.CLOUDFLARE_ZONE_ID
+    env.CLOUDFLARE_HOSTNAMES_TOKEN && env.CLOUDFLARE_ZONE_ID
       ? { token: env.CLOUDFLARE_HOSTNAMES_TOKEN, zone: env.CLOUDFLARE_ZONE_ID }
       : null,
   sampleData: usesSampleData(env),

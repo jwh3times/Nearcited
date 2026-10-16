@@ -1042,9 +1042,9 @@ export const ConnectionSchema = z.object({
   paused_at: Timestamp.nullable(),
   /**
    * Why it was removed: someone asked, its plan had stopped including it, or, for an answer
-   * subdomain, its record never appeared.
+   * subdomain, it never started working, or its location was removed.
    */
-  removal_reason: z.enum(["asked", "plan", "unclaimed"]).nullable(),
+  removal_reason: z.enum(["asked", "plan", "unclaimed", "location"]).nullable(),
   /** When the worker last read from it. Null until the first sync, moments after connecting. */
   last_synced_at: Timestamp.nullable(),
   /** What the sign-in reaches, as the last sync found it. */
@@ -1149,7 +1149,7 @@ export const AnswerSubdomainSchema = z.object({
   home_links: z.boolean().nullable(),
   /** False once the location's website is no longer the domain it sits under. */
   website_matches: z.boolean(),
-  /** The day the worker stops waiting for the record, while it is waiting. */
+  /** The day the worker stops waiting for it to start working, while it is waiting. */
   waits_until: Timestamp.nullable(),
   status: ConnectionStatusSchema,
   paused_at: Timestamp.nullable(),
@@ -1158,13 +1158,14 @@ export type AnswerSubdomain = z.infer<typeof AnswerSubdomainSchema>;
 
 /**
  * Why a location cannot have hosted pages now, where it cannot: its plan does not include them,
- * this deployment cannot serve them, its website is not on file, or its WordPress site is
- * connected and pages go there.
+ * this deployment cannot serve them, its website is not on file or is at a site builder's own
+ * address, or its WordPress site is connected and pages go there.
  */
 export const HOSTED_PAGES_BARS = [
   "not_included",
   "unavailable",
   "no_website",
+  "no_own_domain",
   "wordpress",
 ] as const;
 
@@ -1176,6 +1177,14 @@ export const LocationHostedPagesSchema = z.object({
   can_manage: z.boolean(),
   /** The location's answer subdomain, while it has one. */
   subdomain: AnswerSubdomainSchema.nullable(),
+  /** The last one it had, once removed, until another is set up: what it was and why it went. */
+  removed: z
+    .object({
+      hostname: z.string(),
+      removal_reason: ConnectionSchema.shape.removal_reason,
+      removed_at: Timestamp.nullable(),
+    })
+    .nullable(),
 });
 export type LocationHostedPages = z.infer<typeof LocationHostedPagesSchema>;
 

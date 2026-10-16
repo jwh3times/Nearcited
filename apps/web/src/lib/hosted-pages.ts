@@ -18,6 +18,10 @@ export const HOSTED_WORDS = {
   making: "Setting it up",
   onlyManagers: "Only your organization's owner or an admin can set this up.",
   noWebsite: "Pages go on a subdomain of your website, and there is no website on file.",
+  noOwnDomain:
+    "Your website is at your site builder's own address, so there is no domain of yours to add a record to. Pages on your own domain need one: once your site is on a domain of your own, change the website under Settings.",
+  removed: (hostname: string, why: string, day: string) =>
+    `${hostname} was removed${day ? ` on ${day}` : ""}${why}. If its record is still in place, delete it, or point it at the new target once you set one up again.`,
   unavailable: "Pages on your own domain cannot be set up here yet.",
   record: "Add this record where your domain's DNS is managed:",
   wholeName: (hostname: string) =>
@@ -47,3 +51,17 @@ export const HOSTED_WORDS = {
 /** The link an owner pastes on their home page. */
 export const homeLink = (hostname: string): string =>
   `<a href="https://${hostname}/">Answers to common questions</a>`;
+
+/** Why an answer subdomain was removed, as a clause after "was removed". */
+export function removedBecause(reason: string | null): string {
+  switch (reason) {
+    case "plan":
+      return ", because your plan no longer includes it";
+    case "unclaimed":
+      return ", because it had not started working after thirty days";
+    case "location":
+      return " with its location";
+    default:
+      return "";
+  }
+}

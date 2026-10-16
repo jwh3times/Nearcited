@@ -179,6 +179,8 @@ export interface KeptAnswerSubdomain {
   status: Connection["status"];
   paused_at: string | null;
   removal_reason: Connection["removal_reason"];
+  /** When its removal was finished. */
+  removed_at: string | null;
 }
 
 /** What one check of an answer subdomain found. */
@@ -401,7 +403,10 @@ export interface Store {
    * connection holds the name, and a `limit` for anything else that stands in the way.
    */
   createAnswerSubdomain(subdomain: NewAnswerSubdomain): Promise<Connection | null>;
-  /** A location's answer subdomain that is not removed, for whoever can read the location. */
+  /**
+   * A location's answer subdomain: the one it has, or else the last one it had, which is then
+   * removed. For whoever can read the location.
+   */
   getLocationAnswerSubdomain(locationId: string): Promise<KeptAnswerSubdomain | null>;
   /**
    * How much of each counted allowance an organization has used this calendar month (UTC), by
@@ -748,7 +753,7 @@ export interface Store {
    */
   listAnswerSubdomainsToCheck(before: string): Promise<string[]>;
   /**
-   * Starts the removal of every answer subdomain whose record never appeared in thirty days, and
+   * Starts the removal of every answer subdomain that has not started working in thirty days, and
    * returns them for the worker to finish. Worker only.
    */
   expireUnclaimedAnswerSubdomains(): Promise<string[]>;

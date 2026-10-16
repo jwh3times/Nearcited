@@ -1,9 +1,9 @@
-import { type AnswerRecord, recordTarget } from "@nearcited/shared";
+import { type AnswerRecord, PAGES_DOMAIN, recordTarget } from "@nearcited/shared";
 
 /**
  * An answer subdomain from outside: what its name points at in public DNS, and Cloudflare's
- * interface for the custom hostnames the Pages Worker is served on (issue #141,
- * `docs/adr/0019-hosted-pages-are-served-by-a-worker-of-their-own.md`).
+ * interface for the custom hostnames hosted pages are served on (issue #141,
+ * `docs/adr/0011-the-product-does-the-work-and-the-owner-approves.md`).
  */
 
 export interface HostedDeps {
@@ -104,6 +104,17 @@ export async function lookUp(
   return addresses.every(atCloudflare) ? "proxied" : "elsewhere";
 }
 
+/**
+ * Whether a name points somewhere already, so that setting it up would break what uses it. A name
+ * still pointing at one of Nearcited's own targets, from an attempt that was let go, does not
+ * count: its owner only has to change the target.
+ */
+export async function inUse(hostname: string, deps: HostedDeps = {}): Promise<boolean> {
+  const [cname] = await resolve(hostname, "CNAME", deps);
+  if (cname !== undefined) return !cname.endsWith(`.${PAGES_DOMAIN}`);
+  return (await resolve(hostname, "A", deps)).length > 0;
+}
+
 /** A connection's own target: twelve letters and digits, drawn at random. */
 export function newTarget(): string {
   const alphabet = "abcdefghijklmnopqrstuvwxyz0123456789";
@@ -131,7 +142,7 @@ interface Answered {
 }
 
 /** One call to Cloudflare's custom hostnames on the zone. */
-async function custom(
+async function customHostnames(
   { token, zone }: Cloudflare,
   method: string,
   path: string,
@@ -166,14 +177,14 @@ export async function registerHostname(
   cloudflare: Cloudflare,
   deps: HostedDeps = {},
 ): Promise<string> {
-  const made = await custom(cloudflare, "POST", "", deps, {
+  const made = await customHostnames(cloudflare, "POST", "", deps, {
     hostname,
     ssl: { method: "http", type: "dv", settings: { min_tls_version: "1.2" } },
   });
   const result = made.answered.result;
   if (made.answered.success && result && !Array.isArray(result)) return result.id;
   if (made.answered.errors?.some((error) => error.code === DUPLICATE)) {
-    const found = await custom(
+    const found = await customHostnames(
       cloudflare,
       "GET",
       `?hostname=${encodeURIComponent(hostname)}`,
@@ -191,7 +202,7 @@ export async function hostnameLive(
   cloudflare: Cloudflare,
   deps: HostedDeps = {},
 ): Promise<boolean> {
-  const read = await custom(cloudflare, "GET", `/${encodeURIComponent(id)}`, deps);
+  const read = await customHostnames(cloudflare, "GET", `/${encodeURIComponent(id)}`, deps);
   const result = read.answered.result;
   if (!read.answered.success || !result || Array.isArray(result)) {
     throw new Error(`Cloudflare could not say how ${id} stands (${read.status}).`);
@@ -205,12 +216,24 @@ export async function unregisterHostname(
   cloudflare: Cloudflare,
   deps: HostedDeps = {},
 ): Promise<void> {
-  const gone = await custom(cloudflare, "DELETE", `/${encodeURIComponent(id)}`, deps);
+  const gone = await customHostnames(cloudflare, "DELETE", `/${encodeURIComponent(id)}`, deps);
   if (!gone.answered.success && gone.status !== 404) {
     throw new Error(`Cloudflare did not take ${id} off (${gone.status}).`);
   }
 }
 
-/** Whether a page's HTML links to a host: an address on it, with or without its scheme. */
-export const linksTo = (html: string, hostname: string): boolean =>
-  html.toLowerCase().includes(`//${hostname.toLowerCase()}`);
+/** What may follow a host in an address: where the host ends. */
+const HOST_ENDS = new Set(["/", '"', "'", "?", "#", ":", " ", ">", "<", "\n", "\t", ""]);
+
+/**
+ * Whether a page's HTML links to a host: an address on it, with or without its scheme, and not
+ * on a longer host that only starts the same.
+ */
+export function linksTo(html: string, hostname: string): boolean {
+  const page = html.toLowerCase();
+  const wanted = `//${hostname.toLowerCase()}`;
+  for (let at = page.indexOf(wanted); at !== -1; at = page.indexOf(wanted, at + 1)) {
+    if (HOST_ENDS.has(page.charAt(at + wanted.length))) return true;
+  }
+  return false;
+}

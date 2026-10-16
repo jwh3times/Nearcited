@@ -99,7 +99,7 @@ const ANSWER_SUBDOMAIN_SHOWN =
   "connection_id, organization_id, location_id, hostname, target, record, checked_at, registered_at, live_at, home_links";
 /** Its connection's standing, read with it. */
 const ANSWER_SUBDOMAIN_STANDING =
-  "connection:connections!inner(connected_at, status, paused_at, removal_reason)";
+  "connection:connections!inner(connected_at, status, paused_at, removal_reason, removed_at)";
 
 const AnswerSubdomainRowSchema = z.object({
   connection_id: z.uuid(),
@@ -119,6 +119,7 @@ const AnswerSubdomainRowSchema = z.object({
     status: true,
     paused_at: true,
     removal_reason: true,
+    removed_at: true,
   }),
 });
 
@@ -703,7 +704,9 @@ export function createSupabaseStore(
         .from("answer_subdomains")
         .select(`${ANSWER_SUBDOMAIN_SHOWN}, ${ANSWER_SUBDOMAIN_STANDING}`)
         .eq("location_id", locationId)
-        .is("released_at", null)
+        // The one held, or else the one let go last.
+        .order("released_at", { ascending: false, nullsFirst: true })
+        .limit(1)
         .maybeSingle();
       if (error) fail("Get a location's answer subdomain", error);
       return data

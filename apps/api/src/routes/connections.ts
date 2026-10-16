@@ -16,7 +16,7 @@ export const connectionRoutes = new Hono<AppEnv>();
  * Refuses to change what an answer subdomain is matched to: it is made for its location, under
  * that location's website, and is that location's until it is removed.
  */
-async function matchedByHand(c: Context<AppEnv>, connectionId: string) {
+async function refuseHandMatch(c: Context<AppEnv>, connectionId: string) {
   const connection = await c.get("store").getConnection(connectionId);
   if (connection?.kind === "hosted_pages") {
     throw new ApiError(
@@ -113,7 +113,7 @@ connectionRoutes.put("/connections/:connectionId/locations/:locationId", async (
   const connectionId = uuidParam(c, "connectionId", "Connection");
   const locationId = uuidParam(c, "locationId", "Location");
   const { external_id } = await parseJson(c, ConnectionMatchInputSchema);
-  await matchedByHand(c, connectionId);
+  await refuseHandMatch(c, connectionId);
   const match = await c.get("store").matchConnectionLocation(connectionId, locationId, external_id);
   if (!match) throw notFound("Connection");
   // The worker reads the account again, now that it knows which part of it is this location's.
@@ -129,7 +129,7 @@ connectionRoutes.put("/connections/:connectionId/locations/:locationId", async (
 connectionRoutes.delete("/connections/:connectionId/locations/:locationId", async (c) => {
   const connectionId = uuidParam(c, "connectionId", "Connection");
   const locationId = uuidParam(c, "locationId", "Location");
-  await matchedByHand(c, connectionId);
+  await refuseHandMatch(c, connectionId);
   if (!(await c.get("store").unmatchConnectionLocation(connectionId, locationId))) {
     throw notFound("Match");
   }

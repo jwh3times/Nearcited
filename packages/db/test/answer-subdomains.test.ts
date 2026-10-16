@@ -265,17 +265,20 @@ describe("answer subdomains", () => {
         [id],
       ),
     ).toEqual([{ registered: true, live: false, cloudflare_id: "ch-1" }]);
-    // Registered, it is not let go after thirty days; one that never was is.
+    // Working, it is not let go after thirty days; one that never started working is, registered
+    // or not.
     await db.query("update public.connections set connected_at = now() - interval '31 days'");
+    await db.query("update public.answer_subdomains set live_at = now() where connection_id = $1", [
+      id,
+    ]);
     expect(
       await as("service_role", null, () =>
         rows("select public.expire_unclaimed_answer_subdomains()"),
       ),
     ).toEqual([]);
-    await db.query(
-      "update public.answer_subdomains set registered_at = null, cloudflare_id = null where connection_id = $1",
-      [id],
-    );
+    await db.query("update public.answer_subdomains set live_at = null where connection_id = $1", [
+      id,
+    ]);
     expect(
       await as("service_role", null, () =>
         rows("select public.expire_unclaimed_answer_subdomains() as id"),
@@ -319,6 +322,6 @@ describe("answer subdomains", () => {
       await rows("select status, removal_reason from public.connections where id = $1", [
         kept?.connection_id,
       ]),
-    ).toEqual([{ status: "removing", removal_reason: "asked" }]);
+    ).toEqual([{ status: "removing", removal_reason: "location" }]);
   });
 });

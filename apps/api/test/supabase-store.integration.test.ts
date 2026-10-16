@@ -1488,7 +1488,12 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
     // Removed, the name is free again.
     await aliceStore.requestConnectionRemoval(subdomain.id);
     expect(await worker.finishConnectionRemoval(subdomain.id)).toBe(true);
-    expect(await aliceStore.getLocationAnswerSubdomain(site.id)).toBeNull();
+    // The last one is still read, as removed, until another is set up.
+    expect(await aliceStore.getLocationAnswerSubdomain(site.id)).toMatchObject({
+      connection_id: subdomain.id,
+      status: "removed",
+      removal_reason: "asked",
+    });
     expect(
       await aliceStore.createAnswerSubdomain({
         id: crypto.randomUUID(),

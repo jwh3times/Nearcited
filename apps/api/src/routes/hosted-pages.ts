@@ -6,6 +6,7 @@ import {
   type Location,
   type LocationHostedPages,
   type Organization,
+  onBuilderDomain,
   RECORD_WAIT_DAYS,
   recordTarget,
   subdomainLabel,
@@ -14,7 +15,7 @@ import {
 import { Hono } from "hono";
 import type { AppEnv } from "../app";
 import { hostingConfigured } from "../connections";
-import { lookUp, newTarget } from "../connections/hosted";
+import { inUse, newTarget } from "../connections/hosted";
 import type { Env } from "../env";
 import { ApiError, notFound } from "../errors";
 import { usesSampleData } from "../providers";
@@ -48,6 +49,7 @@ async function barred(
   const held = await store.listLocationConnections(location.id);
   if (held.some((connection) => connection.kind === "wordpress")) return "wordpress";
   if (!location.website) return "no_website";
+  if (onBuilderDomain(location.website)) return "no_own_domain";
   return null;
 }
 
@@ -56,7 +58,7 @@ export function sentAnswerSubdomain(
   kept: KeptAnswerSubdomain,
   website: string | null,
 ): AnswerSubdomain {
-  const waiting = kept.registered_at === null && kept.status === "working";
+  const waiting = kept.live_at === null && kept.status === "working";
   return {
     connection_id: kept.connection_id,
     location_id: kept.location_id ?? "",
@@ -87,10 +89,19 @@ hostedPagesRoutes.get("/locations/:locationId/hosted-pages", async (c) => {
     store.managesConnections(organization.id),
     store.getLocationAnswerSubdomain(location.id),
   ]);
+  const held = kept && kept.status !== "removed" ? kept : null;
+  const gone = kept && kept.status === "removed" ? kept : null;
   return c.json({
     barred: bar,
     can_manage: canManage,
-    subdomain: kept ? sentAnswerSubdomain(kept, location.website) : null,
+    subdomain: held ? sentAnswerSubdomain(held, location.website) : null,
+    removed: gone
+      ? {
+          hostname: gone.hostname,
+          removal_reason: gone.removal_reason,
+          removed_at: gone.removed_at,
+        }
+      : null,
   } satisfies LocationHostedPages);
 });
 
@@ -111,6 +122,11 @@ const BARRED: Record<NonNullable<LocationHostedPages["barred"]>, ApiError> = {
     "This location's WordPress site is connected, so its pages are published there.",
   ),
   no_website: new ApiError(422, "no_website", "Add this location's website under Settings first."),
+  no_own_domain: new ApiError(
+    422,
+    "no_own_domain",
+    "This location's website is at its site builder's own address, so there is no domain of yours to add a record to.",
+  ),
 };
 
 /**
@@ -129,7 +145,8 @@ hostedPagesRoutes.post("/locations/:locationId/hosted-pages", async (c) => {
   }
   const bar = await barred(c.env, store, organization, location);
   if (bar) throw BARRED[bar];
-  if (await store.getLocationAnswerSubdomain(location.id)) {
+  const kept = await store.getLocationAnswerSubdomain(location.id);
+  if (kept && kept.status !== "removed") {
     throw new ApiError(409, "already_connected", "This location has an answer subdomain already.");
   }
   const label = subdomainLabel(typed);
@@ -142,7 +159,7 @@ hostedPagesRoutes.post("/locations/:locationId/hosted-pages", async (c) => {
     );
   }
   // On sample data nothing goes out, so nothing is looked up either.
-  if (!usesSampleData(c.env) && (await lookUp(hostname, null)) !== "missing") {
+  if (!usesSampleData(c.env) && (await inUse(hostname))) {
     throw new ApiError(
       422,
       "in_use",
@@ -166,13 +183,13 @@ hostedPagesRoutes.post("/locations/:locationId/hosted-pages", async (c) => {
     throw error;
   }
   if (!made) throw notFound("Location");
-  const kept = await store.getLocationAnswerSubdomain(location.id);
-  if (!kept) throw notFound("Location");
+  const now = await store.getLocationAnswerSubdomain(location.id);
+  if (!now) throw notFound("Location");
   // The worker looks for the record now, and the schedule keeps looking until it appears.
   try {
     await c.env.SCAN_QUEUE.send({ connection_id: id, step: "sync" });
   } catch (error) {
     console.error(`Connection ${id}: could not queue its first check, the schedule will`, error);
   }
-  return c.json(sentAnswerSubdomain(kept, location.website), 201);
+  return c.json(sentAnswerSubdomain(now, location.website), 201);
 });

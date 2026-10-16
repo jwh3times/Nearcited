@@ -57,10 +57,77 @@ export function answerHostname(label: string, website: string | null): string | 
   return host.length <= 253 ? host : null;
 }
 
-/** Whether an answer subdomain still sits under a location's website, as it must to get pages. */
+/**
+ * Suffixes of two labels under which a domain someone registers has three, such as `co.uk`. Only
+ * the common ones: a domain under another is taken to be its last two labels.
+ */
+const TWO_LABEL_SUFFIXES = new Set([
+  "co.uk",
+  "org.uk",
+  "me.uk",
+  "ltd.uk",
+  "plc.uk",
+  "co.nz",
+  "org.nz",
+  "com.au",
+  "net.au",
+  "org.au",
+  "co.za",
+  "com.br",
+  "com.mx",
+  "co.jp",
+  "co.in",
+  "com.sg",
+  "com.hk",
+  "co.ie",
+]);
+
+/** The part of a host its owner registered: `joespizza.com` for `shop.joespizza.com`. */
+export function registeredDomain(host: string): string {
+  const labels = host.toLowerCase().split(".");
+  const kept = TWO_LABEL_SUFFIXES.has(labels.slice(-2).join(".")) ? 3 : 2;
+  return labels.slice(-kept).join(".");
+}
+
+/**
+ * The site builders whose own address a business's site can be at, such as
+ * `joespizza.wixsite.com`. A site there has no domain of its owner's to add a record to.
+ */
+export const BUILDER_DOMAINS: readonly string[] = [
+  "wixsite.com",
+  "wix.com",
+  "squarespace.com",
+  "godaddysites.com",
+  "weebly.com",
+  "wordpress.com",
+  "webflow.io",
+  "square.site",
+  "business.site",
+  "sites.google.com",
+  "blogspot.com",
+  "carrd.co",
+  "myshopify.com",
+  "framer.website",
+  "jimdosite.com",
+  "strikingly.com",
+];
+
+/** Whether a website is at a site builder's own address rather than on a domain of its owner's. */
+export function onBuilderDomain(website: string | null): boolean {
+  const domain = websiteDomain(website);
+  return (
+    domain !== null &&
+    BUILDER_DOMAINS.some((builder) => domain === builder || domain.endsWith(`.${builder}`))
+  );
+}
+
+/**
+ * Whether an answer subdomain still sits under the domain of a location's website, as it must for
+ * new pages to go there. A website that moved within the same domain still matches.
+ */
 export const underWebsite = (hostname: string, website: string | null): boolean => {
   const domain = websiteDomain(website);
-  return domain !== null && hostname.endsWith(`.${domain}`);
+  return domain !== null && hostname.endsWith(`.${registeredDomain(domain)}`);
 };
 
 /** The name a connection's record points at, from the target the database keeps for it. */

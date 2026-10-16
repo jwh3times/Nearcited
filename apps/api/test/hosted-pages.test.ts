@@ -199,6 +199,7 @@ describe("making an answer subdomain", () => {
       barred: null,
       can_manage: true,
       subdomain: null,
+      removed: null,
     });
 
     const response = await make(dave, location.id, " Answers ");
@@ -287,6 +288,18 @@ describe("making an answer subdomain", () => {
     world.dns.set("help.joespizza.example", { cname: "desk.example.net" });
     expect((await errorOf(await make(alice, location.id, "help"))).code).toBe("in_use");
     expect(db.connections).toEqual([]);
+  });
+
+  it("takes a name whose record still points at an old target of Nearcited's, since its owner only changes the target", async () => {
+    const { location } = await withLocation();
+    world.dns.set("answers.joespizza.example", { cname: "oldoldoldold.pages.nearcited.com" });
+    expect((await make(alice, location.id)).status).toBe(201);
+  });
+
+  it("is not offered for a website on a site builder's own address, which has no records of its owner's", async () => {
+    const { location } = await withLocation({ website: "https://joespizza.wixsite.com/menu" });
+    expect((await standing(alice, location.id)).barred).toBe("no_own_domain");
+    expect((await errorOf(await make(alice, location.id))).code).toBe("no_own_domain");
   });
 
   it("refuses a subdomain another connection holds, whoever's it is", async () => {
@@ -428,7 +441,8 @@ describe("checking an answer subdomain", () => {
     const registered = await shown(location.id);
     expect(registered).toMatchObject({ record: "ours", live_at: null });
     expect(registered?.registered_at).not.toBeNull();
-    expect(registered?.waits_until).toBeNull();
+    // Registered is not yet working: it is still waited for.
+    expect(registered?.waits_until).toBe(made.waits_until);
     expect(sent).toEqual([]);
 
     // Served, but not yet with its certificate: not live.
@@ -453,6 +467,7 @@ describe("checking an answer subdomain", () => {
     expect(await syncConnection(made.connection_id, worker())).toBe("synced");
     const live = await shown(location.id);
     expect(live?.live_at).not.toBeNull();
+    expect(live?.waits_until).toBeNull();
     expect(live?.home_links).toBe(true);
     expect(world.asked.filter((asked) => asked.method === "POST")).toHaveLength(1);
     expect(sent).toHaveLength(1);
@@ -551,7 +566,13 @@ describe("checking an answer subdomain", () => {
 
     expect(await removeConnection(made.connection_id, worker())).toBe("removed");
     expect(world.asked).toEqual([]);
-    expect((await standing(alice, location.id)).subdomain).toBeNull();
+    // The card says what became of it until another is set up.
+    const after = await standing(alice, location.id);
+    expect(after.subdomain).toBeNull();
+    expect(after.removed).toMatchObject({
+      hostname: "answers.joespizza.example",
+      removal_reason: "unclaimed",
+    });
     expect(sent).toHaveLength(1);
     expect(sent[0]?.email.text).toContain("answers.joespizza.example");
     expect(sent[0]?.email.text).toContain("thirty days");
@@ -568,12 +589,49 @@ describe("checking an answer subdomain", () => {
     expect((await shown(location.id))?.website_matches).toBe(false);
   });
 
+  it("keeps saying it matches when the website moves within the same domain", async () => {
+    const { location } = await withSubdomain();
+    const kept = db.locations.find((candidate) => candidate.id === location.id);
+    if (kept) kept.website = "https://shop.joespizza.example";
+    expect((await shown(location.id))?.website_matches).toBe(true);
+  });
+
+  it("does not take a link to a lookalike host for a link to it", async () => {
+    const { location, made, target } = await withSubdomain();
+    world.dns.set(made.hostname, { cname: target });
+    world.homes.set(
+      "https://www.joespizza.example/menu",
+      `<a href="https://answers.joespizza.example.evil.example/">Answers</a>`,
+    );
+    await syncConnection(made.connection_id, worker());
+    world.hostnames.set("ch-1", {
+      hostname: made.hostname,
+      status: "active",
+      ssl: { status: "active" },
+    });
+    await syncConnection(made.connection_id, worker());
+    expect((await shown(location.id))?.home_links).toBe(false);
+  });
+
+  it("lets go of one registered but never served after thirty days, and takes it off Cloudflare", async () => {
+    const { location, made, target } = await withSubdomain();
+    world.dns.set(made.hostname, { cname: target });
+    await syncConnection(made.connection_id, worker());
+    expect((await shown(location.id))?.waits_until).toBe(made.waits_until);
+    db.now = new Date(Date.parse(made.waits_until ?? "") + 3_600_000).toISOString();
+    expect(await expireUnclaimedAnswerSubdomains(memoryStore(db, null), env.SCAN_QUEUE)).toBe(1);
+    expect(await removeConnection(made.connection_id, worker())).toBe("removed");
+    expect(world.asked.at(-1)).toEqual({ method: "DELETE", path: "/ch-1", signed: true });
+    expect(sent[0]?.email.text).toContain("start working");
+  });
+
   it("removes it with its location, since nothing is left to serve there", async () => {
     const { location, made } = await withSubdomain();
     expect((await call(alice, "DELETE", `/locations/${location.id}`)).status).toBe(204);
     expect(db.connections.find((c) => c.id === made.connection_id)?.status).toBe("removing");
     expect(await removeConnection(made.connection_id, worker())).toBe("removed");
     expect(sent[0]?.email.text).toContain(`CNAME record for ${made.hostname}`);
+    expect(sent[0]?.email.text).toContain(`location ${made.hostname} was set up for was removed`);
   });
 
   it("takes a live one off Cloudflare when its owner removes it, and tells them to delete the record", async () => {

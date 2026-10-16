@@ -12,7 +12,7 @@ import { Link } from "react-router";
 import { api } from "../lib/api";
 import { formatDay } from "../lib/billing";
 import { useCopy } from "../lib/copy";
-import { HOSTED_WORDS, homeLink, settingUp, WAITING_MS } from "../lib/hosted-pages";
+import { HOSTED_WORDS, homeLink, removedBecause, settingUp, WAITING_MS } from "../lib/hosted-pages";
 import { ErrorNote } from "./ErrorNote";
 import { Field } from "./Field";
 
@@ -67,7 +67,7 @@ export function HostedPages({
   const { copied, copy } = useCopy();
 
   if (!included || !found.data) return null;
-  const { barred, can_manage: canManage, subdomain } = found.data;
+  const { barred, can_manage: canManage, subdomain, removed } = found.data;
   if (!subdomain && (barred === "not_included" || barred === "wordpress")) return null;
   const preview = answerHostname(label, location.website);
 
@@ -131,8 +131,19 @@ export function HostedPages({
       ) : (
         <>
           <p className="lede">{HOSTED_WORDS.about}</p>
+          {removed && (
+            <p className="task-proof" role="status">
+              {HOSTED_WORDS.removed(
+                removed.hostname,
+                removedBecause(removed.removal_reason),
+                removed.removed_at ? formatDay(removed.removed_at) : "",
+              )}
+            </p>
+          )}
           {barred === "unavailable" ? (
             <p>{HOSTED_WORDS.unavailable}</p>
+          ) : barred === "no_own_domain" ? (
+            <p>{HOSTED_WORDS.noOwnDomain}</p>
           ) : barred === "no_website" ? (
             <p>
               {HOSTED_WORDS.noWebsite}{" "}

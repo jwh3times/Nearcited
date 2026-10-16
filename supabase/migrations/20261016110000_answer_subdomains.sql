@@ -19,11 +19,11 @@
 
 insert into public.connection_kind_allowances (kind, allowance) values ('hosted_pages', 'hosted_pages');
 
--- Why a connection was removed now also takes `unclaimed`: an answer subdomain whose record never
--- appeared.
+-- Why a connection was removed now also takes `unclaimed`, an answer subdomain that never started
+-- working, and `location`, one whose location was removed.
 alter table public.connections drop constraint connections_removal_reason_check;
 alter table public.connections add constraint connections_removal_reason_check
-  check (removal_reason in ('asked', 'plan', 'unclaimed'));
+  check (removal_reason in ('asked', 'plan', 'unclaimed', 'location'));
 
 create table public.answer_subdomains (
   connection_id uuid primary key references public.connections (id) on delete cascade,
@@ -302,8 +302,9 @@ $$;
 revoke execute on function public.answer_subdomains_to_check(timestamptz) from public, anon, authenticated;
 grant execute on function public.answer_subdomains_to_check(timestamptz) to service_role;
 
--- Starts the removal of every answer subdomain whose record has not brought it to be registered in
--- thirty days, so the name is anyone's again. The worker finishes each and tells its owners.
+-- Starts the removal of every answer subdomain that has not started working in thirty days: its
+-- record never appeared, or its certificate was never issued. The name is then anyone's again.
+-- The worker finishes each, takes it off Cloudflare where it was registered, and tells its owners.
 -- Worker only.
 create function public.expire_unclaimed_answer_subdomains()
 returns setof uuid
@@ -314,7 +315,7 @@ as $$
   from public.answer_subdomains a
   where a.connection_id = c.id
     and c.status in ('working', 'broken')
-    and a.registered_at is null
+    and a.live_at is null
     and c.connected_at < now() - interval '30 days'
   returning c.id;
 $$;
@@ -352,7 +353,7 @@ language plpgsql security definer set search_path = ''
 as $$
 begin
   update public.connections c
-  set status = 'removing', removal_reason = 'asked', removal_requested_at = now()
+  set status = 'removing', removal_reason = 'location', removal_requested_at = now()
   from public.answer_subdomains a
   where a.connection_id = c.id
     and a.location_id = old.id

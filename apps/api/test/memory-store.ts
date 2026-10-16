@@ -167,7 +167,7 @@ export interface MemoryDb {
    */
   answerSubdomains: (Omit<
     KeptAnswerSubdomain,
-    "connected_at" | "status" | "paused_at" | "removal_reason"
+    "connected_at" | "status" | "paused_at" | "removal_reason" | "removed_at"
   > & { released_at: string | null })[];
   /**
    * The `allowance_kinds` table: each kind, and whether it is counted. It starts as the kinds
@@ -302,6 +302,7 @@ function keptAnswerSubdomain(
     status: connection.status,
     paused_at: connection.paused_at,
     removal_reason: connection.removal_reason,
+    removed_at: connection.removed_at,
   };
 }
 
@@ -1690,15 +1691,20 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
       return made;
     },
 
+    // The one held, or else the one let go last.
     async getLocationAnswerSubdomain(locationId) {
       if (!readsLocation(locationId)) return null;
-      for (const kept of db.answerSubdomains) {
-        const connection = db.connections.find((c) => c.id === kept.connection_id);
-        if (kept.location_id === locationId && connection && connection.status !== "removed") {
-          return keptAnswerSubdomain(kept, connection);
-        }
-      }
-      return null;
+      const [latest] = db.answerSubdomains
+        .filter((kept) => kept.location_id === locationId)
+        .sort((a, b) =>
+          a.released_at === null
+            ? -1
+            : b.released_at === null
+              ? 1
+              : b.released_at.localeCompare(a.released_at),
+        );
+      const connection = db.connections.find((c) => c.id === latest?.connection_id);
+      return latest && connection ? keptAnswerSubdomain(latest, connection) : null;
     },
 
     async getAnswerSubdomain(connectionId) {
@@ -1755,7 +1761,7 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         .map((kept) => kept.connection_id);
     },
 
-    // Mirrors expire_unclaimed_answer_subdomains(): thirty days with nothing registered.
+    // Mirrors expire_unclaimed_answer_subdomains(): thirty days without starting to work.
     async expireUnclaimedAnswerSubdomains() {
       if (userId !== null) throw new StoreError("forbidden", "worker only");
       const before = Date.parse(db.now ?? new Date().toISOString()) - 30 * 86_400_000;
@@ -1765,7 +1771,7 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         if (
           connection &&
           (connection.status === "working" || connection.status === "broken") &&
-          kept.registered_at === null &&
+          kept.live_at === null &&
           Date.parse(connection.connected_at) < before
         ) {
           Object.assign(connection, {
@@ -2350,7 +2356,7 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         if (own && connection.kind === "hosted_pages" && connection.status !== "removed") {
           Object.assign(connection, {
             status: "removing",
-            removal_reason: "asked",
+            removal_reason: "location",
             removal_requested_at: db.now ?? timestamp(),
           });
         }

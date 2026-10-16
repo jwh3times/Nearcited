@@ -3,8 +3,11 @@ import type { Email } from "./report";
 export interface AnswerSubdomainEmail {
   organization: string;
   hostname: string;
-  /** Live, or why it was removed: an owner asked, the plan stopped including it, or no record. */
-  event: "live" | "asked" | "plan" | "unclaimed";
+  /**
+   * Live, or why it was removed: an owner asked, the plan stopped including it, it never started
+   * working, or its location was removed.
+   */
+  event: "live" | "asked" | "plan" | "unclaimed" | "location";
   /** Where the location's Website tab is. */
   page: string;
 }
@@ -45,10 +48,18 @@ export function buildAnswerSubdomainEmail(email: AnswerSubdomainEmail): Email {
     unclaimed: {
       subject: `${hostname} was not set up`,
       text: [
-        `Nearcited waited thirty days for ${record} for ${organization}, and it did not appear, so ${hostname} was let go.`,
+        `Nearcited waited thirty days for ${hostname} to start working for ${organization}, and it did not, so it was let go. Most often ${record} was never added, or points somewhere else.`,
         "",
         "You can start again from the location's Website tab whenever you like:",
         page,
+      ],
+    },
+    location: {
+      subject: `Nearcited no longer serves ${hostname}`,
+      text: [
+        `The location ${hostname} was set up for was removed from ${organization}, so ${hostname} was removed too and nothing is served there now.`,
+        "",
+        `Delete ${record} where your domain's DNS is kept, so the name does not point at Nearcited any more.`,
       ],
     },
   };
