@@ -262,12 +262,15 @@ step "Permissions: Zone → SSL and Certificates → Edit"
 step "Zone Resources: Include → Specific zone → nearcited.com"
 step "Continue to summary → Create Token → copy the token (it is shown once)"
 ask_secret HOSTNAMES_TOKEN "Paste the token:"
-answer=$(curl -fsS -H "Authorization: Bearer $HOSTNAMES_TOKEN" \
-  "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/custom_hostnames?per_page=1" || true)
+# Cloudflare refuses a page of fewer than five hostnames, so ask for five.
+answer=$(curl -sS -H "Authorization: Bearer $HOSTNAMES_TOKEN" \
+  "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/custom_hostnames?per_page=5" || true)
 if [[ "$answer" == *'"success":true'* ]]; then
   printf '  %s✓%s the token can read the zone'"'"'s custom hostnames\n' "$GREEN" "$RESET"
 else
   warn "The token could not read the zone's custom hostnames. Check its permission and zone."
+  # Cloudflare's own words, which never include the token.
+  grep -o '"message":"[^"]*"' <<<"$answer" | sed 's/^/    /' || true
   exit 1
 fi
 step "Keep it in 1Password too: Nearcited vault → item Cloudflare → add a password field"
