@@ -535,7 +535,12 @@ export async function carryOutAction(
   };
 
   const connection = action.connection_id ? await store.getConnection(action.connection_id) : null;
-  if (connection?.status !== "working") {
+  // A paused answer subdomain still serves its pages for a while, so one can still be taken back.
+  const takingBackWhilePaused =
+    connection?.kind === "hosted_pages" &&
+    connection.status === "paused" &&
+    action.takes_back !== null;
+  if (!connection || (connection.status !== "working" && !takingBackWhilePaused)) {
     return fail("The account this goes through is not connected, or is not working.");
   }
   const match = connection.matches.find((kept) => kept.location_id === action.location_id);

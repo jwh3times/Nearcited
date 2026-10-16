@@ -1,7 +1,9 @@
 import {
+  fetcherOf,
   type HostedAnswer,
   HostedAnswerSchema,
   INDEXNOW_KEY,
+  type PageFetcher,
   ZONE_DOMAIN,
 } from "@nearcited/shared";
 import { render, sitemap } from "./render";
@@ -11,9 +13,10 @@ import { render, sitemap } from "./render";
  * else (issue #141, docs/adr/0019-hosted-pages-are-served-by-a-worker-of-their-own.md).
  *
  * It holds no secret. It reads through one database function any caller may call, which answers
- * only for an answer subdomain that is live and only with what the page shows anyway. A host the
- * function does not answer for gets nothing, so this Worker never shows the app, its API or
- * anything of one business on another's domain.
+ * only for an answer subdomain that is live and only with what the page shows anyway, and counts
+ * a fetch by a known fetcher through another, which keeps nothing but a count. A host the first
+ * does not answer for gets nothing, so this Worker never shows the app, its API or anything of
+ * one business on another's domain.
  */
 
 export interface Env {
@@ -70,24 +73,47 @@ const nothing = (request: Request) => answer(request, 404, "text/plain", "Not fo
 /** Thrown when the database could not be read, so the visitor is asked to come back. */
 class Unreadable extends Error {}
 
-/** What the database answers for one address on a host. Null for a host that is not served. */
-async function ask(env: Env, host: string, path: string): Promise<HostedAnswer | null> {
-  const response = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/hosted_page`, {
+/** Calls one of the two functions this Worker may, as anyone could. */
+const call = (env: Env, name: "hosted_page" | "record_page_fetch", body: unknown) =>
+  fetch(`${env.SUPABASE_URL}/rest/v1/rpc/${name}`, {
     method: "POST",
     headers: {
       apikey: env.SUPABASE_PUBLISHABLE_KEY,
       Authorization: `Bearer ${env.SUPABASE_PUBLISHABLE_KEY}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ host, path }),
+    body: JSON.stringify(body),
   });
+
+/**
+ * Counts one fetch of a page by a known fetcher. Nothing about the request is kept but the day,
+ * the page and the fetcher, and a count that cannot be kept is only logged.
+ */
+async function count(env: Env, host: string, path: string, fetcher: PageFetcher) {
+  try {
+    const response = await call(env, "record_page_fetch", { host, path, fetcher });
+    if (!response.ok) console.warn(`A fetch of ${host}${path} was not counted: ${response.status}`);
+  } catch (error) {
+    console.warn(`A fetch of ${host}${path} was not counted`, error);
+  }
+}
+
+/** What the database answers for one address on a host. Null for a host that is not served. */
+async function ask(env: Env, host: string, path: string): Promise<HostedAnswer | null> {
+  const response = await call(env, "hosted_page", { host, path });
   if (!response.ok) throw new Unreadable(`The database answered ${response.status}.`);
   const kept: unknown = await response.json();
   return kept === null ? null : HostedAnswerSchema.parse(kept);
 }
 
 /** Answers one request to an answer subdomain. */
-async function serve(request: Request, env: Env, url: URL, host: string): Promise<Response> {
+async function serve(
+  request: Request,
+  env: Env,
+  context: ExecutionContext,
+  url: URL,
+  host: string,
+): Promise<Response> {
   const path = url.pathname;
   // The files a crawler or a search engine asks for are made from the list of live pages.
   if (path === "/robots.txt" || path === "/sitemap.xml" || path === `/${INDEXNOW_KEY}.txt`) {
@@ -108,12 +134,19 @@ async function serve(request: Request, env: Env, url: URL, host: string): Promis
   }
   const found = await ask(env, host, path);
   if (!found) return nothing(request);
+  // For now, not for good: the plan may include hosted pages again before the subdomain goes.
+  if (found.kind === "redirect") {
+    return new Response(null, { status: 302, headers: { Location: found.to, ...SECURITY } });
+  }
+  // A page read by a known fetcher is counted once it has been answered.
+  const fetcher = found.kind === "page" ? fetcherOf(request.headers.get("User-Agent")) : null;
+  if (fetcher) context.waitUntil(count(env, host, path, fetcher));
   const { status, html } = render(found, url);
   return answer(request, status, "text/html", html);
 }
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, context: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     const host = url.hostname.toLowerCase();
     // The app and every other name of the zone's own are not this Worker's to answer, and nor is
@@ -128,7 +161,7 @@ export default {
       return new Response(null, { status: 301, headers: { Location: url.href } });
     }
     try {
-      return await serve(request, env, url, host);
+      return await serve(request, env, context, url, host);
     } catch (error) {
       console.error(`${host}${url.pathname} could not be answered`, error);
       return answer(request, 503, "text/plain", "Try again in a few minutes.", {

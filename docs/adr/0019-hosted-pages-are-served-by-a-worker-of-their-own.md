@@ -19,8 +19,12 @@ changes no traffic until the setup is done, and in the right order. The app, its
 read from the app's own bundle. It reads through one function any caller may call,
 `hosted_page()`, which answers only for an answer subdomain that is live, and only with what the
 page shows anyway: the page's words, and who and where the business is. A host the function does
-not answer for gets a bare "Not found". Nothing it does can reach another table, write anything,
-or read a sign-in.
+not answer for gets a bare "Not found". It writes one thing, through a second such function,
+`record_page_fetch()`: that a known assistant's fetcher or search engine's crawler read a live
+page, kept as a count for a day, a page and a fetcher, which stops at a ceiling. Anyone can claim
+to be a fetcher, so that function trusts nothing it is told and nothing is worked out from the
+count, as with the visit count ([0017](0017-a-visit-is-counted-for-whoever-holds-the-site-key.md)).
+Nothing it does can reach another table or read a sign-in.
 
 **What a page is stays plain.** It is HTML an assistant reads without running anything: no
 script but the structured details, no cookie, image, font or tracking, and a policy that forbids

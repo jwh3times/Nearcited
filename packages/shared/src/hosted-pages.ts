@@ -178,3 +178,101 @@ export const REGISTRAR_HELP: readonly { name: string; url: string }[] = [
   },
   { name: "Porkbun", url: "https://kb.porkbun.com/article/54-how-to-add-dns-records-on-porkbun" },
 ];
+
+/** The two groups a hosted page's fetches are counted in, shown apart. */
+export type FetcherGroup = "assistant" | "search";
+
+/**
+ * The fetchers a hosted page's reads are counted for: the assistants' own, which fetch for
+ * training, for a search index or for a person asking, and the search engines' crawlers, whose
+ * indexes Google's AI answers and Copilot draw on. Each is known by a word in its user agent, as
+ * its maker documents it (read 2026-10-16). Anyone can send that word, so the count can be padded
+ * and nothing is worked out from it. The database names the same keys in
+ * `hosted_page_fetches.fetcher`: add one in both.
+ */
+export const PAGE_FETCHERS = {
+  gptbot: { name: "GPTBot", maker: "OpenAI", group: "assistant", token: "gptbot" },
+  "oai-searchbot": {
+    name: "OAI-SearchBot",
+    maker: "OpenAI",
+    group: "assistant",
+    token: "oai-searchbot",
+  },
+  "chatgpt-user": {
+    name: "ChatGPT-User",
+    maker: "OpenAI",
+    group: "assistant",
+    token: "chatgpt-user",
+  },
+  claudebot: { name: "ClaudeBot", maker: "Anthropic", group: "assistant", token: "claudebot" },
+  "claude-searchbot": {
+    name: "Claude-SearchBot",
+    maker: "Anthropic",
+    group: "assistant",
+    token: "claude-searchbot",
+  },
+  "claude-user": {
+    name: "Claude-User",
+    maker: "Anthropic",
+    group: "assistant",
+    token: "claude-user",
+  },
+  perplexitybot: {
+    name: "PerplexityBot",
+    maker: "Perplexity",
+    group: "assistant",
+    token: "perplexitybot",
+  },
+  "perplexity-user": {
+    name: "Perplexity-User",
+    maker: "Perplexity",
+    group: "assistant",
+    token: "perplexity-user",
+  },
+  googlebot: { name: "Googlebot", maker: "Google", group: "search", token: "googlebot" },
+  bingbot: { name: "Bingbot", maker: "Microsoft", group: "search", token: "bingbot" },
+} as const satisfies Record<
+  string,
+  { name: string; maker: string; group: FetcherGroup; token: string }
+>;
+
+export type PageFetcher = keyof typeof PAGE_FETCHERS;
+export const PAGE_FETCHER_KEYS = Object.keys(PAGE_FETCHERS) as PageFetcher[];
+
+/** Which counted fetcher a user agent says it is, or null for anything else. */
+export function fetcherOf(userAgent: string | null): PageFetcher | null {
+  if (!userAgent) return null;
+  const said = userAgent.toLowerCase();
+  // No fetcher's word is inside another's, so the first that is there is the one.
+  return PAGE_FETCHER_KEYS.find((key) => said.includes(PAGE_FETCHERS[key].token)) ?? null;
+}
+
+/** How many days a paused answer subdomain's pages are served as they are. */
+export const SERVED_AFTER_PAUSE_DAYS = 30;
+/** How many days after that its pages send visitors on, before the subdomain is removed. */
+export const REDIRECTED_FOR_DAYS = 90;
+
+const DAY_MS = 86_400_000;
+
+/**
+ * The days a paused answer subdomain stops serving its pages as they are, and is removed, from
+ * the day it was paused. The database works out the same in `hosted_page()` and
+ * `expire_paused_connections()`.
+ */
+export function windingDown(pausedAt: string): { served: string; removed: string } {
+  const served = Date.parse(pausedAt) + SERVED_AFTER_PAUSE_DAYS * DAY_MS;
+  return {
+    served: new Date(served).toISOString(),
+    removed: new Date(served + REDIRECTED_FOR_DAYS * DAY_MS).toISOString(),
+  };
+}
+
+/**
+ * The most fetches counted for one page, by one fetcher, in a day. Anyone can claim to be a
+ * fetcher, so the count stops here rather than grow without end. The database holds the same
+ * number in `record_page_fetch()`.
+ */
+export const MOST_FETCHES_A_DAY = 1000;
+
+/** How many days of fetches a page task shows. */
+export const FETCHES_SHOWN_DAYS = 30;

@@ -8,6 +8,7 @@ import type {
   PromptCount,
   PromptPage,
   Recommendation,
+  TaskPageFetches,
   TrackedQuery,
 } from "./schemas";
 import { SURFACES_BY_KIND, type Surface } from "./schemas";
@@ -135,6 +136,8 @@ export interface PageTaskInput {
   pages: readonly PromptPage[];
   /** Whether a page's copy can be written where this is asked. Left out, it can. */
   writes?: (kind: DraftKind) => boolean;
+  /** How often each hosted page was fetched lately, by the task it does. Left out, none was. */
+  fetches?: readonly TaskPageFetches[];
 }
 
 /** Done tasks whose prompt has since been named are kept in view while they are few. */
@@ -178,6 +181,10 @@ export function buildPageTasks(input: PageTaskInput): PageTask[] {
       draft_kind: open && writes("page") ? "page" : null,
       draft: input.drafts.find((draft) => draft.recommendation_id === recommendation.id) ?? null,
       page,
+      fetches: (input.fetches ?? [])
+        .filter((counted) => counted.recommendation_id === recommendation.id)
+        .map(({ recommendation_id: _, ...counted }) => counted)
+        .sort((a, b) => b.count - a.count),
     });
   }
   const order = (task: PageTask) =>

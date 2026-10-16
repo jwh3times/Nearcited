@@ -16,6 +16,7 @@ import {
   LocationVisitsSchema,
   OperatorAuditSchema,
   OrganizationSchema,
+  PageFetchesSchema,
   PlanSchema,
   type PlatformRole,
   PlatformRoleSchema,
@@ -728,6 +729,39 @@ export function createSupabaseStore(
             AnswerSubdomainRowSchema.parse({ ...data, cloudflare_id: null, live_told_at: null }),
           )
         : null;
+    },
+
+    async listLocationPageFetches(locationId, since) {
+      const { data, error } = await db.rpc("location_page_fetches", {
+        location: locationId,
+        since,
+      });
+      if (error) fail("List a location's page fetches", error);
+      return z
+        .array(
+          z.object({
+            recommendation_id: z.uuid(),
+            fetcher: PageFetchesSchema.shape.fetcher,
+            fetches: z.coerce.number(),
+            last_on: z.string(),
+          }),
+        )
+        .parse(data ?? [])
+        .map(({ fetches, ...counted }) => ({ ...counted, count: fetches }));
+    },
+
+    async listPausedAnswerSubdomainsUntold() {
+      const { data, error } = await db.rpc("answer_subdomains_paused_untold");
+      if (error) fail("List paused answer subdomains nobody was told of", error);
+      return z.array(z.uuid()).parse(data ?? []);
+    },
+
+    async markAnswerSubdomainPauseTold(connectionId) {
+      const { error } = await db
+        .from("answer_subdomains")
+        .update({ pause_told_at: new Date().toISOString() })
+        .eq("connection_id", connectionId);
+      if (error) fail("Keep that an answer subdomain's owners were told it is paused", error);
     },
 
     async getHostedPage(connectionId, slug) {

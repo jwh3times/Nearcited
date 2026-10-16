@@ -8,6 +8,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
 import { api } from "../lib/api";
 import { formatDate } from "../lib/format";
+import { fetchesLine } from "../lib/hosted-pages";
 import { pageProof } from "../lib/pages";
 import { markedDone } from "../lib/tasks";
 import { ErrorNote } from "./ErrorNote";
@@ -117,6 +118,9 @@ export function PageTasks({
                       </>
                     )}
                   </p>
+                )}
+                {fetchesLine(task.fetches) && (
+                  <p className="task-proof">{fetchesLine(task.fetches)}</p>
                 )}
               </div>
               {!readOnly && !task.acted_by_action && (

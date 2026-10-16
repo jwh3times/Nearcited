@@ -14,6 +14,13 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { carryOutAction, connectionToPublishWith, proposeAfterSync } from "../src/actions";
 import { createApp } from "../src/app";
+import {
+  expirePausedConnections,
+  expireUnclaimedAnswerSubdomains,
+  removeConnection,
+  tellPausedAnswerSubdomains,
+} from "../src/connections";
+import type { Email } from "../src/email/report";
 import type { Env } from "../src/env";
 import { createMemoryDb, type MemoryDb, memoryStore } from "./memory-store";
 
@@ -381,5 +388,152 @@ describe("taking a hosted page back", () => {
     const action = db.actions.find((candidate) => candidate.id === back.id);
     if (action) action.status = "approved";
     expect(await carryOutAction(back.id, worker())).toBe("done");
+  });
+});
+
+describe("who fetched a hosted page", () => {
+  it("shows each fetcher's reads of the task's page over the last thirty days, most first", async () => {
+    const scene = await withCopy();
+    await proposeAfterSync(scene.connection, worker());
+    const [proposal] = await waitingOf(scene.location.id);
+    await call(bob, "POST", `/actions/${proposal?.id}/approve`, {});
+    await carryOutAction(proposal?.id ?? "", worker());
+    const [page] = db.hostedPages;
+    const day = (daysAgo: number) =>
+      new Date(Date.now() - daysAgo * 86_400_000).toISOString().slice(0, 10);
+    db.pageFetches.push(
+      {
+        hosted_page_id: page?.id ?? "",
+        location_id: scene.location.id,
+        day: day(1),
+        fetcher: "claudebot",
+        count: 3,
+      },
+      {
+        hosted_page_id: page?.id ?? "",
+        location_id: scene.location.id,
+        day: day(5),
+        fetcher: "claudebot",
+        count: 2,
+      },
+      {
+        hosted_page_id: page?.id ?? "",
+        location_id: scene.location.id,
+        day: day(2),
+        fetcher: "googlebot",
+        count: 7,
+      },
+      // Too long ago to count.
+      {
+        hosted_page_id: page?.id ?? "",
+        location_id: scene.location.id,
+        day: day(40),
+        fetcher: "gptbot",
+        count: 9,
+      },
+    );
+    expect((await pageTaskOf(scene.location.id))?.fetches).toEqual([
+      { fetcher: "googlebot", count: 7, last_on: day(2) },
+      { fetcher: "claudebot", count: 5, last_on: day(1) },
+    ]);
+  });
+});
+
+describe("winding down when the plan stops including hosted pages", () => {
+  let sent: { to: string[]; email: Email }[];
+  const telling = () => ({
+    ...worker(),
+    send: async (to: string[], email: Email) => {
+      sent.push({ to, email });
+    },
+    appUrl: "https://nearcited.com",
+  });
+  beforeEach(() => {
+    sent = [];
+  });
+  const pause = (connectionId: string, at: string) => {
+    const kept = db.connections.find((connection) => connection.id === connectionId);
+    if (kept) Object.assign(kept, { status: "paused", paused_at: at });
+  };
+
+  it("tells the owners once, with the day pages stop and the day the subdomain goes", async () => {
+    const { connection, location } = await withCopy();
+    pause(connection, "2026-09-01T09:00:00Z");
+    expect(await tellPausedAnswerSubdomains(telling())).toBe(1);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.to).toEqual(["alice@example.com"]);
+    expect(sent[0]?.email.text).toContain(HOST);
+    expect(sent[0]?.email.text).toContain("stay up until October 1, 2026");
+    expect(sent[0]?.email.text).toContain("until December 30, 2026, when");
+    expect(await tellPausedAnswerSubdomains(telling())).toBe(0);
+    // Paused again after the plan came back, they are told again.
+    const kept = db.connections.find((candidate) => candidate.id === connection);
+    if (kept) Object.assign(kept, { status: "working", paused_at: null });
+    const again = new Date(Date.now() + 60_000).toISOString();
+    pause(connection, again);
+    expect(await tellPausedAnswerSubdomains(telling())).toBe(1);
+    // The card says so too.
+    const card = await call(alice, "GET", `/locations/${location.id}/hosted-pages`);
+    expect(
+      ((await card.json()) as { subdomain: { status: string; paused_at: string } }).subdomain,
+    ).toMatchObject({
+      status: "paused",
+      paused_at: again,
+    });
+  });
+
+  it("lets go of one paused before it ever went live, as any that never started working, and tells nobody of pages", async () => {
+    const { connection } = await withCopy({ live: false });
+    const kept = db.connections.find((candidate) => candidate.id === connection);
+    if (kept) kept.connected_at = new Date(Date.now() - 31 * 86_400_000).toISOString();
+    pause(connection, new Date(Date.now() - 86_400_000).toISOString());
+    expect(await tellPausedAnswerSubdomains(telling())).toBe(0);
+    expect(await expireUnclaimedAnswerSubdomains(memoryStore(db, null), env.SCAN_QUEUE)).toBe(1);
+  });
+
+  it("still takes a page back while the paused subdomain serves it, and publishes nothing new", async () => {
+    const scene = await withCopy();
+    await proposeAfterSync(scene.connection, worker());
+    const [first] = await waitingOf(scene.location.id);
+    await call(bob, "POST", `/actions/${first?.id}/approve`, {});
+    await carryOutAction(first?.id ?? "", worker());
+    pause(scene.connection, new Date().toISOString());
+    expect(await proposeAfterSync(scene.connection, worker())).toBe(0);
+    // A publish approved before the pause does not go up.
+    const waiting = db.actions.find((candidate) => candidate.id === first?.id);
+    if (waiting) Object.assign(waiting, { status: "approved", attempts: 0 });
+    db.hostedPages = [];
+    expect(await carryOutAction(first?.id ?? "", worker())).toBe("failed");
+    expect(db.hostedPages).toEqual([]);
+    if (waiting) waiting.status = "done";
+    await carryOutAction(first?.id ?? "", worker());
+    db.hostedPages.push({
+      id: crypto.randomUUID(),
+      connection_id: scene.connection,
+      location_id: scene.location.id,
+      recommendation_id: scene.task.id,
+      action_id: first?.id ?? null,
+      slug: "late-night-pizza-in-raleigh",
+      title: "Late night pizza in Raleigh",
+      copy: COPY,
+      published_at: "2026-10-16T00:00:00Z",
+      taken_back_at: null,
+    });
+    const back = ActionSchema.parse(
+      await (await call(bob, "POST", `/actions/${first?.id}/take-back`)).json(),
+    );
+    expect(await carryOutAction(back.id, worker())).toBe("done");
+    expect(db.hostedPages[0]?.taken_back_at).not.toBeNull();
+  });
+
+  it("removes the subdomain only once the pages have sent visitors on for ninety days", async () => {
+    const { connection } = await withCopy();
+    const queue = env.SCAN_QUEUE;
+    pause(connection, new Date(Date.now() - 31 * 86_400_000).toISOString());
+    expect(await expirePausedConnections(memoryStore(db, null), queue)).toBe(0);
+    pause(connection, new Date(Date.now() - 121 * 86_400_000).toISOString());
+    expect(await expirePausedConnections(memoryStore(db, null), queue)).toBe(1);
+    expect(await removeConnection(connection, telling())).toBe("removed");
+    expect(sent[0]?.email.text).toContain("no longer includes hosted pages");
   });
 });

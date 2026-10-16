@@ -1,4 +1,12 @@
-import type { AnswerSubdomain } from "@nearcited/shared";
+import {
+  type AnswerSubdomain,
+  FETCHES_SHOWN_DAYS,
+  type FetcherGroup,
+  PAGE_FETCHERS,
+  type PageFetches,
+} from "@nearcited/shared";
+
+export { windingDown } from "@nearcited/shared";
 
 /** How often the card asks again while the worker is waiting for the record or the certificate. */
 export const WAITING_MS = 15_000;
@@ -51,7 +59,8 @@ export const HOSTED_WORDS = {
   moved:
     "Your website is now on another domain, so no new pages are offered here. Pages already published stay up. Remove the subdomain on the Connections page, or put the website back under Settings.",
   manage: "The subdomain is removed on the",
-  paused: "Your plan no longer includes pages on your own domain. Nothing new is published here.",
+  paused: (served: string, removed: string) =>
+    `Your plan no longer includes pages on your own domain, so nothing new is published here. The pages already up stay until ${served}. From then, visitors are sent on to your website until ${removed}, when the subdomain is removed.`,
   removing: "Being removed.",
 } as const;
 
@@ -71,4 +80,37 @@ export function removedBecause(reason: string | null): string {
     default:
       return "";
   }
+}
+
+/** A day as a page task writes it: "Oct 16". */
+const shortDay = (day: string) =>
+  new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" }).format(
+    new Date(`${day}T00:00:00Z`),
+  );
+
+/** One fetcher's reads, as a page task writes them: "ClaudeBot (Anthropic) 5 times, last on Oct 16". */
+const fetchedBy = ({ fetcher, count, last_on }: PageFetches) =>
+  `${PAGE_FETCHERS[fetcher].name} (${PAGE_FETCHERS[fetcher].maker}) ${
+    count === 1 ? `once, on ${shortDay(last_on)}` : `${count} times, last on ${shortDay(last_on)}`
+  }`;
+
+/**
+ * What a page task says of who fetched its hosted page lately: the assistants' fetchers and the
+ * search engines' crawlers apart, and that the count can be padded. Null where none fetched it.
+ */
+export function fetchesLine(fetches: readonly PageFetches[]): string | null {
+  const of = (group: FetcherGroup, by: string) => {
+    const these = fetches.filter((counted) => PAGE_FETCHERS[counted.fetcher].group === group);
+    return these.length > 0 ? `by ${by}: ${these.map(fetchedBy).join(", ")}.` : null;
+  };
+  const groups = [of("assistant", "assistants"), of("search", "search engines")].filter(
+    (said): said is string => said !== null,
+  );
+  if (groups.length === 0) return null;
+  const [first, ...rest] = groups;
+  return [
+    `Fetched in the last ${FETCHES_SHOWN_DAYS} days ${first}`,
+    ...rest.map((said) => ` ${said.charAt(0).toUpperCase()}${said.slice(1)}`),
+    " Anyone can claim to be one of these, so this shows the page is being read, not who read it.",
+  ].join("");
 }

@@ -95,7 +95,9 @@ system works; this file only settles vocabulary.
   which waits for its owner, or reading from it failed three days in a row, which is still tried
   once a day and mends itself.
 - **Paused connection**: one of a kind the organization's plan no longer includes. Nothing is read
-  from it or done through it, and its sign-in is kept for thirty days.
+  from it or done through it, and its sign-in is kept for thirty days. An answer subdomain, which
+  has no sign-in, keeps serving its pages for thirty days, then sends visitors to the business's
+  site for ninety more, and is removed after that.
 - **Answer subdomain**: a subdomain of a business's own domain, such as `answers.` in front of it,
   which the owner points at the product with one DNS record, once, so that pages can be hosted
   there. A connection with no sign-in: the record points at a target of its own, and the name is

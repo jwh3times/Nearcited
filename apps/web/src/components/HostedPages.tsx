@@ -19,6 +19,7 @@ import {
   removedBecause,
   settingUp,
   WAITING_MS,
+  windingDown,
 } from "../lib/hosted-pages";
 import { ErrorNote } from "./ErrorNote";
 import { Field } from "./Field";
@@ -128,7 +129,14 @@ export function HostedPages({
               {HOSTED_WORDS.moved}
             </p>
           )}
-          {subdomain.status === "paused" && <p role="status">{HOSTED_WORDS.paused}</p>}
+          {subdomain.status === "paused" && subdomain.paused_at && (
+            <p role="status">
+              {HOSTED_WORDS.paused(
+                formatDay(windingDown(subdomain.paused_at).served),
+                formatDay(windingDown(subdomain.paused_at).removed),
+              )}
+            </p>
+          )}
           <p className="small muted">
             {HOSTED_WORDS.manage} <Link to={`${base}/connections`}>Connections</Link> page.
           </p>

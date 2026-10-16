@@ -39,6 +39,7 @@ import {
   requeueStalledRemovals,
   syncConnection,
   tellBrokenConnections,
+  tellPausedAnswerSubdomains,
 } from "./connections";
 import { sealingKey } from "./connections/seal";
 import { requeueStalledDrafts, writeDraft } from "./drafts";
@@ -108,6 +109,16 @@ export default {
     if (stalledDrafts > 0) console.log(`Queued ${stalledDrafts} drafts again`);
     const waiting = await requeueAnswerSubdomainChecks(store, env.SCAN_QUEUE);
     if (waiting > 0) console.log(`Queued checks of ${waiting} answer subdomains still waiting`);
+    // Told the day a plan stops including hosted pages, whenever in the day that is.
+    const paused = await tellPausedAnswerSubdomains({
+      store,
+      key: null,
+      send: env.RESEND_API_KEY
+        ? (to: string[], email: Email) => sendEmail(env, to, email)
+        : undefined,
+      appUrl: env.APP_URL,
+    });
+    if (paused > 0) console.log(`Told the owners of ${paused} paused answer subdomains`);
     if (controller.cron === SWEEP_ONLY_CRON) return;
 
     const queued = await enqueueDueScans(store, env.SCAN_QUEUE);
@@ -145,6 +156,7 @@ export default {
     if (reminded > 0) console.log(`Reminded the owners of ${reminded} broken connections`);
     const told = await tellBrokenConnections(telling);
     if (told > 0) console.log(`Told the owners of ${told} broken connections, late`);
+
     const steps = await advancePriceChanges(store, env.SCAN_QUEUE);
     if (steps > 0) console.log(`Queued ${steps} price change steps`);
     const reductions = await advanceLimitChanges(store, env.SCAN_QUEUE);

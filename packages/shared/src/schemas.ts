@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { allowanceErrors } from "./allowances";
+import { PAGE_FETCHER_KEYS, type PageFetcher } from "./hosted-pages";
 import { isCountry, normalizePhone, normalizePostalCode, normalizeWebsite } from "./inputs";
 
 /**
@@ -1238,6 +1239,8 @@ export const HostedAnswerSchema = z.discriminatedUnion("kind", [
   }),
   z.object({ kind: z.literal("gone"), business: HostedBusinessSchema }),
   z.object({ kind: z.literal("missing"), business: HostedBusinessSchema }),
+  // Thirty days into a pause, every address sends a visitor on to the business's own site.
+  z.object({ kind: z.literal("redirect"), business: HostedBusinessSchema, to: z.string() }),
 ]);
 export type HostedAnswer = z.infer<typeof HostedAnswerSchema>;
 
@@ -1786,11 +1789,22 @@ export const PromptPageInputSchema = z.object({
 });
 export type PromptPageInput = z.infer<typeof PromptPageInputSchema>;
 
+/** How often one fetcher read a hosted page over a stretch of days, and the last day it did. */
+export const PageFetchesSchema = z.object({
+  fetcher: z.enum(PAGE_FETCHER_KEYS as [PageFetcher, ...PageFetcher[]]),
+  count: z.number().int().nonnegative(),
+  last_on: z.string(),
+});
+export type PageFetches = z.infer<typeof PageFetchesSchema>;
+/** A hosted page's fetches, with the page task the page does the work of. */
+export type TaskPageFetches = PageFetches & { recommendation_id: string };
+
 /**
  * A page on the business's own site that would answer one of its prompts, because no answer to
  * that prompt named the business. Composed by rule; only the copy for the page, its draft, is
  * written by a model.
  */
+
 export const PageTaskSchema = z.object({
   /** The recommendation the task stands on, which is what marking it done updates. */
   id: Id,
@@ -1814,6 +1828,11 @@ export const PageTaskSchema = z.object({
   draft: DraftSchema.nullable(),
   /** Where the page is, once a member said. */
   page: PromptPageSchema.nullable(),
+  /**
+   * How often each counted fetcher read the task's hosted page over the last thirty days, where
+   * it has one and was read. Anyone can claim to be one of these, so this is never proof.
+   */
+  fetches: z.array(PageFetchesSchema),
 });
 export type PageTask = z.infer<typeof PageTaskSchema>;
 

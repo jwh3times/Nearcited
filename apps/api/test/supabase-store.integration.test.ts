@@ -1499,7 +1499,71 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
     await expect(worker.publishHostedPage(publishing.id, hosted)).rejects.toMatchObject({
       kind: "conflict",
     });
+    // Fetches of it are read added up, by members of its organization alone.
+    const published = await worker.getHostedPage(subdomain.id, "late-night");
+    const fetchedOn = new Date().toISOString().slice(0, 10);
+    await admin
+      .from("hosted_page_fetches")
+      .insert([
+        {
+          hosted_page_id: published?.id,
+          location_id: site.id,
+          day: fetchedOn,
+          fetcher: "claudebot",
+          count: 3,
+        },
+        {
+          hosted_page_id: published?.id,
+          location_id: site.id,
+          day: "2026-01-01",
+          fetcher: "claudebot",
+          count: 9,
+        },
+      ])
+      .throwOnError();
+    await admin
+      .from("hosted_pages")
+      .update({ recommendation_id: null })
+      .eq("id", published?.id ?? "")
+      .throwOnError();
+    // A page that does no task is not shown on one.
+    expect(await aliceStore.listLocationPageFetches(site.id, "2026-01-01")).toEqual([]);
+    const [task] = (
+      await admin
+        .from("recommendations")
+        .insert({
+          location_id: site.id,
+          rule: "page:integration",
+          title: "Publish a page",
+          detail: "Detail",
+        })
+        .select("id")
+        .throwOnError()
+    ).data as { id: string }[];
+    await admin
+      .from("hosted_pages")
+      .update({ recommendation_id: task?.id })
+      .eq("id", published?.id ?? "")
+      .throwOnError();
+    expect(await aliceStore.listLocationPageFetches(site.id, "2026-06-01")).toEqual([
+      { recommendation_id: task?.id, fetcher: "claudebot", count: 3, last_on: fetchedOn },
+    ]);
+    expect(await bobStore.listLocationPageFetches(site.id, "2026-01-01")).toEqual([]);
     expect(await worker.takeBackHostedPage(publishing.id)).toBe(true);
+    // A paused one's owners are told once.
+    await admin
+      .from("connections")
+      .update({ status: "paused", paused_at: new Date(Date.now() - 60_000).toISOString() })
+      .eq("id", subdomain.id)
+      .throwOnError();
+    expect(await worker.listPausedAnswerSubdomainsUntold()).toContain(subdomain.id);
+    await worker.markAnswerSubdomainPauseTold(subdomain.id);
+    expect(await worker.listPausedAnswerSubdomainsUntold()).not.toContain(subdomain.id);
+    await admin
+      .from("connections")
+      .update({ status: "working", paused_at: null })
+      .eq("id", subdomain.id)
+      .throwOnError();
     expect(await worker.getHostedPage(subdomain.id, "late-night")).toBeNull();
     expect((await worker.getAnswerSubdomain(subdomain.id))?.live_told_at).not.toBeNull();
     expect(await worker.listAnswerSubdomainsToCheck(new Date().toISOString())).not.toContain(

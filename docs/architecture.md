@@ -24,18 +24,21 @@ Everything below is the main one.
   approved action nobody is carrying out (`requeueStalledActions`; see "Actions") and any draft
   asked for that nobody is writing (`requeueStalledDrafts`; see "Drafts"), and checks again each
   answer subdomain still waiting for its record or its certificate that was last checked more than
-  ten minutes ago (`requeueAnswerSubdomainChecks`; see "Connections").
+  ten minutes ago (`requeueAnswerSubdomainChecks`; see "Connections"), and tells the owners of each
+  answer subdomain just paused when its pages stop being served as they are and when it will be
+  removed (`tellPausedAnswerSubdomains`), so they hear the day it happens.
   Once a day it also asks Postgres which locations are due (`locations_due_for_scan`), creates a
   `scheduled` scan row for each, and puts the scan IDs on the queue. It also queues a sync for each
   connection that is due (`enqueueDueSyncs`). It also lapses the proposals that waited fourteen
   days (`lapse_actions()`), drops what an action replaced once it may be kept no longer
   (`drop_expired_seen()`) and tells each organization's owners what was done and what is newly
   waiting (`sendActionNotices`; see "Actions"). It also starts the removal of each connection that
-  has been paused for thirty days (`expirePausedConnections`) and reminds, once, the owners and
+  has been paused for thirty days, an answer subdomain for 120 (`expirePausedConnections`) and reminds, once, the owners and
   admins of each they were told a week ago had broken and that still is
   (`remindBrokenConnections`), and tells those of any broken one nobody could be told of at the
   time (`tellBrokenConnections`; see "Connections"). It also starts the removal of each answer
-  subdomain whose record has not appeared in thirty days (`expireUnclaimedAnswerSubdomains`). It also calls `advancePriceChanges`, which queues the reminders a week before an
+  subdomain that has not gone live in thirty days, paused or not (`expireUnclaimedAnswerSubdomains`).
+  It also calls `advancePriceChanges`, which queues the reminders a week before an
   announced price change and, from its day on, a move for each subscription not yet moved. It also
   calls `advanceLimitChanges`, which queues the reminders a week before an announced reduction in a
   plan's limits and, on its day, makes the reduction through `apply_limit_change()`.
@@ -1077,7 +1080,8 @@ only a WordPress connection or an answer subdomain can break or pause in practic
   signing in again.
 - **After thirty days paused it is removed.** The daily run calls `expire_paused_connections()`
   (`expirePausedConnections`), which only the worker may call. It marks each connection paused for
-  thirty days `removing`, with `removal_reason` `plan`, and queues the `remove` step for each, which
+  thirty days `removing` (an answer subdomain 120 days, once its pages have sent visitors on for
+  ninety; see "Hosted pages"), with `removal_reason` `plan`, and queues the `remove` step for each, which
   the worker finishes like any removal and keeps the row as the record. A removal someone asked for
   records `removal_reason` `asked`.
 - **Matching says which of those is a location's, and only an owner or admin can.**
@@ -1211,7 +1215,8 @@ lists the locations: an owner or admin chooses which of the things the account r
 one's (what is another location's already is not offered), and anyone else reads the match. A
 location's Settings tab has a "Connected accounts" card while it is matched to something. A broken
 account says why, a paused one says until when its sign-in is kept, and a removed one says whether
-somebody removed it or its plan had not included it for thirty days. While a removal is waiting, or
+somebody removed it or its plan had not included it for thirty days (120 for an answer subdomain).
+While a removal is waiting, or
 a new account has not been read yet, the page asks again every couple of seconds.
 
 ## Hosted pages
@@ -1262,8 +1267,42 @@ stays the main Worker's (see "Connections"); the Pages Worker only serves what i
   and makes the token the main Worker registers hostnames with (`CLOUDFLARE_HOSTNAMES_TOKEN`).
 - **Pages are published by an action.** The `hosted_page` kind (see "Actions") writes `hosted_pages`
   through `publish_hosted_page()` and `take_back_hosted_page()`, which only the worker calls; no
-  API role writes the table. A taken-back page stays as a row so its address answers 410. Counting
-  fetches is not built.
+  API role writes the table. A taken-back page stays as a row so its address answers 410.
+- **A pause winds an answer subdomain down in three steps.** When a plan stops including
+  `hosted_pages`, `fit_connections_to_plan()` pauses the connection. For `SERVED_AFTER_PAUSE_DAYS`
+  (30) the pages are served as they were, and nothing new is published. From then,
+  `hosted_page()` answers `redirect` with the location's website for every address, and the Pages
+  Worker sends a 302 to it, not a permanent one, since the plan may come back (a location with no
+  website answers `gone`), for `REDIRECTED_FOR_DAYS`
+  (90 more). Then `expire_paused_connections()` removes the connection, 120 days into the pause
+  where every other kind is removed at 30. If the plan comes back before then, the connection is
+  restored and the pages are served again. The owners are emailed once for a pause, when it begins,
+  with both days (`tellPausedAnswerSubdomains`, from `answer_subdomains_paused_untold()`, worker
+  only, on every run of the schedule; `pause_told_at` marks it, a test organization's is marked
+  without an email, and a pause nobody could be told of is tried again). One paused before it ever
+  went live has no pages: nobody is told of pages, and it is let go thirty days after it was made,
+  as any that never started working.
+  Taking back a hosted page is still carried out while the connection is paused, and nothing else
+  is (`carryOutAction`), so an owner can still remove a page. The card and the Connections page say
+  the two days.
+- **A fetch by a known fetcher is counted, and the count proves nothing.** After it answers a
+  live page (not the list, `robots.txt`, the sitemap, a page that is gone or an address with none),
+  the Pages Worker looks at the user agent for one of `PAGE_FETCHERS`
+  (`packages/shared/src/hosted-pages.ts`): ten fetchers, eight of assistants (GPTBot,
+  OAI-SearchBot, ChatGPT-User, ClaudeBot, Claude-SearchBot, Claude-User, PerplexityBot,
+  Perplexity-User) and two of search engines (Googlebot, Bingbot), each known by a word in its user
+  agent (`fetcherOf`). It then calls `record_page_fetch(host, path, fetcher)` through
+  `ctx.waitUntil`, after the answer is made, so the visitor waits for nothing; a count that fails
+  is only logged. The function is granted to `anon` like `hosted_page()` and trusts nothing it is
+  told: the day is its own (UTC), the page must be live on a live answer subdomain, the fetcher
+  must be one the table's check names (the same list as `PAGE_FETCHERS`; add one in both), and a
+  page's count for a day and a fetcher stops at `MOST_FETCHES_A_DAY` (1,000). It tells the caller
+  nothing either way. `hosted_page_fetches` keeps only a count for a page, a day and a fetcher.
+  `GET /api/locations/:id` reads it through `location_page_fetches()` (as the caller) for the last
+  `FETCHES_SHOWN_DAYS` (30) days, added up per page task and fetcher with the last day
+  (`listLocationPageFetches`), and each page task carries it as `fetches`, most first. The task
+  shows a line naming the assistants' fetchers and the search engines apart (`fetchesLine`), and
+  says that anyone can claim to be one. Nothing is scored, alerted or billed from it.
 - **How it bills.** Every request to every answer subdomain runs the Pages Worker, which Cloudflare
   bills as Worker requests on the account's plan, and Cloudflare for SaaS bills custom hostnames
   past those its plan includes. What a hosted page costs in practice is not recorded here.
@@ -1654,12 +1693,16 @@ more, `connection_secrets`, `connection_kind_allowances`, `sample_listings` and 
 no API role can read or write at all (see "Connections" and "Actions").
 `hosted_pages` is read by an organization's members and the operator and written by no API role, only by the worker's `publish_hosted_page()` and `take_back_hosted_page()`; a caller
 who is not signed in reaches a live page only through `hosted_page()`, which answers for a live answer
-subdomain alone and is the one thing the Pages Worker calls (see "Hosted pages").
+subdomain alone and is, with `record_page_fetch()`, the only thing the Pages Worker calls (see "Hosted pages").
+`hosted_page_fetches` is read by the location's members and the operator, with no policy or grant for
+a caller who is not signed in, and written by no API role, only by `record_page_fetch()`.
 
 A caller who is not signed in can read an audit by its token and the price list, and can write one
 thing: count a visit to a location's own site, or note a check of the line on it, through two
 functions that answer anyone holding the location's site key (see "Visits from assistants").
-It can also read a live hosted page through `hosted_page()` (see "Hosted pages").
+It can also read a live hosted page through `hosted_page()`, and count a fetch of one by a known
+fetcher through `record_page_fetch()`, which needs no key and ignores anything it should not count
+(see "Hosted pages").
 
 The API does not check ownership in application code. For each request it builds a Supabase
 client that carries the caller's own access token (`createUserClient`), so Postgres evaluates the
@@ -2053,10 +2096,13 @@ drop it.
   counts nothing, and nothing limits how long what they replaced is kept. A kind that counts, or that has a limit, has not
   been made yet. A take-back is refused once a later action on the same subject has changed what
   the first left, and once the first's `seen` was dropped.
-- An answer subdomain is set up, registered, checked and served by the Pages Worker, and pages are
-  published on it, but counting fetches and winding it down, with redirects, when a plan stops including `hosted_pages` are not built ([#141](https://github.com/jwh3times/Nearcited/issues/141)).
-  Until then, one whose plan stops including it is paused and removed thirty days later like any
-  connection, and its owners are emailed to delete the record. A name whose record is proxied by Cloudflare
+- Fetches of a hosted page are counted from the user agent alone. Anyone can send one, so the count
+  can be padded; the ceiling in `record_page_fetch()` bounds what one page and fetcher can add in
+  a day, and nothing is worked out from it. A fetcher that names itself with another word, or none,
+  is not counted, and the list was read from the fetchers' published names, so one that is renamed
+  counts nothing until the list is changed. The page task shows the last thirty days only.
+- An answer subdomain whose plan stops including `hosted_pages` is paused, then redirected, then
+  removed, and its owners are emailed once to delete the record when it is removed. A name whose record is proxied by Cloudflare
   hides where it points, so it is not registered until the owner turns the proxy off. The name is
   looked up through one resolver, `cloudflare-dns.com`.
 - What each assistant's visits carry (`ASSISTANT_REFERRERS`) was read on 2026-10-13 from published

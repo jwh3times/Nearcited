@@ -1,5 +1,6 @@
 import type { Connection, OrganizationConnections } from "@nearcited/shared";
 import { api } from "./api";
+import { windingDown } from "./hosted-pages";
 
 /** How often the page asks again while something is waiting for the worker. */
 const WAITING_MS = 2000;
@@ -57,6 +58,14 @@ export function connectionNote(
     return connection.broken_reason === "refused"
       ? "Not working: the account refused the sign-in. Remove it and connect it again."
       : "Not working: reading from it has failed three days in a row. Nearcited tries again once a day, and it will start working again by itself if the cause passes.";
+  }
+  if (
+    connection.status === "paused" &&
+    connection.kind === "hosted_pages" &&
+    connection.paused_at
+  ) {
+    const { served, removed } = windingDown(connection.paused_at);
+    return `Paused: your plan does not include pages on your own domain. The pages stay up until ${day(served)}, then send visitors to your website until ${day(removed)}, when the subdomain is removed.`;
   }
   if (connection.status === "paused") {
     const until = connection.paused_at

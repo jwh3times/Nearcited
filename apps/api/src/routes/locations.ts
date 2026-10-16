@@ -8,6 +8,7 @@ import {
   type DetailsEvidence,
   type DraftKind,
   draftsStanding,
+  FETCHES_SHOWN_DAYS,
   type LocationDetail,
   LocationInputSchema,
   MAX_SCANS_SINCE,
@@ -60,6 +61,7 @@ locationRoutes.get("/locations/:id", async (c) => {
     listings,
     pages,
     allowanceUse,
+    fetches,
   ] = await Promise.all([
     store.listQueries(location.id),
     store.listScans(location.id, 1),
@@ -71,6 +73,11 @@ locationRoutes.get("/locations/:id", async (c) => {
     store.listListings(location.id),
     store.listPromptPages(location.id),
     store.getAllowanceUse(location.organization_id),
+    // How often the known fetchers read its hosted pages lately, by task.
+    store.listLocationPageFetches(
+      location.id,
+      new Date(Date.now() - FETCHES_SHOWN_DAYS * 86_400_000).toISOString().slice(0, 10),
+    ),
   ]);
   // A drop on a prompt retired since the last scan has nothing left to say. The next scan
   // clears it; until then it is not shown.
@@ -164,6 +171,7 @@ locationRoutes.get("/locations/:id", async (c) => {
       drafts,
       pages,
       writes,
+      fetches,
     }),
     drafts: draftsStanding(
       organization?.allowances ?? {},

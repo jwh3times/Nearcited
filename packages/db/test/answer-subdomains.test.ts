@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
+import { MOST_FETCHES_A_DAY } from "@nearcited/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 /**
@@ -48,7 +49,7 @@ async function onPlan(name: string, plan: string, by = owner, test = false) {
     "insert into public.memberships (organization_id, user_id, role) values ($1, $2, 'owner')",
     [org, by],
   );
-  await db.query("select public.apply_plan($1, $2, 3)", [org, plan]);
+  await db.query("select public.apply_plan($1, $2, 6)", [org, plan]);
   return org;
 }
 
@@ -543,6 +544,187 @@ describe("answer subdomains", () => {
       expect(await publish(await actionFor("approved"))).toBe(
         "https://answers.publishing.example/late-night",
       );
+    });
+  });
+
+  describe("counting fetches, and winding down", () => {
+    let site: string;
+    let connection: string;
+    let page: string;
+    const fetched = (host: string, path: string, fetcher: string) =>
+      as("anon", null, () =>
+        db.query("select public.record_page_fetch($1, $2, $3)", [host, path, fetcher]),
+      );
+    const counts = () =>
+      rows<{ fetcher: string; count: number }>(
+        "select fetcher, count from public.hosted_page_fetches where location_id = $1 order by fetcher",
+        [site],
+      );
+
+    beforeAll(async () => {
+      site = await locationOf(pro, "https://www.counting.example", "Counting Pizza");
+      connection = crypto.randomUUID();
+      await as("authenticated", owner, () =>
+        db.query(create, [site, connection, "answers", "k".repeat(12)]),
+      );
+      await db.query(
+        "update public.answer_subdomains set live_at = now() where connection_id = $1",
+        [connection],
+      );
+      const [task] = await rows<{ id: string }>(
+        "insert into public.recommendations (location_id, rule, title, detail) values ($1, 'page:q', 'Publish a page', 'Detail') returning id",
+        [site],
+      );
+      const [made] = await rows<{ id: string }>(
+        `insert into public.hosted_pages (connection_id, location_id, recommendation_id, slug, title, copy)
+         values ($1, $2, $3, 'late-night', 'Late night', 'Late night\n\nWords.') returning id`,
+        [connection, site, task?.id],
+      );
+      page = made?.id ?? "";
+    });
+
+    it("counts a live page's fetch by a known fetcher, for anyone, and nothing else", async () => {
+      await fetched("answers.counting.example", "/late-night", "claudebot");
+      await fetched("Answers.Counting.example", "/late-night/", "claudebot");
+      await fetched("answers.counting.example", "/late-night", "googlebot");
+      // Not a known fetcher, not a page, a page taken back, not a live host.
+      await db.query(
+        `insert into public.hosted_pages (connection_id, location_id, slug, title, copy, taken_back_at)
+         values ($1, $2, 'taken-back', 'Taken back', 'Taken back\n\nWords.', now())`,
+        [connection, site],
+      );
+      await fetched("answers.counting.example", "/taken-back", "gptbot");
+      await fetched("answers.counting.example", "/late-night", "somebot");
+      await fetched("answers.counting.example", "/", "gptbot");
+      await fetched("answers.counting.example", "/never-there", "gptbot");
+      await fetched("answers.nowhere.example", "/late-night", "gptbot");
+      expect(await counts()).toEqual([
+        { fetcher: "claudebot", count: 2 },
+        { fetcher: "googlebot", count: 1 },
+      ]);
+    });
+
+    it("stops a day's count at the most a day", async () => {
+      await db.query(
+        "update public.hosted_page_fetches set count = $2 where hosted_page_id = $1 and fetcher = 'googlebot'",
+        [page, MOST_FETCHES_A_DAY],
+      );
+      await fetched("answers.counting.example", "/late-night", "googlebot");
+      expect((await counts()).find((row) => row.fetcher === "googlebot")?.count).toBe(
+        MOST_FETCHES_A_DAY,
+      );
+    });
+
+    it("are read added up by members and the operator, and by nobody else", async () => {
+      const read =
+        "select fetcher, fetches::int as fetches from public.location_page_fetches($1, current_date - 30) order by fetcher";
+      for (const user of [owner, member, operator]) {
+        expect(await as("authenticated", user, () => rows(read, [site])), user).toEqual([
+          { fetcher: "claudebot", fetches: 2 },
+          { fetcher: "googlebot", fetches: MOST_FETCHES_A_DAY },
+        ]);
+      }
+      expect(await as("authenticated", stranger, () => rows(read, [site]))).toEqual([]);
+      for (const sql of [
+        "select 1 from public.hosted_page_fetches",
+        `select * from public.location_page_fetches('${site}', current_date)`,
+      ]) {
+        await expect(
+          as("anon", null, () => db.query(sql)),
+          sql,
+        ).rejects.toThrow(/permission denied/);
+      }
+      await expect(
+        as("authenticated", owner, () => db.query("delete from public.hosted_page_fetches")),
+      ).rejects.toThrow(/permission denied/);
+    });
+
+    it("serves the pages for thirty days into a pause, then sends visitors to the business's site", async () => {
+      const answer = async (path: string) =>
+        (
+          await as("anon", null, () =>
+            rows<{ answer: Record<string, unknown> }>(
+              "select public.hosted_page('answers.counting.example', $1) as answer",
+              [path],
+            ),
+          )
+        )[0]?.answer;
+      await db.query(
+        "update public.connections set status = 'paused', paused_at = now() - interval '29 days' where id = $1",
+        [connection],
+      );
+      expect(await answer("/late-night")).toMatchObject({ kind: "page" });
+      await db.query(
+        "update public.connections set paused_at = now() - interval '31 days' where id = $1",
+        [connection],
+      );
+      for (const path of ["/", "/late-night", "/never-there"]) {
+        expect(await answer(path), path).toMatchObject({
+          kind: "redirect",
+          to: "https://www.counting.example",
+        });
+      }
+    });
+
+    it("tells the worker which paused ones are untold, once a pause", async () => {
+      const untold = () =>
+        as("service_role", null, () =>
+          rows<{ id: string }>("select public.answer_subdomains_paused_untold() as id"),
+        );
+      expect(await untold()).toContainEqual({ id: connection });
+      await db.query(
+        "update public.answer_subdomains set pause_told_at = now() where connection_id = $1",
+        [connection],
+      );
+      expect(await untold()).not.toContainEqual({ id: connection });
+      await expect(
+        as("authenticated", owner, () =>
+          db.query("select public.answer_subdomains_paused_untold()"),
+        ),
+      ).rejects.toThrow(/permission denied/);
+      await expect(
+        as("authenticated", owner, () =>
+          db.query("select pause_told_at from public.answer_subdomains"),
+        ),
+      ).rejects.toThrow(/permission denied/);
+    });
+
+    it("lets go of a paused one that never went live, thirty days after it was made", async () => {
+      const pending = crypto.randomUUID();
+      const other = await locationOf(pro, "https://www.pending.example", "Pending Pizza");
+      await as("authenticated", owner, () =>
+        db.query(create, [other, pending, "answers", "p".repeat(12)]),
+      );
+      await db.query(
+        "update public.connections set status = 'paused', paused_at = now(), connected_at = now() - interval '31 days' where id = $1",
+        [pending],
+      );
+      const untold = await as("service_role", null, () =>
+        rows<{ id: string }>("select public.answer_subdomains_paused_untold() as id"),
+      );
+      expect(untold).not.toContainEqual({ id: pending });
+      expect(
+        await as("service_role", null, () =>
+          rows<{ id: string }>("select public.expire_unclaimed_answer_subdomains() as id"),
+        ),
+      ).toContainEqual({ id: pending });
+    });
+
+    it("removes one only a hundred and twenty days into its pause", async () => {
+      const expire = () =>
+        as("service_role", null, () =>
+          rows<{ id: string }>("select public.expire_paused_connections() as id"),
+        );
+      await db.query(
+        "update public.connections set paused_at = now() - interval '119 days' where id = $1",
+        [connection],
+      );
+      expect(await expire()).not.toContainEqual({ id: connection });
+      await db.query(
+        "update public.connections set paused_at = now() - interval '121 days' where id = $1",
+        [connection],
+      );
+      expect(await expire()).toContainEqual({ id: connection });
     });
   });
 });
