@@ -98,7 +98,7 @@ afterEach(() => {
 /** Every response must be readable without running anything, and keep nothing in the browser. */
 async function plain(response: Response) {
   const html = await response.clone().text();
-  for (const tag of html.match(/<script[^>]*>/g) ?? []) {
+  for (const tag of html.match(/<script\b[^>]*>/gi) ?? []) {
     expect(tag).toBe('<script type="application/ld+json">');
   }
   expect(html).not.toMatch(/<img|<iframe|\son[a-z]+=/i);
