@@ -21,6 +21,7 @@ import { alertRoutes } from "./routes/alerts";
 import { billingRoutes } from "./routes/billing";
 import { connectionRoutes } from "./routes/connections";
 import { draftRoutes } from "./routes/drafts";
+import { hostedPagesRoutes } from "./routes/hosted-pages";
 import { listingRoutes } from "./routes/listings";
 import { locationRoutes } from "./routes/locations";
 import { operatorRoutes } from "./routes/operator";
@@ -226,6 +227,7 @@ export function createApp(deps: AppDeps = { authenticate: authenticateWithSupaba
   app.route("/", listingRoutes);
   app.route("/", pageRoutes);
   app.route("/", wordpressRoutes);
+  app.route("/", hostedPagesRoutes);
   app.route("/", visitRoutes);
 
   app.notFound((c) => c.json({ error: { code: "not_found", message: "No such route" } }, 404));

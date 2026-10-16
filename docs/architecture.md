@@ -20,7 +20,9 @@
   the removal of any connection asked for more than 15 minutes ago and not finished, the first
   sync of any connection made in the last day that still has none (see "Connections"), and any
   approved action nobody is carrying out (`requeueStalledActions`; see "Actions") and any draft
-  asked for that nobody is writing (`requeueStalledDrafts`; see "Drafts").
+  asked for that nobody is writing (`requeueStalledDrafts`; see "Drafts"), and checks again each
+  answer subdomain still waiting for its record or its certificate that was last checked more than
+  ten minutes ago (`requeueAnswerSubdomainChecks`; see "Connections").
   Once a day it also asks Postgres which locations are due (`locations_due_for_scan`), creates a
   `scheduled` scan row for each, and puts the scan IDs on the queue. It also queues a sync for each
   connection that is due (`enqueueDueSyncs`). It also lapses the proposals that waited fourteen
@@ -30,7 +32,8 @@
   has been paused for thirty days (`expirePausedConnections`) and reminds, once, the owners and
   admins of each they were told a week ago had broken and that still is
   (`remindBrokenConnections`), and tells those of any broken one nobody could be told of at the
-  time (`tellBrokenConnections`; see "Connections"). It also calls `advancePriceChanges`, which queues the reminders a week before an
+  time (`tellBrokenConnections`; see "Connections"). It also starts the removal of each answer
+  subdomain whose record has not appeared in thirty days (`expireUnclaimedAnswerSubdomains`). It also calls `advancePriceChanges`, which queues the reminders a week before an
   announced price change and, from its day on, a move for each subscription not yet moved. It also
   calls `advanceLimitChanges`, which queues the reminders a week before an announced reduction in a
   plan's limits and, on its day, makes the reduction through `apply_limit_change()`.
@@ -981,10 +984,11 @@ A connection is an organization's standing sign-in to an outside account (`conne
 is in `GLOSSARY.md`, the decision in `docs/adr/0013-a-sign-in-is-sealed-by-the-worker.md`). What
 exists is making one, listing them, reading what one reaches, saying which of those is each
 location's, breaking one that stops working, pausing one the plan stops including, and removing
-one. There are two kinds, `sample` and `wordpress` (see "A WordPress site" below). Nothing reads
+one. There are three kinds, `sample`, `wordpress` (see "A WordPress site" below) and `hosted_pages`
+(see "An answer subdomain" below). Nothing reads
 anything from an account beyond what it reaches, and the only thing done through one is the
 `sample` kind's action (see "Actions"). The `sample` kind never fails and needs no allowance, so
-only a WordPress connection can break or pause in practice.
+only a WordPress connection or an answer subdomain can break or pause in practice.
 
 - **Only an owner or admin connects or removes.** `create_connection()` and
   `request_connection_removal()` are security-definer functions that return no row to anyone else,
@@ -1096,7 +1100,8 @@ only a WordPress connection can break or pause in practice.
   and leaves out a kind the organization's allowances do not include. It makes up a sign-in and
   calls the account "Sample account", so the path runs with no outside account. On live data it
   offers `wordpress` to an organization that is not a test one and whose allowances include it.
-  The page leaves `wordpress` out of its connect buttons.
+  It never offers `hosted_pages` here, which is set up from a location (below). The page leaves
+  both out of its connect buttons.
 - **A WordPress site is connected from its location.** The generic
   `POST /api/organizations/:organizationId/connections` refuses the kind with 422
   `connect_from_location`. `apps/api/src/routes/wordpress.ts` has two routes for an owner or an
@@ -1135,6 +1140,62 @@ only a WordPress connection can break or pause in practice.
   the migration `20261014110000_wordpress_connections.sql` put it on them and on each
   organization already on them except a test organization, and the Website tab's card appears only
   where the plan includes it.
+- **An answer subdomain is set up from its location, and has no sign-in.**
+  `POST /api/locations/:locationId/hosted-pages` (`apps/api/src/routes/hosted-pages.ts`) is for an
+  owner or admin and answers 404 to anyone else; `GET` on the same path is for anyone who can read
+  the location. The generic connect route refuses the kind with 422 `connect_from_location`, and
+  `create_connection()` refuses it too. `create_answer_subdomain()` makes the connection, its match
+  to the location and its `answer_subdomains` row in one step: the name is the owner's one word in
+  front of the website's domain (`website_domain()`; `answerHostname` in the shared package works
+  out the same), and the connection gets a random target of its own, `<12 characters>.pages.nearcited.com`.
+  It refuses a test organization, a plan without the `hosted_pages` allowance, a location without a
+  website, and a location that already publishes somewhere (an answer subdomain or a WordPress
+  connection, each of which refuses the other: `hosted_pages_connected` on the WordPress routes,
+  `wordpress_connected` here). The route also refuses a name that already resolves to anything
+  (`in_use`), so a subdomain in use is not broken, and a name another live connection holds (`taken`;
+  a unique index holds a hostname to one connection until its removal finishes). A deployment with no
+  `CLOUDFLARE_HOSTNAMES_TOKEN` and `CLOUDFLARE_ZONE_ID` offers none, except on sample data
+  (`hosted_pages_unavailable`; `barred` says why on the `GET`). The match routes refuse an answer
+  subdomain (`not_matched_by_hand`), since it belongs to the location it was made for, and deleting
+  the location removes it.
+- **A name is registered only once its record points at the connection's own target.** The first
+  check is queued when it is made; `syncConnection` runs `checkAnswerSubdomain`
+  (`apps/api/src/connections/index.ts`) for the kind. The worker looks the name up over
+  DNS-over-HTTPS (`cloudflare-dns.com`) and records what it found: `missing`, `ours`, `proxied` (a
+  Cloudflare proxy hides where it points) or `elsewhere`. Only `ours`, a CNAME to this connection's
+  target, has it registered at Cloudflare as a custom hostname (`registered_at`). That is what stops
+  an account that made the subdomain first from putting its pages on someone else's domain. Once
+  Cloudflare reports the hostname and its certificate active, the name is `live_at`; the worker
+  then reads the business's home page for a link to it (`home_links`) and, once, emails the
+  owners and admins that it works (`live_told_at`, set only when the email went). A check that
+  throws counts as a failed sync of any connection. On sample data, or where nothing is
+  configured, nothing is looked up or registered, and the check only records that it ran. Nothing
+  is served on a live name yet.
+- **The schedule keeps waiting names moving.** Every run (every 15 minutes) queues a check of each
+  answer subdomain still working, not yet live and connected in the last thirty days, that has not
+  been checked for ten minutes (`answer_subdomains_to_check()`, at most 100 a run), so an owner who has just added the record
+  sees it work within minutes. The daily run calls `expire_unclaimed_answer_subdomains()`
+  (`expireUnclaimedAnswerSubdomains`, worker only), which starts the removal of each not live
+  thirty days after it was made (`RECORD_WAIT_DAYS`: its record never pointed at its target, or its
+  certificate was never issued) with `removal_reason` `unclaimed`, and queues its removal. A
+  location's deletion starts the removal of its answer subdomain (`removal_reason` `location`),
+  which the sweep of stalled removals finishes within half an hour.
+- **Removing one deletes the custom hostname and tells the owners.** `removeConnection` takes the
+  hostname off Cloudflare where it was registered, calls `finish_connection_removal()`, which lets
+  the name go, and emails the owners to delete their record, saying why (asked, plan, unclaimed or
+  location). The card then says which name was removed and why, until another is set up.
+- **A name is checked before it is taken.** The request refuses a name that already resolves, so
+  nothing using it breaks, unless it is a CNAME to one of Nearcited's own targets, left from an
+  attempt that was let go. A website at a site builder's own address (`BUILDER_DOMAINS`, such as
+  `wixsite.com`) has no domain of its owner's, so the card offers nothing there
+  (`no_own_domain`). The card warns when the website has moved to another registered domain
+  (`underWebsite`); a move within the same one, such as to `shop.`, still matches.
+- **Hosted pages are an allowance, included or not.** `hosted_pages` has no number. Migration
+  `20261016100000_hosted_pages_kind.sql` added the kind of connection and
+  `20261016110000_answer_subdomains.sql` the table, the functions, the allowance's entry in
+  `connection_kind_allowances` and its turning on for Pro and Enterprise (see "Tenancy"). The
+  members of the organization and the operator read an answer subdomain, but not `cloudflare_id` or
+  `live_told_at`; no API role writes the table.
 - **Without the key nothing can be connected.** With no `CONNECTIONS_KEY`, `available` is empty and
   `POST` answers 503 `connections_unavailable`. A kind that is not offered answers 422
   `connection_unavailable`. A value that is not base64, or not 32 bytes, throws instead of
@@ -1655,6 +1716,8 @@ copy, edit and lower a plan.
   has had it since the kind was made, and touched no other limit.
   `wordpress` is included or not like `visits`: `20261014110000_wordpress_connections.sql` put it
   on Pro and Enterprise and on each organization already on them except a test organization.
+  `hosted_pages` is the same: `20261016110000_answer_subdomains.sql` turned it on for them (the kind
+  itself came in `20261016100000_hosted_pages_kind.sql`).
 - **Use of a counted kind is kept in `allowance_use`**, one row for an organization, a kind and a
   calendar month in UTC. Its members read their own organization's rows and the operator reads
   all of them; no API role writes it, since a count a member could write is a count a member could
@@ -1852,12 +1915,13 @@ drop it.
   A signed-in user cannot update a scan, so the request that hit the failure cannot clear it.
 - On a Supabase project that still signs tokens with a legacy shared secret, `getClaims` asks the
   Auth server on every request. Use asymmetric signing keys.
-- Allowances limit little yet. Three kinds of allowance exist (`ALLOWANCE_KINDS` and
-  `allowance_kinds`): `drafts`, counted, and `visits` and `wordpress`, included or not. Every paid
-  plan includes `drafts` and `visits`, Pro and Enterprise include `wordpress`, and the free plan
-  includes none. A test organization is given every kind, so its drafts are counted and its
-  visits and WordPress connection are included. Only the `wordpress` kind of connection names an
-  allowance, and no kind of action does, so a number for another kind would be stored, shown and
+- Allowances limit little yet. Four kinds of allowance exist (`ALLOWANCE_KINDS` and
+  `allowance_kinds`): `drafts`, counted, and `visits`, `wordpress` and `hosted_pages`, included or not.
+  Every paid plan includes `drafts` and `visits`, Pro and Enterprise include `wordpress` and
+  `hosted_pages`, and the free plan includes none. A test organization is given every kind, so its
+  drafts are counted and its visits and WordPress connection are included, but it is refused an
+  answer subdomain, whose pages would go out under a real domain. Only the `wordpress` and
+  `hosted_pages` kinds of connection name an allowance, and no kind of action does, so a number for another kind would be stored, shown and
   lowered by announcement, but no work would stop at it or be counted against it. What an allowance can stop is
   a kind of connection that needs it (see "Connections"), a kind of action that takes from it (see
   "Actions"), a draft (see "Drafts") and counting a visit (see "Visits from assistants"), and only
@@ -1908,6 +1972,13 @@ drop it.
   counts nothing, and nothing limits how long what they replaced is kept. A kind that counts, or that has a limit, has not
   been made yet. A take-back is refused once a later action on the same subject has changed what
   the first left, and once the first's `seen` was dropped.
+- An answer subdomain is set up, registered and checked, and nothing is served on it: the Pages
+  Worker, publishing to it, taking pages back, counting fetches, and winding it down when a plan
+  stops including `hosted_pages` are not built ([#141](https://github.com/jwh3times/Nearcited/issues/141)).
+  Until then, one whose plan stops including it is paused and removed thirty days later like any
+  connection, and its owners are emailed to delete the record. A name whose record is proxied by Cloudflare
+  hides where it points, so it is not registered until the owner turns the proxy off. The name is
+  looked up through one resolver, `cloudflare-dns.com`.
 - What each assistant's visits carry (`ASSISTANT_REFERRERS`) was read on 2026-10-13 from published
   accounts of what each assistant sends. Nobody followed a link out of each one to see, so a host
   or tag that is wrong counts nothing and says nothing.

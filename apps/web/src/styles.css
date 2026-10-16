@@ -1536,6 +1536,33 @@ details.as-table td {
   color: var(--ink);
 }
 
+/* The one DNS record an owner adds: each part's name, then its value and the way to copy it. */
+.record-parts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.375rem 1rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.8125rem;
+}
+
+.record-parts li {
+  display: contents;
+}
+
+.record-part {
+  color: var(--muted);
+}
+
+.record-value {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.75rem;
+  overflow-wrap: anywhere;
+}
+
 /* What a folded part of a card says once it is opened. */
 .paste-folded {
   display: flex;

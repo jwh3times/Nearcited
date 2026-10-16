@@ -30,8 +30,11 @@ import { createStripePayments } from "./billing/stripe";
 import {
   enqueueDueSyncs,
   expirePausedConnections,
+  expireUnclaimedAnswerSubdomains,
+  type Hosting,
   remindBrokenConnections,
   removeConnection,
+  requeueAnswerSubdomainChecks,
   requeueFirstSyncs,
   requeueStalledRemovals,
   syncConnection,
@@ -62,6 +65,15 @@ const app = createApp({
   },
 });
 
+/** Where this deployment registers answer subdomains, if it can. */
+const hostingOf = (env: Env): Hosting => ({
+  cloudflare:
+    env.CLOUDFLARE_HOSTNAMES_TOKEN && env.CLOUDFLARE_ZONE_ID
+      ? { token: env.CLOUDFLARE_HOSTNAMES_TOKEN, zone: env.CLOUDFLARE_ZONE_ID }
+      : null,
+  sampleData: usesSampleData(env),
+});
+
 /** The schedule that only sweeps. Any other trigger, including a manual test, also queues scans. */
 const SWEEP_ONLY_CRON = "*/15 * * * *";
 
@@ -73,10 +85,12 @@ export default {
   /**
    * Cron. Every run clears abandoned scans and unfinished audits, and asks again for any
    * connection's removal or first sync that has not been finished, any approved action nobody
-   * is carrying out and any draft nobody is writing; the daily run also queues a scan for every location that is due and a sync
-   * for every connection that is, lapses the proposals nobody answered, drops what an action
-   * replaced once it may be kept no longer, and tells each organization's owners what was done
-   * for it. The two schedules are in wrangler.jsonc.
+   * is carrying out and any draft nobody is writing, and checks again every answer subdomain still
+   * waiting for its record; the daily run also queues a scan for every location that is due and a
+   * sync for every connection that is, lapses the proposals nobody answered, drops what an action
+   * replaced once it may be kept no longer, tells each organization's owners what was done for
+   * it, and lets go of every answer subdomain whose record never appeared. The two schedules are
+   * in wrangler.jsonc.
    */
   async scheduled(controller, env) {
     const store = createSupabaseStore(createAdminClient(env));
@@ -92,6 +106,8 @@ export default {
     if (stalledActions > 0) console.log(`Queued ${stalledActions} approved actions again`);
     const stalledDrafts = await requeueStalledDrafts(store, env.SCAN_QUEUE);
     if (stalledDrafts > 0) console.log(`Queued ${stalledDrafts} drafts again`);
+    const waiting = await requeueAnswerSubdomainChecks(store, env.SCAN_QUEUE);
+    if (waiting > 0) console.log(`Queued checks of ${waiting} answer subdomains still waiting`);
     if (controller.cron === SWEEP_ONLY_CRON) return;
 
     const queued = await enqueueDueScans(store, env.SCAN_QUEUE);
@@ -114,6 +130,8 @@ export default {
     if (noticed > 0) console.log(`Told the owners of ${noticed} organizations what was done`);
     const expired = await expirePausedConnections(store, env.SCAN_QUEUE);
     if (expired > 0) console.log(`Began removing ${expired} connections paused for thirty days`);
+    const unclaimed = await expireUnclaimedAnswerSubdomains(store, env.SCAN_QUEUE);
+    if (unclaimed > 0) console.log(`Began removing ${unclaimed} answer subdomains never set up`);
     const telling = {
       store,
       key: null,
@@ -228,6 +246,7 @@ export default {
               : undefined,
             appUrl: env.APP_URL,
             outside: { localOrigin: env.WORDPRESS_LOCAL_ORIGIN ?? null },
+            hosting: hostingOf(env),
           };
           const outcome =
             step === "remove"

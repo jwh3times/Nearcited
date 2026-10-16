@@ -39,8 +39,10 @@ import {
   PAGES_SHOWN,
   reductions,
   VISITS_ALLOWANCE,
+  websiteDomain,
 } from "@nearcited/shared";
 import {
+  type KeptAnswerSubdomain,
   type NewAction,
   type PriceVersion,
   type Store,
@@ -159,6 +161,15 @@ export interface MemoryDb {
   /** The location each connection was made from, until its first sync matches it there. */
   connectionsFrom: Map<string, string>;
   /**
+   * The `answer_subdomains` table: each answer subdomain's name, target and what the worker
+   * found. Its connection's standing is read from `connections`. `released_at` is when its name
+   * was let go, at the end of its removal.
+   */
+  answerSubdomains: (Omit<
+    KeptAnswerSubdomain,
+    "connected_at" | "status" | "paused_at" | "removal_reason" | "removed_at"
+  > & { released_at: string | null })[];
+  /**
    * The `allowance_kinds` table: each kind, and whether it is counted. It starts as the kinds
    * this build lists. A test adds one to stand for a kind a migration made before the Worker
    * that knows it was deployed.
@@ -237,6 +248,7 @@ export function createMemoryDb(): MemoryDb {
     ),
     connectionSecrets: new Map(),
     connectionsFrom: new Map(),
+    answerSubdomains: [],
     allowanceKinds: new Map(
       Object.entries(ALLOWANCE_KINDS).map(([key, kind]) => [key, kind.counted]),
     ),
@@ -279,6 +291,21 @@ const testAllowances = (db: MemoryDb): Allowances =>
   Object.fromEntries([...db.allowanceKinds].map(([key, counted]) => [key, counted ? 1000 : true]));
 
 /** `userId: null` is the worker's view: no filtering. */
+/** An answer subdomain with its connection's standing, as the store returns one. */
+function keptAnswerSubdomain(
+  { released_at: _released, ...kept }: MemoryDb["answerSubdomains"][number],
+  connection: Connection,
+): KeptAnswerSubdomain {
+  return {
+    ...kept,
+    connected_at: connection.connected_at,
+    status: connection.status,
+    paused_at: connection.paused_at,
+    removal_reason: connection.removal_reason,
+    removed_at: connection.removed_at,
+  };
+}
+
 export function memoryStore(db: MemoryDb, userId: string | null): Store {
   /** Membership: what every write is checked against. */
   const seesOrg = (organizationId: string) =>
@@ -1355,6 +1382,10 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         matches: [],
       });
       db.connectionSecrets.delete(id);
+      // An answer subdomain's name is free for anyone again.
+      for (const kept of db.answerSubdomains) {
+        if (kept.connection_id === id) kept.released_at = db.now ?? timestamp();
+      }
       return true;
     },
 
@@ -1585,6 +1616,173 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
       return db.memberships
         .filter((m) => m.organization_id === organizationId && m.role !== "member")
         .flatMap((m) => db.emails.get(m.user_id) ?? []);
+    },
+
+    // Mirrors create_answer_subdomain(): a connection with no sign-in, matched to its location.
+    async createAnswerSubdomain({ id, location_id, label, target }) {
+      const location = db.locations.find((candidate) => candidate.id === location_id);
+      if (!location || !managesOrg(location.organization_id)) return null;
+      const organization = db.organizations.find((o) => o.id === location.organization_id);
+      if (!organization || organization.is_test) {
+        throw new StoreError(
+          "limit",
+          "A test organization's pages would go out under a real domain.",
+        );
+      }
+      if (!allowsConnection(organization.id, "hosted_pages")) {
+        throw new StoreError("limit", "This organization's plan does not include hosted pages.");
+      }
+      const domain = websiteDomain(location.website);
+      if (!domain || !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label)) {
+        throw new StoreError("limit", "That is not a subdomain of this location's website.");
+      }
+      const held = (kind: string) =>
+        db.connections.some(
+          (connection) =>
+            connection.kind === kind &&
+            connection.status !== "removed" &&
+            connection.matches.some((match) => match.location_id === location_id),
+        );
+      if (held("wordpress") || held("hosted_pages")) {
+        throw new StoreError("limit", "This location already publishes its pages somewhere.");
+      }
+      const hostname = `${label}.${domain}`;
+      if (db.answerSubdomains.some((kept) => kept.hostname === hostname && !kept.released_at)) {
+        throw new StoreError("conflict", "That subdomain is held by another connection.");
+      }
+      const now = db.now ?? timestamp();
+      const made: Connection = {
+        id,
+        organization_id: organization.id,
+        kind: "hosted_pages",
+        label: hostname,
+        status: "working",
+        connected_by_email: db.emails.get(userId ?? "") ?? null,
+        connected_at: now,
+        removed_by_email: null,
+        removal_requested_at: null,
+        removed_at: null,
+        broken_reason: null,
+        broken_at: null,
+        paused_at: null,
+        removal_reason: null,
+        last_synced_at: null,
+        choices: [{ id: hostname, label: hostname }],
+        matches: [
+          { location_id, external_id: hostname, external_label: hostname, matched_at: now },
+        ],
+      };
+      db.connections.push(made);
+      db.answerSubdomains.push({
+        connection_id: id,
+        organization_id: organization.id,
+        location_id,
+        hostname,
+        target,
+        record: null,
+        checked_at: null,
+        cloudflare_id: null,
+        registered_at: null,
+        live_at: null,
+        live_told_at: null,
+        home_links: null,
+        released_at: null,
+      });
+      return made;
+    },
+
+    // The one held, or else the one let go last.
+    async getLocationAnswerSubdomain(locationId) {
+      if (!readsLocation(locationId)) return null;
+      const [latest] = db.answerSubdomains
+        .filter((kept) => kept.location_id === locationId)
+        .sort((a, b) =>
+          a.released_at === null
+            ? -1
+            : b.released_at === null
+              ? 1
+              : b.released_at.localeCompare(a.released_at),
+        );
+      const connection = db.connections.find((c) => c.id === latest?.connection_id);
+      return latest && connection ? keptAnswerSubdomain(latest, connection) : null;
+    },
+
+    async getAnswerSubdomain(connectionId) {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      const kept = db.answerSubdomains.find((row) => row.connection_id === connectionId);
+      const connection = db.connections.find((c) => c.id === connectionId);
+      return kept && connection ? keptAnswerSubdomain(kept, connection) : null;
+    },
+
+    // Mirrors record_answer_subdomain_check(): kept as a sync, which also mends a failing one.
+    async recordAnswerSubdomainCheck(connectionId, check) {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      const kept = db.answerSubdomains.find((row) => row.connection_id === connectionId);
+      const connection = db.connections.find((c) => c.id === connectionId && syncs(c));
+      if (!kept || !connection) return false;
+      const now = db.now ?? timestamp();
+      Object.assign(kept, {
+        record: check.record,
+        checked_at: now,
+        cloudflare_id: check.cloudflare_id ?? kept.cloudflare_id,
+        registered_at: kept.registered_at ?? (check.cloudflare_id ? now : null),
+        live_at: kept.live_at ?? (check.live ? now : null),
+        home_links: check.home_links ?? kept.home_links,
+      });
+      Object.assign(connection, {
+        last_synced_at: now,
+        status: "working",
+        broken_reason: null,
+        broken_at: null,
+      });
+      db.connectionHealth.delete(connectionId);
+      return true;
+    },
+
+    async markAnswerSubdomainTold(connectionId) {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      const kept = db.answerSubdomains.find((row) => row.connection_id === connectionId);
+      if (kept) kept.live_told_at = db.now ?? timestamp();
+    },
+
+    async listAnswerSubdomainsToCheck(before) {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      const since = Date.parse(db.now ?? new Date().toISOString()) - 30 * 86_400_000;
+      return db.answerSubdomains
+        .filter((kept) => {
+          const connection = db.connections.find((c) => c.id === kept.connection_id);
+          return (
+            connection?.status === "working" &&
+            kept.live_at === null &&
+            Date.parse(connection.connected_at) > since &&
+            (kept.checked_at === null || kept.checked_at < before)
+          );
+        })
+        .map((kept) => kept.connection_id);
+    },
+
+    // Mirrors expire_unclaimed_answer_subdomains(): thirty days without starting to work.
+    async expireUnclaimedAnswerSubdomains() {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      const before = Date.parse(db.now ?? new Date().toISOString()) - 30 * 86_400_000;
+      const expired: string[] = [];
+      for (const kept of db.answerSubdomains) {
+        const connection = db.connections.find((c) => c.id === kept.connection_id);
+        if (
+          connection &&
+          (connection.status === "working" || connection.status === "broken") &&
+          kept.live_at === null &&
+          Date.parse(connection.connected_at) < before
+        ) {
+          Object.assign(connection, {
+            status: "removing",
+            removal_reason: "unclaimed",
+            removal_requested_at: db.now ?? timestamp(),
+          });
+          expired.push(connection.id);
+        }
+      }
+      return expired;
     },
 
     async listLocationConnections(locationId) {
@@ -2150,6 +2348,19 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
       db.locations = db.locations.filter((location) => location.id !== id);
       db.visitLines.delete(id);
       db.visits = db.visits.filter((counted) => counted.location_id !== id);
+      // Mirrors the trigger on locations: its answer subdomain is removed with it, since nothing
+      // is left to serve there, and its connection is matched to nothing any more.
+      for (const connection of db.connections) {
+        const own = connection.matches.some((match) => match.location_id === id);
+        connection.matches = connection.matches.filter((match) => match.location_id !== id);
+        if (own && connection.kind === "hosted_pages" && connection.status !== "removed") {
+          Object.assign(connection, {
+            status: "removing",
+            removal_reason: "location",
+            removal_requested_at: db.now ?? timestamp(),
+          });
+        }
+      }
       return true;
     },
 

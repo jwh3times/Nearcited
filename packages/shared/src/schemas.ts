@@ -956,16 +956,19 @@ export type RecommendationUpdate = z.output<typeof RecommendationUpdateSchema>;
 
 /**
  * The kinds of outside account that can be connected. `sample` stands in for a real one where
- * the data is generated. `wordpress` is a business's own WordPress site (`wordpress.ts`). See
+ * the data is generated. `wordpress` is a business's own WordPress site (`wordpress.ts`).
+ * `hosted_pages` is an answer subdomain of the business's own domain, which the product serves
+ * pages on (`hosted-pages.ts`); it has no sign-in. See
  * `docs/adr/0013-a-sign-in-is-sealed-by-the-worker.md`.
  */
-export const CONNECTION_KINDS = ["sample", "wordpress"] as const;
+export const CONNECTION_KINDS = ["sample", "wordpress", "hosted_pages"] as const;
 export const ConnectionKindSchema = z.enum(CONNECTION_KINDS);
 export type ConnectionKind = z.infer<typeof ConnectionKindSchema>;
 
 export const CONNECTION_KIND_LABELS: Record<ConnectionKind, string> = {
   sample: "Sample account",
   wordpress: "WordPress site",
+  hosted_pages: "Answer subdomain",
 };
 
 /**
@@ -975,6 +978,7 @@ export const CONNECTION_KIND_LABELS: Record<ConnectionKind, string> = {
 export const CONNECTION_KIND_ALLOWANCES: Record<ConnectionKind, string | null> = {
   sample: null,
   wordpress: "wordpress",
+  hosted_pages: "hosted_pages",
 };
 
 /**
@@ -1036,8 +1040,11 @@ export const ConnectionSchema = z.object({
   broken_at: Timestamp.nullable(),
   /** When its plan stopped including it. Thirty days on, its sign-in is removed. */
   paused_at: Timestamp.nullable(),
-  /** Why it was removed: someone asked, or its plan had not included it for thirty days. */
-  removal_reason: z.enum(["asked", "plan"]).nullable(),
+  /**
+   * Why it was removed: someone asked, its plan had stopped including it, or, for an answer
+   * subdomain, it never started working, or its location was removed.
+   */
+  removal_reason: z.enum(["asked", "plan", "unclaimed", "location"]).nullable(),
   /** When the worker last read from it. Null until the first sync, moments after connecting. */
   last_synced_at: Timestamp.nullable(),
   /** What the sign-in reaches, as the last sync found it. */
@@ -1113,6 +1120,79 @@ export const WordPressApprovedSchema = z.object({
   password: z.string().trim().min(1).max(200),
 });
 export type WordPressApproved = z.infer<typeof WordPressApprovedSchema>;
+
+/**
+ * What the worker last found an answer subdomain's name pointing at: nothing, the connection's own
+ * target, a Cloudflare proxy that hides where it points, or something else.
+ */
+export const ANSWER_RECORDS = ["missing", "ours", "proxied", "elsewhere"] as const;
+export type AnswerRecord = (typeof ANSWER_RECORDS)[number];
+
+/**
+ * A location's answer subdomain, as its Website tab shows it (`hosted-pages.ts`): the name, the
+ * one record its owner adds, and how far it has got.
+ */
+export const AnswerSubdomainSchema = z.object({
+  connection_id: Id,
+  location_id: Id,
+  hostname: z.string(),
+  /** The name the owner's record points at, which is this connection's alone. */
+  target: z.string(),
+  /** What the name pointed at when it was last looked up. Null before the first look. */
+  record: z.enum(ANSWER_RECORDS).nullable(),
+  checked_at: Timestamp.nullable(),
+  /** When it was registered to be served, once its record pointed at its own target. */
+  registered_at: Timestamp.nullable(),
+  /** When it was first served with its certificate. */
+  live_at: Timestamp.nullable(),
+  /** Whether the business's home page links to it, as the worker last read it. */
+  home_links: z.boolean().nullable(),
+  /** False once the location's website is no longer the domain it sits under. */
+  website_matches: z.boolean(),
+  /** The day the worker stops waiting for it to start working, while it is waiting. */
+  waits_until: Timestamp.nullable(),
+  status: ConnectionStatusSchema,
+  paused_at: Timestamp.nullable(),
+});
+export type AnswerSubdomain = z.infer<typeof AnswerSubdomainSchema>;
+
+/**
+ * Why a location cannot have hosted pages now, where it cannot: its plan does not include them,
+ * this deployment cannot serve them, its website is not on file or is at a site builder's own
+ * address, or its WordPress site is connected and pages go there.
+ */
+export const HOSTED_PAGES_BARS = [
+  "not_included",
+  "unavailable",
+  "no_website",
+  "no_own_domain",
+  "wordpress",
+] as const;
+
+/** A location's hosted pages, as its Website tab shows them. */
+export const LocationHostedPagesSchema = z.object({
+  /** What stands in the way of connecting one. Null where one can be. */
+  barred: z.enum(HOSTED_PAGES_BARS).nullable(),
+  /** True for the organization's owner or an admin, who alone may connect and remove. */
+  can_manage: z.boolean(),
+  /** The location's answer subdomain, while it has one. */
+  subdomain: AnswerSubdomainSchema.nullable(),
+  /** The last one it had, once removed, until another is set up: what it was and why it went. */
+  removed: z
+    .object({
+      hostname: z.string(),
+      removal_reason: ConnectionSchema.shape.removal_reason,
+      removed_at: Timestamp.nullable(),
+    })
+    .nullable(),
+});
+export type LocationHostedPages = z.infer<typeof LocationHostedPagesSchema>;
+
+/** What is sent to make an answer subdomain: the one word in front of the website's domain. */
+export const AnswerSubdomainInputSchema = z.object({
+  label: z.string().trim().min(1, "Enter a name").max(63),
+});
+export type AnswerSubdomainInput = z.infer<typeof AnswerSubdomainInputSchema>;
 
 /** What the worker is asked to do for one connection. */
 export const CONNECTION_STEPS = ["remove", "sync"] as const;

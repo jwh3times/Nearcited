@@ -87,6 +87,8 @@ export function WordPressConnect({
   }, [reading, onChanged]);
 
   if (allowances?.[WORDPRESS_ALLOWANCE] === undefined) return null;
+  // A location's pages go to one place, and these are hosted on its own subdomain.
+  if (connections.some((connection) => connection.kind === "hosted_pages")) return null;
   const connected = connections.find((connection) => connection.kind === "wordpress");
   const offered = found.data?.available.includes("wordpress") ?? false;
   if (!connected && found.data && !offered) return null;

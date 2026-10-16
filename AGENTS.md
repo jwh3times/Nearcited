@@ -110,7 +110,11 @@ pass `pnpm check` and run in mock mode without it.
   worker calls. A WordPress site's application password is sent only over https to that site's
   own host, and never on through a redirect (`signedIn`, `apps/api/src/connections/wordpress.ts`):
   keep both. `WORDPRESS_LOCAL_ORIGIN` lifts them for one origin on a developer's own machine and
-  is never set on a deployment.
+  is never set on a deployment. An answer subdomain has no sign-in: its owner's DNS record is the
+  say-so, and it points at a target of that connection's own, so the worker registers a name to
+  be served only once its record points at that target (`checkAnswerSubdomain`,
+  `apps/api/src/connections/index.ts`). Keep that, or an account that made the subdomain first
+  could put its pages on someone else's domain, and keep a name held by one connection at a time.
 - **Only the worker proposes an action, and only the worker carries one out.** A request records a
   member's yes or no (`approve_action()`, `decline_action()`, `retry_action()`) and queues the
   worker (`docs/adr/0014-only-the-worker-carries-out-an-action.md`). `carryOutAction`
