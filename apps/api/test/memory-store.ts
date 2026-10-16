@@ -1736,6 +1736,7 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
       const kept = db.answerSubdomains.find(
         (row) =>
           row.connection_id === action?.connection_id &&
+          row.location_id === action?.location_id &&
           row.live_at !== null &&
           row.released_at === null,
       );

@@ -3,6 +3,13 @@ import type { AnswerSubdomain } from "@nearcited/shared";
 /** How often the card asks again while the worker is waiting for the record or the certificate. */
 export const WAITING_MS = 15_000;
 
+/** Where a location's hosted pages are kept in the page's cache, for the card and the tasks. */
+export const hostedPagesKey = (locationId: string) => ["hosted-pages", locationId];
+
+/** Whether pages are offered for publishing on a subdomain now: live, working, still matching. */
+export const offersPages = (subdomain: AnswerSubdomain | null | undefined): boolean =>
+  !!subdomain?.live_at && subdomain.status === "working" && subdomain.website_matches;
+
 /** True while the worker is still to find the record or see the certificate issued. */
 export const settingUp = (subdomain: AnswerSubdomain): boolean =>
   subdomain.status === "working" && subdomain.live_at === null;

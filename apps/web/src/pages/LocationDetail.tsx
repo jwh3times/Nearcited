@@ -35,6 +35,7 @@ import { api } from "../lib/api";
 import { draftsBeingWritten, WRITING_MS } from "../lib/drafts";
 import { useFormErrors } from "../lib/form";
 import { cadence, formatDate, listOf } from "../lib/format";
+import { hostedPagesKey, offersPages } from "../lib/hosted-pages";
 import { locationKey, placeOf, scansKey } from "../lib/locations";
 import { tallyCompetitors } from "../lib/matrix";
 import { windowRate } from "../lib/summary";
@@ -89,6 +90,13 @@ export function LocationDetail() {
   }, [id, latestScan?.id, latestScan?.status]);
   // Already loaded by the page shell, so this reads the cache.
   const me = useQuery({ queryKey: ["me"], queryFn: api.me });
+  // Read with the card's own query, so the tasks say a page is offered only while it is.
+  const hosted = useQuery({
+    queryKey: hostedPagesKey(id),
+    queryFn: () => api.hostedPages(id),
+    enabled:
+      detail.data?.connections.some((connection) => connection.kind === "hosted_pages") ?? false,
+  });
   // Reading through, the organization is a customer's, which the shell has loaded the same way.
   const theirId = detail.data?.location.organization_id;
   const theirs = useQuery({
@@ -447,7 +455,7 @@ export function LocationDetail() {
                 publishesTo={
                   connections.some((connection) => connection.kind === "wordpress")
                     ? "wordpress"
-                    : connections.some((connection) => connection.kind === "hosted_pages")
+                    : offersPages(hosted.data?.subdomain)
                       ? "hosted_pages"
                       : null
                 }

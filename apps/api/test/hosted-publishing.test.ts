@@ -308,6 +308,26 @@ describe("publishing a page on the answer subdomain", () => {
     expect(db.hostedPages).toHaveLength(1);
   });
 
+  it("writes nothing once the website has moved to another domain since it was approved", async () => {
+    const { location, proposal } = await approved();
+    const kept = db.locations.find((candidate) => candidate.id === location.id);
+    if (kept) kept.website = "https://joesnewplace.example";
+    expect(await carryOutAction(proposal?.id ?? "", worker())).toBe("out_of_date");
+    expect(db.hostedPages).toEqual([]);
+  });
+
+  it("is approved and taken back by members of the organization alone", async () => {
+    const stranger = "c0000000-0000-4000-8000-000000000003";
+    const { proposal } = await approved();
+    const action = db.actions.find((candidate) => candidate.id === proposal?.id);
+    if (action) action.status = "proposed";
+    expect((await call(stranger, "POST", `/actions/${proposal?.id}/approve`, {})).status).toBe(404);
+    if (action) action.status = "approved";
+    await carryOutAction(proposal?.id ?? "", worker());
+    expect((await call(stranger, "POST", `/actions/${proposal?.id}/take-back`)).status).toBe(404);
+    expect(db.hostedPages[0]?.taken_back_at).toBeNull();
+  });
+
   it("publishes all the same when IndexNow does not answer", async () => {
     indexNowUp = false;
     const { proposal } = await approved();
