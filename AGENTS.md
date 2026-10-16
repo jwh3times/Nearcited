@@ -3,22 +3,24 @@
 The engineering contract for every coding agent in this repository. `CLAUDE.md` imports this file;
 Codex reads it directly. Project rules live here and nowhere else.
 
-Local-visibility tracker: one Cloudflare Worker (Hono API, cron, queue consumer), a React app it
-serves as static assets, Supabase for Postgres and auth. Read `docs/architecture.md` before
-changing how scans run or how data is accessed.
+Local-visibility tracker: two Cloudflare Workers, the main one (Hono API, cron, queue consumer)
+with the React app it serves as static assets and the Pages Worker (`apps/pages`) that serves
+hosted pages on businesses' answer subdomains, and Supabase for Postgres and auth. Read
+`docs/architecture.md` before changing how scans run or how data is accessed.
 
 ## Commands
 
 - `pnpm check`: lint, typecheck, test, build. Must pass before a change is done.
 - `pnpm format`: apply Biome fixes.
-- `pnpm --filter @nearcited/<api|web|shared|db> test`: one package's tests.
+- `pnpm --filter @nearcited/<api|web|shared|pages|db> test`: one package's tests.
 - `pnpm dev`: Worker on 8787, Vite on 5173.
 - `pnpm e2e`: browser tests; needs `supabase start` and the env files. `pnpm check` skips them.
 - `pnpm smoke`: the smoke test against a deployment; needs `E2E_*` and `TEST_ACCOUNT_*` set.
 - `pnpm billing:check`: ask Stripe and the deployment whether billing is set up as the app
   expects. Reads only; needs `STRIPE_SECRET_KEY` and `SUPABASE_SECRET_KEY` in the environment.
 - `pnpm test-account:create`: make the deployment's test account (needs the Supabase secret key).
-- `pnpm local:env`: write `apps/api/.dev.vars` and `apps/web/.env.local` from `supabase status`.
+- `pnpm local:env`: write `apps/api/.dev.vars`, `apps/web/.env.local` and `apps/pages/.dev.vars`
+  from `supabase status`.
 - `npm run bootstrap:private`: clone the private companion into `private/` (maintainers only).
 - `npm run sync:main`: fast-forward `main` here and in `private/`. Refuses a dirty tree.
 - `pnpm sync:agents`: regenerate `.claude/skills` and `.codex/agents` after changing anything in
@@ -191,11 +193,21 @@ pass `pnpm check` and run in mock mode without it.
   key is replaced only by `replace_site_key()`, which answers an owner or an admin of the
   location's organization and no one else, the operator included: the old key then belongs to
   nobody and what was counted stays. Do not add another path that changes a key.
+- **The Pages Worker serves hosted pages and nothing else, and holds no secret.** It reads only
+  through `hosted_page()`, which anyone may call with the publishable key and which answers only
+  for a live answer subdomain, with only what the page shows anyway
+  (`docs/adr/0019-hosted-pages-are-served-by-a-worker-of-their-own.md`). Do not give it the secret
+  key, another table, a write, or anything of the app; do not serve hosted pages from the main
+  Worker. It hands on any request for a name of the zone's own (`nearcited.com` and its
+  subdomains) untouched. A hosted page is plain HTML: no script but the structured details, no
+  cookie, image or tracking, every word written as text, and nothing of Nearcited's but a
+  generator tag. Keep all of that.
 - **`packages/shared/src/schemas.ts` defines every wire type.** Change the schema first, then the
   API and the client. Field names stay snake_case end to end.
 - **All database access goes through the `Store` interface** (`apps/api/src/store/types.ts`). A
   new method needs the Supabase implementation, the in-memory one in `apps/api/test`, and a line in
-  the integration test.
+  the integration test. The Pages Worker's one call to `hosted_page()` is the only access outside
+  it.
 - **A list that reaches across organizations is read a page at a time.** The database's API
   answers a request with at most 1,000 rows and says nothing when it leaves the rest out, so a
   list read in one request is right until it is long and then short without an error. In the

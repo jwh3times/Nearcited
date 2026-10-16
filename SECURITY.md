@@ -149,6 +149,15 @@ Nearcited is multi-tenant, and tenant isolation is enforced by Postgres row-leve
   decides what it adds up, and it is granted to signed-in users and the service role and not to
   `anon`. A member of another organization must get nothing from it, and a caller who is not
   signed in must not be able to call it.
+- Getting more out of the Pages Worker (`apps/pages`) or `hosted_page()` than a live page shows
+  anyway. Both need no sign-in, and the Worker's publishable key is public, so the function is the
+  only guard: it must answer null for a host that is not a live answer subdomain (unregistered,
+  not yet live, released), and give nothing but the page's words and the business's name, website,
+  address and phone. Also giving the Pages Worker a secret, a write or another table, anything of
+  the app or its API reached through it, a page that runs a script of its own or sets a cookie, a
+  word of a page written as markup instead of text, and a request for `nearcited.com` or a subdomain
+  of it answered by it. `hosted_pages` must give a caller who is not signed in no row, and write
+  nothing to any API role.
 - Reading a shareable audit without its link, or after it was revoked or expired; listing audits;
   or creating one. `/api/audits/:token` is the one route that gives out an organization's data
   with no sign-in, and the token in the link is the only key to it. `/api/plans` needs no sign-in

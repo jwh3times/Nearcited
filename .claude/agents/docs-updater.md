@@ -85,7 +85,8 @@ writing to that skill.
   README names was added or removed.
 
 **An environment variable or binding changed** (`apps/api/src/env.ts`,
-`apps/api/wrangler.jsonc`, the two `.example` files)
+`apps/api/wrangler.jsonc`, the Pages Worker's `Env` in `apps/pages/src/index.ts` and its
+`apps/pages/wrangler.jsonc`, the `.example` files)
 
 - `README.md`: Configuration, and Deploy when a deploy step changed.
 - The `.example` files themselves. `.dev.vars.example` lists every string
@@ -171,8 +172,9 @@ Read the code, then the document, in that order. The code is the truth.
   README's API table, and every row is a match. (`app.route(` lines mount the
   route files and are not rows.)
 - Environment: the `Env` interface in `apps/api/src/env.ts` against the README's
-  Configuration table and `apps/api/.dev.vars.example`; `import.meta.env.VITE_`
-  in `apps/web/src` against `apps/web/.env.example`.
+  Configuration table and `apps/api/.dev.vars.example`; the Pages Worker's `Env`
+  (`apps/pages/src/index.ts`) against the same table and `apps/pages/.dev.vars.example`;
+  `import.meta.env.VITE_` in `apps/web/src` against `apps/web/.env.example`.
 - Tables: `create table` in `supabase/migrations/*.sql` against the Data model
   table.
 - Commands: every script in the root `package.json` has a row in the Commands

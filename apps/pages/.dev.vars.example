@@ -1,0 +1,5 @@
+# Local values for `pnpm --filter @nearcited/pages dev`, written by `pnpm local:env`.
+# They point the Pages Worker at the local Supabase stack instead of the one in wrangler.jsonc.
+# Both are the stack's public values: this Worker holds no secret.
+SUPABASE_URL=http://127.0.0.1:54321
+SUPABASE_PUBLISHABLE_KEY=

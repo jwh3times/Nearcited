@@ -100,6 +100,11 @@ system works; this file only settles vocabulary.
   which the owner points at the product with one DNS record, once, so that pages can be hosted
   there. A connection with no sign-in: the record points at a target of its own, and the name is
   registered to be served only once it does. "Answers" is only its suggested name.
+- **Hosted page**: a page task's copy served by the product on a location's answer subdomain, as
+  plain HTML, once a member approved it. Taken back, its address answers that it is gone. Not a
+  page on the business's own site, which is the owner's or, through WordPress, published there.
+- **Pages Worker**: the second Worker, which serves hosted pages and nothing else, and holds no
+  secret. See `docs/adr/0019-hosted-pages-are-served-by-a-worker-of-their-own.md`.
 - **Choice**: one thing a connection's sign-in reaches at the outside service: a profile, a site,
   a property. A sync finds them.
 - **Match**: which choice is a location's. A location has one match for each kind of connection,

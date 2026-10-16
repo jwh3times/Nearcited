@@ -20,7 +20,7 @@
     "e2e": "pnpm --filter @nearcited/e2e e2e",
     "smoke": "pnpm --filter @nearcited/e2e smoke",
     "local:env": "node scripts/local-env.mjs",
-    "cf:deploy": "pnpm build && pnpm --filter @nearcited/api run deploy",
+    "cf:deploy": "pnpm build && pnpm --filter @nearcited/api run deploy && pnpm --filter @nearcited/pages run deploy",
     "bootstrap:private": "node scripts/bootstrap-private.mjs",
     "audit:create": "node scripts/create-audit.mjs create",
     "audit:revoke": "node scripts/create-audit.mjs revoke",
