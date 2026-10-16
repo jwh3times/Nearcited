@@ -1789,11 +1789,6 @@ export const PromptPageInputSchema = z.object({
 });
 export type PromptPageInput = z.infer<typeof PromptPageInputSchema>;
 
-/**
- * A page on the business's own site that would answer one of its prompts, because no answer to
- * that prompt named the business. Composed by rule; only the copy for the page, its draft, is
- * written by a model.
- */
 /** How often one fetcher read a hosted page over a stretch of days, and the last day it did. */
 export const PageFetchesSchema = z.object({
   fetcher: z.enum(PAGE_FETCHER_KEYS as [PageFetcher, ...PageFetcher[]]),
@@ -1801,6 +1796,14 @@ export const PageFetchesSchema = z.object({
   last_on: z.string(),
 });
 export type PageFetches = z.infer<typeof PageFetchesSchema>;
+/** A hosted page's fetches, with the page task the page does the work of. */
+export type TaskPageFetches = PageFetches & { recommendation_id: string };
+
+/**
+ * A page on the business's own site that would answer one of its prompts, because no answer to
+ * that prompt named the business. Composed by rule; only the copy for the page, its draft, is
+ * written by a model.
+ */
 
 export const PageTaskSchema = z.object({
   /** The recommendation the task stands on, which is what marking it done updates. */

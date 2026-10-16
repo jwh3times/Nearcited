@@ -364,9 +364,9 @@ describe("counting who fetches a page", () => {
 });
 
 describe("a subdomain winding down", () => {
-  it("sends every visitor on to the business's own site", async () => {
+  it("sends every visitor on to the business's own site, for now, since the plan may come back", async () => {
     const response = await get("https://answers.joespizza.example/wound-down");
-    expect(response.status).toBe(301);
+    expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toBe("https://www.joespizza.example/");
   });
 });

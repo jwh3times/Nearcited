@@ -134,8 +134,9 @@ async function serve(
   }
   const found = await ask(env, host, path);
   if (!found) return nothing(request);
+  // For now, not for good: the plan may include hosted pages again before the subdomain goes.
   if (found.kind === "redirect") {
-    return new Response(null, { status: 301, headers: { Location: found.to, ...SECURITY } });
+    return new Response(null, { status: 302, headers: { Location: found.to, ...SECURITY } });
   }
   // A page read by a known fetcher is counted once it has been answered.
   const fetcher = found.kind === "page" ? fetcherOf(request.headers.get("User-Agent")) : null;

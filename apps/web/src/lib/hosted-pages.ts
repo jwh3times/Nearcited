@@ -4,21 +4,9 @@ import {
   type FetcherGroup,
   PAGE_FETCHERS,
   type PageFetches,
-  REDIRECTED_FOR_DAYS,
-  SERVED_AFTER_PAUSE_DAYS,
 } from "@nearcited/shared";
 
-/**
- * The days a paused answer subdomain stops serving its pages as they are, and is removed, from
- * the day it was paused.
- */
-export function windingDown(pausedAt: string): { served: string; removed: string } {
-  const served = Date.parse(pausedAt) + SERVED_AFTER_PAUSE_DAYS * 86_400_000;
-  return {
-    served: new Date(served).toISOString(),
-    removed: new Date(served + REDIRECTED_FOR_DAYS * 86_400_000).toISOString(),
-  };
-}
+export { windingDown } from "@nearcited/shared";
 
 /** How often the card asks again while the worker is waiting for the record or the certificate. */
 export const WAITING_MS = 15_000;
@@ -94,9 +82,17 @@ export function removedBecause(reason: string | null): string {
   }
 }
 
-/** One fetcher's reads, as a page task writes them: "ClaudeBot (Anthropic) 5 times". */
-const fetchedBy = ({ fetcher, count }: PageFetches) =>
-  `${PAGE_FETCHERS[fetcher].name} (${PAGE_FETCHERS[fetcher].maker}) ${count === 1 ? "once" : `${count} times`}`;
+/** A day as a page task writes it: "Oct 16". */
+const shortDay = (day: string) =>
+  new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" }).format(
+    new Date(`${day}T00:00:00Z`),
+  );
+
+/** One fetcher's reads, as a page task writes them: "ClaudeBot (Anthropic) 5 times, last on Oct 16". */
+const fetchedBy = ({ fetcher, count, last_on }: PageFetches) =>
+  `${PAGE_FETCHERS[fetcher].name} (${PAGE_FETCHERS[fetcher].maker}) ${
+    count === 1 ? `once, on ${shortDay(last_on)}` : `${count} times, last on ${shortDay(last_on)}`
+  }`;
 
 /**
  * What a page task says of who fetched its hosted page lately: the assistants' fetchers and the

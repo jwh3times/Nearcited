@@ -16,6 +16,7 @@ import { carryOutAction, connectionToPublishWith, proposeAfterSync } from "../sr
 import { createApp } from "../src/app";
 import {
   expirePausedConnections,
+  expireUnclaimedAnswerSubdomains,
   removeConnection,
   tellPausedAnswerSubdomains,
 } from "../src/connections";
@@ -479,6 +480,15 @@ describe("winding down when the plan stops including hosted pages", () => {
       status: "paused",
       paused_at: again,
     });
+  });
+
+  it("lets go of one paused before it ever went live, as any that never started working, and tells nobody of pages", async () => {
+    const { connection } = await withCopy({ live: false });
+    const kept = db.connections.find((candidate) => candidate.id === connection);
+    if (kept) kept.connected_at = new Date(Date.now() - 31 * 86_400_000).toISOString();
+    pause(connection, new Date(Date.now() - 86_400_000).toISOString());
+    expect(await tellPausedAnswerSubdomains(telling())).toBe(0);
+    expect(await expireUnclaimedAnswerSubdomains(memoryStore(db, null), env.SCAN_QUEUE)).toBe(1);
   });
 
   it("still takes a page back while the paused subdomain serves it, and publishes nothing new", async () => {

@@ -119,7 +119,8 @@ grant execute on function public.location_page_fetches(uuid, date) to authentica
 -- not granted it.
 alter table public.answer_subdomains add column pause_told_at timestamptz;
 
--- The answer subdomains paused, whose owners have not been told of this pause. Worker only.
+-- The answer subdomains paused after they went live, whose owners have not been told of this
+-- pause. One that never went live has no pages to wind down. Worker only.
 create function public.answer_subdomains_paused_untold()
 returns setof uuid
 language sql stable security definer set search_path = ''
@@ -128,6 +129,7 @@ as $$
   from public.answer_subdomains a
   join public.connections c on c.id = a.connection_id
   where c.status = 'paused'
+    and a.live_at is not null
     and (a.pause_told_at is null or a.pause_told_at < c.paused_at)
   order by c.paused_at
   limit 100;
@@ -150,6 +152,22 @@ as $$
       else interval '30 days'
     end
   returning id;
+$$;
+
+-- An answer subdomain that never went live is let go thirty days after it was made, paused or not:
+-- it has no pages to wind down. Otherwise as before.
+create or replace function public.expire_unclaimed_answer_subdomains()
+returns setof uuid
+language sql security definer set search_path = ''
+as $$
+  update public.connections c
+  set status = 'removing', removal_reason = 'unclaimed', removal_requested_at = now()
+  from public.answer_subdomains a
+  where a.connection_id = c.id
+    and c.status in ('working', 'broken', 'paused')
+    and a.live_at is null
+    and c.connected_at < now() - interval '30 days'
+  returning c.id;
 $$;
 
 -- hosted_page() now sends every address of a subdomain thirty days into a pause on to the

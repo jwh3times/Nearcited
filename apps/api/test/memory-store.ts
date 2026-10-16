@@ -12,7 +12,6 @@ import type {
   Location,
   Organization,
   PageFetcher,
-  PageFetches,
   Plan,
   PriceChange,
   PriceChangeNotice,
@@ -22,6 +21,7 @@ import type {
   Scan,
   ScanResult,
   SiteCheck,
+  TaskPageFetches,
   TrackedQuery,
   UsageByMonth,
   VisitAssistant,
@@ -1731,7 +1731,7 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
     // Mirrors location_page_fetches(): added up for each task and fetcher, as the caller reads.
     async listLocationPageFetches(locationId, since) {
       if (!readsLocation(locationId)) return [];
-      const added = new Map<string, PageFetches & { recommendation_id: string }>();
+      const added = new Map<string, TaskPageFetches>();
       for (const counted of db.pageFetches) {
         const page = db.hostedPages.find((candidate) => candidate.id === counted.hosted_page_id);
         if (counted.location_id !== locationId || counted.day < since || !page?.recommendation_id) {
@@ -1758,6 +1758,7 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
           return (
             connection?.status === "paused" &&
             connection.paused_at !== null &&
+            kept.live_at !== null &&
             (told === undefined || told < connection.paused_at)
           );
         })
@@ -1894,7 +1895,7 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         const connection = db.connections.find((c) => c.id === kept.connection_id);
         if (
           connection &&
-          (connection.status === "working" || connection.status === "broken") &&
+          ["working", "broken", "paused"].includes(connection.status) &&
           kept.live_at === null &&
           Date.parse(connection.connected_at) < before
         ) {

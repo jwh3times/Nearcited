@@ -49,10 +49,10 @@ describe("who fetched a hosted page", () => {
         { fetcher: "chatgpt-user", count: 1, last_on: "2026-10-14" },
       ]),
     ).toBe(
-      "Fetched in the last 30 days by assistants: ClaudeBot (Anthropic) 5 times, ChatGPT-User (OpenAI) once. By search engines: Googlebot (Google) 7 times. Anyone can claim to be one of these, so this shows the page is being read, not who read it.",
+      "Fetched in the last 30 days by assistants: ClaudeBot (Anthropic) 5 times, last on Oct 16, ChatGPT-User (OpenAI) once, on Oct 14. By search engines: Googlebot (Google) 7 times, last on Oct 15. Anyone can claim to be one of these, so this shows the page is being read, not who read it.",
     );
     expect(fetchesLine([{ fetcher: "bingbot", count: 2, last_on: "2026-10-15" }])).toBe(
-      "Fetched in the last 30 days by search engines: Bingbot (Microsoft) 2 times. Anyone can claim to be one of these, so this shows the page is being read, not who read it.",
+      "Fetched in the last 30 days by search engines: Bingbot (Microsoft) 2 times, last on Oct 15. Anyone can claim to be one of these, so this shows the page is being read, not who read it.",
     );
     expect(fetchesLine([])).toBeNull();
   });

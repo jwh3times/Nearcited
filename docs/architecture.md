@@ -24,7 +24,9 @@ Everything below is the main one.
   approved action nobody is carrying out (`requeueStalledActions`; see "Actions") and any draft
   asked for that nobody is writing (`requeueStalledDrafts`; see "Drafts"), and checks again each
   answer subdomain still waiting for its record or its certificate that was last checked more than
-  ten minutes ago (`requeueAnswerSubdomainChecks`; see "Connections").
+  ten minutes ago (`requeueAnswerSubdomainChecks`; see "Connections"), and tells the owners of each
+  answer subdomain just paused when its pages stop being served as they are and when it will be
+  removed (`tellPausedAnswerSubdomains`), so they hear the day it happens.
   Once a day it also asks Postgres which locations are due (`locations_due_for_scan`), creates a
   `scheduled` scan row for each, and puts the scan IDs on the queue. It also queues a sync for each
   connection that is due (`enqueueDueSyncs`). It also lapses the proposals that waited fourteen
@@ -35,9 +37,8 @@ Everything below is the main one.
   admins of each they were told a week ago had broken and that still is
   (`remindBrokenConnections`), and tells those of any broken one nobody could be told of at the
   time (`tellBrokenConnections`; see "Connections"). It also starts the removal of each answer
-  subdomain whose record has not appeared in thirty days (`expireUnclaimedAnswerSubdomains`), and
-  tells the owners of each answer subdomain just paused when its pages stop being served as they
-  are and when it will be removed (`tellPausedAnswerSubdomains`). It also calls `advancePriceChanges`, which queues the reminders a week before an
+  subdomain that has not gone live in thirty days, paused or not (`expireUnclaimedAnswerSubdomains`).
+  It also calls `advancePriceChanges`, which queues the reminders a week before an
   announced price change and, from its day on, a move for each subscription not yet moved. It also
   calls `advanceLimitChanges`, which queues the reminders a week before an announced reduction in a
   plan's limits and, on its day, makes the reduction through `apply_limit_change()`.
@@ -1271,12 +1272,16 @@ stays the main Worker's (see "Connections"); the Pages Worker only serves what i
   `hosted_pages`, `fit_connections_to_plan()` pauses the connection. For `SERVED_AFTER_PAUSE_DAYS`
   (30) the pages are served as they were, and nothing new is published. From then,
   `hosted_page()` answers `redirect` with the location's website for every address, and the Pages
-  Worker sends a 301 to it (a location with no website answers `gone`), for `REDIRECTED_FOR_DAYS`
+  Worker sends a 302 to it, not a permanent one, since the plan may come back (a location with no
+  website answers `gone`), for `REDIRECTED_FOR_DAYS`
   (90 more). Then `expire_paused_connections()` removes the connection, 120 days into the pause
   where every other kind is removed at 30. If the plan comes back before then, the connection is
   restored and the pages are served again. The owners are emailed once for a pause, when it begins,
   with both days (`tellPausedAnswerSubdomains`, from `answer_subdomains_paused_untold()`, worker
-  only; `pause_told_at` marks it, and a pause nobody could be told of is tried again the next day).
+  only, on every run of the schedule; `pause_told_at` marks it, a test organization's is marked
+  without an email, and a pause nobody could be told of is tried again). One paused before it ever
+  went live has no pages: nobody is told of pages, and it is let go thirty days after it was made,
+  as any that never started working.
   Taking back a hosted page is still carried out while the connection is paused, and nothing else
   is (`carryOutAction`), so an owner can still remove a page. The card and the Connections page say
   the two days.

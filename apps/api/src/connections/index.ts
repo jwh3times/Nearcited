@@ -5,8 +5,7 @@ import {
   type ConnectionKind,
   type ConnectionMessage,
   type Organization,
-  REDIRECTED_FOR_DAYS,
-  SERVED_AFTER_PAUSE_DAYS,
+  windingDown,
 } from "@nearcited/shared";
 import { type AnswerSubdomainEmail, buildAnswerSubdomainEmail } from "../email/answer-subdomain";
 import { buildConnectionBrokenEmail } from "../email/connection-broken";
@@ -617,12 +616,13 @@ export async function tellPausedAnswerSubdomains(deps: ConnectionDeps): Promise<
   for (const id of await store.listPausedAnswerSubdomainsUntold()) {
     const kept = await store.getAnswerSubdomain(id);
     if (!kept?.paused_at) continue;
-    const paused = Date.parse(kept.paused_at);
-    const served = paused + SERVED_AFTER_PAUSE_DAYS * 86_400_000;
-    const until = {
-      served: new Date(served).toISOString(),
-      removed: new Date(served + REDIRECTED_FOR_DAYS * 86_400_000).toISOString(),
-    };
+    const until = windingDown(kept.paused_at);
+    // A test organization has nobody to tell, and is not looked at again.
+    const organization = await store.getOrganization(kept.organization_id);
+    if (organization?.is_test) {
+      await store.markAnswerSubdomainPauseTold(id);
+      continue;
+    }
     try {
       if (
         await tellAboutSubdomain(

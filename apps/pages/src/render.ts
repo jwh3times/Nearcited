@@ -112,7 +112,7 @@ export function render(answer: HostedAnswer, url: URL): { status: number; html: 
       return { status: 404, html: noPageDocument(answer.business, false) };
     case "redirect":
       // Sent on before it is rendered; a page saying where it went, should one be asked for.
-      return { status: 301, html: noPageDocument(answer.business, true) };
+      return { status: 302, html: noPageDocument(answer.business, true) };
   }
 }
 

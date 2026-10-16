@@ -29,7 +29,6 @@ import type {
   OperatorFacts,
   Organization,
   OrganizationLimits,
-  PageFetches,
   Plan,
   PlanSettings,
   PlatformRole,
@@ -47,6 +46,7 @@ import type {
   StoredAudit,
   SubscriptionFact,
   Surface,
+  TaskPageFetches,
   TrackedQuery,
   TrackedQueryInput,
   UsageByMonth,
@@ -776,10 +776,7 @@ export interface Store {
    * How often each known fetcher read each of a location's hosted pages since a day, added up for
    * the task each page does, for whoever can read the location.
    */
-  listLocationPageFetches(
-    locationId: string,
-    since: string,
-  ): Promise<(PageFetches & { recommendation_id: string })[]>;
+  listLocationPageFetches(locationId: string, since: string): Promise<TaskPageFetches[]>;
   /** The paused answer subdomains whose owners have not been told of this pause. Worker only. */
   listPausedAnswerSubdomainsUntold(): Promise<string[]>;
   /** Keeps that an answer subdomain's owners were told it is paused. Worker only. */

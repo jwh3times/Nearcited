@@ -252,6 +252,21 @@ export const SERVED_AFTER_PAUSE_DAYS = 30;
 /** How many days after that its pages send visitors on, before the subdomain is removed. */
 export const REDIRECTED_FOR_DAYS = 90;
 
+const DAY_MS = 86_400_000;
+
+/**
+ * The days a paused answer subdomain stops serving its pages as they are, and is removed, from
+ * the day it was paused. The database works out the same in `hosted_page()` and
+ * `expire_paused_connections()`.
+ */
+export function windingDown(pausedAt: string): { served: string; removed: string } {
+  const served = Date.parse(pausedAt) + SERVED_AFTER_PAUSE_DAYS * DAY_MS;
+  return {
+    served: new Date(served).toISOString(),
+    removed: new Date(served + REDIRECTED_FOR_DAYS * DAY_MS).toISOString(),
+  };
+}
+
 /**
  * The most fetches counted for one page, by one fetcher, in a day. Anyone can claim to be a
  * fetcher, so the count stops here rather than grow without end. The database holds the same

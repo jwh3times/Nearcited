@@ -4,11 +4,11 @@ import type {
   Draft,
   DraftKind,
   Location,
-  PageFetches,
   PageTask,
   PromptCount,
   PromptPage,
   Recommendation,
+  TaskPageFetches,
   TrackedQuery,
 } from "./schemas";
 import { SURFACES_BY_KIND, type Surface } from "./schemas";
@@ -137,7 +137,7 @@ export interface PageTaskInput {
   /** Whether a page's copy can be written where this is asked. Left out, it can. */
   writes?: (kind: DraftKind) => boolean;
   /** How often each hosted page was fetched lately, by the task it does. Left out, none was. */
-  fetches?: readonly (PageFetches & { recommendation_id: string })[];
+  fetches?: readonly TaskPageFetches[];
 }
 
 /** Done tasks whose prompt has since been named are kept in view while they are few. */

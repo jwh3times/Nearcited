@@ -202,16 +202,17 @@ pass `pnpm check` and run in mock mode without it.
   it the secret key, another table, another write, or anything of the app; do not serve hosted
   pages from the main Worker. Nothing is kept about a fetch but that count, for a day, a page and
   a fetcher, and nothing is worked out from it: anyone can claim to be a fetcher. Its list of
-  fetchers (`PAGE_FETCHERS`) and the check on `hosted_page_fetches.fetcher` name the same ones. It hands on any request for a name of the zone's own (`nearcited.com` and its
-  subdomains) untouched. A hosted page is plain HTML: no script but the structured details, no
+  fetchers (`PAGE_FETCHERS`), the check on `hosted_page_fetches.fetcher` and the one in
+  `record_page_fetch()` name the same ones: add one in all three. It hands on any request for a
+  name of the zone's own (`nearcited.com` and its subdomains) untouched. A hosted page is plain HTML: no script but the structured details, no
   cookie, image or tracking, every word written as text, and nothing of Nearcited's but a
   generator tag. Keep all of that.
 - **`packages/shared/src/schemas.ts` defines every wire type.** Change the schema first, then the
   API and the client. Field names stay snake_case end to end.
 - **All database access goes through the `Store` interface** (`apps/api/src/store/types.ts`). A
   new method needs the Supabase implementation, the in-memory one in `apps/api/test`, and a line in
-  the integration test. The Pages Worker's two calls, to `hosted_page()` and `record_page_fetch()`, are the only access outside
-  it.
+  the integration test. The Pages Worker's two calls, to `hosted_page()` and
+  `record_page_fetch()`, are the only access outside it.
 - **A list that reaches across organizations is read a page at a time.** The database's API
   answers a request with at most 1,000 rows and says nothing when it leaves the rest out, so a
   list read in one request is right until it is long and then short without an error. In the

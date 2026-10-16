@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
+import { MOST_FETCHES_A_DAY } from "@nearcited/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 /**
@@ -603,13 +604,15 @@ describe("answer subdomains", () => {
       ]);
     });
 
-    it("stops a day's count at a thousand", async () => {
+    it("stops a day's count at the most a day", async () => {
       await db.query(
-        "update public.hosted_page_fetches set count = 1000 where hosted_page_id = $1 and fetcher = 'googlebot'",
-        [page],
+        "update public.hosted_page_fetches set count = $2 where hosted_page_id = $1 and fetcher = 'googlebot'",
+        [page, MOST_FETCHES_A_DAY],
       );
       await fetched("answers.counting.example", "/late-night", "googlebot");
-      expect((await counts()).find((row) => row.fetcher === "googlebot")?.count).toBe(1000);
+      expect((await counts()).find((row) => row.fetcher === "googlebot")?.count).toBe(
+        MOST_FETCHES_A_DAY,
+      );
     });
 
     it("are read added up by members and the operator, and by nobody else", async () => {
@@ -618,7 +621,7 @@ describe("answer subdomains", () => {
       for (const user of [owner, member, operator]) {
         expect(await as("authenticated", user, () => rows(read, [site])), user).toEqual([
           { fetcher: "claudebot", fetches: 2 },
-          { fetcher: "googlebot", fetches: 1000 },
+          { fetcher: "googlebot", fetches: MOST_FETCHES_A_DAY },
         ]);
       }
       expect(await as("authenticated", stranger, () => rows(read, [site]))).toEqual([]);
@@ -684,6 +687,27 @@ describe("answer subdomains", () => {
           db.query("select pause_told_at from public.answer_subdomains"),
         ),
       ).rejects.toThrow(/permission denied/);
+    });
+
+    it("lets go of a paused one that never went live, thirty days after it was made", async () => {
+      const pending = crypto.randomUUID();
+      const other = await locationOf(pro, "https://www.pending.example", "Pending Pizza");
+      await as("authenticated", owner, () =>
+        db.query(create, [other, pending, "answers", "p".repeat(12)]),
+      );
+      await db.query(
+        "update public.connections set status = 'paused', paused_at = now(), connected_at = now() - interval '31 days' where id = $1",
+        [pending],
+      );
+      const untold = await as("service_role", null, () =>
+        rows<{ id: string }>("select public.answer_subdomains_paused_untold() as id"),
+      );
+      expect(untold).not.toContainEqual({ id: pending });
+      expect(
+        await as("service_role", null, () =>
+          rows<{ id: string }>("select public.expire_unclaimed_answer_subdomains() as id"),
+        ),
+      ).toContainEqual({ id: pending });
     });
 
     it("removes one only a hundred and twenty days into its pause", async () => {
