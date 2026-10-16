@@ -12,7 +12,14 @@ import { Link } from "react-router";
 import { api } from "../lib/api";
 import { formatDay } from "../lib/billing";
 import { useCopy } from "../lib/copy";
-import { HOSTED_WORDS, homeLink, removedBecause, settingUp, WAITING_MS } from "../lib/hosted-pages";
+import {
+  HOSTED_WORDS,
+  homeLink,
+  hostedPagesKey,
+  removedBecause,
+  settingUp,
+  WAITING_MS,
+} from "../lib/hosted-pages";
 import { ErrorNote } from "./ErrorNote";
 import { Field } from "./Field";
 
@@ -28,8 +35,6 @@ interface HostedPagesProps {
   /** Reads the location again, once its answer subdomain is made. */
   onChanged: () => unknown;
 }
-
-const hostedKey = (locationId: string) => ["hosted-pages", locationId];
 
 /**
  * Pages on the business's own domain, on its location's Website tab: the answer subdomain and the
@@ -47,7 +52,7 @@ export function HostedPages({
   const queryClient = useQueryClient();
   const included = allowances?.[HOSTED_PAGES_ALLOWANCE] !== undefined;
   const found = useQuery({
-    queryKey: hostedKey(location.id),
+    queryKey: hostedPagesKey(location.id),
     queryFn: () => api.hostedPages(location.id),
     enabled: included,
     // The worker looks for the record on its own time, so the card asks again while it waits.
@@ -60,7 +65,7 @@ export function HostedPages({
   const make = useMutation({
     mutationFn: () => api.makeAnswerSubdomain(location.id, label),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: hostedKey(location.id) });
+      await queryClient.invalidateQueries({ queryKey: hostedPagesKey(location.id) });
       onChanged();
     },
   });

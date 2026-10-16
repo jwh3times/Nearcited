@@ -1260,9 +1260,10 @@ stays the main Worker's (see "Connections"); the Pages Worker only serves what i
   (`workers_dev` is off), so deploying it changes no traffic. The setup also makes the fallback
   origin record, turns on custom hostnames, adds the wildcard record the owners' records point at,
   and makes the token the main Worker registers hostnames with (`CLOUDFLARE_HOSTNAMES_TOKEN`).
-- **Nothing publishes a page yet.** `hosted_pages` has no writer, so a live name lists no pages.
-  Publishing and taking back through actions, telling search engines of a page, and counting
-  fetches are not built.
+- **Pages are published by an action.** The `hosted_page` kind (see "Actions") writes `hosted_pages`
+  through `publish_hosted_page()` and `take_back_hosted_page()`, which only the worker calls; no
+  API role writes the table. A taken-back page stays as a row so its address answers 410. Counting
+  fetches is not built.
 - **How it bills.** Every request to every answer subdomain runs the Pages Worker, which Cloudflare
   bills as Worker requests on the account's plan, and Cloudflare for SaaS bills custom hostnames
   past those its plan includes. What a hosted page costs in practice is not recorded here.
@@ -1272,12 +1273,14 @@ stays the main Worker's (see "Connections"); the Pages Worker only serves what i
 An action is one thing the product does outside itself for a location, once a member says yes
 (`actions`; the terms are in `GLOSSARY.md`, the decision in
 `docs/adr/0014-only-the-worker-carries-out-an-action.md`). It is `proposed`, then `approved` and
-`done` or `failed`; a proposed one can instead be `declined` or `lapsed`. There are three kinds.
+`done` or `failed`; a proposed one can instead be `declined` or `lapsed`. There are four kinds.
 `sample` sets the opening line of one of the sample account's listings, rows in `sample_listings`
 that stand in for an outside service, so nothing leaves the product. `wordpress_details` adds the
 business's details to the home page of a connected WordPress site, or changes them there (below). It
 takes from the `wordpress` allowance, which is included with no number, so it counts nothing.
 `wordpress_page` publishes a page task's copy as a new page on that site, on the same terms (below).
+`hosted_page` serves the same copy on the location's answer subdomain, from `hosted_pages`, on the
+`hosted_pages` allowance (below, and "Hosted pages").
 A decision about what the product may change on a business's site is in
 `docs/adr/0018-on-a-business-site-the-product-changes-only-what-it-made.md`.
 
@@ -1299,7 +1302,7 @@ A decision about what the product may change on a business's site is in
   `details:<page id>` and `seen.text` is the product's block as it stands on the page, or null.
   A site that cannot be read while proposing is logged and skipped.
 - **A page is proposed once its copy is written.** After `proposeDetails`, `proposePages` goes
-  through the location's open page tasks (`page:` recommendations) that have no `prompt_pages` row,
+  through the location's open page tasks (`page:` recommendations; `pagesToOffer`, which the hosted kind shares) that have no `prompt_pages` row,
   whose draft is of kind `page` with text, and where no page is at the address the copy's title
   makes (`pageSlug(pageParts(text).title)`, read with `readPageAt`). A page that is pending, a
   draft, private or scheduled counts as there; one in the trash does not. The subject is
@@ -1307,6 +1310,13 @@ A decision about what the product may change on a business's site is in
   “<title>” on your site", `seen` is null and the task is the action's. The queue consumer, after
   it writes a page draft for a location with a WordPress connection (`connectionToPublishWith`),
   queues that connection's sync, so the proposal comes without waiting for the daily run.
+  For a working `hosted_pages` connection, which has no sign-in, `proposeHostedPages` offers
+  `hosted_page` for the same page tasks (open, copy written, no address a member gave) while the
+  location's answer subdomain is live and still under its website (`underWebsite`), and where no
+  page is served at the address the title makes (`getHostedPage`). The subject is `page:<task id>`
+  and the summary is "Publish the page “<title>” at <hostname>". `connectionToPublishWith` also
+  returns a location's `hosted_pages` connection, so a written page draft queues a check that
+  proposes at once.
 - **One open action for a thing, and a no is remembered.** `subject` (what it is about) and `basis`
   (what the proposal rests on; here, the proposed text) are the worker's bookkeeping, and no route
   sends them. A partial unique index allows one `proposed` or `approved` action for a location, kind
@@ -1317,14 +1327,15 @@ A decision about what the product may change on a business's site is in
   with no row is held to nothing. No API role reads or writes it. The `sample` kind takes from no
   allowance and is given 30 days, though nothing limits how long a made-up listing may be held, so
   that dropping can be seen where the data is generated. `wordpress_details` and `wordpress_page` name the
-  `wordpress` allowance, which counts nothing, and have no limit on keeping what they replaced.
+  `wordpress` allowance, which counts nothing, and have no limit on keeping what they replaced;
+  `hosted_page` names `hosted_pages`, which is the same, with no limit either.
 - **A request records the answer.** `approve_action()`, `decline_action()` and `retry_action()` are
   security-definer functions that return a row only to a member of the location's organization
   (`can_access_location`), so their routes answer 404 to anyone else, the operator included. An
   action that is no longer waiting, or whose kind has no room left this month, raises `NC013`, a
   `limit`, so 409 `limit_reached` with the reason. A member may change the text while approving: `approved_text` then keeps it beside
   `proposed_text`, and stays null when the text sent is what was proposed. Only a kind in
-  `EDITABLE_ACTION_KINDS` (`sample` and `wordpress_page`, whose copy is written onto the page as text) can be changed: the approve route answers 422 `not_editable` to
+  `EDITABLE_ACTION_KINDS` (`sample`, `wordpress_page` and `hosted_page`, whose copy is written onto the page as text) can be changed: the approve route answers 422 `not_editable` to
   a `text` for any other, and `carryOutAction` fails one that has `approved_text` anyway. Who answered is kept as
   the address they had then. Approving and asking again queue `{ action_id, step: "carry_out" }`; if
   the send fails, the request still succeeds and logs it.
@@ -1374,6 +1385,17 @@ A decision about what the product may change on a business's site is in
   delivery finds the page and keeps its address too. Taking it back trashes the page (`trashPage`,
   a DELETE without `force`, so its owner can restore it from WordPress's trash), and
   `finish_action()` deletes the `prompt_pages` row the taken-back action kept.
+  For `hosted_page`, which needs no sign-in (`carryOutAction` does not ask for one), `current` is
+  the live page at the slug, and counts as the product's only while its copy is the action's.
+  Apply publishes through the store (`publish_hosted_page()`, worker only: an approved action of the
+  kind, on its connection's live, unreleased answer subdomain for the action's location, which
+  inserts the `hosted_pages` row and answers `https://<hostname>/<slug>`; a second live page at that
+  address is a unique violation). The address is kept for the task as a published page's is, so the
+  scans count the answers that cite it. A take-back, through the existing `take_back_action()`,
+  calls `take_back_hosted_page()`, which marks the page taken back; its address then answers 410.
+  Either way the worker tells IndexNow (`tellIndexNow`, `apps/api/src/connections/hosted.ts`): a POST
+  to `https://api.indexnow.org/indexnow` with the host, the key, the key file's address and the
+  page's. It is skipped on sample data, and a notice that fails is only logged.
 - **A try that does not work is made again, three times in all.** A try that throws is let go with
   `finish_action()` saying `again`, keeping why, and the queue consumer asks for the message to be
   delivered again in ten minutes. The third try that throws fails the action with the reason, and
@@ -1630,7 +1652,7 @@ organization, scan, audit or draft they describe is deleted. No API role can wri
 the only account that can read them is the operator's; the Worker's secret key writes them. Four
 more, `connection_secrets`, `connection_kind_allowances`, `sample_listings` and `action_kind_terms`,
 no API role can read or write at all (see "Connections" and "Actions").
-`hosted_pages` is read by an organization's members and the operator and written by no API role; a caller
+`hosted_pages` is read by an organization's members and the operator and written by no API role, only by the worker's `publish_hosted_page()` and `take_back_hosted_page()`; a caller
 who is not signed in reaches a live page only through `hosted_page()`, which answers for a live answer
 subdomain alone and is the one thing the Pages Worker calls (see "Hosted pages").
 
@@ -2027,13 +2049,12 @@ drop it.
 - The `structured_data` check passes for a block that names the business and gives an address, and
   compares nothing else in it, so a phone number or street address that differs from what is on
   file passes. Opening hours are not held, so the block has none.
-- The real kinds of action, `wordpress_details` and `wordpress_page`, take from an allowance that
+- The real kinds of action, `wordpress_details`, `wordpress_page` and `hosted_page`, take from an allowance that
   counts nothing, and nothing limits how long what they replaced is kept. A kind that counts, or that has a limit, has not
   been made yet. A take-back is refused once a later action on the same subject has changed what
   the first left, and once the first's `seen` was dropped.
-- An answer subdomain is set up, registered, checked and served by the Pages Worker, but nothing
-  publishes a page on it: publishing, taking pages back, IndexNow pings, counting fetches, and
-  winding it down, with redirects, when a plan stops including `hosted_pages` are not built ([#141](https://github.com/jwh3times/Nearcited/issues/141)).
+- An answer subdomain is set up, registered, checked and served by the Pages Worker, and pages are
+  published on it, but counting fetches and winding it down, with redirects, when a plan stops including `hosted_pages` are not built ([#141](https://github.com/jwh3times/Nearcited/issues/141)).
   Until then, one whose plan stops including it is paused and removed thirty days later like any
   connection, and its owners are emailed to delete the record. A name whose record is proxied by Cloudflare
   hides where it points, so it is not registered until the owner turns the proxy off. The name is

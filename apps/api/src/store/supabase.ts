@@ -129,6 +129,20 @@ const keptAnswerSubdomain = ({
   ...row
 }: z.infer<typeof AnswerSubdomainRowSchema>): KeptAnswerSubdomain => ({ ...row, ...connection });
 
+/** A hosted page as the worker reads it. */
+const HostedPageRowSchema = z.object({
+  id: z.uuid(),
+  connection_id: z.uuid(),
+  location_id: z.uuid(),
+  recommendation_id: z.uuid().nullable(),
+  action_id: z.uuid().nullable(),
+  slug: z.string(),
+  title: z.string(),
+  copy: z.string(),
+  published_at: z.string(),
+  taken_back_at: z.string().nullable(),
+});
+
 /** The rows the operator's overview reads, as the database returns them. */
 const OperatorScanSchema = ScanSchema.pick({
   id: true,
@@ -714,6 +728,40 @@ export function createSupabaseStore(
             AnswerSubdomainRowSchema.parse({ ...data, cloudflare_id: null, live_told_at: null }),
           )
         : null;
+    },
+
+    async getHostedPage(connectionId, slug) {
+      const { data, error } = await db
+        .from("hosted_pages")
+        .select(
+          "id, connection_id, location_id, recommendation_id, action_id, slug, title, copy, published_at, taken_back_at",
+        )
+        .eq("connection_id", connectionId)
+        .eq("slug", slug)
+        .is("taken_back_at", null)
+        .maybeSingle();
+      if (error) fail("Get a hosted page", error);
+      return data ? HostedPageRowSchema.parse(data) : null;
+    },
+
+    async publishHostedPage(actionId, page) {
+      const { data, error } = await db.rpc("publish_hosted_page", {
+        action: actionId,
+        page_slug: page.slug,
+        page_title: page.title,
+        page_copy: page.copy,
+      });
+      if (error) fail("Publish a hosted page", error);
+      return z
+        .string()
+        .nullable()
+        .parse(data ?? null);
+    },
+
+    async takeBackHostedPage(actionId) {
+      const { data, error } = await db.rpc("take_back_hosted_page", { action: actionId });
+      if (error) fail("Take back a hosted page", error);
+      return data === true;
     },
 
     async getAnswerSubdomain(connectionId) {

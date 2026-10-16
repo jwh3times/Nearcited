@@ -160,7 +160,7 @@ answers the prompt in plain words, which an assistant could read for it. The Web
 them under "Pages that answer your prompts" (the Overview leaves them out), and the task clears when
 an answer to the prompt names the business. Its draft is the copy for the page, written the same way
 as the others: a title, headings and paragraphs, followed by a closing line the product composes from
-the location's name, address and phone number. On a location with a connected WordPress site the
+the location's name, address and phone number. On a location with a connected WordPress site, or a live answer subdomain, the
 product proposes publishing the page, and publishes it on approval, keeping its link; otherwise the
 owner copies the page, publishes it themselves, marks the task done and says where it is (an
 address on the location's own site, which is kept and never opened), so the scans can count the answers that cited it beside the answers that named the
@@ -256,10 +256,9 @@ there: a CNAME to a target of that connection's own. The worker looks the name u
 Cloudflare to be served only once the record points at that target, and emails the owners once
 when it is served with its certificate. It also reads the business's home page for a link to it. A
 name not live within thirty days, because its record never pointed at the target or its
-certificate was never issued, is let go, with an email; one whose location is deleted is removed with it. Only setting up and
-removing exist, and the Pages Worker (see [Deploy](#deploy)) answers on a live name, but with no page to show yet: a name with no page serves an empty list of pages. Nothing else is read from an account, and the
-only things done through one are the sample action and, on a WordPress site, adding the business
-details to the home page and publishing a page's copy as a new page, all below (see [What is not built](#what-is-not-built)).
+certificate was never issued, is let go, with an email; one whose location is deleted is removed with it. The Pages Worker (see [Deploy](#deploy)) serves a live name, and a page task's copy is published there on approval, all below. Nothing else is read from an account, and the
+only things done through one are the sample action, on a WordPress site adding the business
+details to the home page and publishing a page's copy as a new page, and on an answer subdomain publishing a page's copy there (see [What is not built](#what-is-not-built)).
 
 An **action** is one thing the product does outside itself for a location, and nothing is done until
 a member of the organization says yes. After the worker reads a connected account, it proposes what
@@ -276,13 +275,13 @@ a yes is refused while the month has none. A proposal nobody answers lapses afte
 are emailed what was carried out, with who approved each, and what is newly waiting for a yes; if
 one goes 36 hours untold, nothing more is carried out for the organization until they are, and the
 operator is shown it. Where outgoing email is not set up, a real action cannot be approved. There
-are two kinds. A sample one sets the opening line of a made-up listing. The other adds the
+are four kinds. A sample one sets the opening line of a made-up listing. A WordPress one adds the
 business's details, as a marked block of structured data, to the home page of a connected WordPress
 site when that page is a page and the account may add scripts, or updates the block when it
 differs. It changes only that block, is approved as it is proposed, and is carried out only if the
 block on the page is still what the member was shown. A member can take a done action back from
 the Actions tab, which removes the block or puts back what it replaced, unless a later action has
-changed it since.
+changed it since. The other two publish a page task's copy, as a new page on a connected WordPress site or on the location's live answer subdomain, which the product serves itself: the copy is proposed once it is written, a member may change it before approving, and the page goes up only if nothing else is at its address. Taking it back removes it from WordPress, or makes its address on the subdomain answer that it is gone. Publishing or taking back a page on a subdomain also tells IndexNow, and through it Bing, unless the data is generated.
 
 A business's own site can count the visits that arrive from an AI assistant. The owner pastes one
 line into the site. It reports a visit only when the visitor came from ChatGPT, Gemini,
@@ -603,7 +602,7 @@ The migrations in `supabase/migrations/` define everything.
 | `connections` | An organization's standing sign-in to an outside account: its kind (`sample`, `wordpress` or `hosted_pages`), a label, the location a WordPress one was made from until its first sync matches it (`for_location`), and its status (`working`, `broken`, `paused`, `removing` or `removed`). Records who connected it and who asked for its removal, as the addresses they had then, and when, and whether it was removed because someone asked or because its plan had not included it for thirty days or, for an answer subdomain, it never started working, or its location was removed (`removal_reason`: `asked`, `plan`, `unclaimed` or `location`). A broken one records why (`refused` or `failing`), when, and how many days in a row a sync has failed; a paused one records since when. Also when its owners were told it broke and when they were reminded. Also when the Worker last read it (`last_synced_at`) and what its sign-in reaches, as that sync found it (`choices`, a list of `id` and `label`; cleared on removal). The row stays after removal, as the record. Read by the organization's members and the operator; written by no API role directly, only through `create_connection()` and `request_connection_removal()`, which answer an owner or admin alone, and the Worker's `record_connection_sync()`, `record_connection_failure()`, `expire_paused_connections()` and `finish_connection_removal()`, and `fit_connections_to_plan()`, which pauses and restores them when an organization's allowances are set. |
 | `connection_locations` | Which of a connection's choices is a location's: one account of a kind for a location, and one location for each thing an account reaches. Read by whoever can read the location and by the operator; written by no API role directly, only through `match_connection_location()` and `unmatch_connection_location()`, which answer an owner or admin of the connection's organization alone. Deleted when the connection's removal finishes. |
 | `answer_subdomains` | An answer subdomain, one per connection of the `hosted_pages` kind and one per location: its location (removed with the location), the hostname, the target its record must point at (a name of the connection's own under `pages.nearcited.com`), what the name last pointed at, when the worker last checked, when it was registered and when it went live, whether the home page links to it, and the Cloudflare ID of its custom hostname and when the owners were told it was live, which the worker keeps to itself. A hostname is held by one live connection at a time. Read by the organization's members and the operator, on every column but those two; written by no API role directly, only through `create_answer_subdomain()` (an owner or admin of the location's organization alone, which also makes the connection and refuses a location without a website), and the Worker's `record_answer_subdomain_check()`, `answer_subdomains_to_check()` and `expire_unclaimed_answer_subdomains()`. `create_connection()` refuses the `hosted_pages` kind and a WordPress connection for a location whose pages are hosted; `finish_connection_removal()` lets the name go; deleting the location removes its subdomain. |
-| `hosted_pages` | A page served on an answer subdomain: its connection and location, the page task and action it came from, its address (`slug`, one live page per address on a subdomain), title, the copy as approved (at most 20,000 characters), when it was published and when it was taken back (the row stays, so its address answers that it is gone). Read by the location's members and the operator; no API role writes it, and a caller who is not signed in reads nothing from the table. Anyone reads a live page only through `hosted_page(host, path)`, which the Pages Worker calls with the publishable key and which answers only for a live answer subdomain, with what the page shows anyway. Nothing writes a page yet. |
+| `hosted_pages` | A page served on an answer subdomain: its connection and location, the page task and action it came from, its address (`slug`, one live page per address on a subdomain), title, the copy as approved (at most 20,000 characters), when it was published and when it was taken back (the row stays, so its address answers that it is gone). Read by the location's members and the operator; no API role writes it directly, and a caller who is not signed in reads nothing from the table. Anyone reads a live page only through `hosted_page(host, path)`, which the Pages Worker calls with the publishable key and which answers only for a live answer subdomain, with what the page shows anyway. Written only by the Worker, through `publish_hosted_page()` and `take_back_hosted_page()`, for an approved or taking-back action of the `hosted_page` kind. |
 | `connection_secrets` | A connection's sign-in, sealed by the Worker. Row-level security is on with no policy and no grant to any API role, the operator included: only the Worker reads it, and the row is deleted when a removal finishes. |
 | `connection_kind_allowances` | The allowance an organization needs for a kind of connection; a kind not listed needs none, and the sample kind needs none, `wordpress` needs the `wordpress` allowance and `hosted_pages` the `hosted_pages` one. Row-level security is on with no policy and no grant to any API role, the operator included: only the database's own functions read it. |
 | `actions` | What the product does outside itself for a location: what it would do, what was there when it was proposed, the text and whether a rule or a model wrote it, and its status (`proposed`, `approved`, `done`, `failed`, `declined` or `lapsed`). Records who approved or declined it, as the address they had then, and when; the text as approved, when a member changed it; how it ended, with the reason for a failure; the failed action it was asked for again from (`retry_of`), and the done action it takes back (`takes_back`). `told_at` and `waiting_told_at` are when the organization's owners were told it had been carried out, and that it was waiting for a yes. What it replaced is dropped once its kind says it may be kept no longer, and when is recorded (`seen_dropped_at`). Five more columns are the Worker's bookkeeping, and no route sends them: `subject` and `basis`, so that one action is open for a thing and a declined one is not proposed again until what it rests on changes; `recommendation_id`, the task it does the work of; `seen_until`, the day what it replaced may be kept until; and `allowance_month`, the month whose allowance it holds one of. Read by whoever can read the location and by the operator; written by no API role directly, only through `approve_action()`, `decline_action()`, `retry_action()` and `take_back_action()`, which answer a member of the location's organization alone, and the Worker's `propose_action()`, `claim_action()` (which refuses an action while `organization_held()`, Worker only, says its owners have gone 36 hours untold of one), `finish_action()` (which gives back what was taken from the allowance when the action ends undone, marks the task when it is done and clears it when a take-back is), `lapse_actions()` and `drop_expired_seen()`, and its secret key alone writes the two told columns. Deleted with its location. |
@@ -863,14 +862,14 @@ pnpm sync:agents
   Nothing looks for a listing or a review link or opens one, so an address is only checked for its
   form, and Google's help does not show what its link looks like, so what is taken for one is where
   accounts of it put it.
-- **Publishing hosted pages.** An owner or admin can set up a location's answer subdomain, the
-  worker registers it and checks it works, and the Pages Worker serves what is published on it, but
-  nothing publishes a page yet. Publishing to it and taking pages back, telling search engines
-  of a page (IndexNow), counting fetches, and winding it down, with redirects, when a plan stops
-  including it are not built ([#141](https://github.com/jwh3times/Nearcited/issues/141)).
+- **Winding down and counting hosted pages.** Publishing a page on an answer subdomain, taking it
+  back and telling IndexNow are built. Counting fetches, and winding a subdomain down, with
+  redirects, when a plan stops including it are not
+  ([#141](https://github.com/jwh3times/Nearcited/issues/141)).
 - **Anything that works from a connection.** An owner or admin can connect a sample account or a
   location's WordPress site, or set up an answer subdomain, and remove any of them. Beyond the WordPress site itself (its one
-  choice) and the front page it reads before proposing, nothing reads anything from an account. The
+  choice) and the front page it reads before proposing, nothing reads anything from an account. A
+  page task's copy is also published on an answer subdomain. The
   things published to a WordPress site are the business details block on a home page that is a
   page and a page task's copy as a new page; the owner still puts anything else on their site
   themselves. There is no other real kind
@@ -880,10 +879,10 @@ pnpm sync:agents
   including it. Signing in
   again to a connection that refused its sign-in, without removing it, is not built: it is removed
   and connected again.
-- **Most real kinds of action.** Two are built: the business details on a WordPress home page and
-  a page task's copy published as a new page there
+- **Most real kinds of action.** Three are built: the business details on a WordPress home page, a
+  page task's copy published as a new page there, and the same copy served on an answer subdomain
   ([ADR 0014](docs/adr/0014-only-the-worker-carries-out-an-action.md) and
-  [ADR 0018](docs/adr/0018-on-a-business-site-the-product-changes-only-what-it-made.md)). Both take
+  [ADR 0018](docs/adr/0018-on-a-business-site-the-product-changes-only-what-it-made.md)). All take
   from an allowance that counts nothing, and nothing limits how long what they replaced is kept.
   A page is not proposed where a page already sits at the address its title makes, and one
   that is taken back goes to WordPress's trash. A site whose front page shows the latest posts is offered nothing, and a page builder or caching

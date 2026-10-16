@@ -1467,6 +1467,40 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
     expect(checked?.live_at).not.toBeNull();
     expect(checked?.live_told_at).toBeNull();
     await worker.markAnswerSubdomainTold(subdomain.id);
+    // A page published on it by an approved action, and taken back.
+    const [publishing] = (
+      await admin
+        .from("actions")
+        .insert({
+          location_id: site.id,
+          kind: "hosted_page",
+          connection_id: subdomain.id,
+          subject: "page:integration",
+          basis: "Late night\n\nWords.",
+          summary: "Publish the page",
+          seen: { text: null },
+          proposed_text: "Late night\n\nWords.",
+          written_by: "model",
+          status: "approved",
+        })
+        .select("id")
+        .throwOnError()
+    ).data as { id: string }[];
+    if (!publishing) throw new Error("no action to publish with");
+    const hosted = { slug: "late-night", title: "Late night", copy: "Late night\n\nWords." };
+    expect(await worker.publishHostedPage(publishing.id, hosted)).toBe(
+      "https://answers.answering-pizza.example/late-night",
+    );
+    expect(await worker.getHostedPage(subdomain.id, "late-night")).toMatchObject({
+      ...hosted,
+      action_id: publishing.id,
+      taken_back_at: null,
+    });
+    await expect(worker.publishHostedPage(publishing.id, hosted)).rejects.toMatchObject({
+      kind: "conflict",
+    });
+    expect(await worker.takeBackHostedPage(publishing.id)).toBe(true);
+    expect(await worker.getHostedPage(subdomain.id, "late-night")).toBeNull();
     expect((await worker.getAnswerSubdomain(subdomain.id))?.live_told_at).not.toBeNull();
     expect(await worker.listAnswerSubdomainsToCheck(new Date().toISOString())).not.toContain(
       subdomain.id,

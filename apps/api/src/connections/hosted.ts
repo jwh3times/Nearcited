@@ -1,4 +1,4 @@
-import { type AnswerRecord, PAGES_DOMAIN, recordTarget } from "@nearcited/shared";
+import { type AnswerRecord, INDEXNOW_KEY, PAGES_DOMAIN, recordTarget } from "@nearcited/shared";
 
 /**
  * An answer subdomain from outside: what its name points at in public DNS, and Cloudflare's
@@ -236,4 +236,34 @@ export function linksTo(html: string, hostname: string): boolean {
     if (HOST_ENDS.has(page.charAt(at + wanted.length))) return true;
   }
   return false;
+}
+
+/**
+ * Tells IndexNow (indexnow.org), and through it Bing, that a page on an answer subdomain was
+ * published or taken back, so it is read again without waiting for a crawl. The subdomain serves
+ * the key, which is how the notice is known to come from whoever serves it. A notice that does
+ * not get through is only logged: the page is up or gone all the same, and the sitemap says so.
+ */
+export async function tellIndexNow(
+  hostname: string,
+  address: string,
+  { fetch: post = fetch }: HostedDeps = {},
+): Promise<boolean> {
+  try {
+    const response = await post("https://api.indexnow.org/indexnow", {
+      method: "POST",
+      headers: { "Content-Type": "application/json; charset=utf-8" },
+      body: JSON.stringify({
+        host: hostname,
+        key: INDEXNOW_KEY,
+        keyLocation: `https://${hostname}/${INDEXNOW_KEY}.txt`,
+        urlList: [address],
+      }),
+    });
+    if (!response.ok) console.warn(`IndexNow answered ${response.status} for ${address}`);
+    return response.ok;
+  } catch (error) {
+    console.warn(`IndexNow could not be told of ${address}`, error);
+    return false;
+  }
 }

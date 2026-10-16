@@ -183,6 +183,23 @@ export interface KeptAnswerSubdomain {
   removed_at: string | null;
 }
 
+/** A page served on an answer subdomain, as the worker reads it. */
+export interface HostedPage {
+  id: string;
+  connection_id: string;
+  location_id: string;
+  recommendation_id: string | null;
+  /** The action that published it. */
+  action_id: string | null;
+  slug: string;
+  title: string;
+  /** The page copy as it was approved. */
+  copy: string;
+  published_at: string;
+  /** When it was taken back. Null while it is served. */
+  taken_back_at: string | null;
+}
+
 /** What one check of an answer subdomain found. */
 export interface AnswerSubdomainCheck {
   /** What the name points at. Null on sample data, where nothing is looked up. */
@@ -741,6 +758,19 @@ export interface Store {
    * worker to finish. Worker only.
    */
   expirePausedConnections(): Promise<string[]>;
+  /** The page served at an address on an answer subdomain now, if one is. Worker only. */
+  getHostedPage(connectionId: string, slug: string): Promise<HostedPage | null>;
+  /**
+   * Serves a page on the answer subdomain of an approved action's connection, for the task it
+   * does, and returns where it is. Null where the action is not one approved to publish a page.
+   * Throws a `conflict` where another page is served at that address. Worker only.
+   */
+  publishHostedPage(
+    actionId: string,
+    page: Pick<HostedPage, "slug" | "title" | "copy">,
+  ): Promise<string | null>;
+  /** Takes back the page an action published. False where it served none. Worker only. */
+  takeBackHostedPage(actionId: string): Promise<boolean>;
   /** A connection's answer subdomain, whatever its standing. Worker only. */
   getAnswerSubdomain(connectionId: string): Promise<KeptAnswerSubdomain | null>;
   /** Keeps what a check of an answer subdomain found, as a sync. Worker only. */

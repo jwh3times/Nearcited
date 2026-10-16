@@ -252,8 +252,18 @@ describe("a page's copy in an action", () => {
     expect(isPage(page)).toBe(true);
     expect(editable(page)).toBe(true);
     expect(isMarkup(page)).toBe(false);
-    expect(pageAddress("Late-night pizza in Raleigh, NC\n\nWe bake.")).toBe(
-      "/late-night-pizza-in-raleigh-nc/",
+    expect(pageAddress(page, "Late-night pizza in Raleigh, NC\n\nWe bake.")).toBe(
+      "/late-night-pizza-in-raleigh-nc/ on your site",
+    );
+  });
+
+  it("is the same on an answer subdomain, where the address has no closing slash", () => {
+    const page = action({ kind: "hosted_page" });
+    expect(isPage(page)).toBe(true);
+    expect(editable(page)).toBe(true);
+    expect(isMarkup(page)).toBe(false);
+    expect(pageAddress(page, "Late-night pizza in Raleigh, NC\n\nWe bake.")).toBe(
+      "/late-night-pizza-in-raleigh-nc on your answer subdomain",
     );
   });
 });

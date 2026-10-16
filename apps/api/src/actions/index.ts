@@ -15,9 +15,12 @@ import {
   pageSlug,
   pageWords,
   promptOfRule,
+  type Recommendation,
+  underWebsite,
   withDetails,
 } from "@nearcited/shared";
-import { readWordPressSignIn, SignInRefused } from "../connections";
+import { type Hosting, readWordPressSignIn, SignInRefused } from "../connections";
+import { tellIndexNow } from "../connections/hosted";
 import { open } from "../connections/seal";
 import {
   createPage,
@@ -29,14 +32,15 @@ import {
   WordPressRefused,
   writePageContent,
 } from "../connections/wordpress";
-import type { Store } from "../store/types";
+import type { NewAction, Store } from "../store/types";
 
 /**
  * Actions: what the product does outside itself for a location, once a member said yes
  * (docs/adr/0014-only-the-worker-carries-out-an-action.md).
  *
  * Everything here runs in the worker. It proposes after a sync, and it carries out what was
- * approved, because both need what only the worker can read: the sign-in.
+ * approved, because both need what only the worker can read or write: a connection's sign-in,
+ * or, for an answer subdomain, which has none, the hosted pages only the worker writes.
  */
 
 export interface ActionDeps {
@@ -45,6 +49,8 @@ export interface ActionDeps {
   key: CryptoKey | null;
   /** How an outside service is reached. The tests put a made-up WordPress here. */
   outside?: WordPressDeps;
+  /** Where answer subdomains are served from, and how IndexNow is reached. */
+  hosting?: Hosting;
 }
 
 /** What a kind of action is given to work with: the account, and what of it is the location's. */
@@ -58,6 +64,8 @@ interface Target {
   action: Action;
   /** The location it is for. */
   location: Location;
+  /** Where answer subdomains are served from, for a kind that tells IndexNow. */
+  hosting?: Hosting;
 }
 
 /** How one kind of action reads what is there now and makes its change. */
@@ -118,6 +126,8 @@ const copyOf = (action: Action): string => actionText(action) ?? action.seen?.te
 const addressOf = (copy: string) => pageSlug(pageParts(copy).title);
 /** What stands for a page at the address that is not the one the action is about. */
 const SOMEBODY_ELSES = "Another page is at this address.";
+/** What stands for an answer subdomain no longer under the location's website. */
+const WEBSITE_MOVED = "The website is no longer on this subdomain's domain.";
 
 /**
  * A page task's copy, published as a new page of the WordPress site. What is there is the page at
@@ -158,10 +168,69 @@ const wordpressPage: ActionHandler = {
   },
 };
 
+/** Where a page is on its connection's answer subdomain. Undefined where it has none. */
+async function hostedAddress(store: Store, connectionId: string, slug: string) {
+  const kept = await store.getAnswerSubdomain(connectionId);
+  return kept
+    ? { hostname: kept.hostname, address: `https://${kept.hostname}/${slug}` }
+    : undefined;
+}
+
+/** Tells IndexNow that a page on an answer subdomain changed, except on sample data. */
+async function noticeChange({ store, connection, hosting }: Target, slug: string) {
+  if (!hosting || hosting.sampleData) return;
+  const where = await hostedAddress(store, connection.id, slug);
+  if (where) await tellIndexNow(where.hostname, where.address, hosting);
+}
+
+/**
+ * A page task's copy, served on the location's answer subdomain. What is there is the page at the
+ * address the copy's title makes, which counts as the product's only while it is the copy that was
+ * published. Taking it back marks it gone: its address then answers that it was taken down.
+ * Either way IndexNow is told, so search engines read the address again.
+ */
+const hostedPage: ActionHandler = {
+  async current({ store, connection, action, location }) {
+    // A page is put up only while the subdomain is still under the business's website.
+    if (action.takes_back === null) {
+      const kept = await store.getAnswerSubdomain(connection.id);
+      if (!kept || !underWebsite(kept.hostname, location.website)) return WEBSITE_MOVED;
+    }
+    const copy = copyOf(action);
+    const page = await store.getHostedPage(connection.id, addressOf(copy));
+    if (!page) return null;
+    return page.copy === copy ? copy : SOMEBODY_ELSES;
+  },
+  async apply(target, text) {
+    const { store, action } = target;
+    if (text === null) {
+      if (action.takes_back && (await store.takeBackHostedPage(action.takes_back))) {
+        await noticeChange(target, addressOf(copyOf(action)));
+      }
+      return undefined;
+    }
+    const slug = addressOf(text);
+    const address = await store.publishHostedPage(action.id, {
+      slug,
+      title: pageParts(text).title,
+      copy: text,
+    });
+    if (!address) throw new Error("The answer subdomain is not served.");
+    await noticeChange(target, slug);
+    return address;
+  },
+  async where({ store, connection, action }) {
+    const slug = addressOf(copyOf(action));
+    if (!(await store.getHostedPage(connection.id, slug))) return undefined;
+    return (await hostedAddress(store, connection.id, slug))?.address;
+  },
+};
+
 const HANDLERS: Record<ActionKind, ActionHandler> = {
   sample,
   wordpress_details: wordpressDetails,
   wordpress_page: wordpressPage,
+  hosted_page: hostedPage,
 };
 
 /** What the sample listing of a location should open with, composed by rule from its details. */
@@ -181,7 +250,10 @@ export function sampleOpeningLine(location: { name: string; city: string | null 
 export async function proposeAfterSync(connectionId: string, deps: ActionDeps): Promise<number> {
   const { store, key } = deps;
   const connection = await store.getConnection(connectionId);
-  if (connection?.status !== "working" || !key) return 0;
+  if (connection?.status !== "working") return 0;
+  // An answer subdomain has no sign-in to open.
+  if (connection.kind === "hosted_pages") return proposeHostedPages(connection, deps);
+  if (!key) return 0;
   const sealed = await store.getConnectionSecret(connectionId);
   if (!sealed) return 0;
   let signIn: string;
@@ -274,11 +346,74 @@ async function proposeDetails(
   return proposed;
 }
 
+/** A page task whose copy is written and whose page is nowhere yet: what to offer publishing. */
+interface PageToOffer {
+  task: Recommendation;
+  /** The copy as it was written. */
+  copy: string;
+  title: string;
+  /** Where its title puts it. */
+  slug: string;
+  /** Whether a model wrote it, or it is sample text made by rule. */
+  writtenBy: "model" | "rule";
+}
+
 /**
- * Offers to publish each page task's copy on a WordPress site, for the location matched to it:
- * where the copy has been written, the task is still to do, nobody has said where its page is
- * already, and no page is at the address its title makes. The copy is the task's draft, and the
- * member may change it before saying yes.
+ * The page tasks of a location that could be offered for publishing: still to do, with their copy
+ * written, and nobody has said where their page is already.
+ */
+async function pagesToOffer(store: Store, locationId: string): Promise<PageToOffer[]> {
+  const [recommendations, drafts, pages] = await Promise.all([
+    store.listRecommendations(locationId),
+    store.listDrafts(locationId),
+    store.listPromptPages(locationId),
+  ]);
+  const offered: PageToOffer[] = [];
+  for (const task of recommendations) {
+    if (task.status !== "open" || !promptOfRule(task.rule)) continue;
+    if (pages.some((page) => page.recommendation_id === task.id)) continue;
+    const draft = drafts.find((kept) => kept.recommendation_id === task.id);
+    if (draft?.kind !== "page" || !draft.text) continue;
+    const { title } = pageParts(draft.text);
+    if (!title) continue;
+    offered.push({
+      task,
+      copy: draft.text,
+      title,
+      slug: pageSlug(title),
+      writtenBy: draft.sample_data ? "rule" : "model",
+    });
+  }
+  return offered;
+}
+
+/** A page's title as a proposal names it, cut short where it is long. */
+const shortTitle = (title: string) => (title.length > 200 ? `${title.slice(0, 199)}…` : title);
+
+/** The proposal to publish a page task's copy somewhere: `where` ends its summary. */
+const pageProposal = (
+  page: PageToOffer,
+  locationId: string,
+  connectionId: string,
+  kind: "wordpress_page" | "hosted_page",
+  where: string,
+): NewAction => ({
+  location_id: locationId,
+  kind,
+  connection_id: connectionId,
+  subject: `page:${page.task.id}`,
+  basis: page.copy,
+  summary: `Publish the page “${shortTitle(page.title)}” ${where}`,
+  seen: { text: null },
+  proposed_text: page.copy,
+  written_by: page.writtenBy,
+  recommendation_id: page.task.id,
+});
+
+/**
+ * Offers to publish each page task's copy on a WordPress site, for the location matched to it,
+ * where no page is at the address its title makes. The copy is the task's draft, and the member
+ * may change it before saying yes.
  */
 async function proposePages(
   connection: Connection,
@@ -288,36 +423,17 @@ async function proposePages(
   const site = readWordPressSignIn(signIn);
   let proposed = 0;
   for (const match of connection.matches) {
-    const [recommendations, drafts, pages] = await Promise.all([
-      store.listRecommendations(match.location_id),
-      store.listDrafts(match.location_id),
-      store.listPromptPages(match.location_id),
-    ]);
-    for (const task of recommendations) {
-      if (task.status !== "open" || !promptOfRule(task.rule)) continue;
-      if (pages.some((page) => page.recommendation_id === task.id)) continue;
-      const draft = drafts.find((kept) => kept.recommendation_id === task.id);
-      if (draft?.kind !== "page" || !draft.text) continue;
-      const { title } = pageParts(draft.text);
+    for (const page of await pagesToOffer(store, match.location_id)) {
       try {
         // An address already taken is the owner's page, and nothing is published over it.
-        if (!title || (await readPageAt(site, pageSlug(title), outside))) continue;
+        if (await readPageAt(site, page.slug, outside)) continue;
       } catch (error) {
         console.error(`Connection ${connection.id}: its pages could not be read`, error);
         return proposed;
       }
-      const made = await store.proposeAction({
-        location_id: match.location_id,
-        kind: "wordpress_page",
-        connection_id: connection.id,
-        subject: `page:${task.id}`,
-        basis: draft.text,
-        summary: `Publish the page “${title.length > 200 ? `${title.slice(0, 199)}…` : title}” on your site`,
-        seen: { text: null },
-        proposed_text: draft.text,
-        written_by: draft.sample_data ? "rule" : "model",
-        recommendation_id: task.id,
-      });
+      const made = await store.proposeAction(
+        pageProposal(page, match.location_id, connection.id, "wordpress_page", "on your site"),
+      );
       if (made) proposed++;
     }
   }
@@ -325,9 +441,31 @@ async function proposePages(
 }
 
 /**
- * The WordPress connection to read once a draft is written, where the draft is a page's copy and
- * its location's site is connected: reading it is what proposes publishing the page, so the owner
- * need not wait for the daily run. Null where there is none.
+ * Offers to serve each page task's copy on the location's answer subdomain, once it is live and
+ * while it still sits under the location's website, where no page is served at the address its
+ * title makes.
+ */
+async function proposeHostedPages(connection: Connection, { store }: ActionDeps): Promise<number> {
+  const kept = await store.getAnswerSubdomain(connection.id);
+  if (!kept?.live_at || !kept.location_id) return 0;
+  const location = await store.getLocation(kept.location_id);
+  if (!location || !underWebsite(kept.hostname, location.website)) return 0;
+  let proposed = 0;
+  for (const page of await pagesToOffer(store, location.id)) {
+    if (await store.getHostedPage(connection.id, page.slug)) continue;
+    const made = await store.proposeAction(
+      pageProposal(page, location.id, connection.id, "hosted_page", `at ${kept.hostname}`),
+    );
+    if (made) proposed++;
+  }
+  return proposed;
+}
+
+/**
+ * The connection to read once a draft is written, where the draft is a page's copy and its
+ * location publishes pages somewhere: its WordPress site or its answer subdomain. Reading it is
+ * what proposes publishing the page, so the owner need not wait for the daily run. Null where
+ * there is none. A location publishes to one place, so there is at most one.
  */
 export async function connectionToPublishWith(
   store: Store,
@@ -336,7 +474,11 @@ export async function connectionToPublishWith(
   const draft = await store.getDraft(draftId);
   if (draft?.kind !== "page" || draft.status !== "written") return null;
   const connections = await store.listLocationConnections(draft.location_id);
-  return connections.find((connection) => connection.kind === "wordpress")?.connection_id ?? null;
+  return (
+    connections.find(
+      (connection) => connection.kind === "wordpress" || connection.kind === "hosted_pages",
+    )?.connection_id ?? null
+  );
 }
 
 /** How many times an action is tried before it is marked failed. */
@@ -373,7 +515,7 @@ export const actionText = (action: Pick<Action, "approved_text" | "proposed_text
  */
 export async function carryOutAction(
   actionId: string,
-  { store, key, outside = {} }: ActionDeps,
+  { store, key, outside = {}, hosting }: ActionDeps,
 ): Promise<CarriedOut> {
   const action = await store.getAction(actionId);
   if (action?.status !== "approved") return "not_approved";
@@ -398,13 +540,16 @@ export async function carryOutAction(
   }
   const match = connection.matches.find((kept) => kept.location_id === action.location_id);
   if (!match) return fail("This location is no longer matched to that account.");
-  const sealed = await store.getConnectionSecret(connection.id);
-  if (!sealed || !key) return fail("The account's sign-in could not be read.");
-  let signIn: string;
-  try {
-    signIn = await open(key, connection.id, sealed);
-  } catch {
-    return fail("The account's sign-in could not be read.");
+  // An answer subdomain has no sign-in: its pages are served from the product's own tables.
+  let signIn = "";
+  if (connection.kind !== "hosted_pages") {
+    const sealed = await store.getConnectionSecret(connection.id);
+    if (!sealed || !key) return fail("The account's sign-in could not be read.");
+    try {
+      signIn = await open(key, connection.id, sealed);
+    } catch {
+      return fail("The account's sign-in could not be read.");
+    }
   }
   const text = actionText(action);
   // Taking an action back puts back nothing where there was nothing: that is taking it away.
@@ -423,7 +568,7 @@ export async function carryOutAction(
 
   const handler = HANDLERS[action.kind];
   if (!location) return fail("The location is no longer there.");
-  const target = { store, connection, match, signIn, outside, action, location };
+  const target = { store, connection, match, signIn, outside, action, location, hosting };
   // Where a kind's work has an address of its own, it is kept for the task the action did.
   const keep = async (address: string | undefined) => {
     if (address && text !== null) await store.keepPublishedPage(actionId, address);

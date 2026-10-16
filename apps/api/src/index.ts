@@ -274,6 +274,7 @@ export default {
             store,
             key: await sealingKey(env.CONNECTIONS_KEY),
             outside: { localOrigin: env.WORDPRESS_LOCAL_ORIGIN ?? null },
+            hosting: hostingOf(env),
           });
           console.log(`${what}: ${outcome}`);
           // The thing had changed since the member was shown it. Reading the account again now
