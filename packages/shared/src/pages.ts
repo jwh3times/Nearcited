@@ -333,8 +333,8 @@ export function readPageAddress(website: string | null, pasted: string): ReadPag
   return { url: address.href };
 }
 
-/** Text made safe to stand in a page's HTML. */
-const asText = (text: string) =>
+/** Text made safe to stand in a page's HTML, in an element or a double-quoted attribute. */
+export const asText = (text: string) =>
   text
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")

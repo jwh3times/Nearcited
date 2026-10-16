@@ -1,4 +1,5 @@
 import {
+  asText,
   buildBusinessBlock,
   type HostedAnswer,
   type HostedBusiness,
@@ -11,16 +12,6 @@ import {
  * business's name linking to its own site, and nothing of Nearcited's but a generator tag. Every
  * word comes from the database's answer and is written as text, never as markup.
  */
-
-/** Text as it is written into HTML, in an element or an attribute. */
-export function asText(text: string): string {
-  return text
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
-}
 
 /** Small, readable and the same on every page. No font, image or script is fetched. */
 const STYLE = `body{margin:0;font:18px/1.6 system-ui,-apple-system,"Segoe UI",sans-serif;color:#1c1b19;background:#fbfaf7}

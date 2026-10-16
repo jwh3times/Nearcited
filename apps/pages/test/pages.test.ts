@@ -119,7 +119,7 @@ describe("a hosted page", () => {
     // Everything it was given is text, never markup.
     expect(html).toContain("On Main Street, by the &lt;station&gt;.");
     expect(html).toContain(
-      '<a href="https://www.joespizza.example/">Joe&#39;s &lt;Pizza&gt; &amp; Pasta</a>',
+      `<a href="https://www.joespizza.example/">Joe's &lt;Pizza&gt; &amp; Pasta</a>`,
     );
     // The closing is composed by rule from the location's details as they are now.
     expect(html).toContain("12 Main St, Raleigh, NC 27601");
@@ -180,14 +180,25 @@ describe("a hosted page", () => {
     expect(post.headers.get("Allow")).toBe("GET, HEAD");
   });
 
-  it("sends a visit over http to https, but leaves certificate checks alone", async () => {
+  it("sends a visit over http to https", async () => {
     const response = await get("http://answers.joespizza.example/late-night-pizza-in-raleigh");
     expect(response.status).toBe(301);
     expect(response.headers.get("Location")).toBe(
       "https://answers.joespizza.example/late-night-pizza-in-raleigh",
     );
-    const check = await get("http://answers.joespizza.example/.well-known/acme-challenge/abc");
-    expect(check.status).not.toBe(301);
+  });
+
+  it("hands a certificate check on untouched, over http or https, before anything else", async () => {
+    const checks = [
+      "http://answers.joespizza.example/.well-known/acme-challenge/abc",
+      "https://answers.joespizza.example/.well-known/pki-validation/abc.txt",
+      "http://answers.somebodyelse.example/.well-known/acme-challenge/xyz",
+    ];
+    for (const url of checks) {
+      expect(await (await get(url)).text(), url).toBe("the app");
+    }
+    expect(passedOn).toEqual(checks);
+    expect(asked).toEqual([]);
   });
 });
 

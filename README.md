@@ -455,11 +455,12 @@ are safe to ship to the browser.
 | `VITE_SUPABASE_PUBLISHABLE_KEY` | The same publishable key. |
 
 The Pages Worker has two settings, `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY`, in `vars` in
-`apps/pages/wrangler.jsonc`. Neither is secret and it has no `.dev.vars`; `pnpm --filter
-@nearcited/pages dev` reads the file as it is.
+`apps/pages/wrangler.jsonc`, which point at production. Neither is secret. Locally,
+`apps/pages/.dev.vars` points them at the local stack instead, so `pnpm --filter @nearcited/pages
+dev` reads the local database.
 
-Neither file is committed. `apps/api/.dev.vars.example` and `apps/web/.env.example` are the
-templates.
+None of these files is committed. `apps/api/.dev.vars.example`, `apps/web/.env.example` and
+`apps/pages/.dev.vars.example` are the templates.
 
 ## Commands
 
@@ -474,7 +475,7 @@ templates.
 | `pnpm e2e` | End-to-end tests in a browser (needs `supabase start` and the env files; `pnpm check` does not run them) |
 | `pnpm smoke` | Smoke test against a deployment (`E2E_APP_URL`, `E2E_SUPABASE_URL`, `E2E_SUPABASE_PUBLISHABLE_KEY`, `TEST_ACCOUNT_EMAIL`, `TEST_ACCOUNT_PASSWORD`) |
 | `pnpm test-account:create` | Make the deployment's test account and grant it the `test` platform role; safe to run again (needs `SUPABASE_SECRET_KEY`, `TEST_ACCOUNT_EMAIL`, `TEST_ACCOUNT_PASSWORD`) |
-| `pnpm local:env` | Write `apps/api/.dev.vars` and `apps/web/.env.local` from the examples and `supabase status`, with a newly made `CONNECTIONS_KEY` (`--force` replaces existing files, and so makes a new key) |
+| `pnpm local:env` | Write `apps/api/.dev.vars`, `apps/web/.env.local` and `apps/pages/.dev.vars` from the examples and `supabase status`, with a newly made `CONNECTIONS_KEY` (`--force` replaces existing files, and so makes a new key) |
 | `pnpm billing:check` | Ask Stripe and the deployment whether billing is set up as the app expects (Tax active with a registration, the portal set to cancel only, the webhook registered with the events the app acts on and answering 400 to an unsigned request, each paid plan's prices matching, every recorded subscription existing under the key). Reads only; exits 1 when a check fails (needs `STRIPE_SECRET_KEY` and `SUPABASE_SECRET_KEY`) |
 | `pnpm cf:deploy` | Build, then `wrangler deploy` for the Worker, then for the Pages Worker |
 | `scripts/hosted-pages-setup.sh` | A wizard for the Cloudflare setup hosted pages need, run once by the owner after a deploy (see [Deploy](#deploy)) |

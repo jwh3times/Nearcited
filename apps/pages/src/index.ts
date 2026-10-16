@@ -1,4 +1,9 @@
-import { type HostedAnswer, HostedAnswerSchema, INDEXNOW_KEY } from "@nearcited/shared";
+import {
+  type HostedAnswer,
+  HostedAnswerSchema,
+  INDEXNOW_KEY,
+  ZONE_DOMAIN,
+} from "@nearcited/shared";
 import { render, sitemap } from "./render";
 
 /**
@@ -18,8 +23,16 @@ export interface Env {
 }
 
 /** The zone's own names. Its route runs before them, so what is theirs is handed on. */
-const OWN_DOMAIN = "nearcited.com";
-const ownName = (host: string) => host === OWN_DOMAIN || host.endsWith(`.${OWN_DOMAIN}`);
+const ownName = (host: string) => host === ZONE_DOMAIN || host.endsWith(`.${ZONE_DOMAIN}`);
+
+/**
+ * Where a certificate authority checks that a name may have a certificate. Cloudflare answers
+ * these for a custom hostname, so they are handed on untouched, over http or https, or the
+ * certificate is never issued.
+ */
+const certificateCheck = (path: string) =>
+  path.startsWith("/.well-known/acme-challenge/") ||
+  path.startsWith("/.well-known/pki-validation/");
 
 /** How long a browser or a cache may keep what was answered, in seconds. */
 const KEEP_SECONDS = 300;
@@ -103,13 +116,14 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     const host = url.hostname.toLowerCase();
-    // The app and every other name of the zone's own are not this Worker's to answer.
-    if (ownName(host)) return fetch(request);
+    // The app and every other name of the zone's own are not this Worker's to answer, and nor is
+    // a certificate check.
+    if (ownName(host) || certificateCheck(url.pathname)) return fetch(request);
     if (request.method !== "GET" && request.method !== "HEAD") {
       return new Response(null, { status: 405, headers: { Allow: "GET, HEAD", ...SECURITY } });
     }
-    // Pages are read over https. A certificate's checks come over http and are left to them.
-    if (url.protocol === "http:" && !url.pathname.startsWith("/.well-known/")) {
+    // Pages are read over https.
+    if (url.protocol === "http:") {
       url.protocol = "https:";
       return new Response(null, { status: 301, headers: { Location: url.href } });
     }

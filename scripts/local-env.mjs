@@ -1,9 +1,9 @@
 #!/usr/bin/env node
-// Writes the two gitignored env files a local run needs, from their examples and the keys the
+// Writes the gitignored env files a local run needs, from their examples and the keys the
 // local Supabase stack prints. Start the stack first (`supabase start`).
 //
-//   pnpm local:env            write whichever of the two is missing
-//   pnpm local:env --force    write both, replacing what is there
+//   pnpm local:env            write whichever of them is missing
+//   pnpm local:env --force    write them all, replacing what is there
 //
 // Mock mode and blank provider keys are left as the examples have them: this is for running the
 // app against generated data, which is what development and the end-to-end tests do.
@@ -20,6 +20,7 @@ const root = join(fileURLToPath(import.meta.url), "../..");
 export const TARGETS = [
   { path: "apps/api/.dev.vars", example: "apps/api/.dev.vars.example" },
   { path: "apps/web/.env.local", example: "apps/web/.env.example" },
+  { path: "apps/pages/.dev.vars", example: "apps/pages/.dev.vars.example" },
 ];
 
 /**

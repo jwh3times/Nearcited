@@ -5,8 +5,8 @@ Codex reads it directly. Project rules live here and nowhere else.
 
 Local-visibility tracker: two Cloudflare Workers, the main one (Hono API, cron, queue consumer)
 with the React app it serves as static assets and the Pages Worker (`apps/pages`) that serves
-hosted pages on businesses' answer subdomains, and Supabase for Postgres and auth. Read `docs/architecture.md` before
-changing how scans run or how data is accessed.
+hosted pages on businesses' answer subdomains, and Supabase for Postgres and auth. Read
+`docs/architecture.md` before changing how scans run or how data is accessed.
 
 ## Commands
 
@@ -19,7 +19,8 @@ changing how scans run or how data is accessed.
 - `pnpm billing:check`: ask Stripe and the deployment whether billing is set up as the app
   expects. Reads only; needs `STRIPE_SECRET_KEY` and `SUPABASE_SECRET_KEY` in the environment.
 - `pnpm test-account:create`: make the deployment's test account (needs the Supabase secret key).
-- `pnpm local:env`: write `apps/api/.dev.vars` and `apps/web/.env.local` from `supabase status`.
+- `pnpm local:env`: write `apps/api/.dev.vars`, `apps/web/.env.local` and `apps/pages/.dev.vars`
+  from `supabase status`.
 - `npm run bootstrap:private`: clone the private companion into `private/` (maintainers only).
 - `npm run sync:main`: fast-forward `main` here and in `private/`. Refuses a dirty tree.
 - `pnpm sync:agents`: regenerate `.claude/skills` and `.codex/agents` after changing anything in

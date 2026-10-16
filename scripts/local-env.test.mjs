@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, it } from "node:test";
-import { fillExample, parseStatus } from "./local-env.mjs";
+import { fileURLToPath } from "node:url";
+import { fillExample, parseStatus, TARGETS } from "./local-env.mjs";
+
+const root = join(fileURLToPath(import.meta.url), "../..");
 
 const status = {
   API_URL: "http://127.0.0.1:54321",
@@ -48,6 +53,16 @@ describe("fillExample", () => {
       fillExample("VITE_SUPABASE_URL=x\nVITE_SUPABASE_PUBLISHABLE_KEY=y", status),
       "VITE_SUPABASE_URL=http://127.0.0.1:54321\nVITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_local",
     );
+  });
+});
+
+describe("TARGETS", () => {
+  it("writes each file from an example whose database lines it fills in", () => {
+    for (const { example } of TARGETS) {
+      const filled = fillExample(readFileSync(join(root, example), "utf8"), status);
+      assert.match(filled, /=http:\/\/127\.0\.0\.1:54321$/m, example);
+      assert.match(filled, /=sb_publishable_local$/m, example);
+    }
   });
 });
 

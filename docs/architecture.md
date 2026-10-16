@@ -1237,7 +1237,10 @@ stays the main Worker's (see "Connections"); the Pages Worker only serves what i
   `sitemap.xml`, and the IndexNow key file at `/<INDEXNOW_KEY>.txt` (the constant is in
   `packages/shared/src/hosted-pages.ts`). A host that is not a live answer subdomain gets a bare 404
   "Not found" whatever it asks. Only GET and HEAD are answered; anything else is 405. A request over
-  http is sent to https with a 301, except under `/.well-known/`, which a certificate's checks use.
+  http is sent to https with a 301. A certificate authority's checks, under
+  `/.well-known/acme-challenge/` and `/.well-known/pki-validation/`, are handed on untouched over
+  either, before anything else, since Cloudflare answers them for a custom hostname and the
+  certificate is never issued otherwise.
   Every answer carries `Cache-Control: public, max-age=300` and a policy that forbids scripts,
   images and everything else a page could fetch. A page taken back can therefore still be read for
   up to five minutes.

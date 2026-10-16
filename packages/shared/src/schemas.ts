@@ -1216,6 +1216,7 @@ export const HostedPageEntrySchema = z.object({
   title: z.string(),
   published_at: Timestamp,
 });
+export type HostedPageEntry = z.infer<typeof HostedPageEntrySchema>;
 
 /**
  * What `hosted_page()` answers anyone for one address on an answer subdomain that is served: the
