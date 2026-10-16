@@ -7,10 +7,23 @@ export interface AnswerSubdomainEmail {
    * Live, or why it was removed: an owner asked, the plan stopped including it, it never started
    * working, or its location was removed.
    */
-  event: "live" | "asked" | "plan" | "unclaimed" | "location";
+  event: "live" | "paused" | "asked" | "plan" | "unclaimed" | "location";
   /** Where the location's Website tab is. */
   page: string;
+  /** For a pause: the day pages start sending visitors on, and the day the subdomain is removed. */
+  until?: { served: string; removed: string };
 }
+
+/** A day as an email writes it: "December 1, 2026". Empty for an email with no day in it. */
+const dayOf = (iso: string | undefined) =>
+  !iso
+    ? ""
+    : new Intl.DateTimeFormat("en-US", {
+        month: "long",
+        day: "numeric",
+        year: "numeric",
+        timeZone: "UTC",
+      }).format(new Date(iso));
 
 /**
  * The email an organization's owners and admins get when an answer subdomain starts working, and
@@ -26,6 +39,17 @@ export function buildAnswerSubdomainEmail(email: AnswerSubdomainEmail): Email {
         `The record you added for ${organization} is in place, and Nearcited now serves https://${hostname}.`,
         "",
         "Each page written for your prompts is offered for approval on the location's Website tab, and goes up there once somebody approves it:",
+        page,
+      ],
+    },
+    paused: {
+      subject: `Your pages at ${hostname} will stop`,
+      text: [
+        `Your plan no longer includes hosted pages, so Nearcited publishes nothing more at ${hostname} for ${organization}.`,
+        "",
+        `The pages already there stay up until ${dayOf(email.until?.served)}. From then, anyone who visits one is sent on to your own website, until ${dayOf(email.until?.removed)}, when ${hostname} is removed and you can delete its record.`,
+        "",
+        "If your plan includes hosted pages again before then, nothing stops:",
         page,
       ],
     },

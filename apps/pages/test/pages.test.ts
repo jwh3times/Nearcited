@@ -42,6 +42,9 @@ const database: typeof fetch = async (input, init) => {
   }
   const body = JSON.parse(String(init?.body ?? "null")) as { host: string; path: string };
   asked.push({ url, body, apikey: new Headers(init?.headers).get("apikey") });
+  if (url === `${env.SUPABASE_URL}/rest/v1/rpc/record_page_fetch`) {
+    return new Response(null, { status: 204 });
+  }
   if (url !== `${env.SUPABASE_URL}/rest/v1/rpc/hosted_page`) {
     return new Response("Not found", { status: 404 });
   }
@@ -80,15 +83,34 @@ const pages = (path: string) => {
     };
   }
   if (path === "/taken-back") return { kind: "gone", business: BUSINESS };
+  if (path === "/wound-down") {
+    return { kind: "redirect", business: BUSINESS, to: "https://www.joespizza.example/" };
+  }
   return { kind: "missing", business: BUSINESS };
 };
 
-const get = (url: string, init?: RequestInit) => worker.fetch(new Request(url, init), env);
+/** What the Worker left to finish after answering: the fetches it counts. */
+let after: Promise<unknown>[];
+const context = {
+  waitUntil: (promise: Promise<unknown>) => {
+    after.push(promise);
+  },
+  passThroughOnException: () => {},
+} as unknown as ExecutionContext;
+const get = async (url: string, init?: RequestInit) => {
+  const response = await worker.fetch(new Request(url, init), env, context);
+  await Promise.all(after);
+  return response;
+};
+/** The fetches the Worker counted, as it asked the database to. */
+const counted = () =>
+  asked.filter((call) => call.url.endsWith("/rpc/record_page_fetch")).map((call) => call.body);
 
 beforeEach(() => {
   answers = new Map([["answers.joespizza.example", pages]]);
   asked = [];
   passedOn = [];
+  after = [];
   vi.stubGlobal("fetch", database);
 });
 afterEach(() => {
@@ -277,5 +299,74 @@ describe("a host that is not a live answer subdomain", () => {
     const response = await get("https://answers.joespizza.example/late-night-pizza-in-raleigh");
     expect(response.status).toBe(503);
     expect(response.headers.get("Retry-After")).toBe("300");
+  });
+});
+
+describe("counting who fetches a page", () => {
+  const as = (agent: string) =>
+    get("https://answers.joespizza.example/late-night-pizza-in-raleigh", {
+      headers: { "User-Agent": agent },
+    });
+
+  it("counts a fetch by an assistant's fetcher or a search engine's crawler, for the page", async () => {
+    await as(
+      "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; ClaudeBot/1.0; +claudebot@anthropic.com)",
+    );
+    await as(
+      "Mozilla/5.0 AppleWebKit/537.36; compatible; ChatGPT-User/1.0; +https://openai.com/bot",
+    );
+    await as("Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)");
+    expect(counted()).toEqual([
+      {
+        host: "answers.joespizza.example",
+        path: "/late-night-pizza-in-raleigh",
+        fetcher: "claudebot",
+      },
+      {
+        host: "answers.joespizza.example",
+        path: "/late-night-pizza-in-raleigh",
+        fetcher: "chatgpt-user",
+      },
+      {
+        host: "answers.joespizza.example",
+        path: "/late-night-pizza-in-raleigh",
+        fetcher: "googlebot",
+      },
+    ]);
+  });
+
+  it("knows each of a maker's fetchers apart", async () => {
+    await as("Mozilla/5.0 (compatible; Claude-SearchBot/1.0; +https://www.anthropic.com)");
+    expect(counted().map((call) => (call as { fetcher: string }).fetcher)).toEqual([
+      "claude-searchbot",
+    ]);
+  });
+
+  it("counts nothing for a person's browser, nor for anything but a page", async () => {
+    await as("Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15 Safari/605.1.15");
+    for (const path of ["/", "/robots.txt", "/sitemap.xml", "/taken-back", "/nothing-here"]) {
+      await get(`https://answers.joespizza.example${path}`, {
+        headers: { "User-Agent": "GPTBot/1.1" },
+      });
+    }
+    expect(counted()).toEqual([]);
+  });
+
+  it("answers the page all the same when the count cannot be kept", async () => {
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) =>
+      String(input).endsWith("/record_page_fetch")
+        ? new Response("down", { status: 500 })
+        : database(input, init),
+    );
+    const response = await as("GPTBot/1.1");
+    expect(response.status).toBe(200);
+  });
+});
+
+describe("a subdomain winding down", () => {
+  it("sends every visitor on to the business's own site", async () => {
+    const response = await get("https://answers.joespizza.example/wound-down");
+    expect(response.status).toBe(301);
+    expect(response.headers.get("Location")).toBe("https://www.joespizza.example/");
   });
 });

@@ -11,6 +11,8 @@ import type {
   Listing,
   Location,
   Organization,
+  PageFetcher,
+  PageFetches,
   Plan,
   PriceChange,
   PriceChangeNotice,
@@ -172,6 +174,16 @@ export interface MemoryDb {
   > & { released_at: string | null })[];
   /** The `hosted_pages` table: every page served on an answer subdomain, and taken back. */
   hostedPages: HostedPage[];
+  /** The `hosted_page_fetches` table: a count for a page, a day and a fetcher. */
+  pageFetches: {
+    hosted_page_id: string;
+    location_id: string;
+    day: string;
+    fetcher: PageFetcher;
+    count: number;
+  }[];
+  /** When each answer subdomain's owners were last told it was paused, by connection. */
+  pauseTold: Map<string, string>;
   /**
    * The `allowance_kinds` table: each kind, and whether it is counted. It starts as the kinds
    * this build lists. A test adds one to stand for a kind a migration made before the Worker
@@ -254,6 +266,8 @@ export function createMemoryDb(): MemoryDb {
     connectionsFrom: new Map(),
     answerSubdomains: [],
     hostedPages: [],
+    pageFetches: [],
+    pauseTold: new Map(),
     allowanceKinds: new Map(
       Object.entries(ALLOWANCE_KINDS).map(([key, kind]) => [key, kind.counted]),
     ),
@@ -1599,12 +1613,14 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
     async expirePausedConnections() {
       if (userId !== null) throw new StoreError("forbidden", "worker only");
       const now = db.now ?? new Date().toISOString();
-      const before = new Date(Date.parse(now) - 30 * 86_400_000).toISOString();
+      // An answer subdomain's pages are served, then sent on, for a hundred and twenty days.
+      const before = (kind: string) =>
+        new Date(Date.parse(now) - (kind === "hosted_pages" ? 120 : 30) * 86_400_000).toISOString();
       const expired = db.connections.filter(
         (connection) =>
           connection.status === "paused" &&
           connection.paused_at !== null &&
-          connection.paused_at < before,
+          connection.paused_at < before(connection.kind),
       );
       for (const connection of expired) {
         Object.assign(connection, {
@@ -1710,6 +1726,47 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         );
       const connection = db.connections.find((c) => c.id === latest?.connection_id);
       return latest && connection ? keptAnswerSubdomain(latest, connection) : null;
+    },
+
+    // Mirrors location_page_fetches(): added up for each task and fetcher, as the caller reads.
+    async listLocationPageFetches(locationId, since) {
+      if (!readsLocation(locationId)) return [];
+      const added = new Map<string, PageFetches & { recommendation_id: string }>();
+      for (const counted of db.pageFetches) {
+        const page = db.hostedPages.find((candidate) => candidate.id === counted.hosted_page_id);
+        if (counted.location_id !== locationId || counted.day < since || !page?.recommendation_id) {
+          continue;
+        }
+        const key = `${page.recommendation_id}:${counted.fetcher}`;
+        const so_far = added.get(key);
+        added.set(key, {
+          recommendation_id: page.recommendation_id,
+          fetcher: counted.fetcher,
+          count: (so_far?.count ?? 0) + counted.count,
+          last_on: so_far && so_far.last_on > counted.day ? so_far.last_on : counted.day,
+        });
+      }
+      return [...added.values()];
+    },
+
+    async listPausedAnswerSubdomainsUntold() {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      return db.answerSubdomains
+        .filter((kept) => {
+          const connection = db.connections.find((c) => c.id === kept.connection_id);
+          const told = db.pauseTold.get(kept.connection_id);
+          return (
+            connection?.status === "paused" &&
+            connection.paused_at !== null &&
+            (told === undefined || told < connection.paused_at)
+          );
+        })
+        .map((kept) => kept.connection_id);
+    },
+
+    async markAnswerSubdomainPauseTold(connectionId) {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      db.pauseTold.set(connectionId, db.now ?? new Date().toISOString());
     },
 
     async getHostedPage(connectionId, slug) {

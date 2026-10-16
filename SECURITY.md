@@ -158,6 +158,15 @@ Nearcited is multi-tenant, and tenant isolation is enforced by Postgres row-leve
   word of a page written as markup instead of text, and a request for `nearcited.com` or a subdomain
   of it answered by it. `hosted_pages` must give a caller who is not signed in no row, and write
   nothing to any API role.
+- Counting a page fetch that `record_page_fetch()` should refuse, or learning anything from it.
+  The Pages Worker calls it with the public key, so the function is the only guard, and it
+  answers nothing whatever became of the call: a fetch of a page that is not live, on a host that
+  is not a live answer subdomain, by a fetcher not on the list, for a day other than today, or
+  past a page's ceiling of 1,000 a day for a fetcher must not be counted. Also `hosted_page_fetches`
+  giving a caller who is not signed in a row or any API role a write, a row for anything but a
+  count for a page, a day and a fetcher (nothing about the visitor), and `hosted_page()` sending a
+  visitor anywhere but the location's own website. Posting made-up fetches within those bounds is
+  known: anyone can claim to be a fetcher, and nothing is worked out from the count.
 - Reading a shareable audit without its link, or after it was revoked or expired; listing audits;
   or creating one. `/api/audits/:token` is the one route that gives out an organization's data
   with no sign-in, and the token in the link is the only key to it. `/api/plans` needs no sign-in

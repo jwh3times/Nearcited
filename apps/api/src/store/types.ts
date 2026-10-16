@@ -29,6 +29,7 @@ import type {
   OperatorFacts,
   Organization,
   OrganizationLimits,
+  PageFetches,
   Plan,
   PlanSettings,
   PlatformRole,
@@ -771,6 +772,18 @@ export interface Store {
   ): Promise<string | null>;
   /** Takes back the page an action published. False where it served none. Worker only. */
   takeBackHostedPage(actionId: string): Promise<boolean>;
+  /**
+   * How often each known fetcher read each of a location's hosted pages since a day, added up for
+   * the task each page does, for whoever can read the location.
+   */
+  listLocationPageFetches(
+    locationId: string,
+    since: string,
+  ): Promise<(PageFetches & { recommendation_id: string })[]>;
+  /** The paused answer subdomains whose owners have not been told of this pause. Worker only. */
+  listPausedAnswerSubdomainsUntold(): Promise<string[]>;
+  /** Keeps that an answer subdomain's owners were told it is paused. Worker only. */
+  markAnswerSubdomainPauseTold(connectionId: string): Promise<void>;
   /** A connection's answer subdomain, whatever its standing. Worker only. */
   getAnswerSubdomain(connectionId: string): Promise<KeptAnswerSubdomain | null>;
   /** Keeps what a check of an answer subdomain found, as a sync. Worker only. */

@@ -39,6 +39,7 @@ import {
   requeueStalledRemovals,
   syncConnection,
   tellBrokenConnections,
+  tellPausedAnswerSubdomains,
 } from "./connections";
 import { sealingKey } from "./connections/seal";
 import { requeueStalledDrafts, writeDraft } from "./drafts";
@@ -145,6 +146,8 @@ export default {
     if (reminded > 0) console.log(`Reminded the owners of ${reminded} broken connections`);
     const told = await tellBrokenConnections(telling);
     if (told > 0) console.log(`Told the owners of ${told} broken connections, late`);
+    const paused = await tellPausedAnswerSubdomains(telling);
+    if (paused > 0) console.log(`Told the owners of ${paused} paused answer subdomains`);
     const steps = await advancePriceChanges(store, env.SCAN_QUEUE);
     if (steps > 0) console.log(`Queued ${steps} price change steps`);
     const reductions = await advanceLimitChanges(store, env.SCAN_QUEUE);
