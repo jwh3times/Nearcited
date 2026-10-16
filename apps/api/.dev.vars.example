@@ -28,3 +28,8 @@ CONNECTIONS_KEY=
 # Optional, and only on your own machine: the one origin of a WordPress you run here for testing,
 # such as http://localhost:8099, which the Worker may then reach over http. Never on a deployment.
 WORDPRESS_LOCAL_ORIGIN=
+# Optional secret. A Cloudflare token that may create and remove custom hostnames on the zone below
+# and nothing else. Left blank, no answer subdomain is offered, except on sample data.
+CLOUDFLARE_HOSTNAMES_TOKEN=
+# The Cloudflare zone answer subdomains are registered on: nearcited.com's. wrangler.jsonc sets it.
+CLOUDFLARE_ZONE_ID=

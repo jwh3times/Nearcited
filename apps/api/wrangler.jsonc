@@ -60,6 +60,9 @@
     "APP_URL": "https://nearcited.com",
     "EMAIL_FROM": "Nearcited <reports@nearcited.com>",
     // Nobody reads the sender's mailbox, so a reply to a report goes here instead.
-    "EMAIL_REPLY_TO": "support@nearcited.com"
+    "EMAIL_REPLY_TO": "support@nearcited.com",
+    // The zone answer subdomains are registered on as custom hostnames, for the Pages Worker to
+    // serve. Nothing is registered without CLOUDFLARE_HOSTNAMES_TOKEN, a secret.
+    "CLOUDFLARE_ZONE_ID": "6fe7a0d57c6ac9c92fa89a00c06690a3"
   }
 }

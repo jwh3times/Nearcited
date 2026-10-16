@@ -3,6 +3,7 @@ import {
   AlertSchema,
   AllowanceClaimSchema,
   AllowanceUseSchema,
+  ANSWER_RECORDS,
   AuditJobSchema,
   CITING_SURFACES,
   ConnectionMatchSchema,
@@ -33,7 +34,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import type { Env } from "../env";
 import { PAGE_SIZE, type ReadPage, readEvery } from "./paging";
-import { type Store, StoreError, type StoreErrorKind } from "./types";
+import { type KeptAnswerSubdomain, type Store, StoreError, type StoreErrorKind } from "./types";
 
 const clientOptions = {
   auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
@@ -92,6 +93,40 @@ function fail(action: string, error: DbError): never {
   const message = kind === "limit" ? error.message : `${action}: ${error.message}`;
   throw new StoreError(kind, message, { cause: error });
 }
+
+/** What a member may read of an answer subdomain. */
+const ANSWER_SUBDOMAIN_SHOWN =
+  "connection_id, organization_id, location_id, hostname, target, record, checked_at, registered_at, live_at, home_links";
+/** Its connection's standing, read with it. */
+const ANSWER_SUBDOMAIN_STANDING =
+  "connection:connections!inner(connected_at, status, paused_at, removal_reason)";
+
+const AnswerSubdomainRowSchema = z.object({
+  connection_id: z.uuid(),
+  organization_id: z.uuid(),
+  location_id: z.uuid().nullable(),
+  hostname: z.string(),
+  target: z.string(),
+  record: z.enum(ANSWER_RECORDS).nullable(),
+  checked_at: z.string().nullable(),
+  cloudflare_id: z.string().nullable(),
+  registered_at: z.string().nullable(),
+  live_at: z.string().nullable(),
+  live_told_at: z.string().nullable(),
+  home_links: z.boolean().nullable(),
+  connection: ConnectionSchema.pick({
+    connected_at: true,
+    status: true,
+    paused_at: true,
+    removal_reason: true,
+  }),
+});
+
+/** An answer subdomain as the store returns one, its connection's standing beside it. */
+const keptAnswerSubdomain = ({
+  connection,
+  ...row
+}: z.infer<typeof AnswerSubdomainRowSchema>): KeptAnswerSubdomain => ({ ...row, ...connection });
 
 /** The rows the operator's overview reads, as the database returns them. */
 const OperatorScanSchema = ScanSchema.pick({
@@ -647,6 +682,79 @@ export function createSupabaseStore(
         )
         .parse(data ?? [])
         .map(({ connection, ...match }) => ({ ...match, label: connection.label }));
+    },
+
+    async createAnswerSubdomain({ id, location_id, label, target }) {
+      const { data, error } = await db
+        .rpc("create_answer_subdomain", {
+          location: location_id,
+          new_id: id,
+          label,
+          new_target: target,
+        })
+        .select(CONNECTION_COLUMNS)
+        .maybeSingle();
+      if (error) fail("Create an answer subdomain", error);
+      return data ? ConnectionSchema.parse(data) : null;
+    },
+
+    async getLocationAnswerSubdomain(locationId) {
+      const { data, error } = await db
+        .from("answer_subdomains")
+        .select(`${ANSWER_SUBDOMAIN_SHOWN}, ${ANSWER_SUBDOMAIN_STANDING}`)
+        .eq("location_id", locationId)
+        .is("released_at", null)
+        .maybeSingle();
+      if (error) fail("Get a location's answer subdomain", error);
+      return data
+        ? keptAnswerSubdomain(
+            AnswerSubdomainRowSchema.parse({ ...data, cloudflare_id: null, live_told_at: null }),
+          )
+        : null;
+    },
+
+    async getAnswerSubdomain(connectionId) {
+      const { data, error } = await db
+        .from("answer_subdomains")
+        .select(
+          `${ANSWER_SUBDOMAIN_SHOWN}, cloudflare_id, live_told_at, ${ANSWER_SUBDOMAIN_STANDING}`,
+        )
+        .eq("connection_id", connectionId)
+        .maybeSingle();
+      if (error) fail("Get an answer subdomain", error);
+      return data ? keptAnswerSubdomain(AnswerSubdomainRowSchema.parse(data)) : null;
+    },
+
+    async recordAnswerSubdomainCheck(connectionId, check) {
+      const { data, error } = await db.rpc("record_answer_subdomain_check", {
+        connection: connectionId,
+        seen: check.record,
+        registered: check.cloudflare_id,
+        live: check.live,
+        links: check.home_links,
+      });
+      if (error) fail("Record an answer subdomain's check", error);
+      return data === true;
+    },
+
+    async markAnswerSubdomainTold(connectionId) {
+      const { error } = await db
+        .from("answer_subdomains")
+        .update({ live_told_at: new Date().toISOString() })
+        .eq("connection_id", connectionId);
+      if (error) fail("Keep that an answer subdomain's owners were told", error);
+    },
+
+    async listAnswerSubdomainsToCheck(before) {
+      const { data, error } = await db.rpc("answer_subdomains_to_check", { before });
+      if (error) fail("List answer subdomains to check", error);
+      return z.array(z.uuid()).parse(data ?? []);
+    },
+
+    async expireUnclaimedAnswerSubdomains() {
+      const { data, error } = await db.rpc("expire_unclaimed_answer_subdomains");
+      if (error) fail("Expire unclaimed answer subdomains", error);
+      return z.array(z.uuid()).parse(data ?? []);
     },
 
     async getAllowanceUse(organizationId) {

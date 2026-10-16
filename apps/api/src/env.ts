@@ -68,4 +68,12 @@ export interface Env {
    * http. Never set on a deployment.
    */
   WORDPRESS_LOCAL_ORIGIN?: string;
+  /**
+   * Optional secret. A Cloudflare token that may create and remove custom hostnames on the zone
+   * hosted pages are served from, and nothing else. Without it and `CLOUDFLARE_ZONE_ID`, no answer
+   * subdomain is offered outside sample data.
+   */
+  CLOUDFLARE_HOSTNAMES_TOKEN?: string;
+  /** Optional. The Cloudflare zone hosted pages are served from: `nearcited.com`'s. */
+  CLOUDFLARE_ZONE_ID?: string;
 }

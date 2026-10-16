@@ -17,6 +17,7 @@ import { Alerts } from "../components/Alerts";
 import { BusinessBlock } from "../components/BusinessBlock";
 import { ErrorNote } from "../components/ErrorNote";
 import { Field } from "../components/Field";
+import { HostedPages } from "../components/HostedPages";
 import { LocationEditor } from "../components/LocationEditor";
 import { NamedInstead } from "../components/NamedInstead";
 import { PageTasks } from "../components/PageTasks";
@@ -449,6 +450,14 @@ export function LocationDetail() {
             <WordPressConnect
               location={location}
               connections={connections}
+              allowances={organization?.allowances}
+              base={base}
+              onOpenSettings={openSettings}
+              readOnly={readOnly}
+              onChanged={refresh}
+            />
+            <HostedPages
+              location={location}
               allowances={organization?.allowances}
               base={base}
               onOpenSettings={openSettings}

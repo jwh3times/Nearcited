@@ -6,11 +6,22 @@ import {
   type ConnectionMessage,
   type Organization,
 } from "@nearcited/shared";
+import { buildAnswerSubdomainEmail } from "../email/answer-subdomain";
 import { buildConnectionBrokenEmail } from "../email/connection-broken";
 import type { Email } from "../email/report";
 import type { Env } from "../env";
 import { usesSampleData } from "../providers";
+import { fetchSite } from "../site/fetch";
 import type { Store } from "../store/types";
+import {
+  type Cloudflare,
+  type HostedDeps,
+  hostnameLive,
+  linksTo,
+  lookUp,
+  registerHostname,
+  unregisterHostname,
+} from "./hosted";
 import { open } from "./seal";
 import {
   readSite,
@@ -39,6 +50,14 @@ export function availableConnectionKinds(
     return needed === null || organization.allowances[needed] !== undefined;
   });
 }
+
+/**
+ * Whether this deployment can register an answer subdomain to be served: it holds a token for
+ * Cloudflare's custom hostnames and the zone they go on.
+ */
+export const hostingConfigured = (
+  env: Pick<Env, "CLOUDFLARE_HOSTNAMES_TOKEN" | "CLOUDFLARE_ZONE_ID">,
+): boolean => Boolean(env.CLOUDFLARE_HOSTNAMES_TOKEN && env.CLOUDFLARE_ZONE_ID);
 
 /** What connecting an account comes to: what to call it, and the sign-in to keep. */
 export interface Connected {
@@ -114,6 +133,9 @@ async function read(
         if (error instanceof WordPressRefused) throw new SignInRefused(error.message);
         throw error;
       }
+    case "hosted_pages":
+      // Checked, not read: `checkAnswerSubdomain`.
+      return { choices: [] };
   }
 }
 
@@ -132,6 +154,8 @@ async function withdraw(
         console.warn("A WordPress password could not be taken back at the site.");
       }
       return;
+    case "hosted_pages":
+      return;
   }
 }
 
@@ -147,7 +171,17 @@ export interface ConnectionDeps {
   read?: (kind: ConnectionKind, signIn: string) => Promise<Reached>;
   /** How an outside service is reached. The tests put a made-up WordPress here. */
   outside?: WordPressDeps;
+  /** Where answer subdomains are registered to be served. Absent where nothing is. */
+  hosting?: Hosting;
   now?: Date;
+}
+
+/** What the worker needs for answer subdomains. */
+export interface Hosting extends HostedDeps {
+  /** Null where this deployment cannot register a name to be served. */
+  cloudflare: Cloudflare | null;
+  /** True on sample data, where nothing is looked up or registered. */
+  sampleData: boolean;
 }
 
 /**
@@ -192,10 +226,12 @@ async function tellBroken(
  */
 export async function removeConnection(
   connectionId: string,
-  { store, key, outside = {} }: ConnectionDeps,
+  deps: ConnectionDeps,
 ): Promise<"removed" | "not_waiting"> {
+  const { store, key, outside = {} } = deps;
   const connection = await store.getConnection(connectionId);
   if (connection?.status !== "removing") return "not_waiting";
+  if (connection.kind === "hosted_pages") return removeAnswerSubdomain(connection, deps);
 
   const sealed = await store.getConnectionSecret(connectionId);
   if (sealed && key) {
@@ -235,6 +271,23 @@ export async function syncConnection(
     connection?.status === "working" ||
     (connection?.status === "broken" && connection.broken_reason === "failing");
   if (!connection || !tried) return "not_working";
+  if (connection.kind === "hosted_pages") {
+    try {
+      return (await checkAnswerSubdomain(connection, deps)) ? "synced" : "not_working";
+    } catch (error) {
+      console.error(`Connection ${connectionId}: its check failed`, error);
+      const outcome = await store.recordConnectionFailure(connectionId, false);
+      if (outcome?.newly_broken) {
+        const broken = await store.getConnection(connectionId);
+        if (broken) {
+          await tellBroken(broken, false, deps).catch((sendError) =>
+            console.error(`Connection ${connectionId}: its owners could not be told`, sendError),
+          );
+        }
+      }
+      return "failed";
+    }
+  }
 
   const sealed = await store.getConnectionSecret(connectionId);
   if (!sealed || !key) return "unreadable";
@@ -388,4 +441,165 @@ export async function requeueStalledRemovals(
     stalled.map((id) => ({ body: { connection_id: id, step: "remove" as const } })),
   );
   return stalled.length;
+}
+
+/** Where a location's Website tab is, for an email to send its owners to. */
+const websiteTab = (appUrl: string, locationId: string | null) =>
+  `${appUrl.replace(/\/$/, "")}/locations/${locationId ?? ""}?tab=website`;
+
+/** Emails an organization's owners and admins about its answer subdomain. False where nobody was. */
+async function tellAboutSubdomain(
+  organizationId: string,
+  locationId: string | null,
+  hostname: string,
+  event: "live" | "asked" | "plan" | "unclaimed",
+  { store, send, appUrl }: ConnectionDeps,
+): Promise<boolean> {
+  if (!send || !appUrl) return false;
+  const organization = await store.getOrganization(organizationId);
+  if (!organization || organization.is_test) return false;
+  const managers = await store.listManagerEmails(organizationId);
+  if (managers.length === 0) return false;
+  await send(
+    managers,
+    buildAnswerSubdomainEmail({
+      organization: organization.name,
+      hostname,
+      event,
+      page: websiteTab(appUrl, locationId),
+    }),
+  );
+  return true;
+}
+
+/**
+ * Checks an answer subdomain, as its sync: what its name points at, and, once it points at the
+ * connection's own target, registers it at Cloudflare and waits for it to be served with its
+ * certificate. Nothing is registered for a name pointing anywhere else, so an account that made
+ * the subdomain first cannot take it from the domain's owner. Once it is live, the business's home
+ * page is read for a link to it, and the owners are told it works, once. On sample data nothing
+ * is looked up or registered. False for a connection with no subdomain.
+ */
+async function checkAnswerSubdomain(
+  connection: Connection,
+  deps: ConnectionDeps,
+): Promise<boolean> {
+  const { store, hosting } = deps;
+  const kept = await store.getAnswerSubdomain(connection.id);
+  if (!kept) return false;
+  if (!hosting || hosting.sampleData) {
+    return store.recordAnswerSubdomainCheck(connection.id, {
+      record: null,
+      cloudflare_id: null,
+      live: false,
+      home_links: null,
+    });
+  }
+  const record = await lookUp(kept.hostname, kept.target, hosting);
+  const { cloudflare } = hosting;
+  let registered = kept.cloudflare_id;
+  if (!registered && record === "ours" && cloudflare) {
+    registered = await registerHostname(kept.hostname, cloudflare, hosting);
+  }
+  const live =
+    kept.live_at !== null ||
+    (registered !== null &&
+      cloudflare !== null &&
+      (await hostnameLive(registered, cloudflare, hosting)));
+  let homeLinks: boolean | null = null;
+  if (live && kept.location_id) {
+    const location = await store.getLocation(kept.location_id);
+    if (location?.website) {
+      const home = await fetchSite(location.website, hosting.fetch);
+      if (home.html !== null) homeLinks = linksTo(home.html, kept.hostname);
+    }
+  }
+  const recorded = await store.recordAnswerSubdomainCheck(connection.id, {
+    record,
+    cloudflare_id: registered,
+    live,
+    home_links: homeLinks,
+  });
+  if (recorded && live && kept.live_told_at === null) {
+    try {
+      const told = await tellAboutSubdomain(
+        kept.organization_id,
+        kept.location_id,
+        kept.hostname,
+        "live",
+        deps,
+      );
+      if (told) await store.markAnswerSubdomainTold(connection.id);
+    } catch (error) {
+      // The next check tells them.
+      console.error(`Connection ${connection.id}: its owners could not be told it is live`, error);
+    }
+  }
+  return recorded;
+}
+
+/**
+ * Finishes removing an answer subdomain: takes its name off Cloudflare where it was registered,
+ * lets the name go, and tells the owners what to do with their record. Safe to run twice.
+ */
+async function removeAnswerSubdomain(
+  connection: Connection,
+  deps: ConnectionDeps,
+): Promise<"removed" | "not_waiting"> {
+  const { store, hosting } = deps;
+  const kept = await store.getAnswerSubdomain(connection.id);
+  if (kept?.cloudflare_id && hosting?.cloudflare) {
+    await unregisterHostname(kept.cloudflare_id, hosting.cloudflare, hosting);
+  }
+  if (!(await store.finishConnectionRemoval(connection.id))) return "not_waiting";
+  if (kept) {
+    const reason = connection.removal_reason ?? "asked";
+    await tellAboutSubdomain(
+      kept.organization_id,
+      kept.location_id,
+      kept.hostname,
+      reason,
+      deps,
+    ).catch((error) =>
+      console.error(`Connection ${connection.id}: its owners could not be told`, error),
+    );
+  }
+  return "removed";
+}
+
+/** How long after a check an answer subdomain still waiting is checked again. */
+const CHECK_AGAIN_MS = 10 * 60_000;
+
+/**
+ * Queues a check of every answer subdomain still waiting for its record or its certificate, so
+ * an owner who has just added the record sees it work within minutes, not the next day. Returns
+ * how many.
+ */
+export async function requeueAnswerSubdomainChecks(
+  store: Store,
+  queue: Pick<Queue<ConnectionMessage>, "sendBatch">,
+  now = Date.now(),
+): Promise<number> {
+  const due = await store.listAnswerSubdomainsToCheck(new Date(now - CHECK_AGAIN_MS).toISOString());
+  if (due.length === 0) return 0;
+  await queue.sendBatch(
+    due.slice(0, BATCH_LIMIT).map((id) => ({ body: { connection_id: id, step: "sync" as const } })),
+  );
+  return Math.min(due.length, BATCH_LIMIT);
+}
+
+/**
+ * Starts the removal of every answer subdomain whose record has not appeared in thirty days, and
+ * queues the worker to finish each and tell its owners. Returns how many.
+ */
+export async function expireUnclaimedAnswerSubdomains(
+  store: Store,
+  queue: Pick<Queue<ConnectionMessage>, "sendBatch">,
+): Promise<number> {
+  const expired = await store.expireUnclaimedAnswerSubdomains();
+  if (expired.length === 0) return 0;
+  await queue.sendBatch(
+    expired.map((id) => ({ body: { connection_id: id, step: "remove" as const } })),
+  );
+  return expired.length;
 }

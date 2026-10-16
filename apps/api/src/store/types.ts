@@ -7,6 +7,7 @@ import type {
   AlertsToTell,
   AllowanceClaim,
   AllowanceUse,
+  AnswerRecord,
   AuditInput,
   AuditJob,
   AuditPart,
@@ -143,6 +144,53 @@ export interface NewConnection {
    * matches it there when the account reaches one thing.
    */
   for_location?: string | null;
+}
+
+/** An answer subdomain to make for a location: the connection's ID, its name and its target. */
+export interface NewAnswerSubdomain {
+  id: string;
+  location_id: string;
+  /** The one word in front of the location's website's domain. The database makes the name. */
+  label: string;
+  /** The connection's own target under the pages domain. */
+  target: string;
+}
+
+/**
+ * An answer subdomain as the database keeps it, with its connection's standing. A member reads
+ * all but `cloudflare_id` and `live_told_at` from the route, which leaves those out.
+ */
+export interface KeptAnswerSubdomain {
+  connection_id: string;
+  organization_id: string;
+  location_id: string | null;
+  hostname: string;
+  target: string;
+  record: AnswerRecord | null;
+  checked_at: string | null;
+  /** What Cloudflare calls the custom hostname, once one is registered. */
+  cloudflare_id: string | null;
+  registered_at: string | null;
+  live_at: string | null;
+  /** When the owners were emailed that it went live. */
+  live_told_at: string | null;
+  home_links: boolean | null;
+  connected_at: string;
+  status: Connection["status"];
+  paused_at: string | null;
+  removal_reason: Connection["removal_reason"];
+}
+
+/** What one check of an answer subdomain found. */
+export interface AnswerSubdomainCheck {
+  /** What the name points at. Null on sample data, where nothing is looked up. */
+  record: AnswerRecord | null;
+  /** The custom hostname registered at Cloudflare, once there is one. */
+  cloudflare_id: string | null;
+  /** True once Cloudflare serves it with its certificate. */
+  live: boolean;
+  /** Whether the business's home page links to it. Null where it was not read. */
+  home_links: boolean | null;
 }
 
 /** A plan as the payment provider knows it: what it is sold at now, and what it has been. */
@@ -347,6 +395,14 @@ export interface Store {
   unmatchConnectionLocation(connectionId: string, locationId: string): Promise<boolean>;
   /** The connected accounts a location is matched to, for whoever can read the location. */
   listLocationConnections(locationId: string): Promise<LocationConnection[]>;
+  /**
+   * Makes an answer subdomain for a location, as a connection matched to it with no sign-in.
+   * Null for anyone but an owner or admin of its organization. Throws a `conflict` where another
+   * connection holds the name, and a `limit` for anything else that stands in the way.
+   */
+  createAnswerSubdomain(subdomain: NewAnswerSubdomain): Promise<Connection | null>;
+  /** A location's answer subdomain that is not removed, for whoever can read the location. */
+  getLocationAnswerSubdomain(locationId: string): Promise<KeptAnswerSubdomain | null>;
   /**
    * How much of each counted allowance an organization has used this calendar month (UTC), by
    * kind. A kind with none used is absent, and so is everything where the caller cannot read the
@@ -680,6 +736,22 @@ export interface Store {
    * worker to finish. Worker only.
    */
   expirePausedConnections(): Promise<string[]>;
+  /** A connection's answer subdomain, whatever its standing. Worker only. */
+  getAnswerSubdomain(connectionId: string): Promise<KeptAnswerSubdomain | null>;
+  /** Keeps what a check of an answer subdomain found, as a sync. Worker only. */
+  recordAnswerSubdomainCheck(connectionId: string, check: AnswerSubdomainCheck): Promise<boolean>;
+  /** Keeps that an answer subdomain's owners were told it is live. Worker only. */
+  markAnswerSubdomainTold(connectionId: string): Promise<void>;
+  /**
+   * The working answer subdomains not yet live, made in the last thirty days and not checked
+   * since `before`: those still waiting for their record or their certificate. Worker only.
+   */
+  listAnswerSubdomainsToCheck(before: string): Promise<string[]>;
+  /**
+   * Starts the removal of every answer subdomain whose record never appeared in thirty days, and
+   * returns them for the worker to finish. Worker only.
+   */
+  expireUnclaimedAnswerSubdomains(): Promise<string[]>;
   /**
    * The addresses of an organization's owners and admins: who is told when a connection breaks.
    * Worker only.

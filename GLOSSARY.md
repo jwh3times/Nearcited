@@ -96,6 +96,10 @@ system works; this file only settles vocabulary.
   once a day and mends itself.
 - **Paused connection**: one of a kind the organization's plan no longer includes. Nothing is read
   from it or done through it, and its sign-in is kept for thirty days.
+- **Answer subdomain**: a subdomain of a business's own domain, such as `answers.` in front of it,
+  which the owner points at the product with one DNS record, once, so that pages can be hosted
+  there. A connection with no sign-in: the record points at a target of its own, and the name is
+  registered to be served only once it does. "Answers" is only its suggested name.
 - **Choice**: one thing a connection's sign-in reaches at the outside service: a profile, a site,
   a property. A sync finds them.
 - **Match**: which choice is a location's. A location has one match for each kind of connection,

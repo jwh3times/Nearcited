@@ -34,6 +34,14 @@ async function forConnecting(c: Context<AppEnv>) {
     throw new ApiError(422, "connection_unavailable", "That cannot be connected here.");
   }
   const held = await store.listLocationConnections(location.id);
+  // A location's pages go to one place, so the same answer is not published twice.
+  if (held.some((connection) => connection.kind === "hosted_pages")) {
+    throw new ApiError(
+      409,
+      "hosted_pages_connected",
+      "This location's pages are hosted on its answer subdomain. Remove that first to publish to WordPress instead.",
+    );
+  }
   if (held.some((connection) => connection.kind === "wordpress")) {
     throw new ApiError(
       409,

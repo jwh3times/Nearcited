@@ -25,6 +25,9 @@ export const ALLOWANCE_KINDS: Record<string, AllowanceKind> = {
   // Changing a business's own WordPress site, on approval (`wordpress.ts`).
   // `WORDPRESS_ALLOWANCE` there is this key.
   wordpress: { counted: false, name: "Publishing to your WordPress site" },
+  // Pages the product serves on a subdomain of the business's own domain (`hosted-pages.ts`).
+  // `HOSTED_PAGES_ALLOWANCE` there is this key.
+  hosted_pages: { counted: false, name: "Pages hosted on your own domain" },
 };
 
 /** The most a plan may give of a counted kind, for each location, in a month. */

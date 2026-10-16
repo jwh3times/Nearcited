@@ -283,6 +283,19 @@ export async function withUncheckedDetails(account: Account, locationId: string)
   });
 }
 
+/**
+ * Marks an answer subdomain registered and live, as the worker does once its record points at
+ * its own target and Cloudflare has issued the certificate. Local stack only.
+ */
+export async function withLiveSubdomain(connectionId: string): Promise<void> {
+  const now = new Date().toISOString();
+  await asWorker(
+    `answer_subdomains?connection_id=eq.${connectionId}`,
+    { record: "ours", checked_at: now, cloudflare_id: "e2e", registered_at: now, live_at: now },
+    "PATCH",
+  );
+}
+
 /** Writes a row with the secret key. Never against a deployment: its data is not a test's. */
 async function asWorker(table: string, row: unknown, method = "POST"): Promise<void> {
   if (process.env.E2E_APP_URL) throw new Error("Tests do not write to a deployment's database.");

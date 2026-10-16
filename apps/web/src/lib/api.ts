@@ -1,6 +1,7 @@
 import {
   ActionSchema,
   AlertSchema,
+  AnswerSubdomainSchema,
   ApiErrorSchema,
   type AssistantChoice,
   type AuditFormValues,
@@ -16,6 +17,7 @@ import {
   type LocationDetail,
   LocationDetailSchema,
   type LocationFormValues,
+  LocationHostedPagesSchema,
   LocationLineSchema,
   LocationSchema,
   LocationVisitsSchema,
@@ -179,6 +181,12 @@ export const api = {
   /** Connects a location's WordPress site with what WordPress handed back. */
   connectWordPress: (locationId: string, approved: WordPressApproved) =>
     json(ConnectionSchema, "POST", `/locations/${locationId}/wordpress`, approved),
+  /** A location's hosted pages: what stands in the way, and its answer subdomain. */
+  hostedPages: (locationId: string) =>
+    json(LocationHostedPagesSchema, "GET", `/locations/${locationId}/hosted-pages`),
+  /** Makes a location's answer subdomain from the one word in front of its domain. */
+  makeAnswerSubdomain: (locationId: string, label: string) =>
+    json(AnswerSubdomainSchema, "POST", `/locations/${locationId}/hosted-pages`, { label }),
   connect: (organizationId: string, kind: ConnectionKind) =>
     json(ConnectionSchema, "POST", `/organizations/${organizationId}/connections`, { kind }),
   /** Asks for a connection to be removed. The worker finishes it shortly after. */

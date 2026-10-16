@@ -3,7 +3,7 @@ import {
   ConnectionMatchInputSchema,
   type OrganizationConnections,
 } from "@nearcited/shared";
-import { Hono } from "hono";
+import { type Context, Hono } from "hono";
 import type { AppEnv } from "../app";
 import { availableConnectionKinds, connect } from "../connections";
 import { seal, sealingKey } from "../connections/seal";
@@ -11,6 +11,21 @@ import { ApiError, notFound } from "../errors";
 import { parseJson, uuidParam } from "../validation";
 
 export const connectionRoutes = new Hono<AppEnv>();
+
+/**
+ * Refuses to change what an answer subdomain is matched to: it is made for its location, under
+ * that location's website, and is that location's until it is removed.
+ */
+async function matchedByHand(c: Context<AppEnv>, connectionId: string) {
+  const connection = await c.get("store").getConnection(connectionId);
+  if (connection?.kind === "hosted_pages") {
+    throw new ApiError(
+      422,
+      "not_matched_by_hand",
+      "An answer subdomain belongs to the location it was set up for. Remove it to set up another.",
+    );
+  }
+}
 
 /**
  * An organization's connections, for anyone who can read the organization: what is connected,
@@ -57,11 +72,13 @@ connectionRoutes.post("/organizations/:organizationId/connections", async (c) =>
     throw new ApiError(422, "connection_unavailable", "That cannot be connected here.");
   }
   // A site is connected by its owner approving on the site, from its location's Website tab.
-  if (kind === "wordpress") {
+  if (kind === "wordpress" || kind === "hosted_pages") {
     throw new ApiError(
       422,
       "connect_from_location",
-      "Connect a WordPress site from the Website tab of the location it belongs to.",
+      kind === "wordpress"
+        ? "Connect a WordPress site from the Website tab of the location it belongs to."
+        : "Set up an answer subdomain from the Website tab of the location it belongs to.",
     );
   }
 
@@ -96,6 +113,7 @@ connectionRoutes.put("/connections/:connectionId/locations/:locationId", async (
   const connectionId = uuidParam(c, "connectionId", "Connection");
   const locationId = uuidParam(c, "locationId", "Location");
   const { external_id } = await parseJson(c, ConnectionMatchInputSchema);
+  await matchedByHand(c, connectionId);
   const match = await c.get("store").matchConnectionLocation(connectionId, locationId, external_id);
   if (!match) throw notFound("Connection");
   // The worker reads the account again, now that it knows which part of it is this location's.
@@ -111,6 +129,7 @@ connectionRoutes.put("/connections/:connectionId/locations/:locationId", async (
 connectionRoutes.delete("/connections/:connectionId/locations/:locationId", async (c) => {
   const connectionId = uuidParam(c, "connectionId", "Connection");
   const locationId = uuidParam(c, "locationId", "Location");
+  await matchedByHand(c, connectionId);
   if (!(await c.get("store").unmatchConnectionLocation(connectionId, locationId))) {
     throw notFound("Match");
   }

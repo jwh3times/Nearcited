@@ -149,6 +149,8 @@ function ConnectedAccount({
   });
   const removing = connection.status === "removing";
   const note = connectionNote(connection, formatDay);
+  // An answer subdomain has no sign-in and no choices: it is its location's from the start.
+  const hosted = connection.kind === "hosted_pages";
 
   return (
     <article className="connection" aria-label={connection.label}>
@@ -172,11 +174,22 @@ function ConnectedAccount({
         </li>
         {connection.status === "working" && (
           <li>
-            <span>Last read</span>
+            <span>{hosted ? "Last checked" : "Last read"}</span>
             <span>
               {connection.last_synced_at
                 ? formatDay(connection.last_synced_at)
-                : "Reading what this account reaches"}
+                : hosted
+                  ? "Looking for its record"
+                  : "Reading what this account reaches"}
+            </span>
+          </li>
+        )}
+        {hosted && connection.matches[0] && (
+          <li>
+            <span>For</span>
+            <span>
+              {locations.find((location) => location.id === connection.matches[0]?.location_id)
+                ?.name ?? "A location"}
             </span>
           </li>
         )}
@@ -186,7 +199,7 @@ function ConnectedAccount({
           {note}
         </p>
       )}
-      {connection.status === "working" && connection.last_synced_at && (
+      {connection.status === "working" && connection.last_synced_at && !hosted && (
         <Matches
           connection={connection}
           locations={locations}
@@ -204,9 +217,9 @@ function ConnectedAccount({
       {canManage && !removing && asking && (
         <>
           <p className="error" role="alert">
-            Removing {connection.label} stops Nearcited working from it, takes back the access it
-            was given, and deletes the sign-in and everything read from it. It cannot be undone:
-            connecting again means signing in again.
+            {hosted
+              ? `Removing ${connection.label} stops Nearcited serving pages there at once, and the pages published there go with it. You will then be told to delete its record. It cannot be undone: setting it up again means a new record.`
+              : `Removing ${connection.label} stops Nearcited working from it, takes back the access it was given, and deletes the sign-in and everything read from it. It cannot be undone: connecting again means signing in again.`}
           </p>
           <div className="button-row">
             <button type="button" disabled={remove.isPending} onClick={() => remove.mutate()}>

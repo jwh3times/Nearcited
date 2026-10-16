@@ -1387,6 +1387,118 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
       ).error,
     ).toBeNull();
     expect(await visitor.getAuditByToken(audit.token)).toBeNull();
+
+    // Answer subdomains: made by an owner or admin, read by members, checked by the worker.
+    const included = await aliceStore.getOrganization(organization.id);
+    await admin
+      .from("organizations")
+      .update({
+        max_locations: 20,
+        allowances: { ...included?.allowances, hosted_pages: true },
+      })
+      .eq("id", organization.id)
+      .throwOnError();
+    const answering = {
+      name: "Answering Pizza",
+      website: "https://www.answering-pizza.example/menu",
+      phone: null,
+      address_line: null,
+      city: "Raleigh",
+      region: "NC",
+      postal_code: null,
+      country_code: "US",
+      google_place_id: null,
+      primary_category: null,
+    };
+    const site = await aliceStore.createLocation(organization.id, answering);
+    const subdomain = {
+      id: crypto.randomUUID(),
+      location_id: site.id,
+      label: "answers",
+      target: "abcdefabcdef",
+    };
+    expect(await bobStore.createAnswerSubdomain(subdomain)).toBeNull();
+    expect(await aliceStore.createAnswerSubdomain(subdomain)).toMatchObject({
+      id: subdomain.id,
+      kind: "hosted_pages",
+      label: "answers.answering-pizza.example",
+    });
+    // Matched to its location at once.
+    expect(await aliceStore.listLocationConnections(site.id)).toEqual([
+      {
+        connection_id: subdomain.id,
+        kind: "hosted_pages",
+        label: "answers.answering-pizza.example",
+        external_label: "answers.answering-pizza.example",
+      },
+    ]);
+    // One for a location.
+    await expect(
+      aliceStore.createAnswerSubdomain({
+        ...subdomain,
+        id: crypto.randomUUID(),
+        target: "b".repeat(12),
+      }),
+    ).rejects.toMatchObject({ kind: "limit" });
+    // A member reads it, but not what the worker keeps for itself.
+    expect(await aliceStore.getLocationAnswerSubdomain(site.id)).toMatchObject({
+      connection_id: subdomain.id,
+      hostname: "answers.answering-pizza.example",
+      target: "abcdefabcdef",
+      record: null,
+      cloudflare_id: null,
+      status: "working",
+    });
+    expect(await bobStore.getLocationAnswerSubdomain(site.id)).toBeNull();
+    expect(await worker.listAnswerSubdomainsToCheck(new Date().toISOString())).toContain(
+      subdomain.id,
+    );
+    expect(
+      await worker.recordAnswerSubdomainCheck(subdomain.id, {
+        record: "ours",
+        cloudflare_id: "ch-1",
+        live: true,
+        home_links: false,
+      }),
+    ).toBe(true);
+    const checked = await worker.getAnswerSubdomain(subdomain.id);
+    expect(checked).toMatchObject({ record: "ours", cloudflare_id: "ch-1", home_links: false });
+    expect(checked?.registered_at).not.toBeNull();
+    expect(checked?.live_at).not.toBeNull();
+    expect(checked?.live_told_at).toBeNull();
+    await worker.markAnswerSubdomainTold(subdomain.id);
+    expect((await worker.getAnswerSubdomain(subdomain.id))?.live_told_at).not.toBeNull();
+    expect(await worker.listAnswerSubdomainsToCheck(new Date().toISOString())).not.toContain(
+      subdomain.id,
+    );
+    expect(await worker.expireUnclaimedAnswerSubdomains()).toEqual([]);
+    // A name is held by one connection at a time, across every organization.
+    const sameDomain = await aliceStore.createLocation(organization.id, {
+      ...answering,
+      name: "Answering Pizza North",
+    });
+    await expect(
+      aliceStore.createAnswerSubdomain({
+        id: crypto.randomUUID(),
+        location_id: sameDomain.id,
+        label: "answers",
+        target: "c".repeat(12),
+      }),
+    ).rejects.toMatchObject({ kind: "conflict" });
+    // Removed, the name is free again.
+    await aliceStore.requestConnectionRemoval(subdomain.id);
+    expect(await worker.finishConnectionRemoval(subdomain.id)).toBe(true);
+    expect(await aliceStore.getLocationAnswerSubdomain(site.id)).toBeNull();
+    expect(
+      await aliceStore.createAnswerSubdomain({
+        id: crypto.randomUUID(),
+        location_id: sameDomain.id,
+        label: "answers",
+        target: "c".repeat(12),
+      }),
+    ).toMatchObject({ label: "answers.answering-pizza.example" });
+    // The next test counts the locations it makes.
+    for (const made of [site, sameDomain]) await aliceStore.deleteLocation(made.id);
   });
 
   it("reads a list that reaches across organizations a page at a time, and gets the same list", async () => {
