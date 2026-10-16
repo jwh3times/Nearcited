@@ -1,0 +1,25 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  // The Pages Worker: serves hosted pages on each business's answer subdomain, and nothing else
+  // (docs/adr/0019-hosted-pages-are-served-by-a-worker-of-their-own.md). The app, its API and its
+  // assets are the other Worker's, in apps/api.
+  "name": "nearcited-pages",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "observability": { "enabled": true },
+
+  // No routes here, on purpose: they are made in the dashboard by the setup, so that deploying
+  // this Worker changes no traffic, and a deploy leaves them as they are. Every answer subdomain
+  // is a custom hostname on the nearcited.com zone, and a custom hostname's requests reach the
+  // zone's routes, so the setup puts this Worker on `*/*`. That would catch nearcited.com too,
+  // since a route runs before a custom domain, so the setup first puts a route with no Worker on
+  // `nearcited.com/*`. This Worker hands on anything for the zone's own names all the same.
+  "workers_dev": false,
+
+  // Not secret. The publishable key reads only what anyone may read: the one function that
+  // answers with a page that is live. This Worker holds no secret.
+  "vars": {
+    "SUPABASE_URL": "https://vjzwlvinotphwkrugthn.supabase.co",
+    "SUPABASE_PUBLISHABLE_KEY": "sb_publishable_0QuNzqQvzgrx_I107ryqFw_Lsx4Ho4S"
+  }
+}

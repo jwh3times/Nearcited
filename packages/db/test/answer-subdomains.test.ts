@@ -324,4 +324,127 @@ describe("answer subdomains", () => {
       ]),
     ).toEqual([{ status: "removing", removal_reason: "location" }]);
   });
+
+  describe("hosted pages, as anyone reads them", () => {
+    const answerFor = (host: string, path: string) =>
+      as("anon", null, () =>
+        rows<{ answer: Record<string, unknown> | null }>(
+          "select public.hosted_page($1, $2) as answer",
+          [host, path],
+        ),
+      ).then(([row]) => row?.answer ?? null);
+    let served: string;
+    let connection: string;
+
+    beforeAll(async () => {
+      served = await locationOf(pro, "https://www.slicehouse.example", "Slice House");
+      await db.query(
+        "update public.locations set phone = '+19195550100', address_line = '12 Main St' where id = $1",
+        [served],
+      );
+      connection = crypto.randomUUID();
+      await as("authenticated", owner, () =>
+        db.query(create, [served, connection, "answers", "g".repeat(12)]),
+      );
+      const page = (slug: string, title: string, gone: boolean, at: string) =>
+        db.query(
+          `insert into public.hosted_pages (connection_id, location_id, slug, title, copy, published_at, taken_back_at)
+           values ($1, $2, $3, $4, $5, $6, $7)`,
+          [connection, served, slug, title, `${title}\n\nThe words.`, at, gone ? at : null],
+        );
+      await page("late-night-pizza", "Late night pizza", false, "2026-10-20T10:00:00Z");
+      await page("gluten-free-pizza", "Gluten-free pizza", false, "2026-10-18T10:00:00Z");
+      await page("taken-back", "Taken back", true, "2026-10-17T10:00:00Z");
+    });
+
+    it("answers nothing for a subdomain that is not live", async () => {
+      expect(await answerFor("answers.slicehouse.example", "/")).toBeNull();
+      expect(await answerFor("answers.nowhere.example", "/")).toBeNull();
+    });
+
+    it("answers a live subdomain's list, its pages, a page taken back and a page never there", async () => {
+      await db.query(
+        "update public.answer_subdomains set live_at = now() where connection_id = $1",
+        [connection],
+      );
+      const business = {
+        name: "Slice House",
+        website: "https://www.slicehouse.example",
+        address_line: "12 Main St",
+        city: "Raleigh",
+        region: null,
+        postal_code: null,
+        country_code: "US",
+        phone: "+19195550100",
+      };
+      expect(await answerFor("Answers.SliceHouse.example", "/")).toEqual({
+        kind: "list",
+        business,
+        pages: [
+          {
+            slug: "late-night-pizza",
+            title: "Late night pizza",
+            published_at: expect.stringMatching(/^2026-10-20/),
+          },
+          {
+            slug: "gluten-free-pizza",
+            title: "Gluten-free pizza",
+            published_at: expect.stringMatching(/^2026-10-18/),
+          },
+        ],
+      });
+      expect(await answerFor("answers.slicehouse.example", "/late-night-pizza/")).toEqual({
+        kind: "page",
+        business,
+        title: "Late night pizza",
+        copy: "Late night pizza\n\nThe words.",
+        published_at: expect.stringMatching(/^2026-10-20/),
+      });
+      expect(await answerFor("answers.slicehouse.example", "/taken-back")).toEqual({
+        kind: "gone",
+        business,
+      });
+      expect(await answerFor("answers.slicehouse.example", "/never-there")).toEqual({
+        kind: "missing",
+        business,
+      });
+    });
+
+    it("stops answering once the subdomain is being removed", async () => {
+      await db.query("update public.connections set status = 'removing' where id = $1", [
+        connection,
+      ]);
+      expect(await answerFor("answers.slicehouse.example", "/")).toBeNull();
+      await db.query("update public.connections set status = 'working' where id = $1", [
+        connection,
+      ]);
+    });
+
+    it("are read by members and the operator only, and written by nobody through the API", async () => {
+      const read = "select slug from public.hosted_pages where connection_id = $1";
+      for (const user of [owner, member, operator]) {
+        expect(await as("authenticated", user, () => rows(read, [connection])), user).toHaveLength(
+          3,
+        );
+      }
+      expect(await as("authenticated", stranger, () => rows(read, [connection]))).toEqual([]);
+      for (const [role, user] of [
+        ["anon", null],
+        ["authenticated", owner],
+      ] as const) {
+        for (const sql of [
+          role === "anon"
+            ? "select 1 from public.hosted_pages"
+            : "update public.hosted_pages set title = 'x'",
+          "delete from public.hosted_pages",
+          `insert into public.hosted_pages (connection_id, location_id, slug, title, copy) values ('${connection}', '${served}', 'x', 'x', 'x')`,
+        ]) {
+          await expect(
+            as(role, user, () => db.query(sql)),
+            `${role} ${sql}`,
+          ).rejects.toThrow(/permission denied/);
+        }
+      }
+    });
+  });
 });

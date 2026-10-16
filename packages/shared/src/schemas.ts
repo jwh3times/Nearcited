@@ -1194,6 +1194,52 @@ export const AnswerSubdomainInputSchema = z.object({
 });
 export type AnswerSubdomainInput = z.infer<typeof AnswerSubdomainInputSchema>;
 
+/**
+ * A business as its hosted pages show it: what its location holds of who and where it is, which
+ * the page states anyway. Nothing else about the location is answered to anyone.
+ */
+export const HostedBusinessSchema = z.object({
+  name: z.string(),
+  website: z.string().nullable(),
+  address_line: z.string().nullable(),
+  city: z.string(),
+  region: z.string().nullable(),
+  postal_code: z.string().nullable(),
+  country_code: z.string(),
+  phone: z.string().nullable(),
+});
+export type HostedBusiness = z.infer<typeof HostedBusinessSchema>;
+
+/** A page that is live on an answer subdomain, as its list and its sitemap name it. */
+export const HostedPageEntrySchema = z.object({
+  slug: z.string(),
+  title: z.string(),
+  published_at: Timestamp,
+});
+
+/**
+ * What `hosted_page()` answers anyone for one address on an answer subdomain that is served: the
+ * list of its pages at `/`, a live page, a page that was taken back, or nothing there. A host that
+ * is not served is answered with null, before any of these.
+ */
+export const HostedAnswerSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("list"),
+    business: HostedBusinessSchema,
+    pages: z.array(HostedPageEntrySchema),
+  }),
+  z.object({
+    kind: z.literal("page"),
+    business: HostedBusinessSchema,
+    title: z.string(),
+    copy: z.string(),
+    published_at: Timestamp,
+  }),
+  z.object({ kind: z.literal("gone"), business: HostedBusinessSchema }),
+  z.object({ kind: z.literal("missing"), business: HostedBusinessSchema }),
+]);
+export type HostedAnswer = z.infer<typeof HostedAnswerSchema>;
+
 /** What the worker is asked to do for one connection. */
 export const CONNECTION_STEPS = ["remove", "sync"] as const;
 export type ConnectionStep = (typeof CONNECTION_STEPS)[number];

@@ -2,7 +2,9 @@
 
 ## One Worker, three entry points
 
-`apps/api/src/index.ts` exports a single Worker with three handlers:
+`apps/api/src/index.ts` exports a single Worker with three handlers. It is one of two Workers: the
+other, the Pages Worker in `apps/pages`, serves hosted pages and nothing else (see "Hosted pages").
+Everything below is the main one.
 
 - **`fetch`**: the HTTP API, a Hono app mounted at `/api`. Only `/api/*` reaches the Worker.
   Every other path is served from the web app's build output, with unknown paths falling back to
@@ -1169,8 +1171,8 @@ only a WordPress connection or an answer subdomain can break or pause in practic
   then reads the business's home page for a link to it (`home_links`) and, once, emails the
   owners and admins that it works (`live_told_at`, set only when the email went). A check that
   throws counts as a failed sync of any connection. On sample data, or where nothing is
-  configured, nothing is looked up or registered, and the check only records that it ran. Nothing
-  is served on a live name yet.
+  configured, nothing is looked up or registered, and the check only records that it ran. A live
+  name is served by the Pages Worker (see "Hosted pages").
 - **The schedule keeps waiting names moving.** Every run (every 15 minutes) queues a check of each
   answer subdomain still working, not yet live and connected in the last thirty days, that has not
   been checked for ten minutes (`answer_subdomains_to_check()`, at most 100 a run), so an owner who has just added the record
@@ -1211,6 +1213,56 @@ location's Settings tab has a "Connected accounts" card while it is matched to s
 account says why, a paused one says until when its sign-in is kept, and a removed one says whether
 somebody removed it or its plan had not included it for thirty days. While a removal is waiting, or
 a new account has not been read yet, the page asks again every couple of seconds.
+
+## Hosted pages
+
+A business's answer subdomain is a custom hostname on the `nearcited.com` zone (Cloudflare for
+SaaS), so its requests reach that zone's routes under the business's own name. They are answered by
+a second Worker, `nearcited-pages` in `apps/pages`, which serves hosted pages and nothing else
+(`docs/adr/0019-hosted-pages-are-served-by-a-worker-of-their-own.md`). Registering a subdomain
+stays the main Worker's (see "Connections"); the Pages Worker only serves what is registered.
+
+- **It holds no secret and reads through one function.** Its settings are `SUPABASE_URL` and the
+  publishable key, both in `apps/pages/wrangler.jsonc`. For a request it calls the database function
+  `hosted_page(host, path)` over PostgREST with that key. The function (`security definer`, granted
+  to `anon`, `authenticated` and `service_role`) answers only for a live answer subdomain: `live_at`
+  set, not released, and its connection working, broken or paused. Its answer has a `kind` of
+  `list`, `page`, `gone` or `missing`, with the business's name, website, address and phone; for any
+  other host it answers null. A trailing slash is the same address. The Worker parses the answer
+  with `HostedAnswerSchema`. The table behind it, `hosted_pages`, is read by no caller who is not
+  signed in; the location's members and the operator read it through policies, and no API role
+  writes it.
+- **What it serves.** The list of live pages at `/`, a page at `/<slug>`, 410 for a page that was
+  taken back, 404 for an address with none, `robots.txt` (everyone allowed, the sitemap named),
+  `sitemap.xml`, and the IndexNow key file at `/<INDEXNOW_KEY>.txt` (the constant is in
+  `packages/shared/src/hosted-pages.ts`). A host that is not a live answer subdomain gets a bare 404
+  "Not found" whatever it asks. Only GET and HEAD are answered; anything else is 405. A request over
+  http is sent to https with a 301, except under `/.well-known/`, which a certificate's checks use.
+  Every answer carries `Cache-Control: public, max-age=300` and a policy that forbids scripts,
+  images and everything else a page could fetch. A page taken back can therefore still be read for
+  up to five minutes.
+- **A page is plain HTML.** The business's name links to its own site; the stored copy is rendered
+  as headings and paragraphs, every word as text; the closing line is composed by rule from the
+  location as it is when the page is served (`pageClosing`); the structured details
+  (`buildBusinessBlock`) are the one script, as JSON-LD; and a generator tag is all of Nearcited's
+  on it.
+- **When the database cannot be read** it answers 503 with `Retry-After: 300`, not cached, so a
+  crawler comes back and does not take the page for gone.
+- **It hands the zone's own names on.** A route runs before a custom domain on the same zone, so the
+  `*/*` route the Pages Worker needs would catch `nearcited.com`. The setup
+  (`scripts/hosted-pages-setup.sh`, run once by the owner after a deploy) first puts a route with no
+  Worker on `nearcited.com/*`, so the app is not routed through the Pages Worker at all, and the
+  Pages Worker passes any request for `nearcited.com` or a subdomain of it straight on
+  (`fetch(request)`) in case it is reached for one. Its `wrangler.jsonc` declares no routes
+  (`workers_dev` is off), so deploying it changes no traffic. The setup also makes the fallback
+  origin record, turns on custom hostnames, adds the wildcard record the owners' records point at,
+  and makes the token the main Worker registers hostnames with (`CLOUDFLARE_HOSTNAMES_TOKEN`).
+- **Nothing publishes a page yet.** `hosted_pages` has no writer, so a live name lists no pages.
+  Publishing and taking back through actions, telling search engines of a page, and counting
+  fetches are not built.
+- **How it bills.** Every request to every answer subdomain runs the Pages Worker, which Cloudflare
+  bills as Worker requests on the account's plan, and Cloudflare for SaaS bills custom hostnames
+  past those its plan includes. What a hosted page costs in practice is not recorded here.
 
 ## Actions
 
@@ -1575,10 +1627,14 @@ organization, scan, audit or draft they describe is deleted. No API role can wri
 the only account that can read them is the operator's; the Worker's secret key writes them. Four
 more, `connection_secrets`, `connection_kind_allowances`, `sample_listings` and `action_kind_terms`,
 no API role can read or write at all (see "Connections" and "Actions").
+`hosted_pages` is read by an organization's members and the operator and written by no API role; a caller
+who is not signed in reaches a live page only through `hosted_page()`, which answers for a live answer
+subdomain alone and is the one thing the Pages Worker calls (see "Hosted pages").
 
 A caller who is not signed in can read an audit by its token and the price list, and can write one
 thing: count a visit to a location's own site, or note a check of the line on it, through two
 functions that answer anyone holding the location's site key (see "Visits from assistants").
+It can also read a live hosted page through `hosted_page()` (see "Hosted pages").
 
 The API does not check ownership in application code. For each request it builds a Supabase
 client that carries the caller's own access token (`createUserClient`), so Postgres evaluates the
@@ -1972,9 +2028,9 @@ drop it.
   counts nothing, and nothing limits how long what they replaced is kept. A kind that counts, or that has a limit, has not
   been made yet. A take-back is refused once a later action on the same subject has changed what
   the first left, and once the first's `seen` was dropped.
-- An answer subdomain is set up, registered and checked, and nothing is served on it: the Pages
-  Worker, publishing to it, taking pages back, counting fetches, and winding it down when a plan
-  stops including `hosted_pages` are not built ([#141](https://github.com/jwh3times/Nearcited/issues/141)).
+- An answer subdomain is set up, registered, checked and served by the Pages Worker, but nothing
+  publishes a page on it: publishing, taking pages back, IndexNow pings, counting fetches, and
+  winding it down, with redirects, when a plan stops including `hosted_pages` are not built ([#141](https://github.com/jwh3times/Nearcited/issues/141)).
   Until then, one whose plan stops including it is paused and removed thirty days later like any
   connection, and its owners are emailed to delete the record. A name whose record is proxied by Cloudflare
   hides where it points, so it is not registered until the owner turns the proxy off. The name is

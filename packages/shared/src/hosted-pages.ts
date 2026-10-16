@@ -20,6 +20,13 @@ export const SUGGESTED_LABEL = "answers";
 /** How long the worker waits for an owner's record before it stops and frees the name. */
 export const RECORD_WAIT_DAYS = 30;
 
+/**
+ * The key that shows IndexNow (indexnow.org) a notice of a new or removed hosted page is ours. It
+ * is public by design: every answer subdomain serves it at `/<key>.txt`, which is how a search
+ * engine checks the notice came from whoever runs the host.
+ */
+export const INDEXNOW_KEY = "c0a8136c47991b6c15f6dfe1029dfc14";
+
 /** One word of a host name: letters, digits and hyphens, not starting or ending with a hyphen. */
 const LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 

@@ -50,7 +50,9 @@ jobs:
       - run: pnpm install --frozen-lockfile
       # Also checks the private tuning file against the schema.
       - run: pnpm test
-      - name: Build the web app and deploy the Worker
+      # Both Workers: the main one with the app, then the Pages Worker that serves hosted pages
+      # (docs/adr/0019-hosted-pages-are-served-by-a-worker-of-their-own.md).
+      - name: Build the web app and deploy the Workers
         run: pnpm cf:deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ steps.op.outputs.CLOUDFLARE_API_TOKEN }}

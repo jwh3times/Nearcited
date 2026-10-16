@@ -257,7 +257,7 @@ Cloudflare to be served only once the record points at that target, and emails t
 when it is served with its certificate. It also reads the business's home page for a link to it. A
 name not live within thirty days, because its record never pointed at the target or its
 certificate was never issued, is let go, with an email; one whose location is deleted is removed with it. Only setting up and
-removing exist; nothing is served on it yet. Nothing else is read from an account, and the
+removing exist, and the Pages Worker (see [Deploy](#deploy)) answers on a live name, but with no page to show yet: a name with no page serves an empty list of pages. Nothing else is read from an account, and the
 only things done through one are the sample action and, on a WordPress site, adding the business
 details to the home page and publishing a page's copy as a new page, all below (see [What is not built](#what-is-not-built)).
 
@@ -339,6 +339,7 @@ tenancy model, the limits a Worker imposes, and the known gaps.
 | --- | --- |
 | Web | React 19, Vite, TypeScript, React Router, TanStack Query, qrcode.react (draws the code to print) |
 | API and jobs | One Cloudflare Worker: Hono for HTTP, a Cron Trigger to schedule scans, a Queue to run them |
+| Hosted pages | A second Cloudflare Worker, the Pages Worker, that serves hosted pages on answer subdomains and nothing else; plain HTML, no secret |
 | Assistants | OpenAI's Responses API and Anthropic's Messages API (through its SDK), both with web search for a scan; Claude also writes drafts, with no tools |
 | Data and auth | Supabase (Postgres with row-level security, email sign-in) |
 | Email | Resend |
@@ -353,6 +354,8 @@ apps/
   web/          The React app. Its build output is served by the Worker as static assets.
                 public/line.js is the line a business pastes into its own site, served beside the
                 app (public/_headers sets its cache and cross-origin headers).
+  pages/        The Pages Worker (`nearcited-pages`). Serves hosted pages on answer subdomains and
+                nothing else, and holds no secret ([ADR 0019](docs/adr/0019-hosted-pages-are-served-by-a-worker-of-their-own.md)).
   e2e/          Playwright tests that drive the app and Worker in a browser, in mock mode.
 packages/
   shared/       Zod schemas for every wire type, plus the logic that decides whether a business
@@ -373,6 +376,7 @@ scripts/        integration-db.sh prepares a plain Postgres for the store integr
                 create-audit.mjs creates and revokes shareable audits.
                 bootstrap-private.mjs and sync-main.mjs manage the private companion checkout.
                 prepare-tuning.mjs writes the tuning file the Worker bundles.
+                hosted-pages-setup.sh walks the owner through the Cloudflare setup for hosted pages, once.
                 local-env.mjs writes the two local env files from `supabase status`, and makes
                 the key connections are sealed with.
 private/        The private companion, when checked out. Ignored here; its own repository.
@@ -450,6 +454,10 @@ are safe to ship to the browser.
 | `VITE_SUPABASE_URL` | The same project URL. |
 | `VITE_SUPABASE_PUBLISHABLE_KEY` | The same publishable key. |
 
+The Pages Worker has two settings, `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY`, in `vars` in
+`apps/pages/wrangler.jsonc`. Neither is secret and it has no `.dev.vars`; `pnpm --filter
+@nearcited/pages dev` reads the file as it is.
+
 Neither file is committed. `apps/api/.dev.vars.example` and `apps/web/.env.example` are the
 templates.
 
@@ -457,7 +465,7 @@ templates.
 
 | Command | What it does |
 | --- | --- |
-| `pnpm dev` | Worker and web app with reload |
+| `pnpm dev` | Worker and web app with reload. The Pages Worker is not part of it: `pnpm --filter @nearcited/pages dev` runs it on port 8788. |
 | `pnpm check` | Lint, typecheck, test and build. Run before pushing. |
 | `pnpm lint` / `pnpm format` | Biome check / fix |
 | `pnpm typecheck` | `tsc` in every package |
@@ -468,9 +476,10 @@ templates.
 | `pnpm test-account:create` | Make the deployment's test account and grant it the `test` platform role; safe to run again (needs `SUPABASE_SECRET_KEY`, `TEST_ACCOUNT_EMAIL`, `TEST_ACCOUNT_PASSWORD`) |
 | `pnpm local:env` | Write `apps/api/.dev.vars` and `apps/web/.env.local` from the examples and `supabase status`, with a newly made `CONNECTIONS_KEY` (`--force` replaces existing files, and so makes a new key) |
 | `pnpm billing:check` | Ask Stripe and the deployment whether billing is set up as the app expects (Tax active with a registration, the portal set to cancel only, the webhook registered with the events the app acts on and answering 400 to an unsigned request, each paid plan's prices matching, every recorded subscription existing under the key). Reads only; exits 1 when a check fails (needs `STRIPE_SECRET_KEY` and `SUPABASE_SECRET_KEY`) |
-| `pnpm cf:deploy` | Build, then `wrangler deploy` |
+| `pnpm cf:deploy` | Build, then `wrangler deploy` for the Worker, then for the Pages Worker |
+| `scripts/hosted-pages-setup.sh` | A wizard for the Cloudflare setup hosted pages need, run once by the owner after a deploy (see [Deploy](#deploy)) |
 | `pnpm db:types` | Generate TypeScript types from the local Supabase database |
-| `pnpm --filter @nearcited/api test` | One package's tests (`api`, `web`, `shared` or `db`) |
+| `pnpm --filter @nearcited/api test` | One package's tests (`api`, `web`, `shared`, `pages` or `db`) |
 | `npm run bootstrap:private` | Clone the private companion into `private/` (maintainers) |
 | `npm run sync:main` | Fast-forward `main` here and in `private/` |
 | `npm run audit:create -- --name ... --city ... --prompt ...` | Create a shareable audit and queue it (owner only; see below) |
@@ -593,6 +602,7 @@ The migrations in `supabase/migrations/` define everything.
 | `connections` | An organization's standing sign-in to an outside account: its kind (`sample`, `wordpress` or `hosted_pages`), a label, the location a WordPress one was made from until its first sync matches it (`for_location`), and its status (`working`, `broken`, `paused`, `removing` or `removed`). Records who connected it and who asked for its removal, as the addresses they had then, and when, and whether it was removed because someone asked or because its plan had not included it for thirty days or, for an answer subdomain, it never started working, or its location was removed (`removal_reason`: `asked`, `plan`, `unclaimed` or `location`). A broken one records why (`refused` or `failing`), when, and how many days in a row a sync has failed; a paused one records since when. Also when its owners were told it broke and when they were reminded. Also when the Worker last read it (`last_synced_at`) and what its sign-in reaches, as that sync found it (`choices`, a list of `id` and `label`; cleared on removal). The row stays after removal, as the record. Read by the organization's members and the operator; written by no API role directly, only through `create_connection()` and `request_connection_removal()`, which answer an owner or admin alone, and the Worker's `record_connection_sync()`, `record_connection_failure()`, `expire_paused_connections()` and `finish_connection_removal()`, and `fit_connections_to_plan()`, which pauses and restores them when an organization's allowances are set. |
 | `connection_locations` | Which of a connection's choices is a location's: one account of a kind for a location, and one location for each thing an account reaches. Read by whoever can read the location and by the operator; written by no API role directly, only through `match_connection_location()` and `unmatch_connection_location()`, which answer an owner or admin of the connection's organization alone. Deleted when the connection's removal finishes. |
 | `answer_subdomains` | An answer subdomain, one per connection of the `hosted_pages` kind and one per location: its location (removed with the location), the hostname, the target its record must point at (a name of the connection's own under `pages.nearcited.com`), what the name last pointed at, when the worker last checked, when it was registered and when it went live, whether the home page links to it, and the Cloudflare ID of its custom hostname and when the owners were told it was live, which the worker keeps to itself. A hostname is held by one live connection at a time. Read by the organization's members and the operator, on every column but those two; written by no API role directly, only through `create_answer_subdomain()` (an owner or admin of the location's organization alone, which also makes the connection and refuses a location without a website), and the Worker's `record_answer_subdomain_check()`, `answer_subdomains_to_check()` and `expire_unclaimed_answer_subdomains()`. `create_connection()` refuses the `hosted_pages` kind and a WordPress connection for a location whose pages are hosted; `finish_connection_removal()` lets the name go; deleting the location removes its subdomain. |
+| `hosted_pages` | A page served on an answer subdomain: its connection and location, the page task and action it came from, its address (`slug`, one live page per address on a subdomain), title, the copy as approved (at most 20,000 characters), when it was published and when it was taken back (the row stays, so its address answers that it is gone). Read by the location's members and the operator; no API role writes it, and a caller who is not signed in reads nothing from the table. Anyone reads a live page only through `hosted_page(host, path)`, which the Pages Worker calls with the publishable key and which answers only for a live answer subdomain, with what the page shows anyway. Nothing writes a page yet. |
 | `connection_secrets` | A connection's sign-in, sealed by the Worker. Row-level security is on with no policy and no grant to any API role, the operator included: only the Worker reads it, and the row is deleted when a removal finishes. |
 | `connection_kind_allowances` | The allowance an organization needs for a kind of connection; a kind not listed needs none, and the sample kind needs none, `wordpress` needs the `wordpress` allowance and `hosted_pages` the `hosted_pages` one. Row-level security is on with no policy and no grant to any API role, the operator included: only the database's own functions read it. |
 | `actions` | What the product does outside itself for a location: what it would do, what was there when it was proposed, the text and whether a rule or a model wrote it, and its status (`proposed`, `approved`, `done`, `failed`, `declined` or `lapsed`). Records who approved or declined it, as the address they had then, and when; the text as approved, when a member changed it; how it ended, with the reason for a failure; the failed action it was asked for again from (`retry_of`), and the done action it takes back (`takes_back`). `told_at` and `waiting_told_at` are when the organization's owners were told it had been carried out, and that it was waiting for a yes. What it replaced is dropped once its kind says it may be kept no longer, and when is recorded (`seen_dropped_at`). Five more columns are the Worker's bookkeeping, and no route sends them: `subject` and `basis`, so that one action is open for a thing and a declined one is not proposed again until what it rests on changes; `recommendation_id`, the task it does the work of; `seen_until`, the day what it replaced may be kept until; and `allowance_month`, the month whose allowance it holds one of. Read by whoever can read the location and by the operator; written by no API role directly, only through `approve_action()`, `decline_action()`, `retry_action()` and `take_back_action()`, which answer a member of the location's organization alone, and the Worker's `propose_action()`, `claim_action()` (which refuses an action while `organization_held()`, Worker only, says its owners have gone 36 hours untold of one), `finish_action()` (which gives back what was taken from the allowance when the action ends undone, marks the task when it is done and clears it when a take-back is), `lapse_actions()` and `drop_expired_seen()`, and its secret key alone writes the two told columns. Deleted with its location. |
@@ -640,6 +650,7 @@ reader gets one audit only by its token, through the `get_audit()` function.
   helper against a stand-in server: a server that answers with fewer rows than asked, a list that
   shrinks meanwhile, a page that fails), actions (proposing after a sync, a member's yes and no, carrying one out once, trying again, lapsing, telling the owners, holding back while they are untold, dropping what they replaced, marking a task, and counting against an allowance), alerts (raising a drop, a first sighting or a phone number, keeping each answer's numbers with its result, clearing them, reading the whole record only when a scan holds something that might be new, keeping a dismissed one from being raised again, leaving sample data apart, and telling the owners once in the scan report, or not telling them when the report goes to nobody), drafts (asking, which records the ask and writes nothing; refusing a task with no wording, a location that has not said what the business does, a plan with none and real data; writing sample text once and counting it, for a note and for a listing's description against the one month; throwing away a draft that states what nobody gave, and not counting one that was not kept; writing it again in place of the first; recording what each write used, kept or not; refusing real data where the build has no instructions for the task's kind of draft or no key, and offering a task a draft only where one could be written (every kind on sample data, and on real data only a kind with instructions and a key); and queueing again an ask nobody is writing), listings (giving one, which keeps the address a browser would follow and takes the place of the one before; refusing an address that is not a page on the site, and on Google one that is not its review link; the tasks that carry one; taking it away; who the routes answer; and the bound on how many a location holds), the Claude draft writer against recorded responses (what it is sent, with the instructions for the kind it is asked for, set out one detail to a line and with no tools, and what it reports having used), visits (`POST /api/visits` for a caller who is not signed in: the assistant worked out from what the visit carried and not taken from the body, the site taken from `Origin`, the same 204 whatever became of the visit, a body that is too long ignored, the ceilings, and a check that counts nothing; and a location's line, read by anyone who can read the location with the line to paste built from `APP_URL` and whether the caller may replace the key, and replaced by an owner or an admin and by no one else, after which the old key counts nothing and the new one counts on top of what was kept; and a location's visits, added up for the last thirty days, with the pages that had the most listed and the visits to the rest of a day's pages said apart, empty before anything is reported, a 404 for anyone else and a sign-in asked for), billing (checkout, the portal and the Stripe webhook, against a stand-in for Stripe), the audit runner, the site fetch (what it refuses and how it follows redirects), and
   the mock providers.
+- **`apps/pages`**: the Pages Worker's front door against a stand-in database: a page as plain HTML (the name linking to the site, the copy as text, the closing line, the structured details), a taken-back page, a page never there, the list, `robots.txt`, the sitemap, the IndexNow key file, a host that is not served, the zone's own names handed on, http sent to https, methods that write refused, and the database being unreadable. `hosted_page()` itself is attacked in `packages/db`.
 - **`apps/web`**: the logic that lays results out as a grid, the logic behind the chart of the
   score over time, the logic behind the audit page, the logic that fills the location edit form,
   the locations table's summary figures, the onboarding suggestions, the location page's tabs, what
@@ -690,8 +701,10 @@ The `integration` job in `.github/workflows/ci.yml` is a working example.
    `custom_domain`; the domain's DNS has to be on the same Cloudflare account. `EMAIL_FROM`
    has to be an address on a domain verified with Resend.
 4. Deploy. From the repo root, with `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` set in
-   the environment: `pnpm cf:deploy`. The Cloudflare API token needs permission to edit Workers
-   and Queues.
+   the environment: `pnpm cf:deploy`. It deploys the Worker, then the Pages Worker
+   (`nearcited-pages`, from `apps/pages`), whose `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` in
+   `apps/pages/wrangler.jsonc` are set to the same project's, and which holds no secret. The
+   Cloudflare API token needs permission to edit Workers and Queues.
 5. Set the secrets on the Worker the deploy created, from `apps/api`:
    ```sh
    pnpm exec wrangler secret put SUPABASE_SECRET_KEY
@@ -707,6 +720,14 @@ The `integration` job in `.github/workflows/ci.yml` is a working example.
    Without `CONNECTIONS_KEY` nothing can be connected. Without `CLOUDFLARE_HOSTNAMES_TOKEN`, no
    answer subdomain is offered on real data. Changing it later makes every sign-in
    already kept unreadable, so keep a copy of the value.
+
+Hosted pages need one more step, once, after a deploy that includes the Pages Worker:
+`scripts/hosted-pages-setup.sh`, a wizard that you run and that walks you through the Cloudflare
+dashboard. It adds the fallback origin record, turns on custom hostnames (Cloudflare for SaaS), adds
+the wildcard record owners' records point at, adds a route with no Worker on `nearcited.com/*` and a
+route on `*/*` for `nearcited-pages`, in that order, and makes the API token for
+`CLOUDFLARE_HOSTNAMES_TOKEN` and sets it on the Worker. The Pages Worker's deploy makes no routes,
+so deploying it changes no traffic until the setup is done.
 
 `.github/workflows/deploy.yml` does step 4 on demand. It reads its credentials from the 1Password
 `Nearcited` vault at run time, so GitHub holds one secret, `OP_SERVICE_ACCOUNT_TOKEN`, for a
@@ -841,10 +862,11 @@ pnpm sync:agents
   Nothing looks for a listing or a review link or opens one, so an address is only checked for its
   form, and Google's help does not show what its link looks like, so what is taken for one is where
   accounts of it put it.
-- **Serving hosted pages.** An owner or admin can set up a location's answer subdomain, and the
-  worker registers it and checks it works, but nothing is served on it: the Pages Worker, publishing
-  to it and taking pages back, counting fetches, winding it down when a plan stops including it,
-  and a guided Cloudflare setup are not built ([#141](https://github.com/jwh3times/Nearcited/issues/141)).
+- **Publishing hosted pages.** An owner or admin can set up a location's answer subdomain, the
+  worker registers it and checks it works, and the Pages Worker serves what is published on it, but
+  nothing publishes a page yet. Publishing to it and taking pages back, telling search engines
+  of a page (IndexNow), counting fetches, and winding it down, with redirects, when a plan stops
+  including it are not built ([#141](https://github.com/jwh3times/Nearcited/issues/141)).
 - **Anything that works from a connection.** An owner or admin can connect a sample account or a
   location's WordPress site, or set up an answer subdomain, and remove any of them. Beyond the WordPress site itself (its one
   choice) and the front page it reads before proposing, nothing reads anything from an account. The
