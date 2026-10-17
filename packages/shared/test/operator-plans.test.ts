@@ -75,6 +75,21 @@ describe("buildOperatorPlans", () => {
     expect(standard?.subscribers).toBe(2);
   });
 
+  it("adds Stronger for each location a subscriber has room for, on each assistant on it", () => {
+    const [, standard] = buildOperatorPlans({
+      plans: [plan("standard", 2, { stronger_price_cents: 2000 }), plans[1] as Plan],
+      organizations: [
+        org("a", { stronger_surfaces: ["claude"] }),
+        org("b", { max_locations: 5, stronger_surfaces: ["chatgpt", "claude"] }),
+      ],
+      subscriptions: [
+        { organization_id: "a", subscribed: true },
+        { organization_id: "b", subscribed: true },
+      ],
+    });
+    expect(standard?.monthly_cents).toBe(5000 + 3 * 2000 + 5000 + 2 * 1500 + 2 * 5 * 2000);
+  });
+
   it("leaves test organizations out", () => {
     const [, standard] = buildOperatorPlans({
       plans,

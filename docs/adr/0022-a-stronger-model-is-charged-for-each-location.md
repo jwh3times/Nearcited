@@ -15,11 +15,11 @@ a few. One amount that suits a few locations does not cover many, and one that c
 dear for a few. The operator could not set a stronger price that fits every subscriber on a plan.
 
 **The stronger price is a rate, and the line counts the locations paid for.** The price version's
-stronger price is an amount a month for each location the subscription pays for, on each
-assistant on Stronger. The line on an assistant counts every location paid for, the plan's
-included ones as well: a location costs the same to check whichever it is. It does not count
-the locations in use, which billing does not know. It is still one amount, the same for either assistant,
-with a price of its own at the payment provider for each, as ADR 0021 has it.
+stronger price is an amount a month for each location the subscription pays for, on each assistant
+on Stronger. The line on an assistant counts every location paid for, the plan's included ones as
+well: a location costs the same to check whichever it is. It does not count the locations in use,
+which billing does not know. It is still one amount, the same for either assistant, with a price of
+its own at the payment provider for each, as ADR 0021 has it.
 
 **It moves with the locations as one bill.** A change of locations on a subscription paying for
 Stronger moves every stronger line in the same change, and the new total decides whether it is

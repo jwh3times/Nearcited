@@ -431,7 +431,8 @@ export interface LimitChangeNotice {
 /**
  * Each plan with who is on it. A test organization is never a customer and is not counted. What
  * a subscriber pays is the plan's price plus each location they have room for beyond those it
- * includes, which is what the subscription bills.
+ * includes, plus Stronger for each location they have room for on each assistant on it, which is
+ * what the subscription bills.
  */
 export function buildOperatorPlans(facts: PlanFacts): OperatorPlan[] {
   const subscribed = new Set(
@@ -475,7 +476,8 @@ export function buildOperatorPlans(facts: PlanFacts): OperatorPlan[] {
             total +
             plan.price_cents +
             Math.max(0, o.max_locations - plan.included_locations) *
-              (plan.extra_location_price_cents ?? 0),
+              (plan.extra_location_price_cents ?? 0) +
+            o.stronger_surfaces.length * o.max_locations * (plan.stronger_price_cents ?? 0),
           0,
         ),
       };

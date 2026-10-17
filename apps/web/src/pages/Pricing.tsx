@@ -100,7 +100,7 @@ export function Pricing() {
                 current={organization?.plan_key === plan.key}
                 paidLocations={billing?.locations ?? null}
                 paying={billing?.paying ?? null}
-                paidStronger={organization?.stronger_surfaces.length ?? 0}
+                strongerCount={organization?.stronger_surfaces.length ?? 0}
                 renewsAt={billing?.renews_at ?? null}
                 organizationId={organization?.id ?? null}
                 organizationName={organization?.name ?? null}
@@ -130,7 +130,7 @@ interface PlanCardProps {
    * How many assistants a subscriber pays Stronger on. A change of locations on their own plan
    * keeps it, for each location, so that card counts it.
    */
-  paidStronger: number;
+  strongerCount: number;
   /** When a subscriber's paid period ends. */
   renewsAt: string | null;
   organizationId: string | null;
@@ -144,7 +144,7 @@ function PlanCard({
   current,
   paidLocations,
   paying,
-  paidStronger,
+  strongerCount,
   renewsAt,
   organizationId,
   organizationName,
@@ -198,7 +198,7 @@ function PlanCard({
         <span className="plan-amount">
           {formatPrice(
             picking
-              ? monthlyCents(plan, count, prices, current ? paidStronger : 0)
+              ? monthlyCents(plan, count, prices, current ? strongerCount : 0)
               : prices.price_cents,
           )}
         </span>

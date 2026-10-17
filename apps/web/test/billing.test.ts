@@ -237,20 +237,20 @@ describe("billingWarning", () => {
 
 describe("strongerPrice", () => {
   it("says the rate for each location and what it comes to for the owner's", () => {
-    expect(strongerPrice(["Claude"], 5900, 10)).toBe(
-      "A stronger model on Claude is $59 a month for each of your 10 locations ($590), before tax.",
+    expect(strongerPrice(["Claude"], 2000, 4)).toBe(
+      "A stronger model on Claude is $20 a month for each of your 4 locations ($80), before tax.",
     );
-    expect(strongerPrice(["ChatGPT", "Claude"], 5900, 10)).toBe(
-      "A stronger model on an assistant is $59 a month for each of your 10 locations ($590 for each assistant), before tax.",
+    expect(strongerPrice(["ChatGPT", "Claude"], 2000, 4)).toBe(
+      "A stronger model on an assistant is $20 a month for each of your 4 locations ($80 for each assistant), before tax.",
     );
   });
 
   it("says one location as one, and the rate alone while the locations are not known", () => {
-    expect(strongerPrice(["Claude"], 5900, 1)).toBe(
-      "A stronger model on Claude is $59 a month for your location, before tax.",
+    expect(strongerPrice(["Claude"], 2000, 1)).toBe(
+      "A stronger model on Claude is $20 a month for your location, before tax.",
     );
-    expect(strongerPrice(["Claude"], 5900, null)).toBe(
-      "A stronger model on Claude is $59 a month for each location, before tax.",
+    expect(strongerPrice(["Claude"], 2000, null)).toBe(
+      "A stronger model on Claude is $20 a month for each location, before tax.",
     );
   });
 });
