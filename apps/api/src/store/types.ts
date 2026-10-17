@@ -109,7 +109,10 @@ export interface PriceVersion {
   extra_location_price_cents: number | null;
   stripe_price_id: string;
   stripe_extra_location_price_id: string | null;
-  /** A month, in US cents, for each assistant on Stronger. Null when this version sells none. */
+  /**
+   * A month, in US cents, for each location paid for, on each assistant on Stronger. Null when
+   * this version sells none.
+   */
   stronger_price_cents: number | null;
   /**
    * The provider's price for Stronger on each assistant: the same amount, and a price of its own

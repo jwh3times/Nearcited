@@ -521,12 +521,12 @@ function PriceEditor({ plan }: { plan: OperatorPlan }) {
         }}
       />
       <Field
-        label="A stronger model on each assistant a month"
+        label="A stronger model a month, for each location on each assistant"
         hint={
           held
             ? "Held as announced until the price change below is finished or called off."
             : sellsStronger
-              ? "Leave empty to sell none yet. Owners on this plan choose it for each assistant."
+              ? "Leave empty to sell none yet. Owners on this plan choose it for each assistant, and pay it for each location they pay for."
               : "This plan does not include stronger models, so nobody is offered one at this price."
         }
         inputMode="decimal"

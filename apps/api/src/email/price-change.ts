@@ -17,7 +17,7 @@ export interface PriceChangeEmail {
   effective_at: string;
   /**
    * The stronger model it pays for, which the totals include: on which assistants, by name, and
-   * what each costs a month now and after. Null when it pays for none.
+   * what each costs a month for each location now and after. Null when it pays for none.
    */
   stronger: { on: string[]; was_cents: number; now_cents: number } | null;
   appUrl: string;
@@ -53,7 +53,7 @@ export function buildPriceChangeEmail(email: PriceChangeEmail): Email {
   const stronger = email.stronger
     ? [
         "",
-        `That includes a stronger model on ${email.stronger.on.join(" and ")}, at ${dollars(email.stronger.was_cents)} a month for each today and ${dollars(email.stronger.now_cents)} from then.`,
+        `That includes a stronger model on ${email.stronger.on.join(" and ")}, at ${dollars(email.stronger.was_cents)} a month for each location today and ${dollars(email.stronger.now_cents)} from then.`,
       ]
     : [];
   const lines =

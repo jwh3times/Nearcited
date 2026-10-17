@@ -150,10 +150,10 @@ system works; this file only settles vocabulary.
   **In force** while paid or while a failed payment is being retried; **ended** when cancelled or
   left unpaid, which moves the organization to the free plan. See
   `docs/adr/0007-the-payment-webhook-acts-as-the-worker.md`.
-- **Price version**: one set of prices a plan has been sold at: the plan's own, its extra
-  location's and, where it sells one, a stronger model's. A plan's row carries the newest, which a
-  new subscriber pays; `plan_prices` keeps them all, and a subscriber goes on paying the version
-  they joined at until they are moved.
+- **Price version**: one set of prices a plan has been sold at: the plan's own, its extra location's
+  and, where it sells one, a stronger model's for each location. A plan's row carries the newest,
+  which a new subscriber pays; `plan_prices` keeps them all, and a subscriber goes on paying the
+  version they joined at until they are moved.
 - **Price change**: an announcement, for one plan, that its current subscribers will move to its
   present price version from a named day. It is not setting a plan's price, which affects only new
   subscribers. See `docs/adr/0008-a-price-change-reaches-subscribers-by-announcement.md`.
@@ -163,9 +163,11 @@ system works; this file only settles vocabulary.
   `docs/adr/0012-a-plans-allowances-are-one-set.md`.
 - **Tier**: the model an assistant is asked with for an organization. **Standard** is the one the
   deployment checks everyone with; **Stronger** is a more capable one its owner pays for on that
-  assistant, a month on top of the plan, on a plan that includes stronger models. Each result
-  keeps the tier it was asked on, and a prompt on one tier is a different cell from the same prompt
-  on the other. See `docs/adr/0021-a-stronger-model-is-a-line-of-the-plans-price.md`.
+  assistant, a month for each location paid for on top of the plan, on a plan that includes stronger
+  models. Each result keeps the tier it was asked on, and a prompt on one tier is a different cell
+  from the same prompt on the other. See
+  `docs/adr/0021-a-stronger-model-is-a-line-of-the-plans-price.md` and
+  `docs/adr/0022-a-stronger-model-is-charged-for-each-location.md`.
 - **Reduction**: a lower limit on a plan somebody pays for, a report that stops, or an allowance
   taken away or made smaller. It is announced for a day at least thirty days out and made for the
   whole plan on that day, not at once as a raise is. See

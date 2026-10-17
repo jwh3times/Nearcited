@@ -26,6 +26,7 @@ import {
   formatPrice,
   locationCount,
   strongerChange,
+  strongerPrice,
 } from "../lib/billing";
 import { useFormErrors } from "../lib/form";
 import { listOf } from "../lib/format";
@@ -533,7 +534,10 @@ interface TierChoice {
 
 interface StrongerChooserProps {
   organization: Organization;
-  /** A month, in US cents, for each assistant on Stronger, at the prices the owner pays. */
+  /**
+   * A month, in US cents, for each location paid for, on each assistant on Stronger, at the prices
+   * the owner pays.
+   */
   priceCents: number;
   /** The assistants Stronger can be had on now. */
   offered: readonly PlanAssistant[];
@@ -581,8 +585,12 @@ function StrongerChooser({
   return (
     <div className="stronger-choice">
       <p>
-        A stronger model on an assistant is {formatPrice(priceCents)} a month before tax. Its score
-        starts again from its first scan on the new model, and earlier results are kept.
+        {strongerPrice(
+          choices.map((surface) => SURFACE_LABELS[surface]),
+          priceCents,
+          locations,
+        )}{" "}
+        Its score starts again from its first scan on the new model, and earlier results are kept.
       </p>
       {choices.map((surface) => {
         const tier = tierOf(organization, surface);

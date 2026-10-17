@@ -10,16 +10,29 @@ import {
   type Tier,
 } from "@nearcited/shared";
 
-/** The two prices something is sold at: the plan, and each location beyond those it includes. */
-type Prices = Pick<Plan, "price_cents" | "extra_location_price_cents">;
+/**
+ * The prices something is sold at: the plan, each location beyond those it includes, and a
+ * stronger model for each location paid for, on each assistant.
+ */
+type Prices = Pick<Plan, "price_cents" | "extra_location_price_cents" | "stronger_price_cents">;
 
 /**
- * What a plan costs a month, in US cents, for a number of locations. `prices` is for a
- * subscriber still paying what the plan was sold at when they joined.
+ * What a plan costs a month, in US cents, for a number of locations and with Stronger on
+ * `stronger` assistants. `prices` is for a subscriber still paying what the plan was sold at when
+ * they joined. The locations paid for are never fewer than the plan includes.
  */
-export function monthlyCents(plan: Plan, locations: number, prices: Prices = plan): number {
-  const extra = Math.max(0, locations - plan.included_locations);
-  return prices.price_cents + extra * (prices.extra_location_price_cents ?? 0);
+export function monthlyCents(
+  plan: Plan,
+  locations: number,
+  prices: Prices = plan,
+  stronger = 0,
+): number {
+  const paid = Math.max(plan.included_locations, locations);
+  return (
+    prices.price_cents +
+    (paid - plan.included_locations) * (prices.extra_location_price_cents ?? 0) +
+    stronger * paid * (prices.stronger_price_cents ?? 0)
+  );
 }
 
 /** Dollars as typed, "29" or "29.50", in cents. NaN for anything else, which no schema accepts. */
@@ -134,7 +147,8 @@ export function locationCount(count: number): string {
 
 /**
  * What a plan includes, as lines of the price list. Stronger is said with its price, which is a
- * month for each assistant on it, or as available while the plan has no price for it yet.
+ * month for each location, on each assistant on it, or as available while the plan has no price
+ * for it yet.
  */
 export function priceListLines(plan: Plan): string[] {
   const { [STRONGER_MODELS_ALLOWANCE]: _, ...kinds } = ALLOWANCE_KINDS;
@@ -143,7 +157,7 @@ export function priceListLines(plan: Plan): string[] {
     lines.push(
       plan.stronger_price_cents === null
         ? "Stronger models available"
-        : `Stronger models: ${formatPrice(plan.stronger_price_cents)} a month for each assistant`,
+        : `Stronger models: ${formatPrice(plan.stronger_price_cents)} a month for each location, on each assistant`,
     );
   }
   return lines;
@@ -158,4 +172,21 @@ export function strongerChange(
   return PLAN_ASSISTANTS.filter((candidate) =>
     candidate === surface ? tier === "stronger" : paid.includes(candidate),
   );
+}
+
+/**
+ * What a stronger model costs the owner, said once for the assistants it is offered `on`: the
+ * rate for each location, and what it comes to for the locations paid for, once they are known.
+ */
+export function strongerPrice(
+  on: readonly string[],
+  priceCents: number,
+  locations: number | null,
+): string {
+  const model = `A stronger model on ${on.length === 1 ? on[0] : "an assistant"}`;
+  const rate = `${formatPrice(priceCents)} a month`;
+  if (locations === null) return `${model} is ${rate} for each location, before tax.`;
+  if (locations === 1) return `${model} is ${rate} for your location, before tax.`;
+  const total = `${formatPrice(priceCents * locations)}${on.length === 1 ? "" : " for each assistant"}`;
+  return `${model} is ${rate} for each of your ${locations} locations (${total}), before tax.`;
 }

@@ -402,12 +402,12 @@ operatorRoutes.put("/operator/plans/:key/prices", async (c) => {
           product_name: `Nearcited ${plan.name}: extra location`,
           cents: input.extra_location_price_cents,
         });
-  // Stronger is one amount with a price of its own for each assistant, so the webhook can tell
-  // which assistant a subscription pays it on.
+  // Stronger is one amount for each location with a price of its own for each assistant, so the
+  // webhook can tell which assistant a subscription pays it on.
   const strongerOn = async (surface: PlanAssistant, cents: number) =>
     payments.createPrice({
       like: sold.current?.stripe_stronger_price_ids?.[surface] ?? null,
-      product_name: `Nearcited ${plan.name}: stronger ${SURFACE_LABELS[surface]}`,
+      product_name: `Nearcited ${plan.name}: stronger ${SURFACE_LABELS[surface]}, for each location`,
       cents,
     });
   const stripe_stronger_price_ids =

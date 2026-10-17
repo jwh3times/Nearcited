@@ -43,8 +43,10 @@ export function readItems(items: readonly BilledItem[], plans: readonly PlanPric
 
 /**
  * The lines that pay for a plan, at one version of its prices, with a number of locations and
- * Stronger on some assistants. Null when that version cannot sell what is asked: more locations
- * than it has a price for, or Stronger where it has no stronger price.
+ * Stronger on some assistants. A stronger line counts every location paid for, the plan's
+ * included ones as well (`docs/adr/0022-a-stronger-model-is-charged-for-each-location.md`). Null
+ * when that version cannot sell what is asked: more locations than it has a price for, or
+ * Stronger where it has no stronger price.
  */
 export function itemsFor({ plan, version, locations, stronger }: PaidPlan): BilledItem[] | null {
   const items = [{ price_id: version.stripe_price_id, quantity: 1 }];
@@ -56,17 +58,20 @@ export function itemsFor({ plan, version, locations, stronger }: PaidPlan): Bill
   for (const surface of stronger) {
     const price = version.stripe_stronger_price_ids?.[surface];
     if (!price) return null;
-    items.push({ price_id: price, quantity: 1 });
+    items.push({ price_id: price, quantity: locations });
   }
   return items;
 }
 
-/** What it comes to a month, in US cents and before tax. */
+/**
+ * What it comes to a month, in US cents and before tax: the stronger price is for each location
+ * paid for, on each assistant on Stronger.
+ */
 export function monthlyCents({ plan, version, locations, stronger }: PaidPlan): number {
   const extra = Math.max(0, locations - plan.included_locations);
   return (
     version.price_cents +
     extra * (version.extra_location_price_cents ?? 0) +
-    stronger.length * (version.stronger_price_cents ?? 0)
+    stronger.length * locations * (version.stronger_price_cents ?? 0)
   );
 }

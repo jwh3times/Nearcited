@@ -279,19 +279,20 @@ describe("moving a subscription to the new price", () => {
     if (plan)
       Object.assign(plan, { stronger_price_cents: 2500, allowances: { stronger_models: true } });
     const subscription = atProvider.get("sub_1");
-    if (subscription) subscription.items = [...OLD, { price_id: "price_old_claude", quantity: 1 }];
+    if (subscription) subscription.items = [...OLD, { price_id: "price_old_claude", quantity: 5 }];
 
     await step("announce", ANNOUNCED);
-    // What they are told counts Stronger: $49 + 2 × $15 + $20 now, $59 + 2 × $19 + $25 after,
-    // and says what it is itself, so a rise in it is not lost in the total.
-    expect(sent[0]?.email.text).toContain("$99");
-    expect(sent[0]?.email.text).toContain("$122");
+    // What they are told counts Stronger for each of the five locations: $49 + 2 × $15 + 5 × $20
+    // now, $59 + 2 × $19 + 5 × $25 after, and says what it is itself, so a rise in it is not lost
+    // in the total.
+    expect(sent[0]?.email.text).toContain("$179");
+    expect(sent[0]?.email.text).toContain("$222");
     expect(sent[0]?.email.text).toContain(
-      "That includes a stronger model on Claude, at $20 a month for each today and $25 from then.",
+      "That includes a stronger model on Claude, at $20 a month for each location today and $25 from then.",
     );
     expect(await step("move", Date.parse(EFFECTIVE))).toBe("moved");
     expect(repriced).toEqual([
-      { id: "sub_1", items: [...NEW, { price_id: "price_new_claude", quantity: 1 }] },
+      { id: "sub_1", items: [...NEW, { price_id: "price_new_claude", quantity: 5 }] },
     ]);
   });
 
@@ -304,7 +305,7 @@ describe("moving a subscription to the new price", () => {
       });
     }
     const subscription = atProvider.get("sub_1");
-    if (subscription) subscription.items = [...OLD, { price_id: "price_old_claude", quantity: 1 }];
+    if (subscription) subscription.items = [...OLD, { price_id: "price_old_claude", quantity: 5 }];
     expect(await step("move", Date.parse(EFFECTIVE))).toBe("skipped");
     expect(notice()?.skipped).toBe("It pays for locations or Stronger the new prices do not sell.");
     expect(repriced).toEqual([]);

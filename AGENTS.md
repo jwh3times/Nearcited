@@ -107,11 +107,14 @@ pass `pnpm check` and run in mock mode without it.
   the webhook reads it back and `apply_plan()` sets which assistants are on Stronger, none on a plan
   without the `stronger_models` allowance
   (`docs/adr/0021-a-stronger-model-is-a-line-of-the-plans-price.md`). Its price is part of the
-  plan's price version, one amount with a provider price of its own for each assistant, so it rises
-  only by an announced price change. Which model Stronger is lives in the tuning's `stronger`
-  blocks, and an assistant with none is sold none. A result and a drop keep the tier they were asked
-  on, and a tier is part of the cell for the score and the alerts alike (`cellKey`,
-  `packages/shared/src/scoring.ts`): keep the two agreeing. A test organization is always Standard.
+  plan's price version, one amount for each location paid for with a provider price of its own for
+  each assistant, so it rises only by an announced price change, and each stronger line counts the
+  locations paid for and moves with them
+  (`docs/adr/0022-a-stronger-model-is-charged-for-each-location.md`). Which model Stronger is lives
+  in the tuning's `stronger` blocks, and an assistant with none is sold none. A result and a drop
+  keep the tier they were asked on, and a tier is part of the cell for the score and the alerts
+  alike (`cellKey`, `packages/shared/src/scoring.ts`): keep the two agreeing. A test organization is
+  always Standard.
 - **A kind of work a plan includes is an allowance, not a new column.** It is one row in
   `allowance_kinds` and one entry in `ALLOWANCE_KINDS` (`packages/shared/src/allowances.ts`), added
   in the same change (`docs/adr/0012-a-plans-allowances-are-one-set.md`). A form shows and sends

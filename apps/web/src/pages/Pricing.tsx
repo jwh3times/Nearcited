@@ -100,6 +100,7 @@ export function Pricing() {
                 current={organization?.plan_key === plan.key}
                 paidLocations={billing?.locations ?? null}
                 paying={billing?.paying ?? null}
+                strongerCount={organization?.stronger_surfaces.length ?? 0}
                 renewsAt={billing?.renews_at ?? null}
                 organizationId={organization?.id ?? null}
                 organizationName={organization?.name ?? null}
@@ -124,7 +125,12 @@ interface PlanCardProps {
   /** How many locations a subscriber pays for now. Null for anyone else. */
   paidLocations: number | null;
   /** The prices a subscriber is billed at, which their own plan's card shows. */
-  paying: Pick<Plan, "price_cents" | "extra_location_price_cents"> | null;
+  paying: Pick<Plan, "price_cents" | "extra_location_price_cents" | "stronger_price_cents"> | null;
+  /**
+   * How many assistants a subscriber pays Stronger on. A change of locations on their own plan
+   * keeps it, for each location, so that card counts it.
+   */
+  strongerCount: number;
   /** When a subscriber's paid period ends. */
   renewsAt: string | null;
   organizationId: string | null;
@@ -138,6 +144,7 @@ function PlanCard({
   current,
   paidLocations,
   paying,
+  strongerCount,
   renewsAt,
   organizationId,
   organizationName,
@@ -189,7 +196,11 @@ function PlanCard({
       </h2>
       <p className="plan-price">
         <span className="plan-amount">
-          {formatPrice(picking ? monthlyCents(plan, count, prices) : prices.price_cents)}
+          {formatPrice(
+            picking
+              ? monthlyCents(plan, count, prices, current ? strongerCount : 0)
+              : prices.price_cents,
+          )}
         </span>
         <span className="muted"> a month</span>
       </p>
@@ -350,10 +361,12 @@ function ConfirmChange({
   onBack,
 }: ConfirmChangeProps) {
   const monthly = `${formatPrice(change.monthly_cents)} a month before tax`;
-  // A stronger model paid for is kept where the plan sells it, and said so.
+  // A stronger model paid for is kept where the plan sells it, for each location, and said so.
   const stronger = change.stronger.map((surface) => SURFACE_LABELS[surface]);
   const what = `${plan.name} with ${locationCount(change.locations)}${
-    stronger.length > 0 ? ` and a stronger model on ${listOf(stronger)}` : ""
+    stronger.length > 0
+      ? ` and a stronger model on ${listOf(stronger)} for ${change.locations === 1 ? "it" : "each of them"}`
+      : ""
   }`;
   return (
     <div className="plan-confirm">

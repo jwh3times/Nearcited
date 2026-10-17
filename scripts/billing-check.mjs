@@ -98,7 +98,7 @@ export function assess(facts) {
         plan.extra_location_price_cents,
         `${plan.name}, extra location`,
       ],
-      // Stronger is one amount with a price of its own for each assistant.
+      // Stronger is one amount for each location, with a price of its own for each assistant.
       [
         plan.stripe_stronger_chatgpt_price_id,
         plan.stronger_price_cents,

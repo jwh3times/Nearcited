@@ -30,7 +30,10 @@ export const ALLOWANCE_KINDS: Record<string, AllowanceKind> = {
   hosted_pages: { counted: false, name: "Pages hosted on your own domain" },
   // A stronger model on an assistant, paid for on top of the plan (`tiers.ts`).
   // `STRONGER_MODELS_ALLOWANCE` there is this key.
-  stronger_models: { counted: false, name: "Stronger models, paid for each assistant" },
+  stronger_models: {
+    counted: false,
+    name: "Stronger models, paid for each location on each assistant",
+  },
 };
 
 /** The most a plan may give of a counted kind, for each location, in a month. */

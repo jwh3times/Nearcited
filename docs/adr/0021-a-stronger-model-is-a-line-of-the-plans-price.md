@@ -22,14 +22,16 @@ On the day, the worker takes the stronger lines off each subscription on the pla
 crediting nothing for the period already paid for. The old column stays until no deployed Worker
 reads it.
 
-**Its price is part of the plan's price version.** One amount a month for each assistant on
-Stronger, the same for either, set by the operator in the price editor with the plan's other
-prices. The Worker makes a price of its own at the payment provider for each assistant, because a
-subscription cannot hold one price twice and the webhook has to tell which assistant was paid
-for. So a subscriber goes on paying the stronger price they joined at, and a rise reaches them
-only by an announced price change ([0008](0008-a-price-change-reaches-subscribers-by-announcement.md)),
-which counts a dearer stronger price, or one no longer sold, as a price that goes up. A plan sells
-Stronger only once its current version has that price.
+**Its price is part of the plan's price version.** One amount a month for each assistant on Stronger
+(for each location paid for, since ADR
+[0022](0022-a-stronger-model-is-charged-for-each-location.md)), the same for either, set by the
+operator in the price editor with the plan's other prices. The Worker makes a price of its own at
+the payment provider for each assistant, because a subscription cannot hold one price twice and the
+webhook has to tell which assistant was paid for. So a subscriber goes on paying the stronger price
+they joined at, and a rise reaches them only by an announced price change
+([0008](0008-a-price-change-reaches-subscribers-by-announcement.md)), which counts a dearer stronger
+price, or one no longer sold, as a price that goes up. A plan sells Stronger only once its current
+version has that price.
 
 **The tier is what the subscription pays for.** Choosing Stronger is an upgrade, made at once and
 prorated; going back to Standard is a downgrade, held until the period paid for ends. Either way

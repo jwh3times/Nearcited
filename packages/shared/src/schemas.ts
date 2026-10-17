@@ -174,8 +174,9 @@ export const PlanSchema = z.object({
   /** Whether owners are emailed a report after each scan. */
   emails_report: z.boolean(),
   /**
-   * For each assistant on Stronger, a month, in US cents. Null where the plan sells no stronger
-   * model at its current prices. Whether the plan includes one is its `stronger_models` allowance.
+   * For each location paid for, on each assistant on Stronger, a month, in US cents. Null where
+   * the plan sells no stronger model at its current prices. Whether the plan includes one is its
+   * `stronger_models` allowance.
    */
   stronger_price_cents: z.number().int().positive().nullable(),
   /** The kinds of work it includes. */
@@ -590,8 +591,9 @@ export const PlanPricesInputSchema = z.object({
   /** A month, in US cents, for each location beyond those. Null sells no more than it includes. */
   extra_location_price_cents: monthlyPrice.nullable(),
   /**
-   * A month, in US cents, for each assistant on Stronger. Null sells no stronger model. Left out,
-   * as a form from before stronger models leaves it, it stays what it is.
+   * A month, in US cents, for each location paid for, on each assistant on Stronger. Null sells
+   * no stronger model. Left out, as a form from before stronger models leaves it, it stays what it
+   * is.
    */
   stronger_price_cents: monthlyPrice.nullable().optional(),
 });
@@ -898,7 +900,10 @@ export const OrganizationAccountSchema = z.object({
         .object({
           price_cents: z.number().int().nonnegative(),
           extra_location_price_cents: z.number().int().positive().nullable(),
-          /** For each assistant on Stronger. Null where the prices paid sell no stronger model. */
+          /**
+           * For each location paid for, on each assistant on Stronger. Null where the prices paid
+           * sell no stronger model.
+           */
           stronger_price_cents: z.number().int().positive().nullable(),
           monthly_cents: z.number().int().nonnegative(),
         })
