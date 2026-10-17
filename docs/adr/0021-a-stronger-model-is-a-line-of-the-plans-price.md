@@ -23,7 +23,8 @@ crediting nothing for the period already paid for. The old column stays until no
 reads it.
 
 **Its price is part of the plan's price version.** One amount a month for each assistant on
-Stronger, the same for either, set by the operator in the price editor with the plan's other
+Stronger (for each location paid for, since ADR
+[0022](0022-a-stronger-model-is-charged-for-each-location.md)), the same for either, set by the operator in the price editor with the plan's other
 prices. The Worker makes a price of its own at the payment provider for each assistant, because a
 subscription cannot hold one price twice and the webhook has to tell which assistant was paid
 for. So a subscriber goes on paying the stronger price they joined at, and a rise reaches them

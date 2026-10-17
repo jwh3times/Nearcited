@@ -9,6 +9,7 @@ import {
   planOffer,
   priceListLines,
   strongerChange,
+  strongerPrice,
 } from "../src/lib/billing";
 
 const plan = (key: string, extra: Partial<Plan> = {}): Plan => ({
@@ -87,7 +88,22 @@ describe("monthlyCents", () => {
   });
 
   it("uses the prices a subscriber joined at when they are given", () => {
-    const joinedAt = { price_cents: 3900, extra_location_price_cents: 1000 };
+    const joinedAt = {
+      price_cents: 3900,
+      extra_location_price_cents: 1000,
+      stronger_price_cents: null,
+    };
+    expect(monthlyCents(plan("standard"), 5, joinedAt)).toBe(3900 + 2 * 1000);
+  });
+
+  it("adds Stronger for each location, on each assistant paid Stronger on", () => {
+    const joinedAt = {
+      price_cents: 3900,
+      extra_location_price_cents: 1000,
+      stronger_price_cents: 2000,
+    };
+    expect(monthlyCents(plan("standard"), 5, joinedAt, 2)).toBe(3900 + 2 * 1000 + 2 * 5 * 2000);
+    expect(monthlyCents(plan("standard"), 1, joinedAt, 1)).toBe(3900 + 3 * 2000);
     expect(monthlyCents(plan("standard"), 5, joinedAt)).toBe(3900 + 2 * 1000);
   });
 });
@@ -182,14 +198,14 @@ describe("planOffer", () => {
 });
 
 describe("priceListLines", () => {
-  it("says what Stronger costs for each assistant, apart from the rest of the allowances", () => {
+  it("says what Stronger costs for each location on each assistant, apart from the rest of the allowances", () => {
     const sells = plan("pro", {
       stronger_price_cents: 2000,
       allowances: { drafts: 5, stronger_models: true },
     });
     expect(priceListLines(sells)).toEqual([
       "Drafts written for you: 5 a month for each location",
-      "Stronger models: $20 a month for each assistant",
+      "Stronger models: $20 a month for each location, on each assistant",
     ]);
   });
 
@@ -216,5 +232,25 @@ describe("billingWarning", () => {
     expect(billingWarning("unpaid")).toMatch(/has ended/);
     expect(billingWarning("active")).toBeNull();
     expect(billingWarning(null)).toBeNull();
+  });
+});
+
+describe("strongerPrice", () => {
+  it("says the rate for each location and what it comes to for the owner's", () => {
+    expect(strongerPrice(["Claude"], 5900, 10)).toBe(
+      "A stronger model on Claude is $59 a month for each of your 10 locations ($590), before tax.",
+    );
+    expect(strongerPrice(["ChatGPT", "Claude"], 5900, 10)).toBe(
+      "A stronger model on an assistant is $59 a month for each of your 10 locations ($590 for each assistant), before tax.",
+    );
+  });
+
+  it("says one location as one, and the rate alone while the locations are not known", () => {
+    expect(strongerPrice(["Claude"], 5900, 1)).toBe(
+      "A stronger model on Claude is $59 a month for your location, before tax.",
+    );
+    expect(strongerPrice(["Claude"], 5900, null)).toBe(
+      "A stronger model on Claude is $59 a month for each location, before tax.",
+    );
   });
 });

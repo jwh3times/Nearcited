@@ -2531,7 +2531,7 @@ describe("the operator", () => {
       );
 
     beforeAll(async () => {
-      // Standard was sold with Stronger at $10 for each assistant.
+      // Standard was sold with Stronger at $10 for each location on each assistant.
       await db.query(
         "insert into public.plan_prices (plan_key, price_cents, stripe_price_id, stronger_price_cents, stripe_stronger_chatgpt_price_id, stripe_stronger_claude_price_id, created_at) values ('standard', 4900, 'price_standard_a', 1000, 'price_standard_a_chatgpt', 'price_standard_a_claude', now() - interval '1 day')",
       );

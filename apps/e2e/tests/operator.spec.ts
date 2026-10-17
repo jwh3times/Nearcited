@@ -270,6 +270,10 @@ test("lets the operator set a plan's prices in dollars, and says who goes on pay
   ).toBeEnabled();
   const price = form.getByLabel("Price a month");
   await expect(price).toHaveValue("129");
+  // A stronger model is priced as a rate, paid for each location on each assistant.
+  await expect(
+    form.getByLabel("A stronger model a month, for each location on each assistant"),
+  ).toHaveValue("");
 
   // Something that is not an amount is refused beside the field, before anything is sent.
   await price.fill("lots");
