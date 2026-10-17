@@ -14,9 +14,9 @@
     "@nearcited/shared": "workspace:*"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^5.20261011.1",
+    "@cloudflare/workers-types": "^5.20261014.1",
     "typescript": "^7.0.2",
-    "vitest": "^5.0.3",
-    "wrangler": "^4.149.0"
+    "vitest": "^5.0.4",
+    "wrangler": "^4.150.0"
   }
 }
