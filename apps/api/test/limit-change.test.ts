@@ -50,7 +50,7 @@ const standard: Plan = {
   scan_every_days: 2,
   max_manual_scans_per_month: 10,
   emails_report: true,
-  stronger_models: false,
+  stronger_price_cents: null,
   allowances: {},
 };
 const lower = { ...standard, max_queries_per_location: 5, assistants: 1, scan_every_days: 7 };

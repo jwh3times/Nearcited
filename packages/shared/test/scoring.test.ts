@@ -8,6 +8,7 @@ import {
   summarizeBySurface,
   summarizeWindow,
   visibilityScore,
+  type WindowCheck,
   windowScore,
 } from "../src/scoring";
 
@@ -183,6 +184,33 @@ describe("the scan window", () => {
       { tracked_query_id: "q2", surface: "chatgpt", checks: 2, mentions: 2, history: [true, true] },
     ]);
     expect(poolWindow(scans)).toHaveLength(2);
+  });
+
+  it("starts an assistant again from its first scan on a new tier", () => {
+    const stronger = (position: number | null) => ({
+      ...check("q1", "chatgpt", position),
+      tier: "stronger" as const,
+    });
+    const scans = [
+      [stronger(null), check("q1", "claude", 1)],
+      [check("q1", "chatgpt", 1), check("q1", "claude", 1)],
+      [check("q1", "chatgpt", 1), check("q1", "claude", 1)],
+    ];
+    // ChatGPT is counted on its one stronger check alone; Claude, whose tier stayed, on all three.
+    expect(
+      summarizeWindow(scans).map(({ surface, checks, mentions }) => ({
+        surface,
+        checks,
+        mentions,
+      })),
+    ).toEqual([
+      { surface: "chatgpt", checks: 1, mentions: 0 },
+      { surface: "claude", checks: 3, mentions: 3 },
+    ]);
+    expect(windowScore(scans)).toBe(50);
+    // A result kept before tiers says nothing of one, and is Standard.
+    const marked: WindowCheck[] = [{ ...check("q1", "chatgpt", 1), tier: "standard" }];
+    expect(poolWindow([marked, [check("q1", "chatgpt", 1)]])).toHaveLength(2);
   });
 
   it("counts only the scans that asked something the newest scan asks", () => {

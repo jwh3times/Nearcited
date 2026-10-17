@@ -92,6 +92,7 @@ async function seed() {
     visibility_score: 50,
     error: null,
     sample_data: false,
+    tiers: { chatgpt: "stronger" },
     created_at: "2026-10-01T12:00:00.000Z",
     started_at: "2026-10-01T12:00:00.000Z",
     finished_at: "2026-10-01T12:01:00.000Z",
@@ -110,6 +111,7 @@ async function seed() {
       // An answer is anyone's words, and a spreadsheet would run this as a formula.
       answer_excerpt: '=HYPERLINK("https://elsewhere.example")',
       phones: [],
+      tier: "stronger",
       sampled_at: "2026-10-01T12:00:30.000Z",
     }),
   );
@@ -216,6 +218,10 @@ describe("downloading everything", () => {
     expect(locations[1]).toContain('"Joe\'s ""Famous"" Pizza, Downtown"');
     // What would run as a formula is kept as text.
     expect(files["answers.csv"]).toContain(`"'=HYPERLINK(""https://elsewhere.example"")"`);
+    // Each answer says which model it was asked with, and so does each assistant's tier.
+    expect(files["answers.csv"]?.split("\r\n")[0]?.split(",")).toContain("tier");
+    expect(everything.answers.map((row) => row.tier)).toEqual(["stronger"]);
+    expect(everything.organization.stronger_surfaces).toEqual([]);
     // A list with nothing in it still names its columns.
     expect(files["alerts.csv"]?.split("\r\n")[0]?.split(",")).toEqual(
       expect.arrayContaining(["id", "location_id", "kind", "facts", "raised_at"]),

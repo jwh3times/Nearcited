@@ -1,4 +1,4 @@
-import { SURFACES, type Surface } from "./schemas";
+import { SURFACES, type Surface, type Tier } from "./schemas";
 import { defaultTuning, type ScoreWeights } from "./tuning";
 
 /**
@@ -68,6 +68,8 @@ export const SCAN_WINDOW = 7;
 export interface WindowCheck {
   tracked_query_id: string;
   surface: Surface;
+  /** The model it was asked with. Left out, as on a result kept before tiers, it is Standard. */
+  tier?: Tier;
   mentioned: boolean;
   position: number | null;
 }
@@ -82,14 +84,21 @@ export interface WindowCell {
   history: boolean[];
 }
 
-const cellKey = (check: Pick<WindowCheck, "tracked_query_id" | "surface">) =>
-  `${check.tracked_query_id}|${check.surface}`;
+/**
+ * One prompt on one surface at one tier. A prompt asked of a stronger model is a cell of its
+ * own, so a change of tier starts the assistant's count again, as a change of assistant does.
+ */
+export const cellKey = (check: Pick<WindowCheck, "tracked_query_id" | "surface" | "tier">) =>
+  check.tier === "stronger"
+    ? `${check.tracked_query_id}|${check.surface}|stronger`
+    : `${check.tracked_query_id}|${check.surface}`;
 
 /**
  * Every check in the window, newest scan first, for the cells the newest scan made.
  *
- * The newest scan decides which cells exist, so a prompt that was removed, or a surface that is
- * no longer checked, drops out of the rate at once instead of lingering for a week.
+ * The newest scan decides which cells exist, so a prompt that was removed, a surface that is
+ * no longer checked, or a tier no longer paid for, drops out of the rate at once instead of
+ * lingering for a week.
  */
 export function poolWindow<T extends WindowCheck>(scans: readonly (readonly T[])[]): T[] {
   const [newest] = scans;

@@ -5,12 +5,16 @@ import {
   type Organization,
   OrganizationAccountSchema,
   type Plan,
+  type PlanAssistant,
   type PriceChangeMessage,
   PriceChangeSchema,
   SubscriptionChangeSchema,
+  type SubscriptionFitMessage,
 } from "@nearcited/shared";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createApp } from "../src/app";
+import { fitSubscription } from "../src/billing/fit";
+import { advanceLimitChanges } from "../src/billing/limit-change";
 import {
   type BilledItem,
   type CheckoutRequest,
@@ -47,7 +51,7 @@ let mailFails: boolean;
 /** The prices the stand-in provider was asked to make. */
 let made: { like: string | null; product_name: string; cents: number }[];
 /** The price change steps put on the queue. */
-let steps: (PriceChangeMessage | LimitChangeMessage)[];
+let steps: (PriceChangeMessage | LimitChangeMessage | SubscriptionFitMessage)[];
 
 /** A provider whose webhook body is just the subscription's ID, signed with the word "signed". */
 const payments: Payments = {
@@ -91,7 +95,14 @@ const payments: Payments = {
   },
 };
 
+/** What the deployment says it has, which a test may change. Both assistants have Stronger. */
+const deployment: { models: Record<string, string>; stronger_assistants: PlanAssistant[] } = {
+  models: {},
+  stronger_assistants: [],
+};
+
 const app = createApp({
+  deployment,
   authenticate: async (request) => {
     const userId = request.headers.get("Authorization")?.replace("Bearer ", "");
     return userId
@@ -151,7 +162,7 @@ const plan = (key: string, position: number, extra: Partial<Plan> = {}): Plan =>
   scan_every_days: 14,
   max_manual_scans_per_month: position,
   emails_report: position > 0,
-  stronger_models: false,
+  stronger_price_cents: null,
   allowances: {},
   ...extra,
 });
@@ -201,6 +212,7 @@ beforeEach(() => {
   mailFails = false;
   made = [];
   steps = [];
+  deployment.stronger_assistants = ["chatgpt", "claude"];
   env = {
     PROVIDER_MODE: "mock",
     APP_URL: "https://app.example",
@@ -368,6 +380,7 @@ describe("an organization's account", () => {
         locations: null,
         renews_at: null,
         paying: null,
+        stronger_offered: [],
         price_change: null,
         pending: null,
       },
@@ -494,6 +507,7 @@ describe("changing a subscription", () => {
       kind: "upgrade",
       plan_key: "pro",
       locations: 3,
+      stronger: [],
       monthly_cents: 13000,
       due_now_cents: 1234,
       effective_at: null,
@@ -631,6 +645,287 @@ describe("changing a subscription", () => {
 
     db.subscriptions.clear();
     expect(await change(alice, organization.id, { plan_key: "pro" })).toBe("409 no_subscription");
+  });
+});
+
+describe("stronger models", () => {
+  const STRONGER = { chatgpt: "price_pro_chatgpt", claude: "price_pro_claude" };
+  /** Pro sells Stronger at $20 a month for each assistant, and checks both. */
+  beforeEach(() => {
+    db.plans.push(
+      plan("pro", 13, {
+        included_locations: 3,
+        extra_location_price_cents: 3500,
+        assistants: 2,
+        stronger_price_cents: 2000,
+        allowances: { stronger_models: true },
+      }),
+      plan("solo", 5, {
+        stronger_price_cents: 1500,
+        allowances: { stronger_models: true },
+      }),
+    );
+    db.planPrices.set("pro", {
+      base: "price_pro",
+      extra: "price_pro_location",
+      stronger: STRONGER,
+    });
+    db.planPrices.set("solo", {
+      base: "price_solo",
+      extra: null,
+      stronger: { chatgpt: "price_solo_chatgpt", claude: "price_solo_claude" },
+    });
+  });
+
+  /** Alice's organization, subscribed to a plan with these lines and applied by the webhook. */
+  async function subscribed(items: BilledItem[]) {
+    const organization = await organizationFor(alice);
+    atProvider.set("sub_1", subscription(organization.id, { items }));
+    await webhook("sub_1");
+    return organization;
+  }
+  const onPro = (...stronger: PlanAssistant[]) =>
+    subscribed([
+      { price_id: "price_pro", quantity: 1 },
+      ...stronger.map((surface) => ({ price_id: STRONGER[surface], quantity: 1 })),
+    ]);
+  const account = async (organizationId: string) =>
+    OrganizationAccountSchema.parse(
+      await (await call(alice, "GET", `/organizations/${organizationId}/account`)).json(),
+    ).billing;
+  const change = async (organizationId: string, body: unknown, preview = false) => {
+    const response = preview
+      ? await call(alice, "POST", `/organizations/${organizationId}/subscription/preview`, body)
+      : await call(alice, "PUT", `/organizations/${organizationId}/subscription`, body);
+    return response.status === 200
+      ? SubscriptionChangeSchema.parse(await response.json())
+      : `${response.status} ${await errorCode(response)}`;
+  };
+
+  it("offers Stronger on each assistant checked, at the price of the version paid", async () => {
+    const organization = await onPro();
+    expect(await account(organization.id)).toMatchObject({
+      stronger_offered: ["chatgpt", "claude"],
+      paying: { price_cents: 13000, stronger_price_cents: 2000, monthly_cents: 13000 },
+    });
+    // Not on an assistant the deployment has no stronger model for.
+    deployment.stronger_assistants = ["chatgpt"];
+    expect((await account(organization.id))?.stronger_offered).toEqual(["chatgpt"]);
+  });
+
+  it("offers none on a plan without it, at prices without it, or while a payment is owed", async () => {
+    const standard = await subscribed([{ price_id: "price_standard", quantity: 1 }]);
+    expect((await account(standard.id))?.stronger_offered).toEqual([]);
+
+    db.planPrices.set("pro", { base: "price_pro", extra: "price_pro_location", stronger: null });
+    atProvider.set(
+      "sub_1",
+      subscription(standard.id, { items: [{ price_id: "price_pro", quantity: 1 }] }),
+    );
+    await webhook("sub_1");
+    expect((await account(standard.id))?.stronger_offered).toEqual([]);
+
+    db.planPrices.set("pro", {
+      base: "price_pro",
+      extra: "price_pro_location",
+      stronger: STRONGER,
+    });
+    atProvider.set(
+      "sub_1",
+      subscription(standard.id, {
+        status: "past_due",
+        items: [{ price_id: "price_pro", quantity: 1 }],
+      }),
+    );
+    expect((await account(standard.id))?.stronger_offered).toEqual([]);
+  });
+
+  it("previews Stronger with what is charged now, and changes nothing", async () => {
+    const organization = await onPro();
+    expect(await change(organization.id, { plan_key: "pro", stronger: ["claude"] }, true)).toEqual({
+      kind: "upgrade",
+      plan_key: "pro",
+      locations: 3,
+      stronger: ["claude"],
+      monthly_cents: 15000,
+      due_now_cents: 1234,
+      effective_at: null,
+    });
+    expect(changes).toEqual([]);
+  });
+
+  it("makes Stronger at once, and the assistant is on it once the provider says so", async () => {
+    const organization = await onPro();
+    expect(await change(organization.id, { plan_key: "pro", stronger: ["claude"] })).toMatchObject({
+      kind: "upgrade",
+      stronger: ["claude"],
+      monthly_cents: 15000,
+    });
+    expect(changes).toEqual([
+      {
+        what: "now",
+        id: "sub_1",
+        items: [
+          { price_id: "price_pro", quantity: 1 },
+          { price_id: "price_pro_claude", quantity: 1 },
+        ],
+      },
+    ]);
+    // Nothing a request says decides the tier: it moves when the provider reports the change.
+    expect(current(organization.id)?.stronger_surfaces).toEqual([]);
+    atProvider.set("sub_1", subscription(organization.id, { items: changes[0]?.items ?? [] }));
+    await webhook("sub_1");
+    expect(current(organization.id)?.stronger_surfaces).toEqual(["claude"]);
+  });
+
+  it("holds a return to Standard until the period paid for ends", async () => {
+    const organization = await onPro("chatgpt", "claude");
+    expect(current(organization.id)?.stronger_surfaces).toEqual(["chatgpt", "claude"]);
+    expect(await change(organization.id, { plan_key: "pro", stronger: ["chatgpt"] })).toMatchObject(
+      {
+        kind: "downgrade",
+        stronger: ["chatgpt"],
+        effective_at: "2026-11-09T00:00:00.000Z",
+      },
+    );
+    expect(changes).toEqual([
+      {
+        what: "at-period-end",
+        id: "sub_1",
+        items: [
+          { price_id: "price_pro", quantity: 1 },
+          { price_id: "price_pro_chatgpt", quantity: 1 },
+        ],
+      },
+    ]);
+    // What is waiting says so on the account.
+    atProvider.set(
+      "sub_1",
+      subscription(organization.id, {
+        items: [
+          { price_id: "price_pro", quantity: 1 },
+          { price_id: "price_pro_chatgpt", quantity: 1 },
+          { price_id: "price_pro_claude", quantity: 1 },
+        ],
+        pending: changes[0]?.items ?? null,
+      }),
+    );
+    expect((await account(organization.id))?.pending).toMatchObject({
+      plan_key: "pro",
+      stronger: ["chatgpt"],
+      monthly_cents: 15000,
+    });
+  });
+
+  it("keeps Stronger through a change that does not mention it, where the plan sells it", async () => {
+    const organization = await onPro("claude");
+    expect(await change(organization.id, { plan_key: "pro", locations: 4 })).toMatchObject({
+      kind: "upgrade",
+      stronger: ["claude"],
+      monthly_cents: 13000 + 3500 + 2000,
+    });
+    expect(changes[0]?.items).toEqual([
+      { price_id: "price_pro", quantity: 1 },
+      { price_id: "price_pro_location", quantity: 1 },
+      { price_id: "price_pro_claude", quantity: 1 },
+    ]);
+  });
+
+  it("leaves Stronger behind on a move to a plan that does not sell it", async () => {
+    const organization = await onPro("claude");
+    expect(await change(organization.id, { plan_key: "standard" })).toMatchObject({
+      kind: "downgrade",
+      stronger: [],
+    });
+    expect(changes[0]?.items).toEqual([{ price_id: "price_standard", quantity: 1 }]);
+  });
+
+  it("refuses Stronger where it cannot be had, and the tier it already has", async () => {
+    const organization = await onPro("claude");
+    expect(await change(organization.id, { plan_key: "standard", stronger: ["claude"] })).toBe(
+      "422 stronger_unavailable",
+    );
+    deployment.stronger_assistants = ["claude"];
+    expect(
+      await change(organization.id, { plan_key: "pro", stronger: ["chatgpt", "claude"] }),
+    ).toBe("422 stronger_unavailable");
+    expect(await change(organization.id, { plan_key: "pro", stronger: ["claude"] })).toBe(
+      "422 no_change",
+    );
+    expect(await change(organization.id, { plan_key: "pro", stronger: ["gemini"] })).toBe(
+      "422 validation_failed",
+    );
+    expect(changes).toEqual([]);
+  });
+
+  it("starts a checkout with none", async () => {
+    const organization = await organizationFor(alice);
+    const response = await call(alice, "POST", `/organizations/${organization.id}/checkout`, {
+      plan_key: "pro",
+      stronger: ["claude"],
+    });
+    expect(response.status).toBe(200);
+    expect(checkouts[0]?.items).toEqual([{ price_id: "price_pro", quantity: 1 }]);
+  });
+
+  it("is paid for only on the assistant checked, on a plan that checks one", async () => {
+    const organization = await subscribed([{ price_id: "price_solo", quantity: 1 }]);
+    // Both are said to be on offer, so the owner switching assistant knows Stronger goes with it.
+    expect((await account(organization.id))?.stronger_offered).toEqual(["chatgpt", "claude"]);
+    expect(await change(organization.id, { plan_key: "solo", stronger: ["claude"] })).toBe(
+      "422 stronger_unavailable",
+    );
+    expect(
+      await change(organization.id, { plan_key: "solo", stronger: ["chatgpt"] }),
+    ).toMatchObject({ kind: "upgrade", monthly_cents: 5000 + 1500 });
+  });
+
+  it("follows a switch of assistant at no extra charge on a plan that checks one", async () => {
+    const organization = await subscribed([
+      { price_id: "price_solo", quantity: 1 },
+      { price_id: "price_solo_chatgpt", quantity: 1 },
+    ]);
+    expect(current(organization.id)).toMatchObject({
+      surfaces: ["chatgpt"],
+      stronger_surfaces: ["chatgpt"],
+    });
+    const switched = await call(alice, "PUT", `/organizations/${organization.id}/assistants`, {
+      surfaces: ["claude"],
+    });
+    expect(switched.status).toBe(200);
+    expect(changes).toEqual([
+      {
+        what: "now",
+        id: "sub_1",
+        items: [
+          { price_id: "price_solo", quantity: 1 },
+          { price_id: "price_solo_claude", quantity: 1 },
+        ],
+      },
+    ]);
+  });
+
+  it("lets Stronger go at the end of the period when the new assistant has none", async () => {
+    const organization = await subscribed([
+      { price_id: "price_solo", quantity: 1 },
+      { price_id: "price_solo_chatgpt", quantity: 1 },
+    ]);
+    deployment.stronger_assistants = ["chatgpt"];
+    await call(alice, "PUT", `/organizations/${organization.id}/assistants`, {
+      surfaces: ["claude"],
+    });
+    expect(changes).toEqual([
+      { what: "at-period-end", id: "sub_1", items: [{ price_id: "price_solo", quantity: 1 }] },
+    ]);
+    expect(current(organization.id)?.surfaces).toEqual(["claude"]);
+  });
+
+  it("changes nothing at the provider for a switch with no Stronger paid for", async () => {
+    const organization = await subscribed([{ price_id: "price_solo", quantity: 1 }]);
+    await call(alice, "PUT", `/organizations/${organization.id}/assistants`, {
+      surfaces: ["claude"],
+    });
+    expect(changes).toEqual([]);
   });
 });
 
@@ -889,6 +1184,38 @@ describe("a plan's prices", () => {
       current: { price_cents: 5900, stripe_price_id: "price_new_1" },
       versions: [{ stripe_price_id: "price_new_1" }, { stripe_price_id: "price_standard" }],
     });
+  });
+
+  it("sell Stronger at a price of their own, made at the provider for each assistant", async () => {
+    db.operators.add(bob);
+    const response = await setPrices(bob, "standard", { ...dearer, stronger_price_cents: 2500 });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ key: "standard", stronger_price_cents: 2500 });
+    expect(made.slice(2)).toEqual([
+      { like: null, product_name: "Nearcited standard: stronger ChatGPT", cents: 2500 },
+      { like: null, product_name: "Nearcited standard: stronger Claude", cents: 2500 },
+    ]);
+    const plans = await memoryStore(db, null).listPlanPrices();
+    expect(plans.find((p) => p.key === "standard")?.current).toMatchObject({
+      stronger_price_cents: 2500,
+      stripe_stronger_price_ids: { chatgpt: "price_new_3", claude: "price_new_4" },
+    });
+
+    // A new price for Stronger alone is a change, and its prices are of the same products.
+    made = [];
+    const again = await setPrices(bob, "standard", { ...dearer, stronger_price_cents: 2900 });
+    expect(again.status).toBe(200);
+    expect(made.slice(2)).toEqual([
+      { like: "price_new_3", product_name: "Nearcited standard: stronger ChatGPT", cents: 2900 },
+      { like: "price_new_4", product_name: "Nearcited standard: stronger Claude", cents: 2900 },
+    ]);
+    // Left out, the version sells none.
+    made = [];
+    expect((await setPrices(bob, "standard", dearer)).status).toBe(200);
+    expect(made).toHaveLength(2);
+    expect(
+      (await memoryStore(db, null).listPlanPrices()).find((p) => p.key === "standard")?.current,
+    ).toMatchObject({ stronger_price_cents: null, stripe_stronger_price_ids: null });
   });
 
   it("charge a new subscriber the new price at once", async () => {
@@ -1572,6 +1899,72 @@ describe("lowering what a plan allows", () => {
         expect(standard()?.allowances).toEqual({ not_built_yet: 7, sample_count: 30 });
       });
     });
+  });
+});
+
+describe("the day a plan stops selling Stronger", () => {
+  const DAY = 86_400_000;
+  const pro = plan("pro", 13, {
+    assistants: 2,
+    stronger_price_cents: 2000,
+    allowances: { stronger_models: true },
+  });
+
+  beforeEach(() => {
+    db.plans.push({ ...pro });
+    db.planPrices.set("pro", {
+      base: "price_pro",
+      extra: null,
+      stronger: { chatgpt: "price_pro_chatgpt", claude: "price_pro_claude" },
+    });
+    db.operators.add(bob);
+  });
+
+  it("takes the stronger lines off each subscription on it, charging nothing", async () => {
+    const organization = await organizationFor(alice);
+    const items = [
+      { price_id: "price_pro", quantity: 1 },
+      { price_id: "price_pro_claude", quantity: 1 },
+    ];
+    atProvider.set("sub_1", subscription(organization.id, { items, pending: items }));
+    await webhook("sub_1");
+    expect(current(organization.id)?.stronger_surfaces).toEqual(["claude"]);
+
+    const effective = new Date(Date.now() + 40 * DAY).toISOString();
+    const { allowances: _, ...settings } = pro;
+    await memoryStore(db, bob).announceLimitChange(
+      "pro",
+      { ...settings, allowances: {} },
+      effective,
+    );
+    db.now = effective;
+    const queue = {
+      sendBatch: async (
+        messages: Iterable<{ body: LimitChangeMessage | SubscriptionFitMessage }>,
+      ) => {
+        for (const message of messages) steps.push(message.body);
+      },
+    };
+    expect(await advanceLimitChanges(memoryStore(db, null), queue, new Date(effective))).toBe(1);
+    // Nobody is on Stronger from the day, and each subscription is queued to stop paying for it.
+    expect(current(organization.id)?.stronger_surfaces).toEqual([]);
+    expect(steps).toEqual([{ fit_subscription: organization.id }]);
+
+    const fit = { store: memoryStore(db, null), payments };
+    expect(await fitSubscription(organization.id, fit)).toBe("fitted");
+    expect(changes).toEqual([
+      { what: "reprice", id: "sub_1", items: [{ price_id: "price_pro", quantity: 1 }] },
+      { what: "at-period-end", id: "sub_1", items: [{ price_id: "price_pro", quantity: 1 }] },
+    ]);
+
+    // Run again, once the provider has the change, it has nothing to do.
+    atProvider.set(
+      "sub_1",
+      subscription(organization.id, { items: [{ price_id: "price_pro", quantity: 1 }] }),
+    );
+    changes = [];
+    expect(await fitSubscription(organization.id, fit)).toBe("nothing to do");
+    expect(changes).toEqual([]);
   });
 });
 

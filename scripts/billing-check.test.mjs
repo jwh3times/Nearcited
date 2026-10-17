@@ -130,6 +130,24 @@ test("notices a plan whose Stripe price is missing, wrong, or from the other mod
   assert.match(found[1].detail, /tax_behavior unspecified; made in the other mode/);
 });
 
+test("checks a plan's stronger price on each assistant, where it sells one", () => {
+  const facts = ready();
+  Object.assign(facts.plans[1], {
+    stronger_price_cents: 2000,
+    stripe_stronger_chatgpt_price_id: "price_d",
+    stripe_stronger_claude_price_id: "price_e",
+  });
+  facts.prices.price_d = price(2000);
+  facts.prices.price_e = price(2000);
+  assert.deepEqual(failures(facts), []);
+  facts.prices.price_e = price(2500);
+  facts.plans[1].stripe_stronger_chatgpt_price_id = null;
+  assert.deepEqual(failures(facts), [
+    "Starter, stronger ChatGPT: has a price at Stripe",
+    "Starter, stronger Claude: its Stripe price matches the plan",
+  ]);
+});
+
 test("notices a paid plan with no price ID, and leaves the free plan alone", () => {
   const facts = ready();
   facts.plans[1].stripe_price_id = null;

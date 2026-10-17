@@ -1,5 +1,10 @@
 import { z } from "zod";
-import { DraftKindSchema, type ProviderUsage } from "./schemas";
+import {
+  DraftKindSchema,
+  PLAN_ASSISTANTS,
+  type PlanAssistant,
+  type ProviderUsage,
+} from "./schemas";
 
 /**
  * The values that decide what the product measures and how it scores: prompt wording and score
@@ -87,26 +92,33 @@ export const DraftsTuningSchema = z.object({
 });
 export type DraftsTuning = z.infer<typeof DraftsTuningSchema>;
 
+const ChatGptSettingsSchema = z.object({
+  model: z.string().trim().min(1),
+  /** How hard the model reasons before it answers. Which levels a model takes is the vendor's. */
+  effort: z.enum(["none", "minimal", "low", "medium", "high", "xhigh", "max"]),
+});
+
+const ClaudeSettingsSchema = z.object({
+  model: z.string().trim().min(1),
+  /** How hard the model works on each answer. Higher effort searches and reasons more. */
+  effort: z.enum(["low", "medium", "high", "xhigh", "max"]),
+  /**
+   * The most web searches one check may run. This is the main cost control: each search adds
+   * its results to the input billed, and earlier results are read again on every later one.
+   */
+  max_searches: z.number().int().min(1).max(10),
+});
+
 export const TuningSchema = z.object({
   score: ScoreWeightsSchema,
   prompts: PromptsSchema,
-  /** Request settings for the ChatGPT provider. */
-  chatgpt: z.object({
-    model: z.string().trim().min(1),
-    /** How hard the model reasons before it answers. Which levels a model takes is the vendor's. */
-    effort: z.enum(["none", "minimal", "low", "medium", "high", "xhigh", "max"]),
-  }),
-  /** Request settings for the Claude provider. */
-  claude: z.object({
-    model: z.string().trim().min(1),
-    /** How hard the model works on each answer. Higher effort searches and reasons more. */
-    effort: z.enum(["low", "medium", "high", "xhigh", "max"]),
-    /**
-     * The most web searches one check may run. This is the main cost control: each search adds
-     * its results to the input billed, and earlier results are read again on every later one.
-     */
-    max_searches: z.number().int().min(1).max(10),
-  }),
+  /**
+   * Request settings for the ChatGPT provider. `stronger` is what an organization that pays for
+   * a stronger model on it is asked with; left out, none is offered on ChatGPT.
+   */
+  chatgpt: ChatGptSettingsSchema.extend({ stronger: ChatGptSettingsSchema.optional() }),
+  /** Request settings for the Claude provider, and its stronger ones, as for ChatGPT. */
+  claude: ClaudeSettingsSchema.extend({ stronger: ClaudeSettingsSchema.optional() }),
   /**
    * What each model costs, for turning recorded usage into spend. A model that answered but has
    * no entry here has no known cost: it is never priced as another model.
@@ -136,8 +148,17 @@ export const defaultTuning: Tuning = {
     default: "{query} in {city}, {region}",
     by_surface: {},
   },
-  chatgpt: { model: "gpt-6.1-sol", effort: "medium" },
-  claude: { model: "claude-sonnet-5-5", effort: "low", max_searches: 1 },
+  chatgpt: {
+    model: "gpt-6.1-sol",
+    effort: "medium",
+    stronger: { model: "gpt-6.1-sol", effort: "high" },
+  },
+  claude: {
+    model: "claude-sonnet-5-5",
+    effort: "low",
+    max_searches: 1,
+    stronger: { model: "claude-opus-5-5", effort: "low", max_searches: 1 },
+  },
   rates: {},
   drafts: {
     model: "claude-sonnet-5-5",
@@ -151,6 +172,23 @@ export const defaultTuning: Tuning = {
     },
   },
 };
+
+/** The assistants the tuning has a stronger model for, which are the only ones it is sold on. */
+export function strongerAssistants(tuning: Tuning): PlanAssistant[] {
+  return PLAN_ASSISTANTS.filter((surface) => tuning[surface].stronger !== undefined);
+}
+
+/**
+ * The tuning a stronger check is asked with: each assistant's stronger settings in place of its
+ * own. An assistant with none keeps its own here, and is never asked on Stronger.
+ */
+export function strongerTuning(tuning: Tuning): Tuning {
+  return {
+    ...tuning,
+    chatgpt: tuning.chatgpt.stronger ?? tuning.chatgpt,
+    claude: tuning.claude.stronger ?? tuning.claude,
+  };
+}
 
 export type TuningSource = "private" | "default";
 

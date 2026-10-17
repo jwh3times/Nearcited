@@ -5,7 +5,8 @@ import {
   type Organization,
   type OrganizationLimits,
   OrganizationLimitsSchema,
-  SURFACE_LABELS,
+  surfaceWithTier,
+  tierOf,
 } from "@nearcited/shared";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
@@ -140,7 +141,11 @@ export function OperatorPlan({ organization }: { organization: Organization }) {
                 <span>Checked on</span>
                 <span>
                   {organization.surfaces
-                    ? listOf(organization.surfaces.map((surface) => SURFACE_LABELS[surface]))
+                    ? listOf(
+                        organization.surfaces.map((surface) =>
+                          surfaceWithTier(surface, tierOf(organization, surface)),
+                        ),
+                      )
                     : "Everything that is set up"}
                 </span>
               </li>

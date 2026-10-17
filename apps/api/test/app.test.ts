@@ -144,7 +144,7 @@ const plan = (key: string, position: number, change: Partial<Plan> = {}): Plan =
   scan_every_days: 2,
   max_manual_scans_per_month: 2,
   emails_report: true,
-  stronger_models: false,
+  stronger_price_cents: null,
   allowances: {},
   ...change,
 });
@@ -1097,6 +1097,7 @@ describe("alerts", () => {
       sample_data: true,
       tracked_query_id: queryId,
       surface: "chatgpt",
+      tier: "standard",
       facts: { prompt: "best pizza in Raleigh", missed: 3, checks_before: 4, named_before: 4 },
       since: "2026-10-05T09:00:00Z",
       scan_id: null,

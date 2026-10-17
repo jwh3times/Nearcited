@@ -24,6 +24,19 @@ export const SURFACES = [
 export const SurfaceSchema = z.enum(SURFACES);
 export type Surface = z.infer<typeof SurfaceSchema>;
 
+/** The assistants a plan's scans can ask. A plan with fewer lets the owner choose which. */
+export const PLAN_ASSISTANTS = ["chatgpt", "claude"] as const satisfies readonly Surface[];
+export const PlanAssistantSchema = z.enum(PLAN_ASSISTANTS);
+export type PlanAssistant = z.infer<typeof PlanAssistantSchema>;
+
+/**
+ * How an assistant is asked: with the model the deployment checks everyone with, or a stronger
+ * one its organization pays for. See `docs/adr/0021-a-stronger-model-is-a-line-of-the-plans-price.md`.
+ */
+export const TIERS = ["standard", "stronger"] as const;
+export const TierSchema = z.enum(TIERS);
+export type Tier = z.infer<typeof TierSchema>;
+
 /** A prompt is asked of assistants; a keyword is searched on Google. */
 export const SURFACES_BY_KIND: Record<QueryKind, readonly Surface[]> = {
   ai_prompt: ["chatgpt", "gemini", "perplexity", "claude"],
@@ -117,6 +130,11 @@ export const OrganizationSchema = z.object({
   /** The surfaces its scans check. Null means every surface that is set up. */
   surfaces: z.array(SurfaceSchema).nullable(),
   /**
+   * The assistants it pays to have checked on a stronger model. Set from its subscription by the
+   * worker alone; an assistant here that it is not checked on is not asked at all.
+   */
+  stronger_surfaces: z.array(PlanAssistantSchema),
+  /**
    * True for an organization made by a test account. Its scans run on generated sample data and
    * the interface says so. See `docs/adr/0003-platform-roles-and-test-accounts.md`.
    */
@@ -155,8 +173,11 @@ export const PlanSchema = z.object({
   max_manual_scans_per_month: z.number().int().nonnegative(),
   /** Whether owners are emailed a report after each scan. */
   emails_report: z.boolean(),
-  /** Whether its owner may pay for a stronger model. */
-  stronger_models: z.boolean(),
+  /**
+   * For each assistant on Stronger, a month, in US cents. Null where the plan sells no stronger
+   * model at its current prices. Whether the plan includes one is its `stronger_models` allowance.
+   */
+  stronger_price_cents: z.number().int().positive().nullable(),
   /** The kinds of work it includes. */
   allowances: AllowancesSchema,
 });
@@ -215,6 +236,11 @@ export const ScanSchema = z.object({
   error: z.string().nullable(),
   /** True when the scan ran on generated sample data. Set by the worker when it starts. */
   sample_data: z.boolean(),
+  /**
+   * The tier it asked each surface on, by surface. Empty until it has finished, and for a scan
+   * from before tiers.
+   */
+  tiers: z.partialRecord(SurfaceSchema, TierSchema),
   created_at: Timestamp,
   started_at: Timestamp.nullable(),
   finished_at: Timestamp.nullable(),
@@ -233,6 +259,8 @@ export const ScanResultSchema = z.object({
   answer_excerpt: z.string().nullable(),
   /** The phone numbers a written answer gave for the business, in international form. */
   phones: z.array(z.string()),
+  /** The model it was asked with: the deployment's, or a stronger one the organization paid for. */
+  tier: TierSchema,
   sampled_at: Timestamp,
 });
 export type ScanResult = z.infer<typeof ScanResultSchema>;
@@ -299,6 +327,9 @@ export const ATTENTION_KINDS = [
   // An action carried out more than 36 hours ago whose owners have not been told.
   "action_untold",
   "no_prompts",
+  // An organization paying for a stronger model on an assistant the tuning has none for, which
+  // is checked on Standard meanwhile.
+  "stronger_unavailable",
   // A location with every prompt its plan allows. Having every location allowed is not listed.
 ] as const;
 export type AttentionKind = (typeof ATTENTION_KINDS)[number];
@@ -336,6 +367,8 @@ export const OperatorOrganizationSchema = z.object({
   failed_7d: z.number().int().nonnegative(),
   scan_every_days: z.number().int().positive(),
   surfaces: z.array(SurfaceSchema).nullable(),
+  /** The assistants it pays a stronger model on and is checked on. */
+  stronger_surfaces: z.array(PlanAssistantSchema),
   /** The plan it is on. Null when its limits were set by hand. */
   plan_key: z.string().nullable(),
   /**
@@ -556,6 +589,8 @@ export const PlanPricesInputSchema = z.object({
   price_cents: monthlyPrice,
   /** A month, in US cents, for each location beyond those. Null sells no more than it includes. */
   extra_location_price_cents: monthlyPrice.nullable(),
+  /** A month, in US cents, for each assistant on Stronger. Null sells no stronger model. */
+  stronger_price_cents: monthlyPrice.nullable().default(null),
 });
 export type PlanPricesInput = z.infer<typeof PlanPricesInputSchema>;
 
@@ -647,6 +682,13 @@ export const LimitChangeMessageSchema = z.object({
   step: z.enum(LIMIT_CHANGE_STEPS),
 });
 export type LimitChangeMessage = z.infer<typeof LimitChangeMessageSchema>;
+
+/**
+ * A message asking the worker to take off an organization's subscription what its plan no longer
+ * sells: the stronger lines, on the day a reduction took stronger models off the plan.
+ */
+export const SubscriptionFitMessageSchema = z.object({ fit_subscription: Id });
+export type SubscriptionFitMessage = z.infer<typeof SubscriptionFitMessageSchema>;
 
 /**
  * What the operator sends to change a plan. `reduce_on` is the day any reductions take effect,
@@ -797,9 +839,6 @@ export const TrackedQueryInputSchema = z.object({
 });
 export type TrackedQueryInput = z.output<typeof TrackedQueryInputSchema>;
 
-/** The assistants a plan's scans can ask. A plan with fewer lets the owner choose which. */
-export const PLAN_ASSISTANTS = ["chatgpt", "claude"] as const satisfies readonly Surface[];
-
 /** An owner's choice of assistants. How many it must name is the plan's to say. */
 export const AssistantChoiceSchema = z.object({
   surfaces: z.array(z.enum(PLAN_ASSISTANTS)).min(1, "Choose an assistant"),
@@ -811,6 +850,11 @@ export const CheckoutInputSchema = z.object({
   plan_key: z.string().min(1).max(31),
   /** Left out, it is what the plan includes. More than that is paid for one at a time. */
   locations: limit(1, 1000).optional(),
+  /**
+   * The assistants to have checked on a stronger model. Left out, a change keeps the ones paid
+   * for now, where the plan sells them; a checkout starts with none.
+   */
+  stronger: z.array(PlanAssistantSchema).max(PLAN_ASSISTANTS.length).optional(),
 });
 export type CheckoutInput = z.infer<typeof CheckoutInputSchema>;
 
@@ -851,9 +895,18 @@ export const OrganizationAccountSchema = z.object({
         .object({
           price_cents: z.number().int().nonnegative(),
           extra_location_price_cents: z.number().int().positive().nullable(),
+          /** For each assistant on Stronger. Null where the prices paid sell no stronger model. */
+          stronger_price_cents: z.number().int().positive().nullable(),
           monthly_cents: z.number().int().nonnegative(),
         })
         .nullable(),
+      /**
+       * The assistants Stronger can be had on now: it is on the plan and priced at what the
+       * subscription pays, the deployment has a stronger model for the assistant, and nothing is
+       * owed. One already paid for is listed too, so it can be put back on Standard. It is paid
+       * for only on an assistant the organization is checked on.
+       */
+      stronger_offered: z.array(PlanAssistantSchema),
       /**
        * A price change announced for the plan that this subscription has not been moved to yet:
        * what it will come to a month, in US cents before tax, from its first renewal on or
@@ -867,6 +920,8 @@ export const OrganizationAccountSchema = z.object({
         .object({
           plan_key: z.string(),
           locations: z.number().int().positive(),
+          /** The assistants it will pay for a stronger model on. */
+          stronger: z.array(PlanAssistantSchema),
           /** What it will cost a month, in US cents, before tax. */
           monthly_cents: z.number().int().nonnegative(),
           at: Timestamp,
@@ -886,6 +941,8 @@ export const SubscriptionChangeSchema = z.object({
   kind: z.enum(["upgrade", "downgrade"]),
   plan_key: z.string(),
   locations: z.number().int().positive(),
+  /** The assistants it pays for a stronger model on. */
+  stronger: z.array(PlanAssistantSchema),
   /** The new price a month, in US cents, before tax. */
   monthly_cents: z.number().int().nonnegative(),
   /** An upgrade: what is charged now for the rest of the period, with tax. Otherwise null. */
@@ -1514,9 +1571,10 @@ const AlertRow = z.object({
 export const AlertSchema = z.discriminatedUnion("kind", [
   AlertRow.extend({
     kind: z.literal("drop"),
-    /** The prompt and the surface it is about. */
+    /** The prompt, the surface and the tier it is about. */
     tracked_query_id: Id,
     surface: SurfaceSchema,
+    tier: TierSchema,
     facts: DropFactsSchema,
   }),
   AlertRow.extend({ kind: z.literal("competitor"), facts: CompetitorFactsSchema }),

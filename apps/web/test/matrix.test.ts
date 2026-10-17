@@ -27,6 +27,7 @@ const result = (
   cited_urls: [],
   answer_excerpt: null,
   phones: [],
+  tier: "standard",
   sampled_at: "2026-10-01T00:00:00Z",
 });
 

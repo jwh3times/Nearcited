@@ -2,6 +2,7 @@ import {
   assistantOf,
   type DraftKind,
   hostOf,
+  type PlanAssistant,
   type Rates,
   toPublicAudit,
   type VisitSent,
@@ -80,6 +81,8 @@ export interface Deployment {
    * private tuning.
    */
   draft_kinds?: readonly DraftKind[];
+  /** The assistants the tuning has a stronger model for, which are the only ones it is sold on. */
+  stronger_assistants?: readonly PlanAssistant[];
 }
 
 /** The token in an audit's link: 64 hex characters. Anything else is not worth a query. */

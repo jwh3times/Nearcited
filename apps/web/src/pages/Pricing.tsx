@@ -1,5 +1,4 @@
 import {
-  allowanceLines,
   PLAN_ASSISTANTS,
   type Plan,
   SURFACE_LABELS,
@@ -20,6 +19,7 @@ import {
   type PlanOffer,
   type PricingViewer,
   planOffer,
+  priceListLines,
   rememberPlan,
 } from "../lib/billing";
 import { listOf } from "../lib/format";
@@ -212,7 +212,7 @@ function PlanCard({
             : `${plan.max_manual_scans_per_month} extra scans on demand a month`}
         </li>
         <li>{plan.emails_report ? "A report by email after each scan" : "No emailed report"}</li>
-        {allowanceLines(plan.allowances).map((line) => (
+        {priceListLines(plan).map((line) => (
           <li key={line}>{line}</li>
         ))}
       </ul>
@@ -350,7 +350,11 @@ function ConfirmChange({
   onBack,
 }: ConfirmChangeProps) {
   const monthly = `${formatPrice(change.monthly_cents)} a month before tax`;
-  const what = `${plan.name} with ${locationCount(change.locations)}`;
+  // A stronger model paid for is kept where the plan sells it, and said so.
+  const stronger = change.stronger.map((surface) => SURFACE_LABELS[surface]);
+  const what = `${plan.name} with ${locationCount(change.locations)}${
+    stronger.length > 0 ? ` and a stronger model on ${listOf(stronger)}` : ""
+  }`;
   return (
     <div className="plan-confirm">
       {change.kind === "upgrade" ? (

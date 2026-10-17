@@ -70,7 +70,7 @@ const standard: Plan = {
   scan_every_days: 2,
   max_manual_scans_per_month: 10,
   emails_report: true,
-  stronger_models: false,
+  stronger_price_cents: null,
   allowances: {},
 };
 
@@ -114,6 +114,8 @@ beforeEach(async () => {
     extra_location_price_cents: 1500,
     stripe_price_id: "price_old",
     stripe_extra_location_price_id: "price_old_location",
+    stronger_price_cents: null,
+    stripe_stronger_price_ids: null,
   });
   db.emails.set(alice, "alice@example.com");
   organization = await memoryStore(db, alice).createOrganization("Raleigh Pizza Group");
@@ -257,6 +259,51 @@ describe("moving a subscription to the new price", () => {
         ],
       },
     ]);
+  });
+
+  it("moves a subscriber's Stronger with the rest, at the new version's price for it", async () => {
+    // Standard was sold with Stronger at $20, and is now sold with it at $25.
+    const old = db.pastPrices[0];
+    if (old) {
+      Object.assign(old, {
+        stronger_price_cents: 2000,
+        stripe_stronger_price_ids: { chatgpt: "price_old_chatgpt", claude: "price_old_claude" },
+      });
+    }
+    db.planPrices.set("standard", {
+      base: "price_new",
+      extra: "price_new_location",
+      stronger: { chatgpt: "price_new_chatgpt", claude: "price_new_claude" },
+    });
+    const plan = db.plans.find((row) => row.key === "standard");
+    if (plan)
+      Object.assign(plan, { stronger_price_cents: 2500, allowances: { stronger_models: true } });
+    const subscription = atProvider.get("sub_1");
+    if (subscription) subscription.items = [...OLD, { price_id: "price_old_claude", quantity: 1 }];
+
+    await step("announce", ANNOUNCED);
+    // What they are told counts Stronger: $49 + 2 × $15 + $20 now, $59 + 2 × $19 + $25 after.
+    expect(sent[0]?.email.text).toContain("$99");
+    expect(sent[0]?.email.text).toContain("$122");
+    expect(await step("move", Date.parse(EFFECTIVE))).toBe("moved");
+    expect(repriced).toEqual([
+      { id: "sub_1", items: [...NEW, { price_id: "price_new_claude", quantity: 1 }] },
+    ]);
+  });
+
+  it("leaves a subscriber paying Stronger where the new prices sell none", async () => {
+    const old = db.pastPrices[0];
+    if (old) {
+      Object.assign(old, {
+        stronger_price_cents: 2000,
+        stripe_stronger_price_ids: { chatgpt: "price_old_chatgpt", claude: "price_old_claude" },
+      });
+    }
+    const subscription = atProvider.get("sub_1");
+    if (subscription) subscription.items = [...OLD, { price_id: "price_old_claude", quantity: 1 }];
+    expect(await step("move", Date.parse(EFFECTIVE))).toBe("skipped");
+    expect(notice()?.skipped).toBe("It pays for locations or Stronger the new prices do not sell.");
+    expect(repriced).toEqual([]);
   });
 
   it("does nothing once the change has been called off, and tells whoever was told", async () => {

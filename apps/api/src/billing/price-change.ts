@@ -81,7 +81,7 @@ export async function runPriceChangeStep(
   }
   const next = { ...paid, version: target } satisfies PaidPlan;
   const items = itemsFor(next);
-  if (!items) return skip("It pays for locations the new price does not sell.");
+  if (!items) return skip("It pays for locations or Stronger the new prices do not sell.");
   const goesUp = monthlyCents(next) > monthlyCents(paid);
 
   if (step === "move") return move();

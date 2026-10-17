@@ -94,8 +94,19 @@ pass `pnpm check` and run in mock mode without it.
   migrated second.
 - **An organization's limits come from its plan.** `apply_plan()`, which only the worker calls,
   copies them from the plan, and the operator's limits editor changes them through its function.
-  Nothing on a request path writes a limit, `allowances`, `plan_key`, `paused_by_plan` or
-  `set_aside_by_plan`. An account has one organization: `create_organization()` refuses a second.
+  Nothing on a request path writes a limit, `allowances`, `plan_key`, `paused_by_plan`,
+  `set_aside_by_plan` or `stronger_surfaces`. An account has one organization:
+  `create_organization()` refuses a second.
+- **A stronger model is a line of the subscription, and the tier is kept on each result.** An
+  owner's request changes what the subscription pays for at the provider and writes nothing here;
+  the webhook reads it back and `apply_plan()` sets which assistants are on Stronger, none on a plan
+  without the `stronger_models` allowance
+  (`docs/adr/0021-a-stronger-model-is-a-line-of-the-plans-price.md`). Its price is part of the
+  plan's price version, one amount with a provider price of its own for each assistant, so it rises
+  only by an announced price change. Which model Stronger is lives in the tuning's `stronger`
+  blocks, and an assistant with none is sold none. A result and a drop keep the tier they were asked
+  on, and a tier is part of the cell for the score and the alerts alike (`cellKey`,
+  `packages/shared/src/scoring.ts`): keep the two agreeing. A test organization is always Standard.
 - **A kind of work a plan includes is an allowance, not a new column.** It is one row in
   `allowance_kinds` and one entry in `ALLOWANCE_KINDS` (`packages/shared/src/allowances.ts`), added
   in the same change (`docs/adr/0012-a-plans-allowances-are-one-set.md`). A form shows and sends

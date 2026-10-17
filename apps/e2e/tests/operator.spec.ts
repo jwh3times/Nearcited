@@ -280,7 +280,10 @@ test("lets the operator set a plan's prices in dollars, and says who goes on pay
   await price.fill("149.50");
   await form.getByRole("button", { name: "Set up at Stripe, and sell at $149.50" }).click();
   await expect(form.getByRole("status")).toContainText("New subscribers pay this from now.");
-  expect(sent).toEqual([{ price_cents: 14950, extra_location_price_cents: 3500 }]);
+  // Pro sells no stronger model, so its price for one is left empty.
+  expect(sent).toEqual([
+    { price_cents: 14950, extra_location_price_cents: 3500, stronger_price_cents: null },
+  ]);
 
   // The free plan has no price to set.
   await page.getByRole("button", { name: "Edit Free" }).click();

@@ -13,6 +13,7 @@ const org = (id: string, change: Partial<Organization> = {}): Organization => ({
   max_manual_scans_per_month: 5,
   scan_every_days: 1,
   surfaces: null,
+  stronger_surfaces: [],
   is_test: false,
   emails_report: true,
   allowances: {},
@@ -77,6 +78,7 @@ const healthy = (): Facts => ({
   scans: [scan("l1", 2)],
   audits: [],
   untoldActions: [],
+  strongerAssistants: ["chatgpt", "claude"],
 });
 const kinds = (facts: Facts) => buildOperatorOverview(facts).attention.map((item) => item.kind);
 
@@ -246,6 +248,28 @@ describe("needs attention", () => {
     full.activePrompts = { l1: 10 };
     full.locations = full.locations.map((row) => ({ ...row, paused_by_plan: true }));
     expect(buildOperatorOverview(full).organizations[0]?.locations_at_prompt_limit).toBe(0);
+  });
+
+  it("shows which assistants each organization pays a stronger model on", () => {
+    const facts = healthy();
+    facts.organizations = [
+      org("a", { surfaces: ["claude"], stronger_surfaces: ["chatgpt", "claude"] }),
+    ];
+    // One it pays for and is not checked on is not asked, so it is not shown.
+    expect(buildOperatorOverview(facts).organizations[0]?.stronger_surfaces).toEqual(["claude"]);
+    expect(kinds(facts)).toEqual([]);
+  });
+
+  it("lists an organization paying for a stronger model the tuning has none for", () => {
+    const facts = healthy();
+    facts.organizations = [org("a", { stronger_surfaces: ["claude"] })];
+    facts.strongerAssistants = ["chatgpt"];
+    const [item] = buildOperatorOverview(facts).attention;
+    expect(item).toMatchObject({ kind: "stronger_unavailable", organization_id: "a" });
+    expect(item?.detail).toContain("stronger model on Claude");
+    // Nobody paying for one, or a test organization, is nothing to see.
+    facts.organizations = [org("a", { is_test: true, stronger_surfaces: ["claude"] })];
+    expect(kinds(facts)).toEqual([]);
   });
 
   it("does not count having every location it is allowed as a problem", () => {

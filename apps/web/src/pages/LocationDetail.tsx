@@ -6,7 +6,9 @@ import {
   type QueryKind,
   type ScanWithResults,
   SURFACE_LABELS,
+  surfaceWithTier,
   TrackedQueryInputSchema,
+  tierOf,
 } from "@nearcited/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, type KeyboardEvent, useEffect, useRef, useState } from "react";
@@ -164,7 +166,14 @@ export function LocationDetail() {
     (recommendation) => recommendation.status === "open" && !inPlan(recommendation.rule),
   );
   const scanning = inFlight(scan) || startScan.isPending;
-  const assistants = listOf(surfaces.map((surface) => SURFACE_LABELS[surface]));
+  // Each says when it is asked on a stronger model the organization pays for.
+  const assistants = listOf(
+    surfaces.map((surface) =>
+      organization
+        ? surfaceWithTier(surface, tierOf(organization, surface))
+        : SURFACE_LABELS[surface],
+    ),
+  );
 
   /** Swaps the tab in place. If the bar is stuck to the top, the new tab starts at the top. */
   function openTab(next: Tab) {

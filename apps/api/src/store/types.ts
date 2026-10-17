@@ -31,6 +31,7 @@ import type {
   Organization,
   OrganizationLimits,
   Plan,
+  PlanAssistant,
   PlanSettings,
   PlatformRole,
   PriceChange,
@@ -100,7 +101,7 @@ export interface SubscriptionRecord {
   status: string | null;
 }
 
-/** One pair of prices a plan has been sold at, with the payment provider's names for them. */
+/** One set of prices a plan has been sold at, with the payment provider's names for them. */
 export interface PriceVersion {
   /** A month, in US cents, for the locations the plan includes. */
   price_cents: number;
@@ -108,6 +109,13 @@ export interface PriceVersion {
   extra_location_price_cents: number | null;
   stripe_price_id: string;
   stripe_extra_location_price_id: string | null;
+  /** A month, in US cents, for each assistant on Stronger. Null when this version sells none. */
+  stronger_price_cents: number | null;
+  /**
+   * The provider's price for Stronger on each assistant: the same amount, and a price of its own
+   * for each, so the webhook can tell which assistant was paid for. Null with no stronger price.
+   */
+  stripe_stronger_price_ids: Record<PlanAssistant, string> | null;
 }
 
 /** An action its organization's owners are still to be told of, with where it belongs. */
@@ -275,6 +283,8 @@ export interface PlanPrices {
   key: string;
   on_sale: boolean;
   included_locations: number;
+  /** Whether the plan includes stronger models: its `stronger_models` allowance. */
+  sells_stronger: boolean;
   /** What a new subscriber pays. Null for a plan that costs nothing, or is not set up yet. */
   current: PriceVersion | null;
   /** Every version it has been sold at, newest first, the current one among them. */
@@ -295,7 +305,9 @@ export class StoreError extends Error {
   }
 }
 
-export type NewScanResult = Omit<ScanResult, "id" | "scan_id" | "sampled_at">;
+/** A result as a scan keeps it. Left out, the tier is Standard, as the database keeps it. */
+export type NewScanResult = Omit<ScanResult, "id" | "scan_id" | "sampled_at" | "tier"> &
+  Partial<Pick<ScanResult, "tier">>;
 
 export interface CompletedScan {
   score: number | null;
@@ -909,13 +921,16 @@ export interface Store {
   ): Promise<AllowanceClaim | null>;
   /**
    * Puts an organization on a plan and copies the plan's limits onto it. `locations` is how many
-   * it has paid for, when that is more than the plan includes. Null when there is no such
-   * organization. Worker only: nothing a member sends decides their plan.
+   * it has paid for, when that is more than the plan includes. `stronger` is the assistants its
+   * subscription pays a stronger model on: left out they stay as they are, and none is kept on a
+   * plan that does not include stronger models. Null when there is no such organization. Worker
+   * only: nothing a member sends decides their plan.
    */
   applyPlan(
     organizationId: string,
     planKey: string,
     locations?: number,
+    stronger?: readonly PlanAssistant[],
   ): Promise<Organization | null>;
   /** What is kept of an organization's subscription, or null when it has never had one. Worker only. */
   getSubscription(organizationId: string): Promise<SubscriptionRecord | null>;

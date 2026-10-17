@@ -13,6 +13,7 @@ import type {
   Organization,
   PageFetcher,
   Plan,
+  PlanAssistant,
   PriceChange,
   PriceChangeNotice,
   PromptPage,
@@ -40,7 +41,9 @@ import {
   MOST_VISITS_A_DAY,
   NOTICE_HOLD_HOURS,
   PAGES_SHOWN,
+  PLAN_ASSISTANTS,
   reductions,
+  STRONGER_MODELS_ALLOWANCE,
   VISITS_ALLOWANCE,
   websiteDomain,
 } from "@nearcited/shared";
@@ -95,7 +98,15 @@ export interface MemoryDb {
   /** The on-page check each scan made, by scan ID. */
   siteChecks: Map<string, SiteCheck | null>;
   /** The payment provider's names for each plan's prices, by plan key. */
-  planPrices: Map<string, { base: string | null; extra: string | null }>;
+  planPrices: Map<
+    string,
+    {
+      base: string | null;
+      extra: string | null;
+      /** Stronger on each assistant, priced at the plan's `stronger_price_cents`. */
+      stronger?: Record<PlanAssistant, string> | null;
+    }
+  >;
   /** What the announcement functions take as the present moment, when a test sets one. */
   now?: string;
   limitChanges: LimitChange[];
@@ -610,6 +621,8 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
               extra_location_price_cents: ids.extra ? plan.extra_location_price_cents : null,
               stripe_price_id: ids.base,
               stripe_extra_location_price_id: ids.extra,
+              stronger_price_cents: ids.stronger ? plan.stronger_price_cents : null,
+              stripe_stronger_price_ids: ids.stronger ?? null,
             }
           : null;
         const past = db.pastPrices
@@ -619,6 +632,7 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
           key: plan.key,
           on_sale: plan.on_sale,
           included_locations: plan.included_locations,
+          sells_stronger: plan.allowances[STRONGER_MODELS_ALLOWANCE] === true,
           current,
           versions: current ? [current, ...past] : past,
         };
@@ -2203,7 +2217,7 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
       return takeAllowance(organizationId, kind, amount);
     },
 
-    async applyPlan(organizationId, planKey, locations) {
+    async applyPlan(organizationId, planKey, locations, stronger) {
       if (userId !== null) throw new StoreError("forbidden", "worker only");
       const plan = db.plans.find((candidate) => candidate.key === planKey);
       if (!plan) throw new StoreError("unexpected", `no plan called ${planKey}`);
@@ -2219,6 +2233,13 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         emails_report: plan.emails_report,
         allowances: { ...plan.allowances },
         surfaces: plan.assistants >= 2 ? ["chatgpt", "claude"] : (one ?? ["chatgpt"]),
+        // As the database has it: none where the plan sells none, each once in a fixed order.
+        stronger_surfaces:
+          plan.allowances[STRONGER_MODELS_ALLOWANCE] === true
+            ? PLAN_ASSISTANTS.filter((s) =>
+                (stronger ?? organization.stronger_surfaces).includes(s),
+              )
+            : [],
       });
       fitConnections(organizationId);
       return organization;
@@ -2253,6 +2274,7 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         id: crypto.randomUUID(),
         name,
         ...DEFAULT_LIMITS,
+        stronger_surfaces: [],
         allowances: db.testAccounts.has(userId) ? testAllowances(db) : {},
         is_test: db.testAccounts.has(userId),
         plan_key: null,
@@ -2334,15 +2356,19 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
           extra_location_price_cents: was.extra ? plan.extra_location_price_cents : null,
           stripe_price_id: was.base,
           stripe_extra_location_price_id: was.extra,
+          stronger_price_cents: was.stronger ? plan.stronger_price_cents : null,
+          stripe_stronger_price_ids: was.stronger ?? null,
         });
       }
       db.planPrices.set(key, {
         base: version.stripe_price_id,
         extra: version.stripe_extra_location_price_id,
+        stronger: version.stripe_stronger_price_ids,
       });
       return Object.assign(plan, {
         price_cents: version.price_cents,
         extra_location_price_cents: version.extra_location_price_cents,
+        stronger_price_cents: version.stronger_price_cents,
       });
     },
 
@@ -2369,7 +2395,9 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
           (v.price_cents < plan.price_cents ||
             (v.extra_location_price_cents !== null &&
               (ids.extra === null ||
-                v.extra_location_price_cents < (plan.extra_location_price_cents ?? 0)))),
+                v.extra_location_price_cents < (plan.extra_location_price_cents ?? 0))) ||
+            (v.stronger_price_cents !== null &&
+              (!ids.stronger || v.stronger_price_cents < (plan.stronger_price_cents ?? 0)))),
       );
       const now = Date.parse(db.now ?? new Date().toISOString());
       if (goesUp && Date.parse(effectiveAt) < now + 30 * 86_400_000) {
@@ -2802,6 +2830,7 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         visibility_score: null,
         error: null,
         sample_data: false,
+        tiers: {},
         created_at: timestamp(),
         started_at: null,
         finished_at: null,
@@ -3089,12 +3118,18 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         visibility_score: outcome.score,
         error: null,
         finished_at: timestamp(),
+        // As complete_scan() keeps it: the tier each surface was asked on.
+        tiers: Object.fromEntries(
+          outcome.results.map((result) => [result.surface, result.tier ?? "standard"]),
+        ),
       });
       db.results = db.results
         .filter((result) => result.scan_id !== id)
         .concat(
           outcome.results.map((result) => ({
             ...result,
+            // As the database keeps it: a result that does not say was asked on Standard.
+            tier: result.tier ?? "standard",
             id: crypto.randomUUID(),
             scan_id: id,
             sampled_at: timestamp(),

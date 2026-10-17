@@ -2,8 +2,8 @@ import {
   alertDetail,
   alertEnded,
   groupAlerts,
-  SURFACE_LABELS,
   summarizeBySurface,
+  surfaceWithTier,
 } from "@nearcited/shared";
 import { Resend } from "resend";
 import type { Env } from "../env";
@@ -64,9 +64,12 @@ function subjectOf(report: ScanReport): string {
 
 export function buildScanReportEmail(report: ScanReport, appUrl: string): Email {
   const { location, score, window } = report;
+  // The window holds only the tier this scan asked each surface on, so this scan says which.
+  const tierOn = (surface: string) =>
+    report.results.find((result) => result.surface === surface)?.tier;
   const lines = summarizeBySurface(window.results).map(
     (summary) =>
-      `  ${SURFACE_LABELS[summary.surface]}: named in ${summary.mentions} of ${summary.checks}`,
+      `  ${surfaceWithTier(summary.surface, tierOn(summary.surface))}: named in ${summary.mentions} of ${summary.checks}`,
   );
   const link = `${appUrl.replace(/\/$/, "")}/locations/${location.id}`;
 

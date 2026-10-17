@@ -1199,6 +1199,19 @@ button.go {
   stroke-width: 2;
 }
 
+/* Where an assistant's model changed, and the score started again for it. */
+.chart-mark {
+  stroke: var(--muted);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+  vector-effect: non-scaling-stroke;
+}
+
+.chart-notes {
+  margin: 0.5rem 0 0;
+  padding-left: 1rem;
+}
+
 .chart-dates {
   display: flex;
   justify-content: space-between;
@@ -1946,6 +1959,20 @@ mark {
 .segmented button[aria-pressed="true"] {
   background: var(--ink);
   color: var(--bg);
+}
+
+.stronger-choice {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.stronger-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 0.75rem;
 }
 
 .settings-main > button {

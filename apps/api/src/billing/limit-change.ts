@@ -1,4 +1,10 @@
-import type { LimitChange, LimitChangeMessage, LimitChangeStep } from "@nearcited/shared";
+import {
+  type LimitChange,
+  type LimitChangeMessage,
+  type LimitChangeStep,
+  STRONGER_MODELS_ALLOWANCE,
+  type SubscriptionFitMessage,
+} from "@nearcited/shared";
 import { buildLimitChangeEmail } from "../email/limit-change";
 import type { Email } from "../email/report";
 import type { Store } from "../store/types";
@@ -70,7 +76,9 @@ export async function runLimitChangeStep(
 
 /** The one queue method used here. `env.SCAN_QUEUE` satisfies it. */
 export interface LimitChangeQueue {
-  sendBatch(messages: Iterable<{ body: LimitChangeMessage }>): Promise<unknown>;
+  sendBatch(
+    messages: Iterable<{ body: LimitChangeMessage | SubscriptionFitMessage }>,
+  ): Promise<unknown>;
 }
 
 /** Cloudflare Queues accepts at most 100 messages per sendBatch call. */
@@ -94,7 +102,9 @@ export async function enqueueLimitChangeSteps(
 /**
  * The daily look at every announced reduction. A week before its day the reminders are queued,
  * once. On the day it is made, for the plan and everyone on it together: a plan has one set of
- * limits, so nobody is left behind on the old ones. Returns how many reductions were made.
+ * limits, so nobody is left behind on the old ones. A reduction that takes stronger models off
+ * the plan also queues each subscriber on it to stop being billed for them. Returns how many
+ * reductions were made.
  */
 export async function advanceLimitChanges(
   store: Store,
@@ -105,7 +115,18 @@ export async function advanceLimitChanges(
   for (const change of await store.listOpenLimitChanges()) {
     const effective = Date.parse(change.effective_at);
     if (now.getTime() >= effective) {
-      if (await store.applyLimitChange(change.id)) made += 1;
+      if (!(await store.applyLimitChange(change.id))) continue;
+      made += 1;
+      if (change.lowered.allowances?.[STRONGER_MODELS_ALLOWANCE]) {
+        const subscribers = await store.listPlanSubscribers(change.plan_key);
+        for (let from = 0; from < subscribers.length; from += BATCH_LIMIT) {
+          await queue.sendBatch(
+            subscribers
+              .slice(from, from + BATCH_LIMIT)
+              .map((organizationId) => ({ body: { fit_subscription: organizationId } })),
+          );
+        }
+      }
     } else if (!change.reminded_at && now.getTime() >= effective - REMINDER_MS) {
       const organizations = await store.listPlanOrganizations(change.plan_key);
       await enqueueLimitChangeSteps(queue, change, organizations, "remind");

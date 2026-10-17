@@ -29,6 +29,7 @@ const KIND_LABELS: Record<AttentionKind, string> = {
   audit_failed: "Audit failed",
   action_untold: "Owners not told of an action",
   no_prompts: "Nothing to scan",
+  stronger_unavailable: "Paying for a stronger model there is none of",
 };
 
 const SCAN_WORDS = {
@@ -185,16 +186,18 @@ function Total({ label, value, failed }: { label: string; value: number; failed?
 
 function Organizations({ rows, empty }: { rows: OperatorOrganization[]; empty: string }) {
   if (rows.length === 0) return <p className="lede">{empty}</p>;
-  const columns = "minmax(11rem,1.6fr) 7.5rem minmax(9rem,1fr) 5.5rem minmax(9rem,1.2fr)";
+  const columns =
+    "minmax(11rem,1.6fr) 7.5rem minmax(9rem,1fr) 5.5rem minmax(9rem,1.2fr) minmax(7rem,0.8fr)";
   return (
     <div className="gtable-scroll">
-      <div className="gtable stacks" style={{ "--cols": columns, "--min": "46rem" } as never}>
+      <div className="gtable stacks" style={{ "--cols": columns, "--min": "53rem" } as never}>
         <div className="gtable-head">
           <span>Organization</span>
           <span>Locations</span>
           <span>Last scan</span>
           <span>Failed, 7 days</span>
           <span>Scanned</span>
+          <span>Stronger model</span>
         </div>
         {rows.map((row) => (
           <Link key={row.id} to={readThroughBase(row.id)} className="gtable-row">
@@ -242,6 +245,13 @@ function Organizations({ rows, empty }: { rows: OperatorOrganization[]; empty: s
                 {row.surfaces
                   ? listOf(row.surfaces.map((surface) => SURFACE_LABELS[surface]))
                   : "everything set up"}
+              </span>
+            </Labelled>
+            <Labelled label="Stronger model">
+              <span className={row.stronger_surfaces.length > 0 ? "small" : "small muted"}>
+                {row.stronger_surfaces.length > 0
+                  ? listOf(row.stronger_surfaces.map((surface) => SURFACE_LABELS[surface]))
+                  : "None"}
               </span>
             </Labelled>
           </Link>

@@ -1,10 +1,15 @@
-import type { Scan } from "@nearcited/shared";
+import { type Scan, SURFACES, type TierChange, tierChanges } from "@nearcited/shared";
 
 export interface TrendPoint {
   /** When the scan finished. */
   at: string;
   /** 0 to 100, over the window of scans that one closed. */
   score: number;
+  /**
+   * The assistants this scan asked on a different tier from the scan before, so a jump in the
+   * line has its reason beside it.
+   */
+  changes: TierChange[];
 }
 
 /**
@@ -19,12 +24,20 @@ export function buildTrend(scans: readonly Scan[]): TrendPoint[] {
     .sort((a, b) => a.created_at.localeCompare(b.created_at));
   const latest = scored[scored.length - 1];
   if (!latest) return [];
-  return scored
-    .filter((scan) => scan.sample_data === latest.sample_data)
-    .map((scan) => ({
-      at: scan.finished_at ?? scan.created_at,
-      score: scan.visibility_score as number,
-    }));
+  const drawn = scored.filter((scan) => scan.sample_data === latest.sample_data);
+  const changes = tierChanges(
+    drawn.map((scan) =>
+      SURFACES.flatMap((surface) => {
+        const tier = scan.tiers[surface];
+        return tier ? [{ surface, tier }] : [];
+      }),
+    ),
+  );
+  return drawn.map((scan, index) => ({
+    at: scan.finished_at ?? scan.created_at,
+    score: scan.visibility_score as number,
+    changes: changes[index] ?? [],
+  }));
 }
 
 export interface PlottedPoint extends TrendPoint {

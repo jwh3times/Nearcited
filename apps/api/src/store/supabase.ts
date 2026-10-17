@@ -3,6 +3,7 @@ import {
   ActionSchema,
   AlertSchema,
   AllowanceClaimSchema,
+  AllowancesSchema,
   AllowanceUseSchema,
   ANSWER_RECORDS,
   AuditJobSchema,
@@ -27,6 +28,7 @@ import {
   ScanResultSchema,
   ScanSchema,
   SiteCheckSchema,
+  STRONGER_MODELS_ALLOWANCE,
   StoredAuditSchema,
   TrackedQuerySchema,
   UsageByMonthSchema,
@@ -166,29 +168,41 @@ const AccountRowSchema = z.object({
 });
 
 const PLAN_COLUMNS =
-  "key, name, position, on_sale, price_cents, included_locations, extra_location_price_cents, max_queries_per_location, assistants, scan_every_days, max_manual_scans_per_month, emails_report, stronger_models, allowances";
+  "key, name, position, on_sale, price_cents, included_locations, extra_location_price_cents, max_queries_per_location, assistants, scan_every_days, max_manual_scans_per_month, emails_report, stronger_price_cents, allowances";
 
-const PLAN_PRICE_COLUMNS =
-  "key, on_sale, included_locations, price_cents, extra_location_price_cents, stripe_price_id, stripe_extra_location_price_id";
+const PLAN_PRICE_COLUMNS = "key, on_sale, included_locations, stripe_price_id, allowances";
 const PlanPriceRowSchema = z.object({
   key: z.string(),
   on_sale: z.boolean(),
   included_locations: z.number().int().positive(),
-  price_cents: z.number().int().nonnegative(),
-  extra_location_price_cents: z.number().int().positive().nullable(),
   stripe_price_id: z.string().nullable(),
-  stripe_extra_location_price_id: z.string().nullable(),
+  allowances: AllowancesSchema,
 });
 
 const PRICE_VERSION_COLUMNS =
-  "plan_key, price_cents, extra_location_price_cents, stripe_price_id, stripe_extra_location_price_id";
-const PriceVersionRowSchema = z.object({
-  plan_key: z.string(),
-  price_cents: z.number().int().positive(),
-  extra_location_price_cents: z.number().int().positive().nullable(),
-  stripe_price_id: z.string(),
-  stripe_extra_location_price_id: z.string().nullable(),
-});
+  "plan_key, price_cents, extra_location_price_cents, stripe_price_id, stripe_extra_location_price_id, stronger_price_cents, stripe_stronger_chatgpt_price_id, stripe_stronger_claude_price_id";
+const PriceVersionRowSchema = z
+  .object({
+    plan_key: z.string(),
+    price_cents: z.number().int().positive(),
+    extra_location_price_cents: z.number().int().positive().nullable(),
+    stripe_price_id: z.string(),
+    stripe_extra_location_price_id: z.string().nullable(),
+    stronger_price_cents: z.number().int().positive().nullable(),
+    stripe_stronger_chatgpt_price_id: z.string().nullable(),
+    stripe_stronger_claude_price_id: z.string().nullable(),
+  })
+  .transform(
+    ({
+      stripe_stronger_chatgpt_price_id: chatgpt,
+      stripe_stronger_claude_price_id: claude,
+      ...version
+    }) => ({
+      ...version,
+      // The database keeps all three or none.
+      stripe_stronger_price_ids: chatgpt && claude ? { chatgpt, claude } : null,
+    }),
+  );
 
 const PRICE_CHANGE_COLUMNS =
   "id, plan_key, stripe_price_id, effective_at, announced_at, reminded_at, called_off_at, completed_at";
@@ -268,7 +282,7 @@ const LISTED_AUDIT_COLUMNS =
   "id, token, business_name, city, region, status, error, created_at, expires_at, revoked_at";
 
 const ORGANIZATION_COLUMNS =
-  "id, name, max_locations, max_queries_per_location, max_manual_scans_per_month, scan_every_days, surfaces, is_test, emails_report, allowances, plan_key, created_at";
+  "id, name, max_locations, max_queries_per_location, max_manual_scans_per_month, scan_every_days, surfaces, stronger_surfaces, is_test, emails_report, allowances, plan_key, created_at";
 
 // What a member is sent of an action. `subject` and `basis` are the worker's own bookkeeping.
 const ACTION_COLUMNS =
@@ -283,7 +297,7 @@ const PROMPT_PAGE_COLUMNS = "recommendation_id, url, set_by_email, set_at, actio
 const LINE_COLUMNS = "location_id, key, key_made_at, checked_on";
 
 const ALERT_COLUMNS =
-  "id, location_id, kind, tracked_query_id, surface, facts, since, scan_id, raised_at, cleared_at, clear_reason, dismissed_at, dismissed_by_email";
+  "id, location_id, kind, tracked_query_id, surface, tier, facts, since, scan_id, raised_at, cleared_at, clear_reason, dismissed_at, dismissed_by_email";
 
 // Never the sign-in: that is in another table, which only the worker reads.
 const CONNECTION_COLUMNS =
@@ -293,13 +307,13 @@ const CONNECTION_MATCH_COLUMNS = "location_id, external_id, external_label, matc
 const LOCATION_COLUMNS =
   "id, organization_id, name, website, phone, address_line, city, region, postal_code, country_code, google_place_id, primary_category, what_we_do, paused_by_plan, last_scanned_at, created_at";
 const SCAN_COLUMNS =
-  "id, location_id, status, trigger, visibility_score, error, sample_data, created_at, started_at, finished_at";
+  "id, location_id, status, trigger, visibility_score, error, sample_data, tiers, created_at, started_at, finished_at";
 
 const RECOMMENDATION_COLUMNS =
   "id, location_id, scan_id, rule, title, detail, status, acted_at, acted_by_action, created_at";
 
 const RESULT_COLUMNS =
-  "id, scan_id, tracked_query_id, surface, mentioned, position, competitors, cited_urls, answer_excerpt, phones, sampled_at";
+  "id, scan_id, tracked_query_id, surface, mentioned, position, competitors, cited_urls, answer_excerpt, phones, tier, sampled_at";
 
 export function createSupabaseStore(
   db: SupabaseClient,
@@ -904,6 +918,7 @@ export function createSupabaseStore(
             key: plan.key,
             on_sale: plan.on_sale,
             included_locations: plan.included_locations,
+            sells_stronger: plan.allowances[STRONGER_MODELS_ALLOWANCE] === true,
             current:
               own.find((version) => version.stripe_price_id === plan.stripe_price_id) ?? null,
             versions: own,
@@ -1388,9 +1403,14 @@ export function createSupabaseStore(
       return data ? AllowanceClaimSchema.parse(data) : null;
     },
 
-    async applyPlan(organizationId, planKey, locations) {
+    async applyPlan(organizationId, planKey, locations, stronger) {
       const { data, error } = await db
-        .rpc("apply_plan", { org: organizationId, plan: planKey, locations: locations ?? null })
+        .rpc("apply_plan", {
+          org: organizationId,
+          plan: planKey,
+          locations: locations ?? null,
+          stronger: stronger ?? null,
+        })
         .select(ORGANIZATION_COLUMNS)
         .maybeSingle();
       if (error) fail("Apply plan", error);
@@ -1472,6 +1492,9 @@ export function createSupabaseStore(
           extra_location_price: version.extra_location_price_cents,
           stripe_price: version.stripe_price_id,
           stripe_extra_location_price: version.stripe_extra_location_price_id,
+          stronger_price: version.stronger_price_cents,
+          stripe_stronger_chatgpt_price: version.stripe_stronger_price_ids?.chatgpt ?? null,
+          stripe_stronger_claude_price: version.stripe_stronger_price_ids?.claude ?? null,
         })
         .select(PLAN_COLUMNS)
         .maybeSingle();

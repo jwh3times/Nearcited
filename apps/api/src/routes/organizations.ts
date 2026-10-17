@@ -12,6 +12,7 @@ import { ApiError, notFound } from "../errors";
 import { exportFileName, exportZip } from "../export";
 import { usesSampleData } from "../providers";
 import { parseJson, uuidParam } from "../validation";
+import { followAssistantSwitch } from "./billing";
 
 export const organizationRoutes = new Hono<AppEnv>();
 
@@ -46,6 +47,7 @@ organizationRoutes.put("/organizations/:organizationId/assistants", async (c) =>
   const { surfaces } = await parseJson(c, AssistantChoiceSchema);
   const organization = await c.get("store").chooseAssistants(organizationId, surfaces);
   if (!organization) throw notFound("Organization");
+  await followAssistantSwitch(c, organization);
   return c.json(organization);
 });
 
