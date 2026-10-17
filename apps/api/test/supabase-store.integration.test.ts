@@ -19,6 +19,7 @@ const secret = process.env.POSTGREST_JWT_SECRET ?? "";
 // Created by scripts/integration-db.sh.
 const alice = "a0000000-0000-4000-8000-000000000001";
 const bob = "b0000000-0000-4000-8000-000000000002";
+const carol = "c0000000-0000-4000-8000-000000000003";
 
 const encoder = new TextEncoder();
 const base64url = (bytes: Uint8Array | string) =>
@@ -1614,6 +1615,70 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
     ).toMatchObject({ label: "answers.answering-pizza.example" });
     // The next test counts the locations it makes.
     for (const made of [site, sameDomain]) await aliceStore.deleteLocation(made.id);
+  });
+
+  it("closes an account: the owner's ask, the worker's record of it, and the organization's deletion", async () => {
+    const carolStore = await storeFor(carol);
+    const bobStore = await storeFor(bob);
+    const worker = await workerStore();
+    const organization = await carolStore.createOrganization("Carol's Cafe");
+
+    expect(await bobStore.requestClosing(organization.id, "Carol's Cafe")).toEqual({
+      refused: "owners_only",
+    });
+    expect(await carolStore.requestClosing(organization.id, "Carol's")).toEqual({
+      refused: "name_mismatch",
+    });
+    const asked = await carolStore.requestClosing(organization.id, "Carol's Cafe");
+    if (!("closing_id" in asked)) throw new Error("not asked");
+    expect(await carolStore.requestClosing(organization.id, "Carol's Cafe")).toEqual(asked);
+    // From the ask, the organization is out of its members' reach.
+    expect(await carolStore.listOrganizations()).toEqual([]);
+    // Only the worker reads the closing.
+    await expect(carolStore.getClosing(asked.closing_id)).rejects.toThrow();
+    const closing = await worker.getClosing(asked.closing_id);
+    expect(closing).toMatchObject({
+      organization_id: organization.id,
+      organization_name: "Carol's Cafe",
+      owner_id: carol,
+      owner_email: "carol@example.com",
+      member_emails: [],
+      finished_at: null,
+    });
+    expect(await worker.listStalledClosings(new Date(Date.now() + 60_000).toISOString())).toContain(
+      asked.closing_id,
+    );
+
+    // One worker at a time, until it lets go.
+    expect(await worker.claimClosing(asked.closing_id)).toBe(true);
+    expect(await worker.claimClosing(asked.closing_id)).toBe(false);
+    await worker.releaseClosing(asked.closing_id);
+    expect(await worker.claimClosing(asked.closing_id)).toBe(true);
+
+    await worker.recordClosingProgress(asked.closing_id, {
+      cancelled_at: new Date().toISOString(),
+      left_at_sites: ["carolscafe.example"],
+    });
+    expect(await worker.getClosing(asked.closing_id)).toMatchObject({
+      left_at_sites: ["carolscafe.example"],
+    });
+    await expect(carolStore.deleteClosedOrganization(organization.id)).rejects.toMatchObject({
+      kind: "forbidden",
+    });
+    expect(await worker.deleteClosedOrganization(organization.id)).toBe(true);
+    expect(await worker.getOrganization(organization.id)).toBeNull();
+
+    expect(await worker.finishClosing(asked.closing_id)).toBe(true);
+    expect(await worker.finishClosing(asked.closing_id)).toBe(false);
+    expect(await worker.getClosing(asked.closing_id)).toMatchObject({
+      organization_name: null,
+      owner_id: null,
+      owner_email: null,
+      member_emails: [],
+      left_at_sites: [],
+    });
+    expect(await worker.dropFinishedClosings(new Date(Date.now() + 60_000).toISOString())).toBe(1);
+    expect(await worker.getClosing(asked.closing_id)).toBeNull();
   });
 
   it("reads a list that reaches across organizations a page at a time, and gets the same list", async () => {

@@ -86,6 +86,11 @@ export interface Payments {
   /** Drops a change that was waiting for the period to end. Nothing to do when there is none. */
   keepCurrent(subscriptionId: string): Promise<void>;
   /**
+   * Ends the subscription now, invoicing and crediting nothing for the rest of the period: what
+   * closing an account does. Nothing to do when it is already over, or the provider has none.
+   */
+  cancelNow(subscriptionId: string): Promise<void>;
+  /**
    * Makes a new monthly price and returns the provider's ID for it. It is a price of the same
    * product as `like`, an existing price; with no `like` a product called `product_name` is
    * made for it first. Prices at the provider are never edited, so the old one goes on billing

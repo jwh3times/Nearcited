@@ -24,7 +24,9 @@ Everything below is the main one.
   approved action nobody is carrying out (`requeueStalledActions`; see "Actions") and any draft
   asked for that nobody is writing (`requeueStalledDrafts`; see "Drafts"), and checks again each
   answer subdomain still waiting for its record or its certificate that was last checked more than
-  ten minutes ago (`requeueAnswerSubdomainChecks`; see "Connections"), and tells the owners of each
+  ten minutes ago (`requeueAnswerSubdomainChecks`; see "Connections"), and queues again any closing
+  asked for more than 15 minutes ago and not finished (`requeueStalledClosings`; see "Closing an
+  account"), and tells the owners of each
   answer subdomain just paused when its pages stop being served as they are and when it will be
   removed (`tellPausedAnswerSubdomains`), so they hear the day it happens.
   Once a day it also asks Postgres which locations are due (`locations_due_for_scan`), creates a
@@ -41,7 +43,8 @@ Everything below is the main one.
   It also calls `advancePriceChanges`, which queues the reminders a week before an
   announced price change and, from its day on, a move for each subscription not yet moved. It also
   calls `advanceLimitChanges`, which queues the reminders a week before an announced reduction in a
-  plan's limits and, on its day, makes the reduction through `apply_limit_change()`.
+  plan's limits and, on its day, makes the reduction through `apply_limit_change()`. It also forgets
+  the closings finished thirty days ago or more (`dropFinishedClosings`).
 - **`queue`**: the consumer. For each scan ID it runs the scan and, for scheduled scans, emails
   the organization's owners a report, which opens with any alert they have not been told of (see
   "Alerts"). A message shaped `{ audit_id, prompt_index }` is one prompt of a
@@ -52,7 +55,8 @@ Everything below is the main one.
   `{ connection_id, step }` is one step for a connection, `remove` or `sync` (see "Connections");
   after a sync that read the account it also proposes actions. A message shaped
   `{ action_id, step }` carries out one approved action (see "Actions"). A message shaped
-  `{ draft_id, step }` writes one draft a member asked for (see "Drafts"). The consumer is handed
+  `{ draft_id, step }` writes one draft a member asked for (see "Drafts"). A message shaped
+  `{ closing_id, step }` closes one account (see "Closing an account"). The consumer is handed
   up to five messages at a time and works through them one after another. A lone message waits
   at most a second for others to join it (`max_batch_timeout` in `wrangler.jsonc`), because
   somebody is usually watching the page for it; a message that lands in a batch behind scans
@@ -1784,7 +1788,9 @@ handler could be skipped by calling the database directly. Four things about the
 account has one organization: `create_organization()` refuses a second, to anyone but the operator
 and a test account, because each new one would be a new free plan with its own free first scan.
 An organization is not deleted through the API, since deleting one and starting again reset
-everything counted against it. And a location cannot change organization, nor a prompt its
+everything counted against it; an owner can only ask the worker to close it, and an organization
+made from the address of one closed in the last thirty days starts with its free first scan used
+("Closing an account"). And a location cannot change organization, nor a prompt its
 location: both limits are checked when a row is added, so a row that could be moved could be moved
 past them. Someone signing up again with another email address still gets a new free account.
 
@@ -1992,6 +1998,42 @@ A cell a spreadsheet would run as a formula is prefixed with an apostrophe. The 
 It holds no sign-in (`connection_secrets` is not read), no row of the operator's record of changes
 (`operator_actions`) and nothing about what the providers were paid (`provider_usage`). The web
 app's Account settings shows the owner a "Your data" card with the button.
+
+## Closing an account
+
+An owner can close the account from Account settings (`POST /api/organizations/:organizationId/close`,
+the decision in `docs/adr/0020-the-worker-closes-an-account.md`). The route calls the store's
+`requestClosing`, which calls `request_closing()`. That function answers an owner of the
+organization and nobody else, and refuses the operator, a test account and a test organization
+(`not_closable`); the owner must type the organization's name (`name_mismatch`). It sets
+`organizations.closing_at`, marks every connection for removal with the reason `closing`, and writes
+a row in `closings`. The route then queues `{ closing_id, step: "close" }` and answers 202.
+
+From `closing_at`, `is_org_member()`, `has_org_role()`, `can_access_location()` and
+`can_access_scan()` answer no, so the members can neither read nor change anything, and
+`organization_held()` is true. `billing_state()` and `choose_assistants()` no longer answer its
+owner, so no checkout starts for it. `locations_due_for_scan` skips the organization,
+`claim_draft()` refuses it, the owner and manager addresses the worker emails are empty for it, and
+the fifteen-minute sweep of stalled removals leaves its connections to the closing.
+
+`closeAccount` (`apps/api/src/closing.ts`) runs from the queue consumer. It first takes the closing
+(`claim_closing()`), so a retry and the sweep never run it at once, and lets go of it when a try
+fails. It goes in an order where each step is written on the closing and can be run again: cancel the subscription at Stripe at once
+(`Payments.cancelNow`, nothing prorated or refunded); remove each connection through
+`removeConnection`, which a site that cannot be reached leaves with its access standing, named in
+the email, while an answer subdomain holds the closing until Cloudflare has let it go and sends no
+email of its own for the reason `closing`; delete the organization (`deleteClosedOrganization`,
+every table under it cascades; `created_by` is set to null); delete the owner's sign-in
+(`deleteAccount`, with the secret key); and send one email to the owner, and a note to the other
+members, each written down as sent so neither goes twice. A failed step is asked for again after 300 seconds. Every run of the schedule queues again
+a closing asked for more than 15 minutes ago and not finished (`requeueStalledClosings`).
+
+`closings` has no foreign key to the organization or the owner, row-level security on and no policy
+or grant, so no API role reads it. Until `finishClosing` it holds the addresses and notes the email
+needs and whose organization it was; after, those are cleared and it keeps a SHA-256 of the owner's trimmed, lower-cased address
+(`email_fingerprint()`) and the day. For thirty days `create_organization()` starts an organization
+made from that address with its free first scan used. The daily run then forgets the row
+(`dropFinishedClosings`). What the owner added to a WordPress site stays.
 
 ## Wire types
 

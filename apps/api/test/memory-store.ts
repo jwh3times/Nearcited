@@ -45,6 +45,7 @@ import {
   websiteDomain,
 } from "@nearcited/shared";
 import {
+  type Closing,
   type HostedPage,
   type KeptAnswerSubdomain,
   type NewAction,
@@ -201,6 +202,8 @@ export interface MemoryDb {
   pastPrices: (PriceVersion & { plan_key: string })[];
   /** What the worker has kept of each organization's subscription, by organization ID. */
   subscriptions: Map<string, SubscriptionRecord>;
+  /** The `closings` table: each ask to close, with the fingerprint of the owner's email. */
+  closings: (Closing & { fingerprint: string; working_since: string | null })[];
   /** The subscription each organization's owners were last thanked for starting. */
   welcomed: Map<string, string>;
 }
@@ -279,7 +282,15 @@ export function createMemoryDb(): MemoryDb {
     priceChangeNotices: [],
     subscriptions: new Map(),
     welcomed: new Map(),
+    closings: [],
   };
+}
+
+/** A one-way fingerprint of an email address, as `email_fingerprint()` makes it. */
+async function fingerprintOf(email: string): Promise<string> {
+  const bytes = new TextEncoder().encode(email.trim().toLowerCase());
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+  return [...digest].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 let clock = Date.parse("2026-10-01T00:00:00Z");
@@ -392,8 +403,16 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
     db.organizations.find(
       (o) => o.id === db.locations.find((l) => l.id === locationId)?.organization_id,
     );
-  /** Mirrors organization_held(): an action done 36 hours ago and its owners still not told. */
+  /** Whether an owner has asked for the organization to be closed. */
+  const closing = (organizationId: string) =>
+    db.closings.some((asked) => asked.organization_id === organizationId);
+  /**
+   * Mirrors organization_held(): the organization is being closed, or an action was done 36 hours
+   * ago and its owners still not told.
+   */
   const organizationHeld = (organizationId: string) => {
+    // Nothing more is carried out for one being closed, as organization_held() has it.
+    if (closing(organizationId)) return true;
     const organization = db.organizations.find((o) => o.id === organizationId);
     if (!organization || organization.is_test) return false;
     const before = new Date(
@@ -671,6 +690,179 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
           })),
         page_fetches: db.pageFetches.filter((counted) => at.has(counted.location_id)),
       });
+    },
+
+    // Mirrors request_closing().
+    async requestClosing(organizationId, name) {
+      const organization = db.organizations.find((o) => o.id === organizationId);
+      const owns = db.memberships.some(
+        (m) => m.organization_id === organizationId && m.user_id === userId && m.role === "owner",
+      );
+      if (!organization || !owns || userId === null) return { refused: "owners_only" };
+      if (organization.is_test || db.operators.has(userId) || db.testAccounts.has(userId)) {
+        return { refused: "not_closable" };
+      }
+      const asked = db.closings.find((candidate) => candidate.organization_id === organizationId);
+      if (asked) return { closing_id: asked.id };
+      if (name.trim() !== organization.name.trim()) return { refused: "name_mismatch" };
+      const now = db.now ?? new Date().toISOString();
+      const ownerEmail = db.emails.get(userId) ?? null;
+      for (const connection of db.connections) {
+        if (
+          connection.organization_id === organizationId &&
+          connection.status !== "removing" &&
+          connection.status !== "removed"
+        ) {
+          Object.assign(connection, {
+            status: "removing",
+            removal_reason: "closing",
+            removal_requested_at: now,
+            removed_by_email: ownerEmail,
+          });
+        }
+      }
+      const made = {
+        id: crypto.randomUUID(),
+        organization_id: organizationId,
+        organization_name: organization.name,
+        owner_id: userId,
+        owner_email: ownerEmail,
+        member_emails: db.memberships
+          .filter((m) => m.organization_id === organizationId && m.user_id !== userId)
+          .flatMap((m) => db.emails.get(m.user_id) ?? [])
+          .sort(),
+        fingerprint: await fingerprintOf(ownerEmail ?? userId),
+        asked_at: now,
+        cancelled_at: null,
+        had_subscription: false,
+        left_at_sites: [],
+        hostnames: [],
+        organization_deleted_at: null,
+        account_deleted_at: null,
+        told_at: null,
+        noted_at: null,
+        working_since: null,
+        finished_at: null,
+      };
+      db.closings.push(made);
+      return { closing_id: made.id };
+    },
+
+    async getClosing(id) {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      const kept = db.closings.find((candidate) => candidate.id === id);
+      if (!kept) return null;
+      const { fingerprint: _, working_since: __, ...closing } = kept;
+      return structuredClone(closing);
+    },
+
+    async claimClosing(id) {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      const now = db.now ?? new Date().toISOString();
+      const lease = new Date(Date.parse(now) - 10 * 60_000).toISOString();
+      const kept = db.closings.find(
+        (candidate) =>
+          candidate.id === id &&
+          candidate.finished_at === null &&
+          (candidate.working_since === null || candidate.working_since < lease),
+      );
+      if (kept) kept.working_since = now;
+      return kept !== undefined;
+    },
+
+    async releaseClosing(id) {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      const kept = db.closings.find((candidate) => candidate.id === id);
+      if (kept) kept.working_since = null;
+    },
+
+    async recordClosingProgress(id, progress) {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      const kept = db.closings.find((candidate) => candidate.id === id);
+      if (kept) Object.assign(kept, structuredClone(progress));
+    },
+
+    async deleteClosedOrganization(organizationId) {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      if (!closing(organizationId)) return false;
+      const before = db.organizations.length;
+      db.organizations = db.organizations.filter((o) => o.id !== organizationId);
+      // What the foreign keys cascade to.
+      const at = new Set(
+        db.locations.filter((l) => l.organization_id === organizationId).map((l) => l.id),
+      );
+      const scans = new Set(db.scans.filter((scan) => at.has(scan.location_id)).map((x) => x.id));
+      const connections = new Set(
+        db.connections.filter((c) => c.organization_id === organizationId).map((c) => c.id),
+      );
+      db.memberships = db.memberships.filter((m) => m.organization_id !== organizationId);
+      db.locations = db.locations.filter((l) => !at.has(l.id));
+      db.queries = db.queries.filter((query) => !at.has(query.location_id));
+      db.scans = db.scans.filter((scan) => !scans.has(scan.id));
+      db.results = db.results.filter((result) => !scans.has(result.scan_id));
+      db.recommendations = db.recommendations.filter((task) => !at.has(task.location_id));
+      db.alerts = db.alerts.filter((alert) => !at.has(alert.location_id));
+      db.actions = db.actions.filter((action) => !at.has(action.location_id));
+      db.drafts = db.drafts.filter((draft) => !at.has(draft.location_id));
+      db.listings = db.listings.filter((listing) => !at.has(listing.location_id));
+      db.promptPages = db.promptPages.filter((page) => !at.has(page.location_id));
+      db.visits = db.visits.filter((visit) => !at.has(visit.location_id));
+      db.hostedPages = db.hostedPages.filter((page) => !at.has(page.location_id));
+      db.pageFetches = db.pageFetches.filter((counted) => !at.has(counted.location_id));
+      db.connections = db.connections.filter((c) => !connections.has(c.id));
+      for (const id of connections) db.connectionSecrets.delete(id);
+      db.answerSubdomains = db.answerSubdomains.filter(
+        (name) => name.organization_id !== organizationId,
+      );
+      db.subscriptions.delete(organizationId);
+      return db.organizations.length < before;
+    },
+
+    async deleteAccount(id) {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      db.emails.delete(id);
+      db.memberships = db.memberships.filter((m) => m.user_id !== id);
+      db.accounts = db.accounts.filter((account) => account.user_id !== id);
+      db.operators.delete(id);
+      db.testAccounts.delete(id);
+    },
+
+    async finishClosing(id) {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      const kept = db.closings.find((candidate) => candidate.id === id);
+      if (!kept || kept.finished_at !== null) return false;
+      Object.assign(kept, {
+        organization_name: null,
+        owner_id: null,
+        owner_email: null,
+        member_emails: [],
+        left_at_sites: [],
+        hostnames: [],
+        finished_at: db.now ?? new Date().toISOString(),
+      });
+      return true;
+    },
+
+    async listStalledClosings(before) {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      return db.closings
+        .filter(
+          (asked) =>
+            asked.finished_at === null &&
+            asked.asked_at < before &&
+            (asked.working_since === null || asked.working_since < before),
+        )
+        .slice(0, 100)
+        .map((asked) => asked.id);
+    },
+
+    async dropFinishedClosings(before) {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      const kept = db.closings.length;
+      db.closings = db.closings.filter(
+        (asked) => asked.finished_at === null || asked.finished_at >= before,
+      );
+      return kept - db.closings.length;
     },
 
     async getSubscription(organizationId) {
@@ -1284,7 +1476,7 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
           candidate.status === "asked" &&
           (candidate.writing_since === null || candidate.writing_since < stale),
       );
-      if (!draft) return 0;
+      if (!draft || closing(organizationOf(draft.location_id)?.id ?? "")) return 0;
       if (draft.allowance_month === null) {
         const organization = organizationOf(draft.location_id);
         const claim = organization ? takeAllowance(organization.id, DRAFTS_ALLOWANCE, 1) : null;
@@ -1688,6 +1880,8 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
 
     async listManagerEmails(organizationId) {
       if (userId !== null) throw new StoreError("forbidden", "worker only");
+      // Nobody is emailed about an organization being closed, but by the closing itself.
+      if (closing(organizationId)) return [];
       return db.memberships
         .filter((m) => m.organization_id === organizationId && m.role !== "member")
         .flatMap((m) => db.emails.get(m.user_id) ?? []);
@@ -1984,6 +2178,8 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         .filter(
           (connection) =>
             connection.status === "removing" &&
+            // A closing removes its own, and names them in its email.
+            connection.removal_reason !== "closing" &&
             connection.removal_requested_at !== null &&
             connection.removal_requested_at < before,
         )
@@ -3002,6 +3198,7 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         .filter(
           (location) =>
             location.last_scanned_at === null &&
+            !closing(location.organization_id) &&
             db.queries.some((query) => query.location_id === location.id && query.is_active),
         )
         .slice(0, limit)
@@ -3009,6 +3206,7 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
     },
 
     async listOwnerEmails(organizationId) {
+      if (closing(organizationId)) return [];
       return db.memberships
         .filter((m) => m.organization_id === organizationId && m.role === "owner")
         .flatMap((m) => db.emails.get(m.user_id) ?? []);

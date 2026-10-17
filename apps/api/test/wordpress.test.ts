@@ -543,7 +543,8 @@ describe("connecting a location's WordPress site", () => {
     const key = await sealingKey(SECRET);
     if (!key) throw new Error("no key");
     db.connectionSecrets.set(connection.id, await seal(key, connection.id, "not a sign-in"));
-    expect(await removeConnection(connection.id, await worker())).toBe("removed");
+    // Removed here, and said to be left at the site, which nothing could ask.
+    expect(await removeConnection(connection.id, await worker())).toBe("left_at_site");
     expect(db.connectionSecrets.has(connection.id)).toBe(false);
   });
 
@@ -555,7 +556,7 @@ describe("connecting a location's WordPress site", () => {
       throw new TypeError("fetch failed");
     };
     const deps = { ...(await worker()), outside: { fetch: down } };
-    expect(await removeConnection(connection.id, deps)).toBe("removed");
+    expect(await removeConnection(connection.id, deps)).toBe("left_at_site");
     expect(db.connectionSecrets.has(connection.id)).toBe(false);
   });
 });

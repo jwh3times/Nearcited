@@ -9,7 +9,7 @@ import {
 } from "@nearcited/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useEffect, useState } from "react";
-import { Link, useSearchParams } from "react-router";
+import { Link, useNavigate, useSearchParams } from "react-router";
 import { ErrorNote } from "../components/ErrorNote";
 import { Field } from "../components/Field";
 import { api } from "../lib/api";
@@ -166,7 +166,10 @@ export function AccountSettings({ organization, email, platformRole }: AccountSe
   );
 }
 
-/** The owner's way to take everything the organization holds with them, at any time. */
+/**
+ * The owner's way to take everything the organization holds with them, at any time, and to close
+ * the account.
+ */
 function YourData({ organization }: { organization: Organization }) {
   const download = useMutation({
     mutationFn: () => api.downloadEverything(organization.id),
@@ -196,7 +199,80 @@ function YourData({ organization }: { organization: Organization }) {
         {download.isPending ? "Preparing the download" : "Download everything"}
       </button>
       <ErrorNote error={download.error} />
+      <CloseAccount organization={organization} />
     </div>
+  );
+}
+
+/**
+ * Closing the account: what goes and what stays, said before anything is done, and the name typed
+ * out to say the owner means it. The worker does the closing; the owner is signed out at once.
+ */
+function CloseAccount({ organization }: { organization: Organization }) {
+  const navigate = useNavigate();
+  const [open, setOpen] = useState(false);
+  const [typed, setTyped] = useState("");
+  const close = useMutation({
+    mutationFn: () => api.closeAccount(organization.id, typed),
+    onSuccess: async () => {
+      await supabase?.auth.signOut();
+      navigate("/closed", { replace: true });
+    },
+  });
+  const named = typed.trim() === organization.name.trim();
+
+  if (!open) {
+    return (
+      <button type="button" className="danger" onClick={() => setOpen(true)}>
+        Close this account
+      </button>
+    );
+  }
+  return (
+    <form
+      className="closing"
+      aria-label="Close this account"
+      onSubmit={(event: FormEvent) => {
+        event.preventDefault();
+        if (named) close.mutate();
+      }}
+    >
+      <h4>Close this account</h4>
+      <p>
+        Closing deletes {organization.name} and everything in it, then your sign-in. It cannot be
+        undone. Download everything first if you want to keep any of it.
+      </p>
+      <ul>
+        <li>A paid plan is cancelled at once. The rest of this month is not refunded.</li>
+        <li>
+          Every connection is removed: Nearcited takes back its access to your WordPress site, and
+          stops serving your answer subdomain.
+        </li>
+        <li>What Nearcited added to your WordPress site stays there until you remove it.</li>
+        <li>Everyone else in the organization keeps their own sign-in and is sent a short note.</li>
+        <li>
+          Kept afterwards: what Nearcited paid its providers for your checks, with nothing to say
+          whose they were; Nearcited's record of changes it made to your plan; Stripe's record of
+          your payments; and for 30 days a one-way fingerprint of your email, so a new account made
+          with it does not get another free first scan.
+        </li>
+      </ul>
+      <Field
+        label={`Type ${organization.name} to confirm`}
+        value={typed}
+        onChange={(event) => setTyped(event.target.value)}
+        autoComplete="off"
+      />
+      <div className="closing-actions">
+        <button type="submit" className="danger" disabled={!named || close.isPending}>
+          {close.isPending ? "Closing" : "Close the account"}
+        </button>
+        <button type="button" className="secondary" onClick={() => setOpen(false)}>
+          Keep it
+        </button>
+      </div>
+      <ErrorNote error={close.error} />
+    </form>
   );
 }
 

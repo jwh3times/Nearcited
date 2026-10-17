@@ -3,6 +3,8 @@ import {
   ActionMessageSchema,
   type AuditMessage,
   AuditMessageSchema,
+  type ClosingMessage,
+  ClosingMessageSchema,
   type ConnectionMessage,
   ConnectionMessageSchema,
   type DraftMessage,
@@ -27,6 +29,7 @@ import { authenticateWithSupabase } from "./auth";
 import { advanceLimitChanges, runLimitChangeStep } from "./billing/limit-change";
 import { advancePriceChanges, runPriceChangeStep } from "./billing/price-change";
 import { createStripePayments } from "./billing/stripe";
+import { closeAccount, dropFinishedClosings, requeueStalledClosings } from "./closing";
 import {
   enqueueDueSyncs,
   expirePausedConnections,
@@ -86,12 +89,13 @@ export default {
   /**
    * Cron. Every run clears abandoned scans and unfinished audits, and asks again for any
    * connection's removal or first sync that has not been finished, any approved action nobody
-   * is carrying out and any draft nobody is writing, and checks again every answer subdomain still
-   * waiting for its record; the daily run also queues a scan for every location that is due and a
-   * sync for every connection that is, lapses the proposals nobody answered, drops what an action
-   * replaced once it may be kept no longer, tells each organization's owners what was done for
-   * it, and lets go of every answer subdomain whose record never appeared. The two schedules are
-   * in wrangler.jsonc.
+   * is carrying out, any draft nobody is writing and any closing of an account nobody finished,
+   * and checks again every answer subdomain still waiting for its record; the daily run also
+   * queues a scan for every location that is due and a sync for every connection that is, lapses
+   * the proposals nobody answered, drops what an action replaced once it may be kept no longer,
+   * tells each organization's owners what was done for it, lets go of every answer subdomain
+   * whose record never appeared, and forgets the accounts closed thirty days ago. The two
+   * schedules are in wrangler.jsonc.
    */
   async scheduled(controller, env) {
     const store = createSupabaseStore(createAdminClient(env));
@@ -107,6 +111,8 @@ export default {
     if (stalledActions > 0) console.log(`Queued ${stalledActions} approved actions again`);
     const stalledDrafts = await requeueStalledDrafts(store, env.SCAN_QUEUE);
     if (stalledDrafts > 0) console.log(`Queued ${stalledDrafts} drafts again`);
+    const closings = await requeueStalledClosings(store, env.SCAN_QUEUE);
+    if (closings > 0) console.log(`Queued ${closings} unfinished closings of accounts again`);
     const waiting = await requeueAnswerSubdomainChecks(store, env.SCAN_QUEUE);
     if (waiting > 0) console.log(`Queued checks of ${waiting} answer subdomains still waiting`);
     // Told the day a plan stops including hosted pages, whenever in the day that is.
@@ -156,6 +162,9 @@ export default {
     if (reminded > 0) console.log(`Reminded the owners of ${reminded} broken connections`);
     const told = await tellBrokenConnections(telling);
     if (told > 0) console.log(`Told the owners of ${told} broken connections, late`);
+
+    const forgotten = await dropFinishedClosings(store);
+    if (forgotten > 0) console.log(`Forgot ${forgotten} accounts closed thirty days ago`);
 
     const steps = await advancePriceChanges(store, env.SCAN_QUEUE);
     if (steps > 0) console.log(`Queued ${steps} price change steps`);
@@ -278,6 +287,34 @@ export default {
         continue;
       }
 
+      const closing = ClosingMessageSchema.safeParse(message.body);
+      if (closing.success) {
+        const what = `Closing ${closing.data.closing_id}`;
+        try {
+          const outcome = await closeAccount(closing.data.closing_id, {
+            store,
+            key: await sealingKey(env.CONNECTIONS_KEY),
+            send: env.RESEND_API_KEY
+              ? (to: string[], email: Email) => sendEmail(env, to, email)
+              : undefined,
+            appUrl: env.APP_URL,
+            outside: { localOrigin: env.WORDPRESS_LOCAL_ORIGIN ?? null },
+            hosting: hostingOf(env),
+            payments:
+              env.STRIPE_SECRET_KEY && env.STRIPE_WEBHOOK_SECRET
+                ? createStripePayments(env.STRIPE_SECRET_KEY, env.STRIPE_WEBHOOK_SECRET)
+                : null,
+          });
+          console.log(`${what}: ${outcome}`);
+          message.ack();
+        } catch (error) {
+          // Cloudflare not letting a subdomain go yet, for one: tried again in a few minutes.
+          console.error(`${what} failed, will retry`, error);
+          message.retry({ delaySeconds: 300 });
+        }
+        continue;
+      }
+
       const action = ActionMessageSchema.safeParse(message.body);
       if (action.success) {
         const what = `Action ${action.data.action_id}`;
@@ -378,4 +415,5 @@ export default {
   | ConnectionMessage
   | ActionMessage
   | DraftMessage
+  | ClosingMessage
 >;

@@ -140,23 +140,22 @@ async function read(
   }
 }
 
-/** Takes back, at the outside service, the access a sign-in gave. The sample kind gave none. */
+/**
+ * Takes back, at the outside service, the access a sign-in gave. The sample kind gave none. False
+ * where the service still holds it.
+ */
 async function withdraw(
   kind: ConnectionKind,
   signIn: string,
   outside: WordPressDeps,
-): Promise<void> {
+): Promise<boolean> {
   switch (kind) {
     case "sample":
-      return;
+      return true;
     case "wordpress":
-      if (!(await withdrawPassword(readWordPressSignIn(signIn), outside))) {
-        // Its copy is deleted all the same: the owner asked for it gone, and nobody then holds it.
-        console.warn("A WordPress password could not be taken back at the site.");
-      }
-      return;
+      return withdrawPassword(readWordPressSignIn(signIn), outside);
     case "hosted_pages":
-      return;
+      return true;
   }
 }
 
@@ -228,12 +227,14 @@ async function tellBroken(
 export async function removeConnection(
   connectionId: string,
   deps: ConnectionDeps,
-): Promise<"removed" | "not_waiting"> {
+): Promise<"removed" | "left_at_site" | "not_waiting"> {
   const { store, key, outside = {} } = deps;
   const connection = await store.getConnection(connectionId);
   if (connection?.status !== "removing") return "not_waiting";
   if (connection.kind === "hosted_pages") return removeAnswerSubdomain(connection, deps);
 
+  // Whether the outside service no longer holds the access. Not where it could not be asked.
+  let takenBack = connection.kind === "sample";
   const sealed = await store.getConnectionSecret(connectionId);
   if (sealed && key) {
     let signIn: string | null = null;
@@ -244,14 +245,17 @@ export async function removeConnection(
     }
     if (signIn !== null) {
       try {
-        await withdraw(connection.kind, signIn, outside);
+        takenBack = await withdraw(connection.kind, signIn, outside);
       } catch (error) {
         // A sign-in kept in a shape this Worker cannot use is deleted all the same.
         console.error(`Connection ${connectionId}: its access could not be taken back`, error);
       }
     }
   }
-  return (await store.finishConnectionRemoval(connectionId)) ? "removed" : "not_waiting";
+  // Its copy is deleted all the same: the owner asked for it gone, and nobody then holds it.
+  if (!takenBack) console.warn(`Connection ${connectionId}: the site still holds its access.`);
+  if (!(await store.finishConnectionRemoval(connectionId))) return "not_waiting";
+  return takenBack ? "removed" : "left_at_site";
 }
 
 /** Keeps that a sync failed, and tells the owners and admins where that broke the connection. */
@@ -558,7 +562,8 @@ async function removeAnswerSubdomain(
     await unregisterHostname(kept.cloudflare_id, hosting.cloudflare, hosting);
   }
   if (!(await store.finishConnectionRemoval(connection.id))) return "not_waiting";
-  if (kept) {
+  // A closing account sends one email of its own, which names the subdomain.
+  if (kept && connection.removal_reason !== "closing") {
     const reason = connection.removal_reason ?? "asked";
     await tellAboutSubdomain(
       kept.organization_id,

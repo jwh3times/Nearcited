@@ -484,6 +484,12 @@ export const OrganizationInputSchema = z.object({
 });
 export type OrganizationInput = z.output<typeof OrganizationInputSchema>;
 
+/** An owner's ask to close the account: the organization's name, typed out to say they mean it. */
+export const CloseAccountInputSchema = z.object({
+  name: z.string().max(200),
+});
+export type CloseAccountInput = z.output<typeof CloseAccountInputSchema>;
+
 /**
  * The limits the operator may set on an organization. Which surfaces it is checked on is not
  * among them. Lowering a limit removes nothing: it only stops more being added.
@@ -1045,7 +1051,7 @@ export const ConnectionSchema = z.object({
    * Why it was removed: someone asked, its plan had stopped including it, or, for an answer
    * subdomain, it never started working, or its location was removed.
    */
-  removal_reason: z.enum(["asked", "plan", "unclaimed", "location"]).nullable(),
+  removal_reason: z.enum(["asked", "plan", "unclaimed", "location", "closing"]).nullable(),
   /** When the worker last read from it. Null until the first sync, moments after connecting. */
   last_synced_at: Timestamp.nullable(),
   /** What the sign-in reaches, as the last sync found it. */
@@ -1254,6 +1260,13 @@ export const ConnectionMessageSchema = z.object({
   step: z.enum(CONNECTION_STEPS),
 });
 export type ConnectionMessage = z.infer<typeof ConnectionMessageSchema>;
+
+/** A message asking the worker to close an account an owner asked to close. */
+export const ClosingMessageSchema = z.object({
+  closing_id: Id,
+  step: z.literal("close"),
+});
+export type ClosingMessage = z.infer<typeof ClosingMessageSchema>;
 
 /**
  * The kinds of action: what the product can do outside itself for a business. `sample` changes
