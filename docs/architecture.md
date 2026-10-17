@@ -1697,6 +1697,9 @@ subdomain alone and is, with `record_page_fetch()`, the only thing the Pages Wor
 `hosted_page_fetches` is read by the location's members and the operator, with no policy or grant for
 a caller who is not signed in, and written by no API role, only by `record_page_fetch()`.
 
+`export_organization()` answers an owner of the organization and no one else (see "Downloading
+everything").
+
 A caller who is not signed in can read an audit by its token and the price list, and can write one
 thing: count a visit to a location's own site, or note a check of the line on it, through two
 functions that answer anyone holding the location's site key (see "Visits from assistants").
@@ -1969,6 +1972,26 @@ sample data even on a live deployment: the runner uses the mock providers, recor
 `sample_data`, skips the on-page fetch, is not stopped by the default-tuning check, and sends no
 report email. `GET /api/locations/:id` then reads the generated window and lists every surface.
 See `docs/adr/0003-platform-roles-and-test-accounts.md`.
+
+## Downloading everything
+
+An owner can download all the organization holds, at any time (`GET /api/organizations/:organizationId/export`).
+The route asks the store for `exportOrganization`, which calls the database function
+`export_organization()`. It answers only an owner of the organization and returns null for anyone
+else, an admin, a member and the operator included, so the route answers 403 `owners_only`. It is
+`security definer` and executable by `authenticated` only, and it is the one place that reads a
+whole organization through the caller's own token. It returns one `jsonb` value, so the database's
+API cap of 1,000 rows never cuts a list short, however long one is.
+
+`apps/api/src/export.ts` parses that value through `AccountExportSchema` (`version` 1; each list's
+rows are the wire types the app is sent) and writes the ZIP with `fflate`: a `README.txt`,
+`everything.json`, and one CSV for each list. A list with nothing in it still names its columns.
+A cell a spreadsheet would run as a formula is prefixed with an apostrophe. The response is
+`application/zip`, an attachment, and `Cache-Control: private, no-store`.
+
+It holds no sign-in (`connection_secrets` is not read), no row of the operator's record of changes
+(`operator_actions`) and nothing about what the providers were paid (`provider_usage`). The web
+app's Account settings shows the owner a "Your data" card with the button.
 
 ## Wire types
 

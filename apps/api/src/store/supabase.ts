@@ -1,4 +1,5 @@
 import {
+  AccountExportSchema,
   ActionSchema,
   AlertSchema,
   AllowanceClaimSchema,
@@ -886,6 +887,13 @@ export function createSupabaseStore(
       const { data, error } = await db.rpc("billing_state", { org: organizationId }).maybeSingle();
       if (error) fail("Get billing state", error);
       return data ? BillingStateSchema.parse(data) : null;
+    },
+
+    async exportOrganization(organizationId) {
+      // One value for the whole of it, so no list is cut short at the API's page of rows.
+      const { data, error } = await db.rpc("export_organization", { org: organizationId });
+      if (error) fail("Export an organization", error);
+      return data ? AccountExportSchema.parse(data) : null;
     },
 
     async getSubscription(organizationId) {

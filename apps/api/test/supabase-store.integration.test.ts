@@ -800,6 +800,18 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
     await worker.markAlertsTold(told, new Date().toISOString());
     expect(await worker.listAlertsToTell(location.id, false)).toEqual(nothing);
 
+    // Downloading everything: its owner is given all of it, the scan's answers and alerts
+    // included, in the shape the app is sent them. Nobody else is given any, the worker included.
+    const exported = await aliceStore.exportOrganization(fresh.id);
+    expect(exported?.organization.id).toBe(fresh.id);
+    expect(exported?.locations.map((row) => row.id)).toContain(location.id);
+    expect(exported?.answers.map((row) => row.scan_id)).toContain(scan.id);
+    expect(exported?.alerts.map((row) => row.id).sort()).toEqual(
+      raised.map((row) => row.id).sort(),
+    );
+    expect(await bobStore.exportOrganization(fresh.id)).toBeNull();
+    expect(await worker.exportOrganization(fresh.id)).toBeNull();
+
     // Recommendations
     const [recommendation] = await aliceStore.listRecommendations(location.id);
     expect(recommendation).toMatchObject({ rule: "absent:gemini", status: "open" });

@@ -217,7 +217,8 @@ when it renews), a change waiting for the end of the period with "Keep my curren
 "Change plan or locations", a "Manage billing" button (Stripe's pages, for payment method,
 invoices and cancelling only), a warning while a payment is being retried or after a subscription
 ended, and a thank-you on return from checkout that waits for the plan to move, and, for a subscriber not yet
-moved, the new amount and from when after an announced price change. A new user is walked through four steps (organization, location, prompts, first scan), and nothing is created until the
+moved, the new amount and from when after an announced price change. The owner also has a "Your data" card with
+"Download everything", the ZIP described under the API below. A new user is walked through four steps (organization, location, prompts, first scan), and nothing is created until the
 last. The prompts step says how many the free plan tracks and takes them from the suggestions or in the owner's own words. The privacy policy (`/privacy`), the terms of service (`/terms`), a page describing the
 crawler (`/bot`) and the plans (`/pricing`) are readable without signing in, and so are the
 licence file for the packages the web app includes ([License](#license)) and `/line.js`, the
@@ -337,7 +338,7 @@ tenancy model, the limits a Worker imposes, and the known gaps.
 | Layer | Choice |
 | --- | --- |
 | Web | React 19, Vite, TypeScript, React Router, TanStack Query, qrcode.react (draws the code to print) |
-| API and jobs | One Cloudflare Worker: Hono for HTTP, a Cron Trigger to schedule scans, a Queue to run them |
+| API and jobs | One Cloudflare Worker: Hono for HTTP, a Cron Trigger to schedule scans, a Queue to run them; fflate writes the download's ZIP |
 | Hosted pages | A second Cloudflare Worker, the Pages Worker, that serves hosted pages on answer subdomains and nothing else; plain HTML, no secret |
 | Assistants | OpenAI's Responses API and Anthropic's Messages API (through its SDK), both with web search for a scan; Claude also writes drafts, with no tools |
 | Data and auth | Supabase (Postgres with row-level security, email sign-in) |
@@ -530,6 +531,7 @@ organization reads as missing and returns 404. Payloads are defined in
 | `POST /api/organizations` | Create an organization; the caller becomes its owner. The name needs a letter. 409 when the account already has one. |
 | `PATCH /api/organizations/:organizationId` | Rename an organization. Owners and admins only; anyone else reads it as missing and gets 404. The name needs a letter. |
 | `PUT /api/organizations/:organizationId/assistants` | Sets which assistants the organization is checked on, from ChatGPT and Claude, as many as its plan covers. Owner only: 404 to anyone else. 409 with the reason when the choice is not one the plan allows. |
+| `GET /api/organizations/:organizationId/export` | Everything the organization holds, as a ZIP (`application/zip`, `Content-Disposition: attachment`, `Cache-Control: private, no-store`): a `README.txt`, `everything.json` (`AccountExportSchema`, `version` 1) and a CSV for each list. Never a sign-in, the operator's record of changes or what the providers were paid. Owner only: 403 `owners_only` to anyone else, the operator included. |
 | `GET /api/organizations/:organizationId/locations` | List an organization's locations. |
 | `POST /api/organizations/:organizationId/locations` | Add a location. The phone is stored as E.164 in the location's country, the website with `https://`, and the postal code, country, place ID, name, city and `what_we_do` (what the owner says the business does, optional, at most 600 characters) are checked; a bad value answers 422. |
 | `GET /api/organizations/:organizationId/account` | What Account settings shows: `manual_scans_used` this month, `allowance_use` (how much of each counted allowance is used this month, by kind; a kind with none used is absent) and `limit_change` (`lowered`, the limits going down with their `from` and `to`, and the day `at`, or null) for anyone who can read the organization, and `billing` (`available`, `subscribed`, `status`, `has_customer`, `locations` paid for, `renews_at`, `paying` (the prices the subscription is billed at and its `monthly_cents`, which may be older than the plan's present price), `pending`, a change waiting for the period's end, read live from Stripe, and `price_change`, the `monthly_cents` and day (`at`) an announced change will move it to, absent once moved) for its owner alone. `billing` is null for a member and for the operator. 404 to a stranger. |

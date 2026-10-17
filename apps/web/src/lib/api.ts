@@ -141,6 +141,12 @@ export const api = {
   /** This month's use, and for the owner alone where billing stands. */
   organizationAccount: (id: string) =>
     json(OrganizationAccountSchema, "GET", `/organizations/${id}/account`),
+  /** Everything the organization holds, as a ZIP, with the name to save it under. Owner only. */
+  downloadEverything: async (id: string) => {
+    const response = await send("GET", `/organizations/${id}/export`);
+    const named = /filename="([^"]+)"/.exec(response.headers.get("Content-Disposition") ?? "");
+    return { file: await response.blob(), name: named?.[1] ?? "nearcited.zip" };
+  },
   /** Where the payment provider's checkout is, for the owner to be sent to. Charges nothing. */
   checkout: (id: string, input: CheckoutInput) =>
     json(BillingRedirectSchema, "POST", `/organizations/${id}/checkout`, input),

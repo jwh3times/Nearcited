@@ -88,7 +88,13 @@ function SignedIn() {
         <Route path="locations/:id/review-card/:site" element={<ReviewCard />} />
         <Route
           path="settings"
-          element={<AccountSettings organization={organization} email={me.data.email} />}
+          element={
+            <AccountSettings
+              organization={organization}
+              email={me.data.email}
+              platformRole={me.data.platform_role}
+            />
+          }
         />
         <Route path="connections" element={<Connections organization={organization} />} />
         <Route path="wordpress/return" element={<WordPressReturn />} />

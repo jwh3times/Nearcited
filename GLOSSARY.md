@@ -170,3 +170,7 @@ system works; this file only settles vocabulary.
   everything measured stays readable.
 - **Set aside**: said of a prompt made inactive because the plan covers fewer. A larger plan
   restores it. A **retired** prompt is one its owner made inactive, which no plan restores.
+- **Export**: everything an organization holds, as a ZIP its owner downloads at any time: a
+  spreadsheet for each list and all of it in one file another tool can read. It holds no sign-in,
+  nothing of the operator's record of changes and nothing about what the providers were paid. See
+  "Downloading everything" in `docs/architecture.md`.
