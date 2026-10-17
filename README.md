@@ -71,14 +71,14 @@ can read through a customer's pages, with everything that changes something hidd
 organization's limits (locations, prompts per location, manual scans a month, days between scans) and
 its allowances, one field for each kind of work a plan can include, on its plan page. A Plans
 section lists each plan with its price, how many organizations and subscribers
-are on it and their monthly total, and edits its name, limits, allowances, emailed report and whether it is on
+are on it and their monthly total (Stronger included, for each location on each assistant), and edits its name, limits, allowances, emailed report and whether it is on
 sale; lowering a limit or an allowance first shows how many organizations it reaches and asks to save again. A raise
 reaches every organization on the plan at once. A lower limit on a plan nobody pays for is made at
 once too (on the free plan each organization is emailed that day). On a plan with subscribers it
 asks for a day at least thirty days out and is announced instead: the owners are emailed, reminded a
 week before, and the reduction is made for the whole plan on the day. The editor shows who has and
 has not been told, by organization name, and "Call off the reduction" until the day; whatever else
-the save changed is made at once. A second form sets its prices, typed in dollars (including, optionally, the price of a stronger model),
+the save changed is made at once. A second form sets its prices, typed in dollars (including, optionally, the price of a stronger model a month for each location on each assistant),
 for new subscribers; current subscribers keep the price they pay until the operator announces a
 day for them ("Current subscribers": pick a day, announce, asked twice). Each subscriber's owners
 are emailed, reminded a week before, and each subscription is moved to the new price at its next
