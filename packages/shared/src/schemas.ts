@@ -1962,6 +1962,71 @@ export const VisitSentSchema = z.union([
 ]);
 export type VisitSent = z.infer<typeof VisitSentSchema>;
 
+/** A person in an organization, as the export lists them. */
+export const ExportMemberSchema = z.object({
+  email: z.string().nullable(),
+  role: z.enum(["owner", "admin", "member"]),
+  joined_at: Timestamp,
+});
+
+/** The visits counted for a location on a day, from one assistant to one page. */
+export const ExportVisitSchema = z.object({
+  location_id: Id,
+  day: z.string(),
+  assistant: VisitAssistantSchema,
+  path: z.string(),
+  count: z.number().int(),
+});
+
+/** A page served on an answer subdomain, or taken back from it. */
+export const ExportHostedPageSchema = z.object({
+  id: Id,
+  location_id: Id,
+  hostname: z.string().nullable(),
+  slug: z.string(),
+  title: z.string(),
+  copy: z.string(),
+  published_at: Timestamp,
+  taken_back_at: Timestamp.nullable(),
+});
+
+/** The fetches counted of a hosted page on a day, by one fetcher. */
+export const ExportPageFetchSchema = z.object({
+  hosted_page_id: Id,
+  location_id: Id,
+  day: z.string(),
+  fetcher: PageFetchesSchema.shape.fetcher,
+  count: z.number().int(),
+});
+
+/**
+ * Everything an organization holds, as its owner downloads it. Each list's rows are the same
+ * wire types the app is sent. Never a sign-in, the operator's record of changes or what the
+ * providers were paid. `version` changes when the shape does.
+ */
+export const AccountExportSchema = z.object({
+  version: z.literal(1),
+  exported_at: Timestamp,
+  organization: OrganizationSchema,
+  subscription_status: z.string().nullable(),
+  members: z.array(ExportMemberSchema),
+  locations: z.array(LocationSchema),
+  prompts: z.array(TrackedQuerySchema),
+  scans: z.array(ScanSchema),
+  answers: z.array(ScanResultSchema),
+  tasks: z.array(RecommendationSchema),
+  alerts: z.array(AlertSchema),
+  drafts: z.array(DraftSchema),
+  actions: z.array(ActionSchema),
+  connections: z.array(ConnectionSchema),
+  listings: z.array(ListingSchema),
+  page_addresses: z.array(PromptPageSchema.extend({ location_id: Id })),
+  visits: z.array(ExportVisitSchema),
+  hosted_pages: z.array(ExportHostedPageSchema),
+  page_fetches: z.array(ExportPageFetchSchema),
+});
+export type AccountExport = z.infer<typeof AccountExportSchema>;
+
 export const ApiErrorSchema = z.object({
   error: z.object({
     code: z.string(),

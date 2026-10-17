@@ -27,6 +27,7 @@ import type {
   VisitAssistant,
 } from "@nearcited/shared";
 import {
+  AccountExportSchema,
   ALLOWANCE_KINDS,
   allowanceErrors,
   allowedEachMonth,
@@ -59,6 +60,9 @@ import {
  * on: a store made for a user cannot see rows outside that user's organizations. The policies
  * themselves are tested against Postgres in packages/db.
  */
+
+/** The order of `member_role` in the database. */
+const ROLE_ORDER = ["owner", "admin", "member"] as const;
 
 export interface MemoryDb {
   organizations: Organization[];
@@ -617,6 +621,56 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         stripe_subscription_id: kept?.stripe_subscription_id ?? null,
         status: kept?.status ?? null,
       };
+    },
+
+    async exportOrganization(organizationId) {
+      const owns = db.memberships.some(
+        (m) => m.organization_id === organizationId && m.user_id === userId && m.role === "owner",
+      );
+      const organization = db.organizations.find((o) => o.id === organizationId);
+      if (!owns || !organization) return null;
+      const locations = db.locations.filter((l) => l.organization_id === organizationId);
+      const at = new Set(locations.map((l) => l.id));
+      const scans = db.scans.filter((scan) => at.has(scan.location_id));
+      const scanIds = new Set(scans.map((scan) => scan.id));
+      const connections = db.connections.filter((c) => c.organization_id === organizationId);
+      // Parsed, so that what only the worker keeps beside each row is left out, as it is there.
+      return AccountExportSchema.parse({
+        version: 1,
+        exported_at: new Date().toISOString(),
+        organization,
+        subscription_status: db.subscriptions.get(organizationId)?.status ?? null,
+        // Owners first, then admins, then members, as the database orders those who joined at once.
+        members: db.memberships
+          .filter((m) => m.organization_id === organizationId)
+          .sort((a, b) => ROLE_ORDER.indexOf(a.role) - ROLE_ORDER.indexOf(b.role))
+          .map((m) => ({
+            email: db.emails.get(m.user_id) ?? null,
+            role: m.role,
+            joined_at: organization.created_at,
+          })),
+        locations,
+        prompts: db.queries.filter((query) => at.has(query.location_id)),
+        scans,
+        answers: db.results.filter((result) => scanIds.has(result.scan_id)),
+        tasks: db.recommendations.filter((task) => at.has(task.location_id)),
+        alerts: db.alerts.filter((alert) => at.has(alert.location_id)),
+        drafts: db.drafts.filter((draft) => at.has(draft.location_id)),
+        actions: db.actions.filter((action) => at.has(action.location_id)),
+        connections,
+        listings: db.listings.filter((listing) => at.has(listing.location_id)),
+        page_addresses: db.promptPages.filter((page) => at.has(page.location_id)),
+        visits: db.visits.filter((visit) => at.has(visit.location_id)),
+        hosted_pages: db.hostedPages
+          .filter((page) => at.has(page.location_id))
+          .map((page) => ({
+            ...page,
+            hostname:
+              db.answerSubdomains.find((name) => name.connection_id === page.connection_id)
+                ?.hostname ?? null,
+          })),
+        page_fetches: db.pageFetches.filter((counted) => at.has(counted.location_id)),
+      });
     },
 
     async getSubscription(organizationId) {

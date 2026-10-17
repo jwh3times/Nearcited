@@ -1,4 +1,5 @@
 import type {
+  AccountExport,
   AccountFacts,
   Action,
   ActionKind,
@@ -439,6 +440,11 @@ export interface Store {
    * for anyone else, the operator included, it returns null.
    */
   getBillingState(organizationId: string): Promise<BillingState | null>;
+  /**
+   * Everything an organization holds, for its owner to download. Only an owner's call is
+   * answered: for anyone else, the operator included, it returns null.
+   */
+  exportOrganization(organizationId: string): Promise<AccountExport | null>;
   /**
    * Sets which assistants an organization is checked on, within what its plan covers. Only its
    * owner's call changes anything: for anyone else it returns null. Throws a limit, with a

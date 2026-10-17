@@ -6,7 +6,8 @@ import {
 } from "@nearcited/shared";
 import { Hono } from "hono";
 import type { AppEnv } from "../app";
-import { notFound } from "../errors";
+import { ApiError, notFound } from "../errors";
+import { exportFileName, exportZip } from "../export";
 import { usesSampleData } from "../providers";
 import { parseJson, uuidParam } from "../validation";
 
@@ -44,6 +45,22 @@ organizationRoutes.put("/organizations/:organizationId/assistants", async (c) =>
   const organization = await c.get("store").chooseAssistants(organizationId, surfaces);
   if (!organization) throw notFound("Organization");
   return c.json(organization);
+});
+
+/** Everything the organization holds, as a ZIP for its owner to download. Owner only. */
+organizationRoutes.get("/organizations/:organizationId/export", async (c) => {
+  const organizationId = uuidParam(c, "organizationId", "Organization");
+  const exported = await c.get("store").exportOrganization(organizationId);
+  if (!exported) {
+    throw new ApiError(403, "owners_only", "Only an owner of this organization can download it.");
+  }
+  return new Response(exportZip(exported, c.env.APP_URL), {
+    headers: {
+      "Content-Type": "application/zip",
+      "Content-Disposition": `attachment; filename="${exportFileName(exported)}"`,
+      "Cache-Control": "private, no-store",
+    },
+  });
 });
 
 organizationRoutes.get("/organizations/:organizationId/locations", async (c) => {

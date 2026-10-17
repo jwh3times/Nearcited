@@ -4,6 +4,7 @@ import {
   type Organization,
   OrganizationInputSchema,
   PLAN_ASSISTANTS,
+  type PlatformRole,
   SURFACE_LABELS,
 } from "@nearcited/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -20,13 +21,16 @@ import { supabase } from "../lib/supabase";
 interface AccountSettingsProps {
   organization: Organization;
   email: string | null;
+  /** What the signed-in account is to the product itself. Null for nearly everyone. */
+  platformRole: PlatformRole | null;
 }
 
 /**
  * The organization and the account behind it: its name, what its plan allows and how much of
- * that is used, the way to its billing for its owner, and who is signed in.
+ * that is used, the way to its billing and to everything it holds for its owner, and who is
+ * signed in.
  */
-export function AccountSettings({ organization, email }: AccountSettingsProps) {
+export function AccountSettings({ organization, email, platformRole }: AccountSettingsProps) {
   const locations = useQuery({
     queryKey: ["locations", organization.id],
     queryFn: () => api.listLocations(organization.id),
@@ -49,6 +53,8 @@ export function AccountSettings({ organization, email }: AccountSettingsProps) {
     },
   });
   const billing = account.data?.billing ?? null;
+  // Billing is told to an owner alone. The operator and a test account take nothing away.
+  const mayTakeItsData = billing !== null && !organization.is_test && platformRole === null;
   // The plan, its limits and what is paused all come from elsewhere, so read them again
   // whenever billing has been.
   // biome-ignore lint/correctness/useExhaustiveDependencies: billing being read again is the trigger
@@ -145,6 +151,8 @@ export function AccountSettings({ organization, email }: AccountSettingsProps) {
             <ErrorNote error={account.error} />
           </div>
 
+          {mayTakeItsData && <YourData organization={organization} />}
+
           <div className="card side-card">
             <h3 className="side-title">Signed in</h3>
             <p>{email ?? "No email on file"}</p>
@@ -155,6 +163,40 @@ export function AccountSettings({ organization, email }: AccountSettingsProps) {
         </div>
       </div>
     </main>
+  );
+}
+
+/** The owner's way to take everything the organization holds with them, at any time. */
+function YourData({ organization }: { organization: Organization }) {
+  const download = useMutation({
+    mutationFn: () => api.downloadEverything(organization.id),
+    onSuccess: ({ file, name }) => {
+      const url = URL.createObjectURL(file);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = name;
+      link.click();
+      // Let the browser start saving it before the address goes.
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    },
+  });
+  return (
+    <div className="card side-card">
+      <h3 className="side-title">Your data</h3>
+      <p>
+        Download everything this organization holds: a spreadsheet for each list, and all of it in
+        one file another tool can read.
+      </p>
+      <button
+        type="button"
+        className="secondary"
+        disabled={download.isPending}
+        onClick={() => download.mutate()}
+      >
+        {download.isPending ? "Preparing the download" : "Download everything"}
+      </button>
+      <ErrorNote error={download.error} />
+    </div>
   );
 }
 
