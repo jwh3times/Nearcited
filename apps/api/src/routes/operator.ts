@@ -375,10 +375,14 @@ operatorRoutes.put("/operator/plans/:key/prices", async (c) => {
   if (plan.price_cents === 0) {
     throw new ApiError(409, "free_plan", "The free plan has no price to change.");
   }
+  const stronger =
+    input.stronger_price_cents === undefined
+      ? (sold.current?.stronger_price_cents ?? null)
+      : input.stronger_price_cents;
   if (
     sold.current?.price_cents === input.price_cents &&
     sold.current.extra_location_price_cents === input.extra_location_price_cents &&
-    sold.current.stronger_price_cents === input.stronger_price_cents
+    sold.current.stronger_price_cents === stronger
   ) {
     throw new ApiError(422, "no_change", "That is what the plan is already sold at.");
   }
@@ -406,7 +410,6 @@ operatorRoutes.put("/operator/plans/:key/prices", async (c) => {
       product_name: `Nearcited ${plan.name}: stronger ${SURFACE_LABELS[surface]}`,
       cents,
     });
-  const stronger = input.stronger_price_cents;
   const stripe_stronger_price_ids =
     stronger === null
       ? null
@@ -416,6 +419,7 @@ operatorRoutes.put("/operator/plans/:key/prices", async (c) => {
         };
   const saved = await store.setPlanPrices(key, {
     ...input,
+    stronger_price_cents: stronger,
     stripe_price_id,
     stripe_extra_location_price_id,
     stripe_stronger_price_ids,

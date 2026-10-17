@@ -132,6 +132,15 @@ describe("stronger models", () => {
     expect(await strongerOf(made.enterprise ?? "")).toBe("{}");
   });
 
+  it("writes on a scan kept before that it asked everything on Standard", async () => {
+    expect(
+      await rows(
+        "select s.tiers from public.scans s join public.scan_results r on r.scan_id = s.id where r.id = $1",
+        [resultId],
+      ),
+    ).toEqual([{ tiers: { chatgpt: "standard" } }]);
+  });
+
   it("reads a result kept before as checked on Standard", async () => {
     expect(await rows("select tier from public.scan_results where id = $1", [resultId])).toEqual([
       { tier: "standard" },

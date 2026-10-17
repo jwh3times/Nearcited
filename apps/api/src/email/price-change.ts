@@ -15,6 +15,11 @@ export interface PriceChangeEmail {
   now_cents: number;
   /** From when: its first renewal on or after this day. An ISO timestamp. */
   effective_at: string;
+  /**
+   * The stronger model it pays for, which the totals include: on which assistants, by name, and
+   * what each costs a month now and after. Null when it pays for none.
+   */
+  stronger: { on: string[]; was_cents: number; now_cents: number } | null;
   appUrl: string;
 }
 
@@ -44,17 +49,26 @@ export function buildPriceChangeEmail(email: PriceChangeEmail): Email {
   }
 
   const what = lower ? "is going down" : "is changing";
+  // The stronger price is said on its own, so a rise in it is not hidden in the total.
+  const stronger = email.stronger
+    ? [
+        "",
+        `That includes a stronger model on ${email.stronger.on.join(" and ")}, at ${dollars(email.stronger.was_cents)} a month for each today and ${dollars(email.stronger.now_cents)} from then.`,
+      ]
+    : [];
   const lines =
     kind === "announce"
       ? [
           `The price of the ${plan} plan ${what}.`,
           "",
           `${organization} pays ${was} today. From your first renewal on or after ${when} it will be ${next}. Both are before tax, for the locations you pay for now.`,
+          ...stronger,
         ]
       : [
           `A reminder: the price of the ${plan} plan changes in a week.`,
           "",
           `${organization} pays ${was} today. From your first renewal on or after ${when} it will be ${next}, before tax.`,
+          ...stronger,
         ];
   return {
     subject:

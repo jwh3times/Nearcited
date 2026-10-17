@@ -68,7 +68,12 @@ pass `pnpm check` and run in mock mode without it.
   change moves them (`docs/adr/0008-a-price-change-reaches-subscribers-by-announcement.md`).
   `runPriceChangeStep` moves a subscription to a higher price only when its owners were sent the
   announcement at least thirty days before, checked per organization. Do not add another path
-  that changes what a running subscription is billed, and never edit a price in place.
+  that changes what a running subscription is billed, and never edit a price in place. The two
+  that stronger models add are the only exceptions, and neither bills more
+  (`docs/adr/0021-a-stronger-model-is-a-line-of-the-plans-price.md`): a switch of assistant moves
+  a stronger line to the new one for the same price (`followAssistantSwitch`), and the day a
+  reduction takes stronger models off a plan takes the lines off without charging
+  (`fitSubscription`).
 - **What a paying subscriber gets goes down only after they were told.** On a plan with
   subscribers a lower limit, or an allowance taken away or made smaller, is announced for a day
   at least thirty days out and made on that day by `apply_limit_change()`, which only the worker

@@ -589,8 +589,11 @@ export const PlanPricesInputSchema = z.object({
   price_cents: monthlyPrice,
   /** A month, in US cents, for each location beyond those. Null sells no more than it includes. */
   extra_location_price_cents: monthlyPrice.nullable(),
-  /** A month, in US cents, for each assistant on Stronger. Null sells no stronger model. */
-  stronger_price_cents: monthlyPrice.nullable().default(null),
+  /**
+   * A month, in US cents, for each assistant on Stronger. Null sells no stronger model. Left out,
+   * as a form from before stronger models leaves it, it stays what it is.
+   */
+  stronger_price_cents: monthlyPrice.nullable().optional(),
 });
 export type PlanPricesInput = z.infer<typeof PlanPricesInputSchema>;
 

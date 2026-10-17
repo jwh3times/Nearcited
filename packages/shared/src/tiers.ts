@@ -17,6 +17,13 @@ import {
 /** The allowance that says a plan sells stronger models. A key of `ALLOWANCE_KINDS`. */
 export const STRONGER_MODELS_ALLOWANCE = "stronger_models";
 
+/** The assistants an organization is checked on, in a fixed order. Stronger is had only on these. */
+export function checkedAssistants(organization: Pick<Organization, "surfaces">): PlanAssistant[] {
+  return PLAN_ASSISTANTS.filter(
+    (surface) => organization.surfaces === null || organization.surfaces.includes(surface),
+  );
+}
+
 /**
  * The assistants an organization pays a stronger model on and is checked on, in a fixed order.
  * One it pays for and is not checked on is not asked at all.
@@ -24,10 +31,8 @@ export const STRONGER_MODELS_ALLOWANCE = "stronger_models";
 export function strongerSurfaces(
   organization: Pick<Organization, "surfaces" | "stronger_surfaces">,
 ): PlanAssistant[] {
-  return PLAN_ASSISTANTS.filter(
-    (surface) =>
-      organization.stronger_surfaces.includes(surface) &&
-      (organization.surfaces === null || organization.surfaces.includes(surface)),
+  return checkedAssistants(organization).filter((surface) =>
+    organization.stronger_surfaces.includes(surface),
   );
 }
 

@@ -108,6 +108,11 @@ describe("stronger models", () => {
     expect(asked.claude).toEqual(plainClaude);
     expect(asked.prompts).toBe(tuning.prompts);
     expect(asked.score).toBe(tuning.score);
+    // With one of its own, Claude is asked with it too.
+    const claude = { model: "claude-strong", effort: "high" as const, max_searches: 3 };
+    expect(
+      strongerTuning({ ...tuning, claude: { ...plainClaude, stronger: claude } }).claude,
+    ).toEqual(claude);
   });
 });
 

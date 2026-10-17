@@ -28,10 +28,11 @@ import { belongsTo, summarizeSources } from "./sources";
  * that never ended. So an alert is kept, and what raises one and what clears one are different
  * conditions (`docs/adr/0015-an-alert-is-kept-not-worked-out-again.md`).
  *
- * - A drop, on one prompt and one surface at one tier. Raised when the newest `DROP_MISSES` checks did not
- *   name the business and at least `DROP_NAMED_BEFORE` of the `DROP_CHECKS_BEFORE` before them
- *   did. Cleared when a check made after the alert was raised names the business, or when the
- *   prompt or the surface is no longer checked. Never by age.
+ * - A drop, on one prompt and one surface at one tier. Raised when the newest `DROP_MISSES`
+ *   checks did not name the business and at least `DROP_NAMED_BEFORE` of the
+ *   `DROP_CHECKS_BEFORE` before them did. Cleared when a check made after the alert was raised
+ *   names the business, or when the prompt, the surface or the tier is no longer checked. Never
+ *   by age.
  * - A first sighting, of a business or of a site. Raised when the written answers of the latest
  *   `FIRST_SEEN_SCANS` scans name the business, or cite the site, in at least
  *   `FIRST_SEEN_ANSWERS` answers across at least `FIRST_SEEN_IN_SCANS` of those scans, and no

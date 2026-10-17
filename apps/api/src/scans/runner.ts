@@ -15,8 +15,9 @@ import {
   type SiteCheck,
   type SiteSnapshot,
   SURFACES_BY_KIND,
-  strongerSurfaces,
+  type Surface,
   type Tier,
+  tierOf,
   windowScore,
 } from "@nearcited/shared";
 import { type ProviderRegistry, planSurfaces } from "../providers";
@@ -97,7 +98,8 @@ export async function runScan(scanId: string, deps: RunScanDeps): Promise<ScanOu
   const sampleData = generated || (deps.sampleData ?? false);
   const providers = generated ? (deps.sampleProviders ?? {}) : deps.providers;
   // A test organization pays for nothing, so its generated scans are all Standard.
-  const stronger = organization && !organization.is_test ? strongerSurfaces(organization) : [];
+  const tierOn = (surface: Surface): Tier =>
+    organization && !organization.is_test ? tierOf(organization, surface) : "standard";
 
   try {
     await store.markScanRunning(scanId, sampleData);
@@ -138,9 +140,8 @@ export async function runScan(scanId: string, deps: RunScanDeps): Promise<ScanOu
       planSurfaces(SURFACES_BY_KIND[kind], organization?.surfaces ?? null);
     const checks = queries.flatMap((query) =>
       covered(query.kind).flatMap((surface) => {
-        const strong = stronger.some((paid) => paid === surface)
-          ? deps.strongerProviders?.[surface]
-          : undefined;
+        const strong =
+          tierOn(surface) === "stronger" ? deps.strongerProviders?.[surface] : undefined;
         const provider = strong ?? providers[surface];
         const tier: Tier = strong ? "stronger" : "standard";
         return provider ? [{ query, provider, tier }] : [];

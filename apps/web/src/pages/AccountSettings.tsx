@@ -1,5 +1,6 @@
 import {
   allowanceFacts,
+  checkedAssistants,
   describeLowered,
   type Organization,
   OrganizationInputSchema,
@@ -524,6 +525,12 @@ function AssistantChooser({
   );
 }
 
+/** One assistant put on one tier. */
+interface TierChoice {
+  surface: PlanAssistant;
+  tier: Tier;
+}
+
 interface StrongerChooserProps {
   organization: Organization;
   /** A month, in US cents, for each assistant on Stronger, at the prices the owner pays. */
@@ -551,20 +558,18 @@ function StrongerChooser({
 }: StrongerChooserProps) {
   const navigate = useNavigate();
   const paid = organization.stronger_surfaces;
-  const choices = offered.filter((surface) => organization.surfaces?.includes(surface) ?? true);
-  const [asked, setAsked] = useState<{ surface: PlanAssistant; tier: Tier } | null>(null);
-  const input = (to: { surface: PlanAssistant; tier: Tier }) => ({
+  const choices = checkedAssistants(organization).filter((surface) => offered.includes(surface));
+  const [asked, setAsked] = useState<TierChoice | null>(null);
+  const input = (to: TierChoice) => ({
     plan_key: organization.plan_key ?? "",
     ...(locations ? { locations } : {}),
     stronger: strongerChange(paid, to.surface, to.tier),
   });
   const preview = useMutation({
-    mutationFn: (to: { surface: PlanAssistant; tier: Tier }) =>
-      api.previewSubscriptionChange(organization.id, input(to)),
+    mutationFn: (to: TierChoice) => api.previewSubscriptionChange(organization.id, input(to)),
   });
   const change = useMutation({
-    mutationFn: (to: { surface: PlanAssistant; tier: Tier }) =>
-      api.changeSubscription(organization.id, input(to)),
+    mutationFn: (to: TierChoice) => api.changeSubscription(organization.id, input(to)),
     onSuccess: () => {
       setAsked(null);
       preview.reset();

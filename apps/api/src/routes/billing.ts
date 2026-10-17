@@ -2,6 +2,7 @@ import {
   type BillingRedirect,
   type CheckoutInput,
   CheckoutInputSchema,
+  checkedAssistants,
   type Organization,
   type OrganizationAccount,
   PLAN_ASSISTANTS,
@@ -13,9 +14,10 @@ import type { Context } from "hono";
 import { Hono } from "hono";
 import type { AppEnv } from "../app";
 import { itemsFor, monthlyCents, type PaidPlan, readItems } from "../billing/plans";
+import { sellsStronger } from "../billing/stronger";
 import { type BilledItem, PaymentDeclinedError, type Payments } from "../billing/types";
 import { ApiError, notFound } from "../errors";
-import type { PlanPrices, PriceVersion } from "../store/types";
+import type { PlanPrices } from "../store/types";
 import { parseJson, uuidParam } from "../validation";
 
 export const billingRoutes = new Hono<AppEnv>();
@@ -25,25 +27,23 @@ const unavailable = () =>
 
 const planUnavailable = (message: string) => new ApiError(422, "plan_unavailable", message);
 
-/** The assistants the tuning has a stronger model for, which are the only ones it is sold on. */
-const strongerAssistants = (c: Context<AppEnv>) => c.get("deployment").stronger_assistants ?? [];
+/** The assistants this deployment has a stronger model for, from the tuning. */
+export const withStrongerModel = (c: Context<AppEnv>) =>
+  c.get("deployment").stronger_assistants ?? [];
 
 /**
- * The assistants a plan, at one version of its prices, sells Stronger on: the plan includes
- * stronger models, the version has a price for them, and the deployment has one for the assistant.
+ * Where an organization may have Stronger: on the assistants it is checked on that the
+ * deployment has a stronger model for. A test organization pays for nothing, so none.
  */
-function sellsStronger(
-  plan: PlanPrices,
-  version: PriceVersion,
-  assistants: readonly PlanAssistant[],
-): PlanAssistant[] {
-  if (!plan.sells_stronger || !version.stripe_stronger_price_ids) return [];
-  return PLAN_ASSISTANTS.filter((surface) => assistants.includes(surface));
+interface StrongerSale {
+  checked: readonly PlanAssistant[];
+  assistants: readonly PlanAssistant[];
 }
 
-/** The assistants an organization is checked on. Stronger is paid for only on one of those. */
-const checkedOn = (organization: Pick<Organization, "surfaces">) =>
-  PLAN_ASSISTANTS.filter((surface) => organization.surfaces?.includes(surface) ?? true);
+const strongerSale = (c: Context<AppEnv>, organization: Organization): StrongerSale | null =>
+  organization.is_test
+    ? null
+    : { checked: checkedAssistants(organization), assistants: withStrongerModel(c) };
 
 /**
  * What Account settings shows: this month's use for anyone who can read the organization, and
@@ -84,8 +84,8 @@ billingRoutes.get("/organizations/:organizationId/account", async (c) => {
       }
       // A tier is changed only while nothing is owed, as a plan is. One on Stronger can always
       // be put back on Standard.
-      if (paid && subscription?.status === "active") {
-        const sold = sellsStronger(paid.plan, paid.version, strongerAssistants(c));
+      if (paid && subscription?.status === "active" && !organization?.is_test) {
+        const sold = sellsStronger(paid.plan, paid.version, withStrongerModel(c));
         strongerOffered = PLAN_ASSISTANTS.filter(
           (surface) => sold.includes(surface) || paid?.stronger.includes(surface),
         );
@@ -248,18 +248,14 @@ function wanted(
   plans: PlanPrices[],
   input: CheckoutInput,
   own: PaidPlan | null,
-  stronger: {
-    organization: Pick<Organization, "surfaces">;
-    assistants: readonly PlanAssistant[];
-  } | null,
+  sale: StrongerSale | null,
 ) {
   const staying = own?.plan.key === input.plan_key ? own : null;
   const plan = staying?.plan ?? plans.find((p) => p.key === input.plan_key && p.on_sale);
   const version = staying?.version ?? plan?.current;
   if (!plan || !version) throw planUnavailable("That plan cannot be bought.");
-  const checked = stronger ? checkedOn(stronger.organization) : [];
-  const sold = stronger
-    ? sellsStronger(plan, version, stronger.assistants).filter((s) => checked.includes(s))
+  const sold = sale
+    ? sellsStronger(plan, version, sale.assistants).filter((s) => sale.checked.includes(s))
     : [];
   const asked = input.stronger ?? own?.stronger.filter((surface) => sold.includes(surface)) ?? [];
   const refused = asked.filter((surface) => !sold.includes(surface));
@@ -303,43 +299,6 @@ async function subscribed(
 }
 
 /**
- * After an owner switches assistant on a plan that checks one, moves what they pay Stronger on
- * to the new assistant, at once and for the same price. Where the new assistant has no stronger
- * model to sell, Stronger goes as a downgrade does, at the end of the period paid for. Nothing to
- * do without a subscription paying Stronger, or with one owing a payment.
- */
-export async function followAssistantSwitch(
-  c: Context<AppEnv>,
-  organization: Organization,
-): Promise<void> {
-  const payments = c.get("payments")();
-  if (!payments) return;
-  const store = c.get("store");
-  const billing = await store.getBillingState(organization.id);
-  if (!billing?.stripe_subscription_id) return;
-  const subscription = await payments.getSubscription(billing.stripe_subscription_id);
-  if (subscription?.status !== "active") return;
-  const plans = await store.listPlanPrices();
-  const current = readItems(subscription.items, plans);
-  if (!current || current.stronger.length === 0) return;
-
-  const checked = checkedOn(organization);
-  if (current.stronger.every((surface) => checked.includes(surface))) return;
-  const sold = sellsStronger(current.plan, current.version, strongerAssistants(c));
-  // One stronger model for one stronger model: it follows to the assistant now checked.
-  const stronger = checked
-    .filter((surface) => sold.includes(surface))
-    .slice(0, current.stronger.length);
-  const items = itemsFor({ ...current, stronger });
-  if (!items) return;
-  if (monthlyCents({ ...current, stronger }) < monthlyCents(current)) {
-    await payments.changeAtPeriodEnd(subscription.id, items);
-  } else {
-    await payments.changeNow(subscription.id, items);
-  }
-}
-
-/**
  * Works out what the owner's request would do to their subscription, from the subscription as
  * the provider has it now. Which way it goes is decided here by the monthly price, never by
  * what the request says.
@@ -367,10 +326,7 @@ async function plannedChange(c: Context<AppEnv>): Promise<{
   if (!current || !subscription.period_end) {
     throw new Error(`Subscription ${subscriptionId} bills for a price that no plan has.`);
   }
-  const { paid, items } = wanted(plans, input, current, {
-    organization,
-    assistants: strongerAssistants(c),
-  });
+  const { paid, items } = wanted(plans, input, current, strongerSale(c, organization));
   if (
     current.plan.key === paid.plan.key &&
     current.locations === paid.locations &&

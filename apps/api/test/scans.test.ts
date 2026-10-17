@@ -756,6 +756,21 @@ describe("stronger models", () => {
     expect(chatgpt).toMatchObject({ mentioned: true, position: 1 });
   });
 
+  it("never asks a test organization's on Stronger, whatever it says it pays for", async () => {
+    Object.assign(organization(), { is_test: true, stronger_surfaces: ["chatgpt"] });
+    const scan = await queueScan();
+    await runScan(scan.id, {
+      store: worker,
+      providers,
+      strongerProviders,
+      sampleProviders: createMockProviders(),
+    });
+    expect(stronger).not.toHaveBeenCalled();
+    const asked = await worker.listScanResults(scan.id);
+    expect(asked.length).toBeGreaterThan(0);
+    expect(asked.every((result) => result.tier === "standard")).toBe(true);
+  });
+
   it("asks everyone else with the standard settings", async () => {
     const scan = await queueScan();
     await runScan(scan.id, { store: worker, providers, strongerProviders });

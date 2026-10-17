@@ -858,6 +858,46 @@ describe("stronger models", () => {
     expect(changes).toEqual([]);
   });
 
+  it("reads a stronger line of an older version as Stronger, whatever version the plan is paid at", async () => {
+    db.pastPrices.push({
+      plan_key: "pro",
+      price_cents: 9900,
+      extra_location_price_cents: null,
+      stripe_price_id: "price_pro_old",
+      stripe_extra_location_price_id: null,
+      stronger_price_cents: 1500,
+      stripe_stronger_price_ids: {
+        chatgpt: "price_pro_old_chatgpt",
+        claude: "price_pro_old_claude",
+      },
+    });
+    const organization = await subscribed([
+      { price_id: "price_pro", quantity: 1 },
+      { price_id: "price_pro_old_claude", quantity: 1 },
+    ]);
+    expect(current(organization.id)?.stronger_surfaces).toEqual(["claude"]);
+  });
+
+  it("is the owner's alone, and never a test organization's", async () => {
+    const organization = await onPro();
+    const member = "c0000000-0000-4000-8000-000000000003";
+    db.memberships.push({ organization_id: organization.id, user_id: member, role: "member" });
+    const asMember = await call(member, "PUT", `/organizations/${organization.id}/subscription`, {
+      plan_key: "pro",
+      stronger: ["claude"],
+    });
+    expect(asMember.status).toBe(404);
+
+    // A test organization pays for nothing, whatever it has come to be subscribed to.
+    const kept = current(organization.id);
+    if (kept) kept.is_test = true;
+    expect((await account(organization.id))?.stronger_offered).toEqual([]);
+    expect(await change(organization.id, { plan_key: "pro", stronger: ["claude"] })).toBe(
+      "422 stronger_unavailable",
+    );
+    expect(changes).toEqual([]);
+  });
+
   it("starts a checkout with none", async () => {
     const organization = await organizationFor(alice);
     const response = await call(alice, "POST", `/organizations/${organization.id}/checkout`, {
@@ -1209,9 +1249,15 @@ describe("a plan's prices", () => {
       { like: "price_new_3", product_name: "Nearcited standard: stronger ChatGPT", cents: 2900 },
       { like: "price_new_4", product_name: "Nearcited standard: stronger Claude", cents: 2900 },
     ]);
-    // Left out, the version sells none.
+    // Left out, as a form from before stronger models sends it, it is kept as it is.
     made = [];
-    expect((await setPrices(bob, "standard", dearer)).status).toBe(200);
+    expect((await setPrices(bob, "standard", { ...dearer, price_cents: 6900 })).status).toBe(200);
+    expect(made.map((price) => price.cents)).toEqual([6900, 1900, 2900, 2900]);
+    // Empty, the version sells none.
+    made = [];
+    expect(
+      (await setPrices(bob, "standard", { ...dearer, stronger_price_cents: null })).status,
+    ).toBe(200);
     expect(made).toHaveLength(2);
     expect(
       (await memoryStore(db, null).listPlanPrices()).find((p) => p.key === "standard")?.current,

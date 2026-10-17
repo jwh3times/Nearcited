@@ -282,9 +282,13 @@ describe("moving a subscription to the new price", () => {
     if (subscription) subscription.items = [...OLD, { price_id: "price_old_claude", quantity: 1 }];
 
     await step("announce", ANNOUNCED);
-    // What they are told counts Stronger: $49 + 2 × $15 + $20 now, $59 + 2 × $19 + $25 after.
+    // What they are told counts Stronger: $49 + 2 × $15 + $20 now, $59 + 2 × $19 + $25 after,
+    // and says what it is itself, so a rise in it is not lost in the total.
     expect(sent[0]?.email.text).toContain("$99");
     expect(sent[0]?.email.text).toContain("$122");
+    expect(sent[0]?.email.text).toContain(
+      "That includes a stronger model on Claude, at $20 a month for each today and $25 from then.",
+    );
     expect(await step("move", Date.parse(EFFECTIVE))).toBe("moved");
     expect(repriced).toEqual([
       { id: "sub_1", items: [...NEW, { price_id: "price_new_claude", quantity: 1 }] },
@@ -380,6 +384,7 @@ describe("the emails", () => {
     was_cents: 4900,
     now_cents: 5950,
     effective_at: EFFECTIVE,
+    stronger: null,
     appUrl: "https://app.example",
   };
 

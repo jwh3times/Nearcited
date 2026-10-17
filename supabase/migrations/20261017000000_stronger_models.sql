@@ -71,8 +71,18 @@ alter table public.alerts
   add column tier text not null default 'standard' check (tier in ('standard', 'stronger'));
 
 -- And each scan keeps the tier it asked each surface on, so the score's history can say where a
--- tier changed without reading every result. Empty for a scan kept before.
+-- tier changed without reading every result. A scan kept before asked everything on Standard,
+-- which is written on it here, so the first change after this is marked too.
 alter table public.scans add column tiers jsonb not null default '{}';
+
+update public.scans s
+set tiers = asked.tiers
+from (
+  select r.scan_id, jsonb_object_agg(r.surface, 'standard') as tiers
+  from (select distinct scan_id, surface from public.scan_results) r
+  group by r.scan_id
+) asked
+where asked.scan_id = s.id;
 
 comment on column public.scans.tiers is
   'The tier each surface was asked on, by surface. Written by complete_scan() from its results.';
@@ -522,7 +532,8 @@ as $$
 $$;
 
 -- A price change that makes Stronger dearer, or stops selling it, is a price that goes up, and
--- needs the thirty days' notice as the plan's own price does. Otherwise as before.
+-- needs the thirty days' notice as the plan's own price does, and what is announced records it.
+-- Otherwise as before.
 create or replace function public.operator_announce_price_change(
   plan text,
   effective timestamp with time zone
@@ -588,6 +599,7 @@ begin
       'plan', plan,
       'price_cents', p.price_cents,
       'extra_location_price_cents', p.extra_location_price_cents,
+      'stronger_price_cents', p.stronger_price_cents,
       'stripe_price_id', p.stripe_price_id,
       'effective_at', effective
     )
