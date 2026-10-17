@@ -5,6 +5,8 @@ import {
   rateFor,
   renderPrompt,
   resolveTuning,
+  strongerAssistants,
+  strongerTuning,
   TuningSchema,
   usageCost,
 } from "../src/tuning";
@@ -68,6 +70,49 @@ describe("TuningSchema", () => {
     expect(TuningSchema.safeParse(claude({ effort: "high", max_searches: 3 })).success).toBe(true);
     const { claude: _claude, ...withoutClaude } = defaultTuning;
     expect(TuningSchema.safeParse(withoutClaude).success).toBe(false);
+  });
+});
+
+describe("stronger models", () => {
+  const { stronger: _chatgpt, ...plainChatGpt } = defaultTuning.chatgpt;
+  const { stronger: _claude, ...plainClaude } = defaultTuning.claude;
+  const without = { ...defaultTuning, chatgpt: plainChatGpt, claude: plainClaude };
+
+  it("may be left out, so a file from before them still loads and offers none", () => {
+    expect(TuningSchema.parse(without)).toEqual(without);
+    expect(strongerAssistants(without)).toEqual([]);
+  });
+
+  it("are offered on the assistants the tuning has one for", () => {
+    expect(strongerAssistants(defaultTuning)).toEqual(["chatgpt", "claude"]);
+    expect(strongerAssistants({ ...without, claude: defaultTuning.claude })).toEqual(["claude"]);
+  });
+
+  it("are checked like the standard settings", () => {
+    const claude = {
+      ...defaultTuning.claude,
+      stronger: { model: "x", effort: "low", max_searches: 0 },
+    };
+    expect(TuningSchema.safeParse({ ...defaultTuning, claude }).success).toBe(false);
+  });
+
+  it("are what a stronger check is asked with, and nothing else changes", () => {
+    const tuning = {
+      ...defaultTuning,
+      chatgpt: { ...plainChatGpt, stronger: { model: "gpt-strong", effort: "high" as const } },
+      claude: plainClaude,
+    };
+    const asked = strongerTuning(tuning);
+    expect(asked.chatgpt).toEqual({ model: "gpt-strong", effort: "high" });
+    // Claude has none, so it keeps its own, and is never asked on Stronger.
+    expect(asked.claude).toEqual(plainClaude);
+    expect(asked.prompts).toBe(tuning.prompts);
+    expect(asked.score).toBe(tuning.score);
+    // With one of its own, Claude is asked with it too.
+    const claude = { model: "claude-strong", effort: "high" as const, max_searches: 3 };
+    expect(
+      strongerTuning({ ...tuning, claude: { ...plainClaude, stronger: claude } }).claude,
+    ).toEqual(claude);
   });
 });
 

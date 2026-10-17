@@ -1,4 +1,11 @@
-import { SURFACES, type Surface, type Tuning, type TuningSource } from "@nearcited/shared";
+import {
+  SURFACES,
+  type Surface,
+  strongerAssistants,
+  strongerTuning,
+  type Tuning,
+  type TuningSource,
+} from "@nearcited/shared";
 import type { Env } from "../env";
 import { createLiveProviders, liveSurfaces } from "./live";
 import { createMockProviders } from "./mock";
@@ -15,6 +22,20 @@ export function usesSampleData(env: Pick<Env, "PROVIDER_MODE">): boolean {
  */
 export function createProviders(env: Env, tuning: Tuning): ProviderRegistry {
   return usesSampleData(env) ? createMockProviders() : createLiveProviders(env, tuning);
+}
+
+/**
+ * The assistants the tuning has a stronger model for, asked with it: what a scan asks for an
+ * organization that pays for one. An assistant with no stronger model in the tuning is left out.
+ */
+export function createStrongerProviders(env: Env, tuning: Tuning): ProviderRegistry {
+  const asked = createProviders(env, strongerTuning(tuning));
+  const stronger: ProviderRegistry = {};
+  for (const surface of strongerAssistants(tuning)) {
+    const provider = asked[surface];
+    if (provider) stronger[surface] = provider;
+  }
+  return stronger;
 }
 
 /** The surfaces a scan checks in this environment. Sample data covers all of them. */

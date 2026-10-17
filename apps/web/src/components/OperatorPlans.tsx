@@ -11,6 +11,7 @@ import {
   PlanPricesInputSchema,
   type PlanSettings,
   PlanSettingsSchema,
+  STRONGER_MODELS_ALLOWANCE,
 } from "@nearcited/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
@@ -436,15 +437,22 @@ function PriceEditor({ plan }: { plan: OperatorPlan }) {
   const [extra, setExtra] = useState(
     plan.extra_location_price_cents === null ? "" : centsToDollars(plan.extra_location_price_cents),
   );
+  const [stronger, setStronger] = useState(
+    plan.stronger_price_cents === null ? "" : centsToDollars(plan.stronger_price_cents),
+  );
   const prices = {
     price_cents: dollarsToCents(price),
     // Left empty, the plan sells no more locations than it includes.
     extra_location_price_cents: extra.trim() === "" ? null : dollarsToCents(extra),
+    // Left empty, it sells no stronger model.
+    stronger_price_cents: stronger.trim() === "" ? null : dollarsToCents(stronger),
   };
   const form$ = useFormErrors(PlanPricesInputSchema, prices);
   const unchanged =
     prices.price_cents === plan.price_cents &&
-    prices.extra_location_price_cents === plan.extra_location_price_cents;
+    prices.extra_location_price_cents === plan.extra_location_price_cents &&
+    prices.stronger_price_cents === plan.stronger_price_cents;
+  const sellsStronger = plan.allowances[STRONGER_MODELS_ALLOWANCE] === true;
   const save = useMutation({
     mutationFn: () => api.setPlanPrices(plan.key, prices),
     onSuccess: async () => {
@@ -509,6 +517,25 @@ function PriceEditor({ plan }: { plan: OperatorPlan }) {
         onBlur={() => form$.touch("extra_location_price_cents")}
         onChange={(event) => {
           setExtra(event.target.value);
+          save.reset();
+        }}
+      />
+      <Field
+        label="A stronger model on each assistant a month"
+        hint={
+          held
+            ? "Held as announced until the price change below is finished or called off."
+            : sellsStronger
+              ? "Leave empty to sell none yet. Owners on this plan choose it for each assistant."
+              : "This plan does not include stronger models, so nobody is offered one at this price."
+        }
+        inputMode="decimal"
+        disabled={held}
+        value={stronger}
+        error={form$.error("stronger_price_cents")}
+        onBlur={() => form$.touch("stronger_price_cents")}
+        onChange={(event) => {
+          setStronger(event.target.value);
           save.reset();
         }}
       />

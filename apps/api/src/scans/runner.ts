@@ -15,6 +15,9 @@ import {
   type SiteCheck,
   type SiteSnapshot,
   SURFACES_BY_KIND,
+  type Surface,
+  type Tier,
+  tierOf,
   windowScore,
 } from "@nearcited/shared";
 import { type ProviderRegistry, planSurfaces } from "../providers";
@@ -38,6 +41,11 @@ export interface RunScanDeps {
   /** Must be a store made with the secret key. */
   store: Store;
   providers: ProviderRegistry;
+  /**
+   * The same assistants asked with the tuning's stronger settings, for an organization that pays
+   * for them. An assistant with none here is asked on Standard, and the result says so.
+   */
+  strongerProviders?: ProviderRegistry;
   /** Score weights from the tuning. Defaults to the public ones. */
   weights?: ScoreWeights;
   /** When set, no scan can run on this build, and every scan fails with this reason. */
@@ -89,6 +97,9 @@ export async function runScan(scanId: string, deps: RunScanDeps): Promise<ScanOu
   const generated = organization?.is_test === true && deps.sampleData !== true;
   const sampleData = generated || (deps.sampleData ?? false);
   const providers = generated ? (deps.sampleProviders ?? {}) : deps.providers;
+  // A test organization pays for nothing, so its generated scans are all Standard.
+  const tierOn = (surface: Surface): Tier =>
+    organization && !organization.is_test ? tierOf(organization, surface) : "standard";
 
   try {
     await store.markScanRunning(scanId, sampleData);
@@ -129,8 +140,11 @@ export async function runScan(scanId: string, deps: RunScanDeps): Promise<ScanOu
       planSurfaces(SURFACES_BY_KIND[kind], organization?.surfaces ?? null);
     const checks = queries.flatMap((query) =>
       covered(query.kind).flatMap((surface) => {
-        const provider = providers[surface];
-        return provider ? [{ query, provider }] : [];
+        const strong =
+          tierOn(surface) === "stronger" ? deps.strongerProviders?.[surface] : undefined;
+        const provider = strong ?? providers[surface];
+        const tier: Tier = strong ? "stronger" : "standard";
+        return provider ? [{ query, provider, tier }] : [];
       }),
     );
     if (checks.length === 0) {
@@ -141,7 +155,7 @@ export async function runScan(scanId: string, deps: RunScanDeps): Promise<ScanOu
     // One failed check fails the whole scan. Scoring a partial scan would move the number for
     // reasons that have nothing to do with the business.
     const results: NewScanResult[] = await Promise.all(
-      checks.map(async ({ query, provider }) => {
+      checks.map(async ({ query, provider, tier }) => {
         const observation = await provider.observe({
           location,
           query,
@@ -151,6 +165,7 @@ export async function runScan(scanId: string, deps: RunScanDeps): Promise<ScanOu
         return {
           tracked_query_id: query.id,
           surface: provider.surface,
+          tier,
           ...analyzeObservation(observation, location),
         };
       }),

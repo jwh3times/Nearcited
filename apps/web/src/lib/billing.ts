@@ -1,4 +1,14 @@
-import type { Organization, OrganizationAccount, Plan } from "@nearcited/shared";
+import {
+  ALLOWANCE_KINDS,
+  allowanceLines,
+  type Organization,
+  type OrganizationAccount,
+  PLAN_ASSISTANTS,
+  type Plan,
+  type PlanAssistant,
+  STRONGER_MODELS_ALLOWANCE,
+  type Tier,
+} from "@nearcited/shared";
 
 /** The two prices something is sold at: the plan, and each location beyond those it includes. */
 type Prices = Pick<Plan, "price_cents" | "extra_location_price_cents">;
@@ -120,4 +130,32 @@ export function formatDay(iso: string): string {
 /** A count of locations in words: "1 location", "4 locations". */
 export function locationCount(count: number): string {
   return count === 1 ? "1 location" : `${count} locations`;
+}
+
+/**
+ * What a plan includes, as lines of the price list. Stronger is said with its price, which is a
+ * month for each assistant on it, or as available while the plan has no price for it yet.
+ */
+export function priceListLines(plan: Plan): string[] {
+  const { [STRONGER_MODELS_ALLOWANCE]: _, ...kinds } = ALLOWANCE_KINDS;
+  const lines = allowanceLines(plan.allowances, kinds);
+  if (plan.allowances[STRONGER_MODELS_ALLOWANCE] === true) {
+    lines.push(
+      plan.stronger_price_cents === null
+        ? "Stronger models available"
+        : `Stronger models: ${formatPrice(plan.stronger_price_cents)} a month for each assistant`,
+    );
+  }
+  return lines;
+}
+
+/** The assistants paid Stronger on once one of them is put on `tier`, in a fixed order. */
+export function strongerChange(
+  paid: readonly PlanAssistant[],
+  surface: PlanAssistant,
+  tier: Tier,
+): PlanAssistant[] {
+  return PLAN_ASSISTANTS.filter((candidate) =>
+    candidate === surface ? tier === "stronger" : paid.includes(candidate),
+  );
 }

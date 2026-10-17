@@ -810,7 +810,7 @@ describe("a connection the plan stops including", () => {
       scan_every_days: 2,
       max_manual_scans_per_month: 2,
       emails_report: true,
-      stronger_models: false,
+      stronger_price_cents: null,
       allowances,
     });
     db.plans.push(plan("with", 2, { sample_access: true }), plan("without", 1, {}));

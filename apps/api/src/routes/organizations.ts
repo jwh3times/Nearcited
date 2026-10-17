@@ -8,10 +8,13 @@ import {
 } from "@nearcited/shared";
 import { Hono } from "hono";
 import type { AppEnv } from "../app";
+import { followAssistantSwitch } from "../billing/stronger";
+import { PaymentDeclinedError } from "../billing/types";
 import { ApiError, notFound } from "../errors";
 import { exportFileName, exportZip } from "../export";
 import { usesSampleData } from "../providers";
 import { parseJson, uuidParam } from "../validation";
+import { withStrongerModel } from "./billing";
 
 export const organizationRoutes = new Hono<AppEnv>();
 
@@ -46,6 +49,25 @@ organizationRoutes.put("/organizations/:organizationId/assistants", async (c) =>
   const { surfaces } = await parseJson(c, AssistantChoiceSchema);
   const organization = await c.get("store").chooseAssistants(organizationId, surfaces);
   if (!organization) throw notFound("Organization");
+  // What is paid Stronger on follows to the new assistant. Asking for the same assistants again
+  // finishes a move the payment provider did not make the first time.
+  const payments = c.get("payments")();
+  if (payments) {
+    try {
+      await followAssistantSwitch(organization, {
+        store: c.get("store"),
+        payments,
+        assistants: withStrongerModel(c),
+      });
+    } catch (error) {
+      if (!(error instanceof PaymentDeclinedError)) throw error;
+      throw new ApiError(
+        402,
+        "payment_declined",
+        "The assistant was switched, but your card was declined, so the stronger model has not moved to it. Update your payment method and choose it again.",
+      );
+    }
+  }
   return c.json(organization);
 });
 

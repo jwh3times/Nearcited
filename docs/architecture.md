@@ -56,7 +56,7 @@ Everything below is the main one.
   after a sync that read the account it also proposes actions. A message shaped
   `{ action_id, step }` carries out one approved action (see "Actions"). A message shaped
   `{ draft_id, step }` writes one draft a member asked for (see "Drafts"). A message shaped
-  `{ closing_id, step }` closes one account (see "Closing an account"). The consumer is handed
+  `{ closing_id, step }` closes one account (see "Closing an account"). A message shaped `{ fit_subscription: organization_id }` reprices one subscription without the stronger lines its plan no longer sells (`fitSubscription`, `apps/api/src/billing/fit.ts`; see "Tenancy"). The consumer is handed
   up to five messages at a time and works through them one after another. A lone message waits
   at most a second for others to join it (`max_batch_timeout` in `wrangler.jsonc`), because
   somebody is usually watching the page for it; a message that lands in a batch behind scans
@@ -146,6 +146,8 @@ fetch handler  -> Deployment.draft_kinds            (what the draft route refuse
 `runScan` and the scoring functions take the tuning as arguments, so they are tested without the
 bundled file. Only `apps/api/src/index.ts` imports the resolved tuning.
 
+Each assistant's settings (`chatgpt`, `claude`) may carry an optional `stronger` block with the same fields. `strongerAssistants()` lists the assistants that have one, which are the only ones a stronger model is sold on, and `strongerTuning()` puts those settings in place of the standard ones. The Worker builds `createStrongerProviders()` beside the standard providers, and the scan runner asks an assistant on Stronger with them, recording the tier.
+
 The draft settings, `drafts`, are optional: a private file from before drafts existed still loads,
 and a build whose file has none writes no draft on real data. `liveDraftKinds`
 (`apps/api/src/drafts/claude.ts`) is the kinds of draft a build can write there: those the private
@@ -214,7 +216,7 @@ would have to come from a data vendor.
 An assistant can name different businesses for the same prompt an hour apart, so one answer is a
 sample. The product reports and scores over a window instead (`SCAN_WINDOW`, seven scans):
 
-- **A cell is one prompt on one surface.** The grid shows "x of y": how many of the cell's checks
+- **A cell is one prompt on one surface at one tier** (`cellKey`, `packages/shared/src/scoring.ts`, which alerts use too). Moving an assistant between Standard and Stronger starts a new cell rather than mixing two models' answers; the location page and score history mark the change. The grid shows "x of y": how many of the cell's checks
   in the window named the business. The latest answer is shown beneath.
 - **The score averages each cell over its own checks, then averages the cells.** A prompt added
   yesterday counts as much as one tracked all week.
@@ -1755,9 +1757,9 @@ route verifies the signature, takes from the event only the subscription's ID, r
 subscription from Stripe, and `syncSubscription` (`apps/api/src/billing/sync.ts`) makes the plan
 agree with it, so events that arrive twice or out of order end in the same place. A subscription
 in force (`active`, `trialing`, `past_due`) calls `apply_plan()` for the plan its price belongs to,
-with the locations paid for, and records it in `subscriptions`. One that is over (`canceled`,
+with the locations paid for and the assistants paid a stronger model on (the `stronger` argument), and records it in `subscriptions`. One that is over (`canceled`,
 `unpaid`, `incomplete_expired`) moves the organization to the free plan, but only when it is the
-subscription recorded for that organization. A subscription billing a price no plan has is an
+subscription recorded for that organization. A stronger model is a line of the subscription, one price for each assistant (`plan_prices.stripe_stronger_*_price_id`), changed like the plan: more now, prorated; fewer at the period's end. `organizations.stronger_surfaces` is written only by `apply_plan()`. On the day an announced reduction takes stronger models off a plan, the daily run queues `{ fit_subscription }` for each subscriber, and `fitSubscription` reprices the subscription (and any waiting change) without those lines, charging or crediting nothing for the period paid. A dearer or withdrawn stronger price counts as a price rise for `operator_announce_price_change()`. Which assistants may be on Stronger is the tuning's (`stronger_unavailable` in the operator's attention list is someone paying for a tier the tuning has none for). See [ADR 0021](adr/0021-a-stronger-model-is-a-line-of-the-plans-price.md). A subscription billing a price no plan has is an
 error, so Stripe retries and someone sees it. When the outcome is `applied` the route also thanks the
 organization's owners by email (`thankForSubscription`, `apps/api/src/billing/started.ts`): the plan,
 the locations paid for, the monthly price before tax and the renewal day, with a link to settings.

@@ -1,4 +1,9 @@
-import type { PriceChange, PriceChangeMessage, PriceChangeStep } from "@nearcited/shared";
+import {
+  type PriceChange,
+  type PriceChangeMessage,
+  type PriceChangeStep,
+  SURFACE_LABELS,
+} from "@nearcited/shared";
 import { buildPriceChangeEmail } from "../email/price-change";
 import type { Email } from "../email/report";
 import type { Store } from "../store/types";
@@ -81,7 +86,7 @@ export async function runPriceChangeStep(
   }
   const next = { ...paid, version: target } satisfies PaidPlan;
   const items = itemsFor(next);
-  if (!items) return skip("It pays for locations the new price does not sell.");
+  if (!items) return skip("It pays for locations or Stronger the new prices do not sell.");
   const goesUp = monthlyCents(next) > monthlyCents(paid);
 
   if (step === "move") return move();
@@ -115,6 +120,14 @@ export async function runPriceChangeStep(
         plan: allPlans.find((plan) => plan.key === change?.plan_key)?.name ?? paid?.plan.key ?? "",
         was_cents: monthlyCents(paid as PaidPlan),
         now_cents: monthlyCents(next),
+        stronger:
+          next.stronger.length > 0
+            ? {
+                on: next.stronger.map((surface) => SURFACE_LABELS[surface]),
+                was_cents: paid?.version.stronger_price_cents ?? 0,
+                now_cents: next.version.stronger_price_cents ?? 0,
+              }
+            : null,
         effective_at: change?.effective_at ?? at,
         appUrl: deps.appUrl,
       }),

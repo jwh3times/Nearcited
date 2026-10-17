@@ -7,6 +7,8 @@ import {
   formatPrice,
   monthlyCents,
   planOffer,
+  priceListLines,
+  strongerChange,
 } from "../src/lib/billing";
 
 const plan = (key: string, extra: Partial<Plan> = {}): Plan => ({
@@ -22,7 +24,7 @@ const plan = (key: string, extra: Partial<Plan> = {}): Plan => ({
   scan_every_days: 2,
   max_manual_scans_per_month: 10,
   emails_report: true,
-  stronger_models: false,
+  stronger_price_cents: null,
   allowances: {},
   ...extra,
 });
@@ -40,6 +42,7 @@ const organization = (extra: Partial<Organization> = {}): Organization => ({
   max_manual_scans_per_month: 0,
   scan_every_days: 14,
   surfaces: ["chatgpt"],
+  stronger_surfaces: [],
   is_test: false,
   emails_report: false,
   allowances: {},
@@ -60,6 +63,7 @@ const owner = (billing: Partial<NonNullable<OrganizationAccount["billing"]>> = {
     locations: null,
     renews_at: null,
     paying: null,
+    stronger_offered: [],
     price_change: null,
     pending: null,
     ...billing,
@@ -174,6 +178,34 @@ describe("planOffer", () => {
     expect(planOffer(plan("standard"), { organization: organization(), account: null })).toBe(
       "none",
     );
+  });
+});
+
+describe("priceListLines", () => {
+  it("says what Stronger costs for each assistant, apart from the rest of the allowances", () => {
+    const sells = plan("pro", {
+      stronger_price_cents: 2000,
+      allowances: { drafts: 5, stronger_models: true },
+    });
+    expect(priceListLines(sells)).toEqual([
+      "Drafts written for you: 5 a month for each location",
+      "Stronger models: $20 a month for each assistant",
+    ]);
+  });
+
+  it("says Stronger is available before it is priced, and nothing on a plan without it", () => {
+    expect(priceListLines(plan("pro", { allowances: { stronger_models: true } }))).toEqual([
+      "Stronger models available",
+    ]);
+    expect(priceListLines(plan("starter", { stronger_price_cents: 2000 }))).toEqual([]);
+  });
+});
+
+describe("strongerChange", () => {
+  it("adds or takes away one assistant from what is paid for, in a fixed order", () => {
+    expect(strongerChange(["claude"], "chatgpt", "stronger")).toEqual(["chatgpt", "claude"]);
+    expect(strongerChange(["chatgpt", "claude"], "claude", "standard")).toEqual(["chatgpt"]);
+    expect(strongerChange([], "claude", "standard")).toEqual([]);
   });
 });
 

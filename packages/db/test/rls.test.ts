@@ -9,7 +9,7 @@ import {
   PAGES_SHOWN,
   VISIT_ASSISTANTS,
 } from "@nearcited/shared";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 /**
  * Applies the real migrations to an in-process Postgres and exercises the policies as
@@ -948,6 +948,19 @@ describe("usage caps", () => {
         db.query("update public.organizations set surfaces = '{chatgpt,claude}' where id = $1", [
           org?.id,
         ]),
+      ),
+    ).rejects.toThrow(/permission denied/);
+    // Nor which assistants are on Stronger, which only the worker sets, from the subscription.
+    await expect(
+      as("authenticated", dave, () =>
+        db.query("update public.organizations set stronger_surfaces = '{claude}' where id = $1", [
+          org?.id,
+        ]),
+      ),
+    ).rejects.toThrow(/permission denied/);
+    await expect(
+      as("authenticated", dave, () =>
+        db.query("select public.apply_plan($1, 'enterprise', null, '{claude}')", [org?.id]),
       ),
     ).rejects.toThrow(/permission denied/);
 
@@ -2214,7 +2227,7 @@ describe("the operator", () => {
     afterAll(async () => {
       await db.query("delete from public.plan_prices where plan_key = 'pro'");
       await db.query(
-        "update public.plans set price_cents = $1, extra_location_price_cents = $2, stripe_price_id = null, stripe_extra_location_price_id = null where key = 'pro'",
+        "update public.plans set price_cents = $1, extra_location_price_cents = $2, stripe_price_id = null, stripe_extra_location_price_id = null, stronger_price_cents = null, stripe_stronger_chatgpt_price_id = null, stripe_stronger_claude_price_id = null where key = 'pro'",
         [before[0]?.price_cents, before[0]?.extra_location_price_cents],
       );
       await db.query("delete from public.operator_actions where action = 'set_plan_prices'");
@@ -2314,6 +2327,47 @@ describe("the operator", () => {
           "select 1 from public.plan_prices where stripe_price_id in ('price_free', 'price_x')",
         ),
       ).toEqual([]);
+    });
+
+    it("keeps a stronger price with the provider's price for it on each assistant, or none", async () => {
+      const stronger = () =>
+        rows<Record<string, unknown>>(
+          "select stronger_price_cents, stripe_stronger_chatgpt_price_id, stripe_stronger_claude_price_id from public.plans where key = 'pro'",
+        );
+      await as("authenticated", operator, () =>
+        db.query(
+          "select * from public.operator_set_plan_prices('pro', 15900, null, 'price_pro_4', null, 2500, 'price_pro_4_chatgpt', 'price_pro_4_claude')",
+        ),
+      );
+      const sold = {
+        stronger_price_cents: 2500,
+        stripe_stronger_chatgpt_price_id: "price_pro_4_chatgpt",
+        stripe_stronger_claude_price_id: "price_pro_4_claude",
+      };
+      expect(await stronger()).toEqual([sold]);
+      expect(
+        await rows(
+          "select stronger_price_cents, stripe_stronger_chatgpt_price_id, stripe_stronger_claude_price_id from public.plan_prices where stripe_price_id = 'price_pro_4'",
+        ),
+      ).toEqual([sold]);
+      const [recorded] = await rows<{ detail: unknown }>(
+        "select detail from public.operator_actions where action = 'set_plan_prices' order by created_at desc limit 1",
+      );
+      expect(recorded?.detail).toMatchObject({ to: sold });
+
+      // A price set without one, as the Worker before this sets it, sells no stronger model.
+      await as("authenticated", operator, () =>
+        db.query(
+          "select * from public.operator_set_plan_prices('pro', 16900, null, 'price_pro_5', null)",
+        ),
+      );
+      expect(await stronger()).toEqual([
+        {
+          stronger_price_cents: null,
+          stripe_stronger_chatgpt_price_id: null,
+          stripe_stronger_claude_price_id: null,
+        },
+      ]);
     });
   });
 
@@ -2461,6 +2515,56 @@ describe("the operator", () => {
       );
       expect(await as("authenticated", operator, () => rows(callOff))).toEqual([]);
       expect(await open()).toHaveLength(1);
+    });
+  });
+
+  describe("announcing a dearer stronger price", () => {
+    const announce = (days: number) =>
+      `select * from public.operator_announce_price_change('standard', now() + interval '${days} days')`;
+    const sell = (version: string, stronger: number | null) =>
+      as("authenticated", operator, () =>
+        db.query(
+          stronger === null
+            ? `select * from public.operator_set_plan_prices('standard', 4900, null, 'price_standard_${version}', null)`
+            : `select * from public.operator_set_plan_prices('standard', 4900, null, 'price_standard_${version}', null, ${stronger}, 'price_standard_${version}_chatgpt', 'price_standard_${version}_claude')`,
+        ),
+      );
+
+    beforeAll(async () => {
+      // Standard was sold with Stronger at $10 for each assistant.
+      await db.query(
+        "insert into public.plan_prices (plan_key, price_cents, stripe_price_id, stronger_price_cents, stripe_stronger_chatgpt_price_id, stripe_stronger_claude_price_id, created_at) values ('standard', 4900, 'price_standard_a', 1000, 'price_standard_a_chatgpt', 'price_standard_a_claude', now() - interval '1 day')",
+      );
+    });
+    afterEach(async () => {
+      await db.query("delete from public.price_changes");
+    });
+    afterAll(async () => {
+      await db.query("delete from public.plan_prices where plan_key = 'standard'");
+      await db.query(
+        "update public.plans set stripe_price_id = null, stronger_price_cents = null, stripe_stronger_chatgpt_price_id = null, stripe_stronger_claude_price_id = null where key = 'standard'",
+      );
+      await db.query(
+        "delete from public.operator_actions where action in ('set_plan_prices', 'announce_price_change')",
+      );
+    });
+
+    it("needs thirty days' notice when only Stronger costs more, or is no longer sold", async () => {
+      await sell("b", 1500);
+      await expect(as("authenticated", operator, () => db.query(announce(29)))).rejects.toThrow(
+        /at least 30 days/,
+      );
+      await db.query("delete from public.plan_prices where stripe_price_id = 'price_standard_b'");
+      await sell("c", null);
+      await expect(as("authenticated", operator, () => db.query(announce(29)))).rejects.toThrow(
+        /at least 30 days/,
+      );
+    });
+
+    it("may be announced for any day ahead when Stronger costs less", async () => {
+      await db.query("delete from public.plan_prices where stripe_price_id = 'price_standard_c'");
+      await sell("d", 900);
+      expect(await as("authenticated", operator, () => rows(announce(1)))).toHaveLength(1);
     });
   });
 

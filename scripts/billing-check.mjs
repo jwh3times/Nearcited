@@ -98,9 +98,21 @@ export function assess(facts) {
         plan.extra_location_price_cents,
         `${plan.name}, extra location`,
       ],
+      // Stronger is one amount with a price of its own for each assistant.
+      [
+        plan.stripe_stronger_chatgpt_price_id,
+        plan.stronger_price_cents,
+        `${plan.name}, stronger ChatGPT`,
+      ],
+      [
+        plan.stripe_stronger_claude_price_id,
+        plan.stronger_price_cents,
+        `${plan.name}, stronger Claude`,
+      ],
     ]) {
-      // A plan that sells no extra locations has neither a price nor an ID for one.
-      if (cents === null && id === null) continue;
+      // A plan that sells no extra locations, or no stronger model, has neither a price nor an
+      // ID for one.
+      if ((cents ?? null) === null && (id ?? null) === null) continue;
       const price = id ? prices[id] : null;
       if (!price) {
         check(
@@ -168,13 +180,15 @@ async function main() {
   const plans = await rows(
     vars.SUPABASE_URL,
     secret,
-    "plans?select=key,name,on_sale,price_cents,extra_location_price_cents,stripe_price_id,stripe_extra_location_price_id&order=position",
+    "plans?select=key,name,on_sale,price_cents,extra_location_price_cents,stronger_price_cents,stripe_price_id,stripe_extra_location_price_id,stripe_stronger_chatgpt_price_id,stripe_stronger_claude_price_id&order=position",
   );
   const recorded = await rows(vars.SUPABASE_URL, secret, "subscriptions?select=stripe_customer_id");
   const prices = {};
   for (const id of plans.flatMap((plan) => [
     plan.stripe_price_id,
     plan.stripe_extra_location_price_id,
+    plan.stripe_stronger_chatgpt_price_id,
+    plan.stripe_stronger_claude_price_id,
   ])) {
     if (id) prices[id] = await stripe(key, `/prices/${id}`);
   }

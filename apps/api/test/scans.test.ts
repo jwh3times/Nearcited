@@ -1,7 +1,12 @@
-import { type Observation, type ScanMessage, SURFACES } from "@nearcited/shared";
+import { defaultTuning, type Observation, type ScanMessage, SURFACES } from "@nearcited/shared";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildScanReportEmail, emailMessage } from "../src/email/report";
-import { liveScansUnavailable, type ProviderRegistry } from "../src/providers";
+import type { Env } from "../src/env";
+import {
+  createStrongerProviders,
+  liveScansUnavailable,
+  type ProviderRegistry,
+} from "../src/providers";
 import { createMockProviders } from "../src/providers/mock";
 import type { CallUsage } from "../src/providers/types";
 import { runScan, type ScanReport } from "../src/scans/runner";
@@ -444,6 +449,26 @@ describe("buildScanReportEmail", () => {
     expect(email.text).toContain("Gemini: named in 0 of 1");
     expect(email.text).toContain(`https://app.example/locations/${locationId}`);
   });
+
+  it("says which assistants were asked on a stronger model", async () => {
+    const organization = db.organizations[0];
+    if (organization) organization.stronger_surfaces = ["chatgpt"];
+    const scan = await queueScan("scheduled");
+    let report: ScanReport | undefined;
+    await runScan(scan.id, {
+      store: worker,
+      providers,
+      strongerProviders: { chatgpt: providers.chatgpt as NonNullable<ProviderRegistry["chatgpt"]> },
+      notify: async (sent) => {
+        report = sent;
+        return true;
+      },
+    });
+    if (!report) throw new Error("no report");
+    const { text } = buildScanReportEmail(report, "https://app.example/");
+    expect(text).toContain("ChatGPT (stronger): named in 1 of 1");
+    expect(text).toContain("Gemini: named in 0 of 1");
+  });
 });
 
 describe("tuning", () => {
@@ -687,6 +712,108 @@ describe("plan surfaces", () => {
     organization.surfaces = ["perplexity"];
     const scan = await queueScan();
     expect(await runScan(scan.id, { store: worker, providers })).toBe("failed");
+  });
+});
+
+describe("stronger models", () => {
+  /** ChatGPT's stronger model names the business first. */
+  const stronger = vi.fn(
+    async (): Promise<Observation> => ({
+      kind: "answer",
+      text: "Joe's Pizza is the one.",
+      businesses: ["Joe's Pizza"],
+      cited_urls: [],
+    }),
+  );
+  const strongerProviders: ProviderRegistry = {
+    chatgpt: { surface: "chatgpt", observe: stronger },
+  };
+  const organization = () => {
+    const found = db.organizations[0];
+    if (!found) throw new Error("no organization");
+    return found;
+  };
+  const tiers = async (scanId: string) =>
+    (await worker.listScanResults(scanId)).map(({ surface, tier }) => [surface, tier]).sort();
+
+  beforeEach(() => {
+    stronger.mockClear();
+  });
+
+  it("asks an assistant paid Stronger on with the stronger settings, and keeps the tier", async () => {
+    organization().stronger_surfaces = ["chatgpt"];
+    const scan = await queueScan();
+    await runScan(scan.id, { store: worker, providers, strongerProviders });
+    expect(stronger).toHaveBeenCalledTimes(1);
+    expect(await tiers(scan.id)).toEqual([
+      ["chatgpt", "stronger"],
+      ["gemini", "standard"],
+    ]);
+    // What the stronger model said is the result.
+    const [chatgpt] = (await worker.listScanResults(scan.id)).filter(
+      (r) => r.surface === "chatgpt",
+    );
+    expect(chatgpt).toMatchObject({ mentioned: true, position: 1 });
+  });
+
+  it("never asks a test organization's on Stronger, whatever it says it pays for", async () => {
+    Object.assign(organization(), { is_test: true, stronger_surfaces: ["chatgpt"] });
+    const scan = await queueScan();
+    await runScan(scan.id, {
+      store: worker,
+      providers,
+      strongerProviders,
+      sampleProviders: createMockProviders(),
+    });
+    expect(stronger).not.toHaveBeenCalled();
+    const asked = await worker.listScanResults(scan.id);
+    expect(asked.length).toBeGreaterThan(0);
+    expect(asked.every((result) => result.tier === "standard")).toBe(true);
+  });
+
+  it("asks everyone else with the standard settings", async () => {
+    const scan = await queueScan();
+    await runScan(scan.id, { store: worker, providers, strongerProviders });
+    expect(stronger).not.toHaveBeenCalled();
+    expect(await tiers(scan.id)).toEqual([
+      ["chatgpt", "standard"],
+      ["gemini", "standard"],
+    ]);
+  });
+
+  it("asks on Standard, and says so, where the tuning has no stronger model", async () => {
+    organization().stronger_surfaces = ["chatgpt"];
+    const scan = await queueScan();
+    await runScan(scan.id, { store: worker, providers, strongerProviders: {} });
+    expect(await tiers(scan.id)).toEqual([
+      ["chatgpt", "standard"],
+      ["gemini", "standard"],
+    ]);
+  });
+
+  it("are built only for the assistants the tuning has a stronger model for", () => {
+    const env = { PROVIDER_MODE: "mock" } as Env;
+    expect(Object.keys(createStrongerProviders(env, defaultTuning)).sort()).toEqual([
+      "chatgpt",
+      "claude",
+    ]);
+    const { stronger: _, ...claude } = defaultTuning.claude;
+    expect(Object.keys(createStrongerProviders(env, { ...defaultTuning, claude }))).toEqual([
+      "chatgpt",
+    ]);
+  });
+
+  it("starts the assistant's score again on the stronger model", async () => {
+    // Two scans on Standard, where ChatGPT named the business second, then one on Stronger.
+    for (let i = 0; i < 2; i++) {
+      await runScan((await queueScan()).id, { store: worker, providers, strongerProviders });
+    }
+    organization().stronger_surfaces = ["chatgpt"];
+    const scan = await queueScan();
+    await runScan(scan.id, { store: worker, providers, strongerProviders });
+    const scored = await worker.getScan(scan.id);
+    // ChatGPT is first on its one stronger check, and Gemini named only a competitor.
+    expect(scored?.visibility_score).toBe(50);
   });
 });
 

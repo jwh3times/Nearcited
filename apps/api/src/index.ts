@@ -15,6 +15,8 @@ import {
   PriceChangeMessageSchema,
   type ScanMessage,
   ScanMessageSchema,
+  SubscriptionFitMessageSchema,
+  strongerAssistants,
 } from "@nearcited/shared";
 import {
   carryOutAction,
@@ -26,6 +28,7 @@ import { sendActionNotices } from "./actions/notice";
 import { createApp } from "./app";
 import { runAuditPart } from "./audits/runner";
 import { authenticateWithSupabase } from "./auth";
+import { fitSubscription } from "./billing/fit";
 import { advanceLimitChanges, runLimitChangeStep } from "./billing/limit-change";
 import { advancePriceChanges, runPriceChangeStep } from "./billing/price-change";
 import { createStripePayments } from "./billing/stripe";
@@ -49,7 +52,12 @@ import { requeueStalledDrafts, writeDraft } from "./drafts";
 import { createLiveDraftWriter, liveDraftKinds } from "./drafts/claude";
 import { buildScanReportEmail, type Email, sendEmail } from "./email/report";
 import type { Env } from "./env";
-import { createProviders, liveScansUnavailable, usesSampleData } from "./providers";
+import {
+  createProviders,
+  createStrongerProviders,
+  liveScansUnavailable,
+  usesSampleData,
+} from "./providers";
 import { createMockProviders } from "./providers/mock";
 import { runScan } from "./scans/runner";
 import { enqueueDueScans, failStaleAudits, failStaleScans } from "./scans/schedule";
@@ -66,6 +74,7 @@ const app = createApp({
     },
     rates: activeTuning.tuning.rates,
     draft_kinds: liveDraftKinds(activeTuning),
+    stronger_assistants: strongerAssistants(activeTuning.tuning),
   },
 });
 
@@ -176,6 +185,7 @@ export default {
   async queue(batch, env) {
     const store = createSupabaseStore(createAdminClient(env));
     const providers = createProviders(env, activeTuning.tuning);
+    const strongerProviders = createStrongerProviders(env, activeTuning.tuning);
     // What a test organization's scans use, whatever this deployment's own mode is.
     const sampleProviders = createMockProviders();
 
@@ -243,6 +253,28 @@ export default {
             store,
             send: (to, email) => sendEmail(env, to, email),
             appUrl: env.APP_URL,
+          });
+          console.log(`${what}: ${outcome}`);
+          message.ack();
+        } catch (error) {
+          console.error(`${what} failed, will retry`, error);
+          message.retry();
+        }
+        continue;
+      }
+
+      const fit = SubscriptionFitMessageSchema.safeParse(message.body);
+      if (fit.success) {
+        const what = `Fitting the subscription of ${fit.data.fit_subscription} to its plan`;
+        if (!env.STRIPE_SECRET_KEY || !env.STRIPE_WEBHOOK_SECRET) {
+          console.error(`${what} cannot run: the payment provider is not set up`);
+          message.retry();
+          continue;
+        }
+        try {
+          const outcome = await fitSubscription(fit.data.fit_subscription, {
+            store,
+            payments: createStripePayments(env.STRIPE_SECRET_KEY, env.STRIPE_WEBHOOK_SECRET),
           });
           console.log(`${what}: ${outcome}`);
           message.ack();
@@ -382,6 +414,7 @@ export default {
         const outcome = await runScan(parsed.data.scan_id, {
           store,
           providers,
+          strongerProviders,
           sampleProviders,
           weights: activeTuning.tuning.score,
           unavailable: liveScansUnavailable(env, activeTuning.source),

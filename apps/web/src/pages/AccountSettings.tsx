@@ -1,11 +1,18 @@
 import {
   allowanceFacts,
+  checkedAssistants,
   describeLowered,
   type Organization,
   OrganizationInputSchema,
   PLAN_ASSISTANTS,
+  type PlanAssistant,
   type PlatformRole,
+  STRONGER_MODELS_ALLOWANCE,
   SURFACE_LABELS,
+  type SubscriptionChange,
+  surfaceWithTier,
+  type Tier,
+  tierOf,
 } from "@nearcited/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useEffect, useState } from "react";
@@ -13,7 +20,13 @@ import { Link, useNavigate, useSearchParams } from "react-router";
 import { ErrorNote } from "../components/ErrorNote";
 import { Field } from "../components/Field";
 import { api } from "../lib/api";
-import { billingWarning, formatDay, formatPrice, locationCount } from "../lib/billing";
+import {
+  billingWarning,
+  formatDay,
+  formatPrice,
+  locationCount,
+  strongerChange,
+} from "../lib/billing";
 import { useFormErrors } from "../lib/form";
 import { listOf } from "../lib/format";
 import { supabase } from "../lib/supabase";
@@ -110,23 +123,44 @@ export function AccountSettings({ organization, email, platformRole }: AccountSe
                 organization.allowances,
                 organization.max_locations,
                 account.data?.allowance_use ?? null,
-              ).map((fact) => (
-                <li key={fact.key}>
-                  <span>{fact.name}</span>
-                  <span>{fact.value}</span>
-                </li>
-              ))}
+              )
+                // Stronger is said beside the assistants it is on, below.
+                .filter((fact) => fact.key !== STRONGER_MODELS_ALLOWANCE)
+                .map((fact) => (
+                  <li key={fact.key}>
+                    <span>{fact.name}</span>
+                    <span>{fact.value}</span>
+                  </li>
+                ))}
               <li>
                 <span>Checked on</span>
                 <span>
                   {organization.surfaces
-                    ? listOf(organization.surfaces.map((surface) => SURFACE_LABELS[surface]))
+                    ? listOf(
+                        organization.surfaces.map((surface) =>
+                          surfaceWithTier(surface, tierOf(organization, surface)),
+                        ),
+                      )
                     : "Everything that is set up"}
                 </span>
               </li>
             </ul>
             {plan && plan.assistants < PLAN_ASSISTANTS.length && (
-              <AssistantChooser key={organization.id} organization={organization} />
+              <AssistantChooser
+                key={organization.id}
+                organization={organization}
+                strongerOffered={billing?.stronger_offered ?? []}
+              />
+            )}
+            {billing?.paying?.stronger_price_cents && billing.stronger_offered.length > 0 && (
+              <StrongerChooser
+                organization={organization}
+                priceCents={billing.paying.stronger_price_cents}
+                offered={billing.stronger_offered}
+                locations={billing.locations}
+                renewsAt={billing.renews_at}
+                waiting={billing.pending !== null}
+              />
             )}
             {account.data?.limit_change && (
               <div role="status">
@@ -323,9 +357,11 @@ function Billing({ organization, billing, loaded, returning, planName }: Billing
         <>
           <p role="status">
             Changes to {planName(billing.pending.plan_key)} with{" "}
-            {locationCount(billing.pending.locations)} on {formatDay(billing.pending.at)}, at{" "}
-            {formatPrice(billing.pending.monthly_cents)} a month before tax. Until then nothing
-            changes.
+            {locationCount(billing.pending.locations)}
+            {billing.pending.stronger.length > 0 &&
+              ` and a stronger model on ${listOf(billing.pending.stronger.map((s) => SURFACE_LABELS[s]))}`}{" "}
+            on {formatDay(billing.pending.at)}, at {formatPrice(billing.pending.monthly_cents)} a
+            month before tax. Until then nothing changes.
           </p>
           <button
             type="button"
@@ -436,11 +472,20 @@ function RenameOrganization({ organization }: { organization: Organization }) {
 
 /**
  * For a plan that checks one assistant: which one. The choice can be changed at any time. What
- * the other assistant said before is kept, and the new one starts with no scans behind it.
+ * the other assistant said before is kept, and the new one starts with no scans behind it. A
+ * stronger model paid for goes with the switch, where the other assistant has one.
  */
-function AssistantChooser({ organization }: { organization: Organization }) {
+function AssistantChooser({
+  organization,
+  strongerOffered,
+}: {
+  organization: Organization;
+  strongerOffered: readonly PlanAssistant[];
+}) {
   const queryClient = useQueryClient();
   const current = PLAN_ASSISTANTS.find((surface) => organization.surfaces?.includes(surface));
+  const other = PLAN_ASSISTANTS.find((surface) => surface !== current);
+  const paysStronger = current !== undefined && tierOf(organization, current) === "stronger";
   const choose = useMutation({
     mutationFn: (surface: (typeof PLAN_ASSISTANTS)[number]) =>
       api.chooseAssistants(organization.id, [surface]),
@@ -468,7 +513,177 @@ function AssistantChooser({ organization }: { organization: Organization }) {
         Your plan checks one assistant, and you choose which. If you switch, earlier results are
         kept and the new assistant's score starts from its first scan.
       </p>
+      {paysStronger && other && (
+        <p>
+          {strongerOffered.includes(other)
+            ? `Your stronger model goes with the switch, at no extra charge.`
+            : `There is no stronger model for ${SURFACE_LABELS[other]}, so it is checked on Standard if you switch. What you pay for the stronger model stops at the end of this period.`}
+        </p>
+      )}
       <ErrorNote error={choose.error} />
     </>
+  );
+}
+
+/** One assistant put on one tier. */
+interface TierChoice {
+  surface: PlanAssistant;
+  tier: Tier;
+}
+
+interface StrongerChooserProps {
+  organization: Organization;
+  /** A month, in US cents, for each assistant on Stronger, at the prices the owner pays. */
+  priceCents: number;
+  /** The assistants Stronger can be had on now. */
+  offered: readonly PlanAssistant[];
+  locations: number | null;
+  renewsAt: string | null;
+  /** True while another change waits for the period to end, which a new one replaces. */
+  waiting: boolean;
+}
+
+/**
+ * For each assistant the organization is checked on: Standard, the model everyone is checked
+ * with, or Stronger, paid for on top of the plan. What it comes to is shown before anything
+ * changes. The tier moves once the payment provider says the change was made.
+ */
+function StrongerChooser({
+  organization,
+  priceCents,
+  offered,
+  locations,
+  renewsAt,
+  waiting,
+}: StrongerChooserProps) {
+  const navigate = useNavigate();
+  const paid = organization.stronger_surfaces;
+  const choices = checkedAssistants(organization).filter((surface) => offered.includes(surface));
+  const [asked, setAsked] = useState<TierChoice | null>(null);
+  const input = (to: TierChoice) => ({
+    plan_key: organization.plan_key ?? "",
+    ...(locations ? { locations } : {}),
+    stronger: strongerChange(paid, to.surface, to.tier),
+  });
+  const preview = useMutation({
+    mutationFn: (to: TierChoice) => api.previewSubscriptionChange(organization.id, input(to)),
+  });
+  const change = useMutation({
+    mutationFn: (to: TierChoice) => api.changeSubscription(organization.id, input(to)),
+    onSuccess: () => {
+      setAsked(null);
+      preview.reset();
+      navigate("/settings?billing=changed");
+    },
+  });
+  if (choices.length === 0) return null;
+
+  return (
+    <div className="stronger-choice">
+      <p>
+        A stronger model on an assistant is {formatPrice(priceCents)} a month before tax. Its score
+        starts again from its first scan on the new model, and earlier results are kept.
+      </p>
+      {choices.map((surface) => {
+        const tier = tierOf(organization, surface);
+        return (
+          <div key={surface} className="stronger-row">
+            <span>{SURFACE_LABELS[surface]}</span>
+            {/* biome-ignore lint/a11y/useSemanticElements: a fieldset cannot be laid out as a pill group */}
+            <div
+              className="segmented"
+              role="group"
+              aria-label={`Model for ${SURFACE_LABELS[surface]}`}
+            >
+              {(["standard", "stronger"] as const).map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  aria-pressed={tier === option}
+                  disabled={preview.isPending || change.isPending}
+                  onClick={() => {
+                    if (tier === option) return;
+                    setAsked({ surface, tier: option });
+                    preview.mutate({ surface, tier: option });
+                  }}
+                >
+                  {option === "standard" ? "Standard" : "Stronger"}
+                </button>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+      {asked && preview.data && (
+        <ConfirmTier
+          surface={asked.surface}
+          change={preview.data}
+          renewsAt={renewsAt}
+          waiting={waiting}
+          confirming={change.isPending}
+          onConfirm={() => change.mutate(asked)}
+          onBack={() => {
+            setAsked(null);
+            preview.reset();
+            change.reset();
+          }}
+        />
+      )}
+      <ErrorNote error={preview.error ?? change.error} />
+    </div>
+  );
+}
+
+/** What a change of tier comes to, said before it is made: what is charged, and when. */
+function ConfirmTier({
+  surface,
+  change,
+  renewsAt,
+  waiting,
+  confirming,
+  onConfirm,
+  onBack,
+}: {
+  surface: PlanAssistant;
+  change: SubscriptionChange;
+  renewsAt: string | null;
+  waiting: boolean;
+  confirming: boolean;
+  onConfirm: () => void;
+  onBack: () => void;
+}) {
+  const name = SURFACE_LABELS[surface];
+  const monthly = `${formatPrice(change.monthly_cents)} a month before tax`;
+  return (
+    <div className="plan-confirm" role="status">
+      {change.kind === "upgrade" ? (
+        <p>
+          <strong>A stronger model on {name}, starting now.</strong> Your card is charged{" "}
+          {formatPrice(Math.max(0, change.due_now_cents ?? 0))} today for the rest of this period,
+          tax included. {renewsAt ? `From ${formatDay(renewsAt)} you pay` : "After that you pay"}{" "}
+          {monthly}.
+        </p>
+      ) : (
+        <p>
+          <strong>
+            {name} back on Standard from{" "}
+            {change.effective_at ? formatDay(change.effective_at) : "your next period"}.
+          </strong>{" "}
+          Nothing is charged now and the stronger model stays until then. After that you pay{" "}
+          {monthly}.
+        </p>
+      )}
+      {waiting && <p>This replaces the change that is waiting for the end of the period.</p>}
+      <button type="button" disabled={confirming} onClick={onConfirm}>
+        {confirming
+          ? "Changing"
+          : change.kind === "upgrade"
+            ? "Confirm and pay"
+            : "Confirm the change"}
+      </button>
+      <button type="button" className="secondary" disabled={confirming} onClick={onBack}>
+        Back
+      </button>
+    </div>
   );
 }

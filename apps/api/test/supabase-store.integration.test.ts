@@ -308,9 +308,14 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
       key: "standard",
       on_sale: true,
       included_locations: 3,
+      sells_stronger: false,
       current: null,
       versions: [],
     });
+    // Enterprise sells stronger models; it has no price for them here either.
+    expect(
+      (await aliceStore.listPlanPrices()).find((plan) => plan.key === "enterprise")?.sells_stronger,
+    ).toBe(true);
     // Setting one is the operator's alone.
     expect(
       await aliceStore.setPlanPrices("standard", {
@@ -318,13 +323,23 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
         extra_location_price_cents: null,
         stripe_price_id: `price_${crypto.randomUUID()}`,
         stripe_extra_location_price_id: null,
+        stronger_price_cents: null,
+        stripe_stronger_price_ids: null,
       }),
     ).toBeNull();
     expect(
       (await worker.listPlanPrices()).find((plan) => plan.key === "standard")?.versions,
     ).toEqual([]);
-    const organization = await worker.applyPlan(fresh.id, "starter");
+    // Which assistants are on Stronger comes with the plan, from what the subscription pays for,
+    // and only on a plan that sells it.
+    expect(
+      (await worker.applyPlan(fresh.id, "enterprise", undefined, ["claude"]))?.stronger_surfaces,
+    ).toEqual(["claude"]);
+    expect((await worker.applyPlan(fresh.id, "enterprise"))?.stronger_surfaces).toEqual(["claude"]);
+    const organization = await worker.applyPlan(fresh.id, "starter", undefined, ["claude"]);
     if (!organization) throw new Error("The plan was not applied.");
+    // Starter sells none, whatever the subscription says it pays for.
+    expect(organization.stronger_surfaces).toEqual([]);
     expect(await worker.applyPlan(crypto.randomUUID(), "standard")).toBeNull();
     expect((await aliceStore.listOrganizations()).map((o) => o.id)).toContain(organization.id);
     expect((await bobStore.listOrganizations()).map((o) => o.id)).not.toContain(organization.id);
@@ -700,6 +715,7 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
           cited_urls: ["https://joes.example"],
           answer_excerpt: "Try Tony's Slice House or Joe's Pizza.",
           phones: ["+19195550123"],
+          tier: "stronger",
         },
         {
           tracked_query_id: query.id,
@@ -720,6 +736,7 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
           subject: `${query.id}|${surface}`,
           tracked_query_id: query.id,
           surface,
+          tier: surface === "chatgpt" ? ("stronger" as const) : ("standard" as const),
           facts: { prompt: query.text, missed: 3, checks_before: 4, named_before: 4 },
           since: "2026-10-05T09:00:00Z",
         })),
@@ -728,6 +745,8 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
 
     const finished = await aliceStore.getScan(scan.id);
     expect(finished).toMatchObject({ status: "succeeded", visibility_score: 62.5, error: null });
+    // The scan keeps the tier it asked each surface on.
+    expect(finished?.tiers).toEqual({ chatgpt: "stronger", gemini: "standard" });
     expect(await aliceStore.listScans(location.id, 5)).toEqual([finished]);
     expect((await aliceStore.getLocation(location.id))?.last_scanned_at).not.toBeNull();
 
@@ -750,6 +769,11 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
       phones: ["+19195550123"],
     });
     expect(results.find((r) => r.surface === "gemini")?.phones).toEqual([]);
+    // Each keeps the tier it was asked on, Standard where the worker did not say.
+    expect(results.map((r) => [r.surface, r.tier]).sort()).toEqual([
+      ["chatgpt", "stronger"],
+      ["gemini", "standard"],
+    ]);
 
     expect(await bobStore.getScan(scan.id)).toBeNull();
     expect(await bobStore.listScans(location.id, 5)).toEqual([]);
@@ -768,6 +792,7 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
       kind: "drop",
       tracked_query_id: query.id,
       surface: "chatgpt",
+      tier: "stronger",
       facts: { prompt: query.text, missed: 3, checks_before: 4, named_before: 4 },
       scan_id: scan.id,
       cleared_at: null,

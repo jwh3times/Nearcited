@@ -81,6 +81,7 @@ describe("deriveAlerts: raising a drop", () => {
         subject: `${PIZZA}|chatgpt`,
         tracked_query_id: PIZZA,
         surface: "chatgpt",
+        tier: "standard",
         facts: { prompt: "best pizza near me", missed: 3, checks_before: 4, named_before: 4 },
         // The first of the three that missed.
         since: "2026-10-05T09:00:00Z",
@@ -175,6 +176,40 @@ describe("deriveAlerts: clearing a drop", () => {
     expect(changes.clear).toEqual([
       { id: `alert-${PIZZA}`, reason: "not_tracked" },
       { id: `alert-${PASTA}`, reason: "not_tracked" },
+    ]);
+  });
+
+  it("clears one on the old tier once the assistant is asked on a stronger model", () => {
+    const [newest, ...before] = windowOf({ [PIZZA]: "TTTTFFF" });
+    const switched: AlertScan[] = [
+      {
+        ...(newest as AlertScan),
+        checks: (newest?.checks ?? []).map((check) => ({ ...check, tier: "stronger" as const })),
+      },
+      ...before,
+    ];
+    const changes = derive(switched, [current(PIZZA, "scan-6")]);
+    expect(changes.clear).toEqual([{ id: `alert-${PIZZA}`, reason: "not_tracked" }]);
+    // The stronger model has one check, which is not yet a drop of its own.
+    expect(changes.raise).toEqual([]);
+  });
+
+  it("judges a stronger model's checks by themselves", () => {
+    const scans = windowOf({ [PIZZA]: "TTTTFFF" }).map((scan) => ({
+      ...scan,
+      checks: scan.checks.map((check) => ({ ...check, tier: "stronger" as const })),
+    }));
+    const [alert] = derive(scans).raise;
+    expect(alert).toMatchObject({
+      kind: "drop",
+      subject: `${PIZZA}|chatgpt|stronger`,
+      surface: "chatgpt",
+      tier: "stronger",
+    });
+    // One current for the same prompt on Standard is another thing, and is not in the way.
+    const standing = { ...current(PIZZA, "scan-6"), tier: "standard" as const };
+    expect(derive(scans, [standing]).clear).toEqual([
+      { id: `alert-${PIZZA}`, reason: "not_tracked" },
     ]);
   });
 
@@ -295,6 +330,19 @@ describe("deriveAlerts: a business named for the first time", () => {
       const seen = { ...SEEN, competitors: [...SEEN.competitors, old] };
       expect(sightings(scans, { seen }).raise, old).toEqual([]);
     }
+  });
+
+  it("is not news when a stronger model names one the standard model already had", () => {
+    // The latest two scans were asked on Stronger; the record before them on Standard.
+    const scans = answered([[OAK, OAK], [OAK]]).map((scan, index) =>
+      index < 2
+        ? { ...scan, checks: scan.checks.map((check) => ({ ...check, tier: "stronger" as const })) }
+        : scan,
+    );
+    // The whole record counts, whatever tier each answer was asked on.
+    const seen = { ...SEEN, competitors: [...SEEN.competitors, "Oak & Ember"] };
+    expect(sightings(scans, { seen }).raise).toEqual([]);
+    expect(sightings(scans).raise).toHaveLength(1);
   });
 
   it("gathers the ways one business is written, and calls it what it is most often called", () => {
@@ -570,6 +618,7 @@ const alert = (overrides: Partial<DropAlert> = {}): DropAlert => ({
   kind: "drop",
   tracked_query_id: PIZZA,
   surface: "chatgpt",
+  tier: "standard",
   facts: { prompt: "best pizza near me", missed: 3, checks_before: 4, named_before: 4 },
   since: "2026-10-05T09:00:00Z",
   scan_id: "00000000-0000-4000-8000-0000000000c1",

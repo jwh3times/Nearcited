@@ -21,6 +21,7 @@ export * from "./sources";
 export * from "./spend";
 export * from "./structured-details";
 export * from "./tasks";
+export * from "./tiers";
 export * from "./tuning";
 export * from "./visits";
 export * from "./wordpress";

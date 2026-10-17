@@ -44,7 +44,11 @@ describe("rateTone", () => {
 
 describe("scoreChange", () => {
   const trend = (...scores: number[]) =>
-    scores.map((score, index) => ({ at: `2026-10-${String(index + 1).padStart(2, "0")}`, score }));
+    scores.map((score, index) => ({
+      at: `2026-10-${String(index + 1).padStart(2, "0")}`,
+      score,
+      changes: [],
+    }));
 
   it("compares the latest score with the one seven scans back", () => {
     expect(scoreChange(trend(10, 20, 30, 40, 50, 60, 70, 80, 90))).toEqual({ by: 70, scans: 7 });

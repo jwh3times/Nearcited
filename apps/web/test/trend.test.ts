@@ -11,6 +11,7 @@ const scan = (day: number, score: number | null, change: Partial<Scan> = {}): Sc
   visibility_score: score,
   error: null,
   sample_data: false,
+  tiers: {},
   created_at: `2026-10-${String(day).padStart(2, "0")}T09:00:00Z`,
   started_at: `2026-10-${String(day).padStart(2, "0")}T09:00:01Z`,
   finished_at: `2026-10-${String(day).padStart(2, "0")}T09:00:30Z`,
@@ -45,6 +46,23 @@ describe("buildTrend", () => {
     expect(buildTrend(scans).map((point) => point.score)).toEqual([10, 20]);
     expect(buildTrend([...scans, scan(4, 80, { sample_data: true })]).map((p) => p.score)).toEqual([
       90, 80,
+    ]);
+  });
+
+  it("marks the scan where an assistant's tier changed", () => {
+    const trend = buildTrend([
+      scan(1, 40, { tiers: { chatgpt: "standard", claude: "standard" } }),
+      scan(2, 45, { tiers: { chatgpt: "stronger", claude: "standard" } }),
+      // A failed scan between says nothing, and a scan from before tiers neither.
+      scan(3, null, { status: "failed" }),
+      scan(4, 50, { tiers: { chatgpt: "stronger", claude: "standard" } }),
+      scan(5, 55, { tiers: { chatgpt: "standard", claude: "standard" } }),
+    ]);
+    expect(trend.map((point) => point.changes)).toEqual([
+      [],
+      [{ surface: "chatgpt", tier: "stronger" }],
+      [],
+      [{ surface: "chatgpt", tier: "standard" }],
     ]);
   });
 

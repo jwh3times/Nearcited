@@ -17,9 +17,11 @@ import type {
   Scan,
   SiteCheck,
   SiteCheckId,
+  Surface,
 } from "./schemas";
-import { ACCOUNT_STAGES, ATTENTION_KINDS, NOTICE_HOLD_HOURS } from "./schemas";
+import { ACCOUNT_STAGES, ATTENTION_KINDS, NOTICE_HOLD_HOURS, SURFACE_LABELS } from "./schemas";
 import { SITE_CHECKS } from "./site";
+import { strongerSurfaces } from "./tiers";
 
 /**
  * What the operator's first screen is worked out from: every organization's rows, as the operator
@@ -47,6 +49,8 @@ export interface OperatorFacts {
   }[];
   /** Actions that were carried out and whose owners have not been told, with when each was done. */
   untoldActions: readonly { location_id: string; done_at: string }[];
+  /** The assistants this deployment has a stronger model for. */
+  strongerAssistants: readonly Surface[];
 }
 
 const HOUR = 3_600_000;
@@ -217,6 +221,7 @@ export function buildOperatorOverview(facts: OperatorFacts): Omit<OperatorOvervi
       ).length,
       scan_every_days: organization.scan_every_days,
       surfaces: organization.surfaces,
+      stronger_surfaces: strongerSurfaces(organization),
       plan_key: organization.plan_key,
       // A sign that it may want a larger plan, not that anything is wrong. A location with no
       // allowance, or one its plan has paused, is not at a limit it could grow past.
@@ -245,6 +250,21 @@ export function buildOperatorOverview(facts: OperatorFacts): Omit<OperatorOvervi
         organizationId: organization.id,
       });
     }
+  }
+
+  // Someone paying for a stronger model the tuning has none for is checked on Standard meanwhile.
+  for (const organization of facts.organizations.filter((org) => !org.is_test)) {
+    const missing = strongerSurfaces(organization).filter(
+      (surface) => !facts.strongerAssistants.includes(surface),
+    );
+    if (missing.length === 0) continue;
+    const names = missing.map((surface) => SURFACE_LABELS[surface]).join(" and ");
+    add(
+      "stronger_unavailable",
+      `It pays for a stronger model on ${names}, which the tuning has none for, so it is checked on Standard. Put the stronger setting back, or tell its owners.`,
+      null,
+      { organizationId: organization.id },
+    );
   }
 
   // One line for each organization that is held: its oldest action still untold past 36 hours.

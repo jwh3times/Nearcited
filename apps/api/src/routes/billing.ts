@@ -1,13 +1,20 @@
 import {
   type BillingRedirect,
+  type CheckoutInput,
   CheckoutInputSchema,
+  checkedAssistants,
+  type Organization,
   type OrganizationAccount,
+  PLAN_ASSISTANTS,
+  type PlanAssistant,
+  SURFACE_LABELS,
   type SubscriptionChange,
 } from "@nearcited/shared";
 import type { Context } from "hono";
 import { Hono } from "hono";
 import type { AppEnv } from "../app";
 import { itemsFor, monthlyCents, type PaidPlan, readItems } from "../billing/plans";
+import { sellsStronger } from "../billing/stronger";
 import { type BilledItem, PaymentDeclinedError, type Payments } from "../billing/types";
 import { ApiError, notFound } from "../errors";
 import type { PlanPrices } from "../store/types";
@@ -19,6 +26,24 @@ const unavailable = () =>
   new ApiError(503, "billing_unavailable", "Subscriptions are not available here yet.");
 
 const planUnavailable = (message: string) => new ApiError(422, "plan_unavailable", message);
+
+/** The assistants this deployment has a stronger model for, from the tuning. */
+export const withStrongerModel = (c: Context<AppEnv>) =>
+  c.get("deployment").stronger_assistants ?? [];
+
+/**
+ * Where an organization may have Stronger: on the assistants it is checked on that the
+ * deployment has a stronger model for. A test organization pays for nothing, so none.
+ */
+interface StrongerSale {
+  checked: readonly PlanAssistant[];
+  assistants: readonly PlanAssistant[];
+}
+
+const strongerSale = (c: Context<AppEnv>, organization: Organization): StrongerSale | null =>
+  organization.is_test
+    ? null
+    : { checked: checkedAssistants(organization), assistants: withStrongerModel(c) };
 
 /**
  * What Account settings shows: this month's use for anyone who can read the organization, and
@@ -32,10 +57,12 @@ billingRoutes.get("/organizations/:organizationId/account", async (c) => {
   if (used === null) throw notFound("Organization");
   const billing = await store.getBillingState(organizationId);
   const payments = c.get("payments")();
+  const organization = await store.getOrganization(organizationId);
 
   // What is paid for and what is waiting live at the provider. If it cannot be asked, the page
   // still shows the rest: an owner must be able to reach their billing when something is wrong.
   let paid: PaidPlan | null = null;
+  let strongerOffered: PlanAssistant[] = [];
   let renewsAt: string | null = null;
   let pending: NonNullable<OrganizationAccount["billing"]>["pending"] = null;
   let priceChange: NonNullable<OrganizationAccount["billing"]>["price_change"] = null;
@@ -50,9 +77,18 @@ billingRoutes.get("/organizations/:organizationId/account", async (c) => {
         pending = {
           plan_key: next.plan.key,
           locations: next.locations,
+          stronger: next.stronger,
           monthly_cents: monthlyCents(next),
           at: renewsAt,
         };
+      }
+      // A tier is changed only while nothing is owed, as a plan is. One on Stronger can always
+      // be put back on Standard.
+      if (paid && subscription?.status === "active" && !organization?.is_test) {
+        const sold = sellsStronger(paid.plan, paid.version, withStrongerModel(c));
+        strongerOffered = PLAN_ASSISTANTS.filter(
+          (surface) => sold.includes(surface) || paid?.stronger.includes(surface),
+        );
       }
       // A price change announced for their plan, when they have not been moved to it yet.
       const announced = paid ? await store.getOpenPriceChange(paid.plan.key) : null;
@@ -71,7 +107,6 @@ billingRoutes.get("/organizations/:organizationId/account", async (c) => {
   }
 
   // A reduction announced for the plan, for anyone in the organization to see coming.
-  const organization = await store.getOrganization(organizationId);
   const reduction = organization?.plan_key
     ? await store.getOpenLimitChange(organization.plan_key)
     : null;
@@ -90,8 +125,10 @@ billingRoutes.get("/organizations/:organizationId/account", async (c) => {
       paying: paid && {
         price_cents: paid.version.price_cents,
         extra_location_price_cents: paid.version.extra_location_price_cents,
+        stronger_price_cents: paid.version.stronger_price_cents,
         monthly_cents: monthlyCents(paid),
       },
+      stronger_offered: strongerOffered,
       price_change: priceChange,
       pending,
     },
@@ -122,7 +159,8 @@ billingRoutes.post("/organizations/:organizationId/checkout", async (c) => {
     );
   }
 
-  const { items } = await wanted(await store.listPlanPrices(), input, null);
+  // Stronger is chosen once subscribed, from Account settings: a checkout starts with none.
+  const { items } = wanted(await store.listPlanPrices(), { ...input, stronger: [] }, null, null);
   const settings = `${c.env.APP_URL}/settings`;
   const url = await payments.createCheckout({
     organization_id: organizationId,
@@ -202,20 +240,37 @@ billingRoutes.delete("/organizations/:organizationId/subscription/pending", asyn
  * subscriber to a plan pays what it is sold at now. A subscriber changing the locations on the
  * plan they are already on (`own`) keeps the prices they pay, whatever it is sold at since, and
  * may do so even after it has gone off sale.
+ *
+ * Stronger is what was asked for, or, when the request does not say, what `own` pays for where
+ * the plan still sells it. Asked for where it is not sold, it is refused.
  */
-async function wanted(
+function wanted(
   plans: PlanPrices[],
-  input: { plan_key: string; locations?: number },
+  input: CheckoutInput,
   own: PaidPlan | null,
+  sale: StrongerSale | null,
 ) {
   const staying = own?.plan.key === input.plan_key ? own : null;
   const plan = staying?.plan ?? plans.find((p) => p.key === input.plan_key && p.on_sale);
   const version = staying?.version ?? plan?.current;
   if (!plan || !version) throw planUnavailable("That plan cannot be bought.");
+  const sold = sale
+    ? sellsStronger(plan, version, sale.assistants).filter((s) => sale.checked.includes(s))
+    : [];
+  const asked = input.stronger ?? own?.stronger.filter((surface) => sold.includes(surface)) ?? [];
+  const refused = asked.filter((surface) => !sold.includes(surface));
+  if (refused.length > 0) {
+    throw new ApiError(
+      422,
+      "stronger_unavailable",
+      `A stronger model on ${refused.map((surface) => SURFACE_LABELS[surface]).join(" and ")} is not sold on that plan.`,
+    );
+  }
   const paid = {
     plan,
     version,
     locations: Math.max(plan.included_locations, input.locations ?? 0),
+    stronger: PLAN_ASSISTANTS.filter((surface) => asked.includes(surface)),
   } satisfies PaidPlan;
   const items = itemsFor(paid);
   if (!items) {
@@ -229,16 +284,18 @@ async function wanted(
 /** The owner's subscription, or the error that says why there is none to change. */
 async function subscribed(
   c: Context<AppEnv>,
-): Promise<{ payments: Payments; subscriptionId: string }> {
+): Promise<{ payments: Payments; subscriptionId: string; organization: Organization }> {
   const organizationId = uuidParam(c, "organizationId", "Organization");
   const payments = c.get("payments")();
   if (!payments) throw unavailable();
-  const billing = await c.get("store").getBillingState(organizationId);
-  if (!billing) throw notFound("Organization");
+  const store = c.get("store");
+  const billing = await store.getBillingState(organizationId);
+  const organization = await store.getOrganization(organizationId);
+  if (!billing || !organization) throw notFound("Organization");
   if (!billing.stripe_subscription_id) {
     throw new ApiError(409, "no_subscription", "This organization has no subscription to change.");
   }
-  return { payments, subscriptionId: billing.stripe_subscription_id };
+  return { payments, subscriptionId: billing.stripe_subscription_id, organization };
 }
 
 /**
@@ -252,7 +309,7 @@ async function plannedChange(c: Context<AppEnv>): Promise<{
   change: SubscriptionChange;
   items: BilledItem[];
 }> {
-  const { payments, subscriptionId } = await subscribed(c);
+  const { payments, subscriptionId, organization } = await subscribed(c);
   const input = await parseJson(c, CheckoutInputSchema);
   const plans = await c.get("store").listPlanPrices();
 
@@ -269,8 +326,12 @@ async function plannedChange(c: Context<AppEnv>): Promise<{
   if (!current || !subscription.period_end) {
     throw new Error(`Subscription ${subscriptionId} bills for a price that no plan has.`);
   }
-  const { paid, items } = await wanted(plans, input, current);
-  if (current.plan.key === paid.plan.key && current.locations === paid.locations) {
+  const { paid, items } = wanted(plans, input, current, strongerSale(c, organization));
+  if (
+    current.plan.key === paid.plan.key &&
+    current.locations === paid.locations &&
+    current.stronger.join() === paid.stronger.join()
+  ) {
     throw new ApiError(422, "no_change", "That is the plan this organization is already on.");
   }
 
@@ -284,6 +345,7 @@ async function plannedChange(c: Context<AppEnv>): Promise<{
       kind: downgrade ? "downgrade" : "upgrade",
       plan_key: paid.plan.key,
       locations: paid.locations,
+      stronger: paid.stronger,
       monthly_cents: monthlyCents(paid),
       due_now_cents: null,
       effective_at: downgrade ? subscription.period_end : null,

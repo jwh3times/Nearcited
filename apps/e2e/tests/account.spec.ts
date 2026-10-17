@@ -75,7 +75,13 @@ test("lets a subscriber change plan and locations, saying what it costs before i
     has_customer: true,
     locations: 1,
     renews_at: "2026-11-09T00:00:00.000Z",
-    paying: { price_cents: 2900, extra_location_price_cents: 1000, monthly_cents: 2900 },
+    paying: {
+      price_cents: 2900,
+      extra_location_price_cents: 1000,
+      stronger_price_cents: null,
+      monthly_cents: 2900,
+    },
+    stronger_offered: [],
     price_change: null,
     pending: null as null | Record<string, unknown>,
   };
@@ -91,6 +97,7 @@ test("lets a subscriber change plan and locations, saying what it costs before i
     return route.fulfill({
       json: {
         kind: upgrade ? "upgrade" : "downgrade",
+        stronger: [],
         ...input,
         monthly_cents: 4900,
         due_now_cents: upgrade ? 2145 : null,
@@ -104,6 +111,7 @@ test("lets a subscriber change plan and locations, saying what it costs before i
     return route.fulfill({
       json: {
         kind: "upgrade",
+        stronger: [],
         ...input,
         monthly_cents: 4900,
         due_now_cents: 2145,
@@ -149,6 +157,7 @@ test("lets a subscriber change plan and locations, saying what it costs before i
   billing.pending = {
     plan_key: "starter",
     locations: 1,
+    stronger: [],
     monthly_cents: 2900,
     at: billing.renews_at,
   };

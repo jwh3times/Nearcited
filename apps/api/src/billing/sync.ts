@@ -38,7 +38,12 @@ export async function syncSubscription(
     if (!paid) {
       throw new Error(`Subscription ${subscription.id} bills for a price that no plan has.`);
     }
-    const applied = await store.applyPlan(organizationId.data, paid.plan.key, paid.locations);
+    const applied = await store.applyPlan(
+      organizationId.data,
+      paid.plan.key,
+      paid.locations,
+      paid.stronger,
+    );
     if (!applied) return "ignored";
     await store.recordSubscription(organizationId.data, {
       stripe_customer_id: subscription.customer_id,

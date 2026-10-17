@@ -1,3 +1,4 @@
+import { SURFACE_LABELS, type TierChange } from "@nearcited/shared";
 import { formatDate } from "../lib/format";
 import { type Rate, scoreChange, signed } from "../lib/summary";
 import { plotTrend, type TrendPoint } from "../lib/trend";
@@ -7,6 +8,12 @@ const HEIGHT = 96;
 const TICKS = [0, 50, 100];
 
 const day = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" });
+
+/** What a change of tier means for the line: "ChatGPT on a stronger model from here". */
+const tierNote = ({ surface, tier }: TierChange) =>
+  tier === "stronger"
+    ? `${SURFACE_LABELS[surface]} on a stronger model from here`
+    : `${SURFACE_LABELS[surface]} back on the standard model from here`;
 
 interface ScoreCardProps {
   /** The score after each scan, oldest first. Not empty. */
@@ -30,6 +37,9 @@ export function ScoreCard({ trend, named }: ScoreCardProps) {
   const line = points
     .map((point, index) => `${index === 0 ? "M" : "L"}${point.x},${point.y}`)
     .join(" ");
+  // A stronger model can name the business more or less often, so where the model changed is
+  // marked on the line: the score starts again there for that assistant.
+  const marked = points.filter((point) => point.changes.length > 0);
 
   return (
     <div className="card score-card">
@@ -59,6 +69,16 @@ export function ScoreCard({ trend, named }: ScoreCardProps) {
               return <line key={tick} className="chart-grid" x1={0} x2={WIDTH} y1={y} y2={y} />;
             })}
             <path className="chart-area" d={`${line} L${last.x},${HEIGHT} L0,${HEIGHT} Z`} />
+            {marked.map((point) => (
+              <line
+                key={point.at}
+                className="chart-mark"
+                x1={point.x}
+                x2={point.x}
+                y1={0}
+                y2={HEIGHT}
+              />
+            ))}
             <path className="chart-line" d={line} />
             <circle className="chart-dot" cx={last.x} cy={last.y} r={4} />
           </svg>
@@ -66,6 +86,15 @@ export function ScoreCard({ trend, named }: ScoreCardProps) {
             <span>{day.format(new Date(first.at))}</span>
             <span>{day.format(new Date(latest.at))}</span>
           </div>
+          {marked.length > 0 && (
+            <ul className="chart-notes small muted">
+              {marked.map((point) => (
+                <li key={point.at}>
+                  {day.format(new Date(point.at))}: {point.changes.map(tierNote).join("; ")}
+                </li>
+              ))}
+            </ul>
+          )}
           <details className="as-table">
             <summary>Show as a table</summary>
             <table>
@@ -73,6 +102,7 @@ export function ScoreCard({ trend, named }: ScoreCardProps) {
                 <tr>
                   <th scope="col">Scan finished</th>
                   <th scope="col">Visibility, of 100</th>
+                  <th scope="col">Model</th>
                 </tr>
               </thead>
               <tbody>
@@ -80,6 +110,7 @@ export function ScoreCard({ trend, named }: ScoreCardProps) {
                   <tr key={point.at}>
                     <td>{formatDate(point.at)}</td>
                     <td>{point.score}</td>
+                    <td>{point.changes.map(tierNote).join("; ")}</td>
                   </tr>
                 ))}
               </tbody>

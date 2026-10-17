@@ -14,6 +14,7 @@ import {
   type OperatorPlan,
   type OperatorSpend,
   OrganizationLimitsSchema,
+  type PlanAssistant,
   PlanChangeInputSchema,
   type PlanImpact,
   PlanPricesInputSchema,
@@ -21,6 +22,7 @@ import {
   PriceChangeInputSchema,
   planImpact,
   reductions,
+  SURFACE_LABELS,
   withoutReductions,
 } from "@nearcited/shared";
 import { Hono } from "hono";
@@ -54,7 +56,7 @@ operatorRoutes.use("/operator/*", async (c, next) => {
 /** How far back scans are read. The missed-scan check looks no further than the attention window. */
 const sinceWindow = (now: Date) => new Date(now.getTime() - ATTENTION_WINDOW_MS).toISOString();
 
-async function overview(store: Store, now: Date) {
+async function overview(store: Store, now: Date, strongerAssistants: readonly PlanAssistant[]) {
   const [organizations, locations, activePrompts, scans, audits, mine, untoldActions] =
     await Promise.all([
       store.listEveryOrganization(),
@@ -74,12 +76,13 @@ async function overview(store: Store, now: Date) {
     scans,
     audits,
     untoldActions,
+    strongerAssistants,
   });
 }
 
 operatorRoutes.get("/operator/overview", async (c) => {
   const body: OperatorOverview = {
-    ...(await overview(c.get("store"), new Date())),
+    ...(await overview(c.get("store"), new Date(), c.get("deployment").stronger_assistants ?? [])),
     deployment: {
       sample_data: usesSampleData(c.env),
       models: c.get("deployment").models,
@@ -372,14 +375,19 @@ operatorRoutes.put("/operator/plans/:key/prices", async (c) => {
   if (plan.price_cents === 0) {
     throw new ApiError(409, "free_plan", "The free plan has no price to change.");
   }
+  const stronger =
+    input.stronger_price_cents === undefined
+      ? (sold.current?.stronger_price_cents ?? null)
+      : input.stronger_price_cents;
   if (
     sold.current?.price_cents === input.price_cents &&
-    sold.current.extra_location_price_cents === input.extra_location_price_cents
+    sold.current.extra_location_price_cents === input.extra_location_price_cents &&
+    sold.current.stronger_price_cents === stronger
   ) {
     throw new ApiError(422, "no_change", "That is what the plan is already sold at.");
   }
 
-  // Both are made new, even when only one amount changed, so that either one names this
+  // Every one is made new, even when only one amount changed, so that any of them names this
   // version of the plan's prices and no other.
   const stripe_price_id = await payments.createPrice({
     like: sold.current?.stripe_price_id ?? null,
@@ -394,10 +402,27 @@ operatorRoutes.put("/operator/plans/:key/prices", async (c) => {
           product_name: `Nearcited ${plan.name}: extra location`,
           cents: input.extra_location_price_cents,
         });
+  // Stronger is one amount with a price of its own for each assistant, so the webhook can tell
+  // which assistant a subscription pays it on.
+  const strongerOn = async (surface: PlanAssistant, cents: number) =>
+    payments.createPrice({
+      like: sold.current?.stripe_stronger_price_ids?.[surface] ?? null,
+      product_name: `Nearcited ${plan.name}: stronger ${SURFACE_LABELS[surface]}`,
+      cents,
+    });
+  const stripe_stronger_price_ids =
+    stronger === null
+      ? null
+      : {
+          chatgpt: await strongerOn("chatgpt", stronger),
+          claude: await strongerOn("claude", stronger),
+        };
   const saved = await store.setPlanPrices(key, {
     ...input,
+    stronger_price_cents: stronger,
     stripe_price_id,
     stripe_extra_location_price_id,
+    stripe_stronger_price_ids,
   });
   if (!saved) throw notFound("Plan");
   return c.json(saved);

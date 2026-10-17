@@ -13,8 +13,9 @@ import {
   SURFACES,
   SURFACES_BY_KIND,
   type Surface,
+  type Tier,
 } from "./schemas";
-import { SCAN_WINDOW } from "./scoring";
+import { cellKey, SCAN_WINDOW } from "./scoring";
 import { belongsTo, summarizeSources } from "./sources";
 
 /**
@@ -27,10 +28,11 @@ import { belongsTo, summarizeSources } from "./sources";
  * that never ended. So an alert is kept, and what raises one and what clears one are different
  * conditions (`docs/adr/0015-an-alert-is-kept-not-worked-out-again.md`).
  *
- * - A drop, on one prompt and one surface. Raised when the newest `DROP_MISSES` checks did not
- *   name the business and at least `DROP_NAMED_BEFORE` of the `DROP_CHECKS_BEFORE` before them
- *   did. Cleared when a check made after the alert was raised names the business, or when the
- *   prompt or the surface is no longer checked. Never by age.
+ * - A drop, on one prompt and one surface at one tier. Raised when the newest `DROP_MISSES`
+ *   checks did not name the business and at least `DROP_NAMED_BEFORE` of the
+ *   `DROP_CHECKS_BEFORE` before them did. Cleared when a check made after the alert was raised
+ *   names the business, or when the prompt, the surface or the tier is no longer checked. Never
+ *   by age.
  * - A first sighting, of a business or of a site. Raised when the written answers of the latest
  *   `FIRST_SEEN_SCANS` scans name the business, or cite the site, in at least
  *   `FIRST_SEEN_ANSWERS` answers across at least `FIRST_SEEN_IN_SCANS` of those scans, and no
@@ -74,6 +76,8 @@ const MAX_PLACES = 3;
 export interface AlertCheck {
   tracked_query_id: string;
   surface: Surface;
+  /** The model it was asked with. Left out, as on a result kept before tiers, it is Standard. */
+  tier?: Tier;
   mentioned: boolean;
   competitors: readonly string[];
   cited_urls: readonly string[];
@@ -90,7 +94,8 @@ export interface AlertScan {
 
 /** An alert the worker has not cleared, dismissed or not, as far as the rules are concerned. */
 export type CurrentAlert =
-  | Pick<DropAlert, "id" | "kind" | "tracked_query_id" | "surface" | "scan_id">
+  | (Pick<DropAlert, "id" | "kind" | "tracked_query_id" | "surface" | "scan_id"> &
+      Partial<Pick<DropAlert, "tier">>)
   | Pick<Extract<Alert, { kind: "competitor" }>, "id" | "kind" | "facts" | "scan_id">
   | Pick<Extract<Alert, { kind: "site" }>, "id" | "kind" | "facts" | "scan_id">
   | Pick<Extract<Alert, { kind: "phone" }>, "id" | "kind" | "facts" | "scan_id" | "dismissed_at">;
@@ -101,7 +106,7 @@ export type NewAlert = {
   subject: string;
   since: string;
 } & (
-  | { kind: "drop"; tracked_query_id: string; surface: Surface; facts: DropFacts }
+  | { kind: "drop"; tracked_query_id: string; surface: Surface; tier: Tier; facts: DropFacts }
   | { kind: "competitor"; facts: CompetitorFacts }
   | { kind: "site"; facts: SiteFacts }
   | { kind: "phone"; facts: PhoneFacts }
@@ -148,15 +153,12 @@ export interface AlertInput {
   seen: SeenBefore | null;
 }
 
-const cellOf = (check: Pick<AlertCheck, "tracked_query_id" | "surface">) =>
-  `${check.tracked_query_id}|${check.surface}`;
-
 /** What an alert is about, with its kind, so one of a kind is not mistaken for another's. */
 function subjectOf(alert: CurrentAlert | NewAlert): string {
   if ("subject" in alert) return `${alert.kind}:${alert.subject}`;
   switch (alert.kind) {
     case "drop":
-      return `drop:${cellOf(alert)}`;
+      return `drop:${cellKey(alert)}`;
     case "competitor":
       return `competitor:${normalizeName(alert.facts.name)}`;
     case "site":
@@ -178,10 +180,10 @@ export function deriveAlerts(input: AlertInput): AlertChanges {
 
   // Each cell's checks, newest first, with the scan each came from.
   const cells = new Map<string, { check: AlertCheck; scan: number }[]>(
-    newest.checks.map((check) => [cellOf(check), []]),
+    newest.checks.map((check) => [cellKey(check), []]),
   );
   scans.forEach((scan, index) => {
-    for (const check of scan.checks) cells.get(cellOf(check))?.push({ check, scan: index });
+    for (const check of scan.checks) cells.get(cellKey(check))?.push({ check, scan: index });
   });
 
   const text = new Map(prompts.map((prompt) => [prompt.id, prompt.text]));
@@ -193,7 +195,7 @@ export function deriveAlerts(input: AlertInput): AlertChanges {
     const raisedBy = scans.findIndex((scan) => scan.id !== null && scan.id === alert.scan_id);
     let reason: AlertClearReason | null;
     if (alert.kind === "drop") {
-      reason = dropEnded(cells.get(cellOf(alert)), raisedBy === -1 ? scans.length : raisedBy);
+      reason = dropEnded(cells.get(cellKey(alert)), raisedBy === -1 ? scans.length : raisedBy);
     } else if (alert.kind === "phone") {
       reason = numberEnded(alert, numbers, phone);
     } else {
@@ -253,6 +255,7 @@ function drops(
       subject: cell,
       tracked_query_id: first.check.tracked_query_id,
       surface: first.check.surface,
+      tier: first.check.tier ?? "standard",
       facts: {
         prompt: text.get(first.check.tracked_query_id) ?? "",
         missed: missed.length,
