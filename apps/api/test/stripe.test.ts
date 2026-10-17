@@ -386,6 +386,47 @@ describe("changing what a subscription bills for", () => {
   });
 });
 
+describe("cancelling a subscription", () => {
+  it("ends it at once, with nothing invoiced or credited for the rest of the period", async () => {
+    responses.push({ status: 200, body: standardWithTwo() });
+    responses.push({ status: 200, body: { ...standardWithTwo(), status: "canceled" } });
+    await payments().cancelNow("sub_1");
+    expect(requests.map((request) => [request.method, request.path])).toEqual([
+      ["GET", "/v1/subscriptions/sub_1"],
+      ["DELETE", "/v1/subscriptions/sub_1"],
+    ]);
+  });
+
+  it("lets go of a change waiting for the period's end first", async () => {
+    responses.push({ status: 200, body: standardWithTwo(scheduled) });
+    responses.push({ status: 200, body: { ...scheduled, status: "released" } });
+    responses.push({ status: 200, body: { ...standardWithTwo(), status: "canceled" } });
+    await payments().cancelNow("sub_1");
+    expect(requests.map((request) => request.path)).toEqual([
+      "/v1/subscriptions/sub_1",
+      "/v1/subscription_schedules/sub_sched_1/release",
+      "/v1/subscriptions/sub_1",
+    ]);
+  });
+
+  it("does nothing to one already over, or one Stripe has no record of", async () => {
+    responses.push({ status: 200, body: { ...standardWithTwo(), status: "canceled" } });
+    await payments().cancelNow("sub_1");
+    responses.push({
+      status: 404,
+      body: {
+        error: {
+          type: "invalid_request_error",
+          code: "resource_missing",
+          message: "No such subscription",
+        },
+      },
+    });
+    await payments().cancelNow("sub_gone");
+    expect(requests.map((request) => request.method)).toEqual(["GET", "GET"]);
+  });
+});
+
 describe("a new price", () => {
   const monthly = {
     currency: "usd",

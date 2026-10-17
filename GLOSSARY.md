@@ -174,3 +174,8 @@ system works; this file only settles vocabulary.
   spreadsheet for each list and all of it in one file another tool can read. It holds no sign-in,
   nothing of the operator's record of changes and nothing about what the providers were paid. See
   "Downloading everything" in `docs/architecture.md`.
+- **Closing**: an owner ending their account. The organization is out of reach from the ask, and
+  the worker cancels the subscription, removes each connection, deletes the organization and the
+  owner's sign-in, and sends one email. It cannot be undone. Only a fingerprint of the owner's
+  address is kept, for thirty days, so a new organization made from it starts with its free first
+  scan used. See `docs/adr/0020-the-worker-closes-an-account.md`.

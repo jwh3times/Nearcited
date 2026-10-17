@@ -148,13 +148,22 @@ export function Privacy() {
         that have not signed up expire after 30 days. Counts of visits from assistants are kept for
         as long as the location they belong to.
       </p>
+      <p>
+        When an account is closed, everything under it is deleted within minutes, and then the
+        owner's sign-in. Afterwards we keep what we paid our providers for its checks, with nothing
+        to say whose they were; our record of changes we made to its plan; and for 30 days a one-way
+        fingerprint of the owner's email address, from which the address cannot be read back, so
+        that a new account made with it does not get a second free first scan. Stripe keeps its own
+        record of payments.
+      </p>
 
       <h2>Your choices</h2>
       <ul>
         <li>
           <strong>See, correct or delete.</strong> You can change your business's details and delete
-          locations yourself. To get a copy of what we hold, or to have your account and everything
-          under it deleted, write to {mail}. We will answer within 30 days.
+          locations yourself. The owner of an account can download everything it holds, and close
+          it, from Account settings. You can also write to {mail} for a copy of what we hold, or to
+          have your account and everything under it deleted. We will answer within 30 days.
         </li>
         <li>
           <strong>Emails.</strong> Turn off scheduled scans for a location to stop its reports.

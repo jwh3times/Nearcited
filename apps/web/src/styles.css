@@ -1804,6 +1804,36 @@ mark {
   font-size: 0.875rem;
 }
 
+/* What closing the account does, said before it is done, and the name typed out below it. */
+.closing {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--line);
+}
+
+.closing ul {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  list-style: disc;
+  padding-left: 1.125rem;
+  font-size: 0.875rem;
+}
+
+.closing li {
+  display: list-item;
+  padding: 0;
+  border-top: 0;
+}
+
+.closing-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
 /* What something is set to: the name on the left in grey, the value on the right. */
 .facts span:first-child {
   color: var(--muted);

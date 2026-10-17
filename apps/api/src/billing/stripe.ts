@@ -19,6 +19,9 @@ const SUBSCRIPTION_EVENTS = new Set([
 const idOf = (value: string | { id: string }) => (typeof value === "string" ? value : value.id);
 const iso = (seconds: number) => new Date(seconds * 1000).toISOString();
 
+/** A subscription that is over and cannot be cancelled again. */
+const ENDED_STATUSES = new Set(["canceled", "incomplete_expired"]);
+
 /**
  * Stripe, through its hosted checkout and customer portal. `fetchFn` is for tests; a Worker has
  * no Node HTTP client, so requests always go through fetch and signatures through Web Crypto.
@@ -232,6 +235,26 @@ export function createStripePayments(
         tax_behavior: "exclusive",
       });
       return price.id;
+    },
+
+    async cancelNow(subscriptionId) {
+      let subscription: Awaited<ReturnType<typeof withSchedule>>;
+      try {
+        subscription = await withSchedule(subscriptionId);
+      } catch (error) {
+        if (error instanceof Stripe.errors.StripeInvalidRequestError && error.statusCode === 404) {
+          return;
+        }
+        throw error;
+      }
+      if (ENDED_STATUSES.has(subscription.status)) return;
+      // A schedule would start it again at the period's end, so it is let go first.
+      const { schedule } = subscription;
+      if (schedule && typeof schedule !== "string" && schedule.status === "active") {
+        await stripe.subscriptionSchedules.release(schedule.id);
+      }
+      // Stripe's defaults: no proration and no final invoice, so nothing is refunded or charged.
+      await stripe.subscriptions.cancel(subscriptionId);
     },
 
     async keepCurrent(subscriptionId) {

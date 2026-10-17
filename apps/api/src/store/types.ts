@@ -185,6 +185,62 @@ export interface KeptAnswerSubdomain {
   removed_at: string | null;
 }
 
+/**
+ * An owner's ask to close the account, and how far the worker has got with it. It outlives the
+ * organization: what the closing email needs is kept here until it has gone, and then only the
+ * fingerprint of the owner's email is kept, for thirty days.
+ */
+export interface Closing {
+  id: string;
+  organization_id: string;
+  /** Cleared once the closing is finished. */
+  organization_name: string | null;
+  /** Whose sign-in is deleted. Cleared once the closing is finished. */
+  owner_id: string | null;
+  /** Where the closing email goes. Cleared once it has gone. */
+  owner_email: string | null;
+  /** Everyone else in the organization, each sent a note. Cleared once they have been. */
+  member_emails: string[];
+  asked_at: string;
+  /** When the subscription was seen to, whether or not there was one to cancel. */
+  cancelled_at: string | null;
+  had_subscription: boolean;
+  /** The WordPress sites that could not be asked to take their password back. */
+  left_at_sites: string[];
+  /** The answer subdomains removed, whose DNS records the owner can now delete. */
+  hostnames: string[];
+  organization_deleted_at: string | null;
+  account_deleted_at: string | null;
+  /** When the owner's email went, and the note to everyone else, so neither goes twice. */
+  told_at: string | null;
+  noted_at: string | null;
+  finished_at: string | null;
+}
+
+/** What the worker writes down as it goes, so that a retry picks up where it stopped. */
+export type ClosingProgress = Partial<
+  Pick<
+    Closing,
+    | "cancelled_at"
+    | "had_subscription"
+    | "left_at_sites"
+    | "hostnames"
+    | "organization_deleted_at"
+    | "account_deleted_at"
+    | "told_at"
+    | "noted_at"
+  >
+>;
+
+/**
+ * The answer to an ask to close: the closing, or why not. `owners_only` for anyone but an owner,
+ * `not_closable` for the operator and a test account, `name_mismatch` for a name that is not the
+ * organization's.
+ */
+export type ClosingAsked =
+  | { closing_id: string }
+  | { refused: "owners_only" | "not_closable" | "name_mismatch" };
+
 /** A page served on an answer subdomain, as the worker reads it. */
 export interface HostedPage {
   id: string;
@@ -445,6 +501,39 @@ export interface Store {
    * answered: for anyone else, the operator included, it returns null.
    */
   exportOrganization(organizationId: string): Promise<AccountExport | null>;
+  /**
+   * Asks for the organization to be closed, as its owner, who types its name. Marks it closing and
+   * every connection of it for removal, and keeps what the worker needs. Asking again for one
+   * already closing gives the same closing.
+   */
+  requestClosing(organizationId: string, name: string): Promise<ClosingAsked>;
+  /** A closing, as the worker reads it. Worker only. */
+  getClosing(id: string): Promise<Closing | null>;
+  /**
+   * Takes a closing to work on, unless it is finished or another worker took it in the last ten
+   * minutes. Worker only.
+   */
+  claimClosing(id: string): Promise<boolean>;
+  /** Lets go of a closing a try did not finish, for the next to take at once. Worker only. */
+  releaseClosing(id: string): Promise<void>;
+  /** Writes down how far a closing has got. Worker only. */
+  recordClosingProgress(id: string, progress: ClosingProgress): Promise<void>;
+  /** Deletes an organization that is closing, and everything under it. Worker only. */
+  deleteClosedOrganization(organizationId: string): Promise<boolean>;
+  /** Deletes a sign-in, whether or not it is still there. Worker only. */
+  deleteAccount(userId: string): Promise<void>;
+  /**
+   * Marks a closing finished and clears what it kept for its email and who it was for, leaving
+   * the fingerprint. Worker only. False when it was already finished.
+   */
+  finishClosing(id: string): Promise<boolean>;
+  /**
+   * The closings asked for before `before`, not finished and nobody on since then: the first 100.
+   * Worker only.
+   */
+  listStalledClosings(before: string): Promise<string[]>;
+  /** Forgets the closings finished before `before`, fingerprint and all. Worker only. */
+  dropFinishedClosings(before: string): Promise<number>;
   /**
    * Sets which assistants an organization is checked on, within what its plan covers. Only its
    * owner's call changes anything: for anyone else it returns null. Throws a limit, with a

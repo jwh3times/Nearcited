@@ -147,6 +147,10 @@ export const api = {
     const named = /filename="([^"]+)"/.exec(response.headers.get("Content-Disposition") ?? "");
     return { file: await response.blob(), name: named?.[1] ?? "nearcited.zip" };
   },
+  /** An owner's ask to close the account, the organization's name typed out. The worker closes it. */
+  closeAccount: async (id: string, name: string) => {
+    await send("POST", `/organizations/${id}/close`, { name });
+  },
   /** Where the payment provider's checkout is, for the owner to be sent to. Charges nothing. */
   checkout: (id: string, input: CheckoutInput) =>
     json(BillingRedirectSchema, "POST", `/organizations/${id}/checkout`, input),

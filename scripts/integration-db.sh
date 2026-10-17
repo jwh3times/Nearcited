@@ -19,7 +19,8 @@ done
 run <<'SQL'
 insert into auth.users (id, email) values
   ('a0000000-0000-4000-8000-000000000001', 'alice@example.com'),
-  ('b0000000-0000-4000-8000-000000000002', 'bob@example.com');
+  ('b0000000-0000-4000-8000-000000000002', 'bob@example.com'),
+  ('c0000000-0000-4000-8000-000000000003', 'carol@example.com');
 notify pgrst, 'reload schema';
 SQL
 

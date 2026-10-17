@@ -36,7 +36,7 @@ let portals: { customerId: string; returnUrl: string }[];
 let configured: boolean;
 /** What the stand-in provider was asked to do to a subscription, in order. */
 let changes: {
-  what: "now" | "at-period-end" | "keep" | "reprice";
+  what: "now" | "at-period-end" | "keep" | "reprice" | "cancel";
   id: string;
   items?: BilledItem[];
 }[];
@@ -85,6 +85,9 @@ const payments: Payments = {
   async createPrice(price) {
     made.push(price);
     return `price_new_${made.length}`;
+  },
+  async cancelNow(id) {
+    changes.push({ what: "cancel", id });
   },
 };
 

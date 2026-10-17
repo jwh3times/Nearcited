@@ -111,7 +111,9 @@ Nearcited is multi-tenant, and tenant isolation is enforced by Postgres row-leve
   `location_held()` anything about a location the caller cannot read.
 - Getting `choose_assistants()` or `activate_location()` to act on an organization the caller
   does not belong to.
-- Getting a second organization on one account, or deleting or moving an organization.
+- Getting a second organization on one account, or deleting or moving an organization. An owner
+  closes theirs only by asking, through `request_closing()`; the worker does the deleting.
+- Closing an organization as anyone but its owner, or reading the `closings` table.
 - Writing scan results, scores or recommendations as a signed-in user. Only the worker should be
   able to.
 - Granting yourself a platform role, or marking an organization as a test one.

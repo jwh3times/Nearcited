@@ -223,6 +223,32 @@ const ManualScansSchema = z.object({
   manual_scans_used: z.number().int().nonnegative(),
 });
 
+// Never the fingerprint: only the database compares it.
+const CLOSING_COLUMNS =
+  "id, organization_id, organization_name, owner_id, owner_email, member_emails, asked_at, cancelled_at, had_subscription, left_at_sites, hostnames, organization_deleted_at, account_deleted_at, told_at, noted_at, finished_at";
+const ClosingSchema = z.object({
+  id: z.uuid(),
+  organization_id: z.uuid(),
+  organization_name: z.string().nullable(),
+  owner_id: z.uuid().nullable(),
+  owner_email: z.string().nullable(),
+  member_emails: z.array(z.string()),
+  asked_at: z.string(),
+  cancelled_at: z.string().nullable(),
+  had_subscription: z.boolean(),
+  left_at_sites: z.array(z.string()),
+  hostnames: z.array(z.string()),
+  organization_deleted_at: z.string().nullable(),
+  account_deleted_at: z.string().nullable(),
+  told_at: z.string().nullable(),
+  noted_at: z.string().nullable(),
+  finished_at: z.string().nullable(),
+});
+const ClosingAskedRowSchema = z.object({
+  closing_id: z.uuid().nullable(),
+  refused: z.enum(["owners_only", "not_closable", "name_mismatch"]).nullable(),
+});
+
 const SUBSCRIPTION_COLUMNS = "stripe_customer_id, stripe_subscription_id, status";
 const SubscriptionRecordSchema = z.object({
   stripe_customer_id: z.string(),
@@ -294,11 +320,13 @@ export function createSupabaseStore(
 
   /** The addresses of an organization's members with one of these roles. Worker only. */
   async function emailsOf(organizationId: string, roles: string[]): Promise<string[]> {
+    // Nobody is emailed about an organization being closed, but by the closing itself.
     const { data, error } = await db
       .from("memberships")
-      .select("user_id")
+      .select("user_id, organizations!inner(closing_at)")
       .eq("organization_id", organizationId)
-      .in("role", roles);
+      .in("role", roles)
+      .is("organizations.closing_at", null);
     if (error) fail("List members", error);
 
     const emails: string[] = [];
@@ -896,6 +924,105 @@ export function createSupabaseStore(
       return data ? AccountExportSchema.parse(data) : null;
     },
 
+    async requestClosing(organizationId, name) {
+      const { data, error } = await db
+        .rpc("request_closing", { org: organizationId, typed_name: name })
+        .maybeSingle();
+      if (error) fail("Ask to close an account", error);
+      const asked = ClosingAskedRowSchema.parse(data);
+      return asked.closing_id
+        ? { closing_id: asked.closing_id }
+        : { refused: asked.refused ?? "owners_only" };
+    },
+
+    async getClosing(id) {
+      const { data, error } = await db
+        .from("closings")
+        .select(CLOSING_COLUMNS)
+        .eq("id", id)
+        .maybeSingle();
+      if (error) fail("Get a closing", error);
+      return data ? ClosingSchema.parse(data) : null;
+    },
+
+    async claimClosing(id) {
+      const { data, error } = await db.rpc("claim_closing", { closing: id });
+      if (error) fail("Take a closing", error);
+      return data === true;
+    },
+
+    async releaseClosing(id) {
+      const { error } = await db.from("closings").update({ working_since: null }).eq("id", id);
+      if (error) fail("Let go of a closing", error);
+    },
+
+    async recordClosingProgress(id, progress) {
+      const { error } = await db.from("closings").update(progress).eq("id", id);
+      if (error) fail("Keep how far a closing has got", error);
+    },
+
+    async deleteClosedOrganization(organizationId) {
+      const { data, error } = await db
+        .from("organizations")
+        .delete()
+        .eq("id", organizationId)
+        .not("closing_at", "is", null)
+        .select("id");
+      if (error) fail("Delete a closed organization", error);
+      return (data ?? []).length > 0;
+    },
+
+    async deleteAccount(userId) {
+      const { error } = await db.auth.admin.deleteUser(userId);
+      // One already gone is what was wanted.
+      if (error && error.status !== 404) fail("Delete a sign-in", error);
+    },
+
+    async finishClosing(id) {
+      const { data, error } = await db
+        .from("closings")
+        .update({
+          organization_name: null,
+          owner_id: null,
+          owner_email: null,
+          member_emails: [],
+          left_at_sites: [],
+          hostnames: [],
+          finished_at: new Date().toISOString(),
+        })
+        .eq("id", id)
+        .is("finished_at", null)
+        .select("id");
+      if (error) fail("Finish a closing", error);
+      return (data ?? []).length > 0;
+    },
+
+    async listStalledClosings(before) {
+      const { data, error } = await db
+        .from("closings")
+        .select("id")
+        .is("finished_at", null)
+        .lt("asked_at", before)
+        .or(`working_since.is.null,working_since.lt."${before}"`)
+        .order("asked_at")
+        .limit(100);
+      if (error) fail("List stalled closings", error);
+      return z
+        .array(z.object({ id: z.uuid() }))
+        .parse(data ?? [])
+        .map((row) => row.id);
+    },
+
+    async dropFinishedClosings(before) {
+      const { data, error } = await db
+        .from("closings")
+        .delete()
+        .lt("finished_at", before)
+        .select("id");
+      if (error) fail("Forget finished closings", error);
+      return (data ?? []).length;
+    },
+
     async getSubscription(organizationId) {
       const { data, error } = await db
         .from("subscriptions")
@@ -1161,6 +1288,8 @@ export function createSupabaseStore(
         .from("connections")
         .select("id")
         .eq("status", "removing")
+        // A closing removes its own, and names them in its email.
+        .or("removal_reason.is.null,removal_reason.neq.closing")
         .lt("removal_requested_at", before);
       if (error) fail("List stalled removals", error);
       return z

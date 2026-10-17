@@ -207,6 +207,20 @@ pass `pnpm check` and run in mock mode without it.
   name of the zone's own (`nearcited.com` and its subdomains) untouched. A hosted page is plain HTML: no script but the structured details, no
   cookie, image or tracking, every word written as text, and nothing of Nearcited's but a
   generator tag. Keep all of that.
+- **Only the worker closes an account.** A request records an owner's ask through
+  `request_closing()`, which answers an owner of the organization and no one else, refuses the
+  operator, a test account and a name that is not the organization's, and queues the worker
+  (`docs/adr/0020-the-worker-closes-an-account.md`). `closeAccount` (`apps/api/src/closing.ts`)
+  cancels the subscription, removes every connection the way an owner's removal does, deletes the
+  organization, then the owner's sign-in, then sends one email, writing each step on the closing's
+  record so a retry carries on. Do not delete an organization or a sign-in anywhere else. From the
+  ask the organization is out of its members' reach and the worker's schedule: keep that in the
+  helpers every policy reads. `closings` is read by no API role, keeps the addresses only until
+  the email has gone, and keeps the fingerprint of the owner's email only thirty days, which
+  `create_organization()` checks so that closing is not a way to a second free first scan.
+  Everything an organization holds is downloaded only through `export_organization()`, which
+  answers only an owner, and never holds a sign-in, the operator's record of changes or what the
+  providers were paid.
 - **`packages/shared/src/schemas.ts` defines every wire type.** Change the schema first, then the
   API and the client. Field names stay snake_case end to end.
 - **All database access goes through the `Store` interface** (`apps/api/src/store/types.ts`). A

@@ -101,7 +101,8 @@ export function Terms() {
         <li>
           <strong>Cancelling.</strong> The owner of an organization can cancel at any time from
           Account settings. Your plan runs to the end of the month you have paid for and is not
-          renewed. We do not refund part of a month, except where the law requires it.
+          renewed. Closing the account cancels a paid plan at once instead. We do not refund part of
+          a month, except where the law requires it.
         </li>
         <li>
           <strong>Changing plan.</strong> Moving to a plan that costs more takes effect at once, and
@@ -136,10 +137,11 @@ export function Terms() {
 
       <h2>Ending it</h2>
       <p>
-        You may stop using the service at any time, and may ask us to delete your account by writing
-        to {mail}. We may suspend or close an account that breaks these terms or puts the service or
-        other people at risk, and may stop offering the service; where we reasonably can, we will
-        give notice first and a chance to take your information with you.
+        You may stop using the service at any time. The owner of an account can download everything
+        it holds and close it from Account settings, or ask us to by writing to {mail}. We may
+        suspend or close an account that breaks these terms or puts the service or other people at
+        risk, and may stop offering the service; where we reasonably can, we will give notice first
+        and a chance to take your information with you.
       </p>
 
       <h2>No warranty</h2>

@@ -11,6 +11,7 @@ import { supabase } from "./lib/supabase";
 import { readThroughBase, ViewingProvider } from "./lib/viewing";
 import { AccountSettings } from "./pages/AccountSettings";
 import { Audit } from "./pages/Audit";
+import { Closed } from "./pages/Closed";
 import { Connections } from "./pages/Connections";
 import { LocationDetail } from "./pages/LocationDetail";
 import { Locations } from "./pages/Locations";
@@ -36,6 +37,8 @@ export function App() {
   if (pathname === "/privacy") return <Privacy />;
   if (pathname === "/terms") return <Terms />;
   if (pathname === "/bot") return <Bot />;
+  // Where an owner who closed their account lands, signed out.
+  if (pathname === "/closed") return <Closed />;
 
   // And the price list, which a visitor reads before deciding to make an account.
   if (pathname === "/pricing") return <Pricing />;

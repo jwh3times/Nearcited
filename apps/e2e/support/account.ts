@@ -6,6 +6,8 @@ import { API_URL, PUBLISHABLE_KEY, SESSION_KEY, SUPABASE_URL } from "./stack";
 /** A signed-in account that exists only for one test. */
 export interface Account {
   email: string;
+  /** What it signs in with, for a test that signs in again. */
+  password: string;
   /** The session as supabase-js stores it. */
   session: { access_token: string } & Record<string, unknown>;
 }
@@ -24,16 +26,17 @@ export function freshEmail(label = "e2e"): string {
  */
 export async function createAccount(): Promise<Account> {
   const email = freshEmail();
+  const password = `pw-${crypto.randomUUID()}`;
   const response = await fetch(`${SUPABASE_URL}/auth/v1/signup`, {
     method: "POST",
     headers: { apikey: PUBLISHABLE_KEY, "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password: `pw-${crypto.randomUUID()}` }),
+    body: JSON.stringify({ email, password }),
   });
   const session = (await response.json()) as Account["session"];
   if (!response.ok || !session.access_token) {
     throw new Error(`Could not create ${email}: ${response.status} ${JSON.stringify(session)}`);
   }
-  return { email, session };
+  return { email, password, session };
 }
 
 /**
@@ -51,7 +54,7 @@ export async function signInWithPassword(email: string, password: string): Promi
     // Never the body: a failed sign-in's reply is not worth a secret ending up in a log.
     throw new Error(`Could not sign in as ${email}: status ${response.status}.`);
   }
-  return { email, session };
+  return { email, password, session };
 }
 
 /** Opens the app already signed in as the account. */

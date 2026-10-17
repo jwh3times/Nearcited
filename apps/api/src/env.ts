@@ -1,6 +1,7 @@
 import type {
   ActionMessage,
   AuditMessage,
+  ClosingMessage,
   ConnectionMessage,
   DraftMessage,
   LimitChangeMessage,
@@ -14,7 +15,8 @@ export interface Env {
   /**
    * Carries scans, the prompts of shareable audits, the steps of a price change or of a
    * reduction in what a plan allows, what the worker is asked to do for a connection, the
-   * approved actions it is asked to carry out, and the drafts it is asked to write.
+   * approved actions it is asked to carry out, the drafts it is asked to write, and the
+   * accounts it is asked to close.
    */
   SCAN_QUEUE: Queue<
     | ScanMessage
@@ -24,6 +26,7 @@ export interface Env {
     | ConnectionMessage
     | ActionMessage
     | DraftMessage
+    | ClosingMessage
   >;
 
   SUPABASE_URL: string;
