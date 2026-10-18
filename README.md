@@ -735,6 +735,13 @@ The `integration` job in `.github/workflows/ci.yml` is a working example.
    answer subdomain is offered on real data. Changing it later makes every sign-in
    already kept unreadable, so keep a copy of the value.
 
+Google results need their accounts opened once: `scripts/google-results-setup.sh`, a wizard that
+you run. It opens DataForSEO and Mapbox, has you keep the API sign-in and the token in 1Password,
+sets `DATAFORSEO_LOGIN`, `DATAFORSEO_PASSWORD` and `MAPBOX_TOKEN` on the Worker from there and
+deploys. It then measures one scan on an organization of your own that you give the
+`google_results` allowance, from DataForSEO's balance before and after, and writes the reading to
+the private pricing notes.
+
 Hosted pages need one more step, once, after a deploy that includes the Pages Worker:
 `scripts/hosted-pages-setup.sh`, a wizard that you run and that walks you through the Cloudflare
 dashboard. It adds the fallback origin record, turns on custom hostnames (Cloudflare for SaaS), adds
