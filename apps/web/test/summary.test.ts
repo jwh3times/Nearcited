@@ -1,12 +1,20 @@
 import type { ScanWindow } from "@nearcited/shared";
 import { describe, expect, it } from "vitest";
-import { rateTone, scoreChange, sparkline, surfaceRates, windowRate } from "../src/lib/summary";
+import {
+  noScoreReason,
+  rateTone,
+  scoreChange,
+  sparkline,
+  surfaceRates,
+  windowRate,
+} from "../src/lib/summary";
 
 const cell = (surface: "chatgpt" | "claude", checks: number, mentions: number) => ({
   tracked_query_id: `q-${surface}-${checks}-${mentions}`,
   surface,
   checks,
   mentions,
+  not_shown: 0,
   history: [],
 });
 const cells: ScanWindow["cells"] = [
@@ -23,6 +31,52 @@ describe("surfaceRates", () => {
       // Nothing was asked of it, which is not the same as never being named.
       { surface: "gemini", checks: 0, mentions: 0, rate: null },
     ]);
+  });
+
+  it("counts only the checks where Google showed something", () => {
+    const overview = {
+      tracked_query_id: "k1",
+      surface: "google_ai_overview" as const,
+      checks: 2,
+      mentions: 1,
+      not_shown: 5,
+      history: [],
+    };
+    expect(surfaceRates([overview], ["google_ai_overview"])).toEqual([
+      { surface: "google_ai_overview", checks: 2, mentions: 1, rate: 0.5 },
+    ]);
+  });
+});
+
+describe("noScoreReason", () => {
+  const window = (scans: number, cells: ScanWindow["cells"]): ScanWindow => ({
+    size: 7,
+    scans,
+    cells,
+    answers: 0,
+    sources: [],
+  });
+  const empty = (surface: "google_ai_overview" | "google_organic", notShown: number) => ({
+    tracked_query_id: "k1",
+    surface,
+    checks: 0,
+    mentions: 0,
+    not_shown: notShown,
+    history: [],
+  });
+
+  it("says Google showed nothing when that is all the window holds", () => {
+    expect(
+      noScoreReason(window(5, [empty("google_ai_overview", 5), empty("google_organic", 5)])),
+    ).toBe("No score yet: Google showed nothing for these searches in the last 5 scans.");
+    expect(noScoreReason(window(1, [empty("google_ai_overview", 1)]))).toBe(
+      "No score yet: Google showed nothing for these searches in the latest scan.",
+    );
+  });
+
+  it("gives no reason where something was shown, or nothing was checked", () => {
+    expect(noScoreReason(window(5, [empty("google_ai_overview", 5), ...cells]))).toBeNull();
+    expect(noScoreReason(window(0, []))).toBeNull();
   });
 });
 

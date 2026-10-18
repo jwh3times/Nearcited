@@ -9,6 +9,7 @@ import {
 } from "../src/audit";
 
 const finding = (position: number | null | "unranked", change: Partial<Finding> = {}): Finding => ({
+  shown: true,
   mentioned: position !== null,
   position: typeof position === "number" ? position : null,
   competitors: [],

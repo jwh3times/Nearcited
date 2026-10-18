@@ -1,6 +1,7 @@
 import {
   type LocationDetail as Detail,
   hostOf,
+  isCounted,
   isGoogle,
   needsBusinessBlock,
   QUERY_KIND_LABELS,
@@ -41,8 +42,8 @@ import { cadence, formatDate, listOf } from "../lib/format";
 import { hostedPagesKey, offersPages } from "../lib/hosted-pages";
 import { googlePointLine, startingKind, wantsGoogleKeyword } from "../lib/location";
 import { locationKey, placeOf, scansKey } from "../lib/locations";
-import { tallyCompetitors } from "../lib/matrix";
-import { windowRate } from "../lib/summary";
+import { nothingShownLine, tallyCompetitors } from "../lib/matrix";
+import { noScoreReason, windowRate } from "../lib/summary";
 import { neighbour, TAB_LABELS, type Tab, tabFrom, tabsFor } from "../lib/tabs";
 import { buildTrend } from "../lib/trend";
 import { useViewing } from "../lib/viewing";
@@ -154,7 +155,14 @@ export function LocationDetail() {
   const active = queries.filter((query) => query.is_active);
   const retired = queries.filter((query) => !query.is_active);
   const results = scan?.status === "succeeded" ? scan.results : [];
+  // A search where Google showed nothing counts neither way, so it is said apart (ADR 0024).
+  const shownResults = results.filter(isCounted);
+  const nothingShown = results.filter((result) => !isCounted(result));
   const excerpts = results.filter((result) => result.answer_excerpt);
+  const noScore =
+    scan?.status === "succeeded" && scan.visibility_score === null
+      ? noScoreReason(scanWindow)
+      : null;
   const trend = buildTrend(history.data ?? []);
   const failedChecks = site?.checks.filter((check) => !check.passed).length ?? 0;
   // The action plan covers what the sources and the website check found, with the evidence
@@ -353,12 +361,21 @@ export function LocationDetail() {
                 )}
               </div>
               <div>
-                <ScoreCard trend={trend} named={windowRate(scanWindow.cells)} />
-                {results.length > 0 && (
+                {noScore ? (
+                  <div className="card score-card">
+                    <div className="top">
+                      <span>Visibility</span>
+                    </div>
+                    <p className="small muted">{noScore}</p>
+                  </div>
+                ) : (
+                  <ScoreCard trend={trend} named={windowRate(scanWindow.cells)} />
+                )}
+                {shownResults.length > 0 && (
                   <NamedInstead
-                    mentions={results.filter((result) => result.mentioned).length}
-                    checks={results.length}
-                    competitors={tallyCompetitors(results, 6)}
+                    mentions={shownResults.filter((result) => result.mentioned).length}
+                    checks={shownResults.length}
+                    competitors={tallyCompetitors(shownResults, 6)}
                   />
                 )}
               </div>
@@ -519,19 +536,37 @@ export function LocationDetail() {
         {tab === "answers" && (
           <>
             <h2>What the answers said</h2>
-            {excerpts.length > 0 ? (
-              <div className="quotes">
-                {excerpts.map((result) => (
-                  <Quote
-                    key={result.id}
-                    assistant={SURFACE_LABELS[result.surface]}
-                    prompt={queries.find((query) => query.id === result.tracked_query_id)?.text}
-                    excerpt={result.answer_excerpt ?? ""}
-                    name={location.name}
-                    citedUrls={result.cited_urls}
-                  />
-                ))}
-              </div>
+            {excerpts.length + nothingShown.length > 0 ? (
+              <>
+                {excerpts.length > 0 && (
+                  <div className="quotes">
+                    {excerpts.map((result) => (
+                      <Quote
+                        key={result.id}
+                        assistant={SURFACE_LABELS[result.surface]}
+                        prompt={queries.find((query) => query.id === result.tracked_query_id)?.text}
+                        excerpt={result.answer_excerpt ?? ""}
+                        name={location.name}
+                        citedUrls={result.cited_urls}
+                      />
+                    ))}
+                  </div>
+                )}
+                {nothingShown.length > 0 && (
+                  <ul className="facts">
+                    {nothingShown.map((result) => (
+                      <li key={result.id}>
+                        <span className="small muted">
+                          {nothingShownLine(
+                            result,
+                            queries.find((query) => query.id === result.tracked_query_id)?.text,
+                          )}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </>
             ) : (
               <p className="lede">No answers yet. They appear here after the next scan.</p>
             )}

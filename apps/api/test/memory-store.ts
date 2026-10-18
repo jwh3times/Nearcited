@@ -3139,8 +3139,10 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         .concat(
           outcome.results.map((result) => ({
             ...result,
-            // As the database keeps it: a result that does not say was asked on Standard.
+            // As the database keeps it: a result that does not say was asked on Standard, and
+            // showed something.
             tier: result.tier ?? "standard",
+            shown: result.shown ?? true,
             id: crypto.randomUUID(),
             scan_id: id,
             sampled_at: timestamp(),

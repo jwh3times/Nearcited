@@ -1,14 +1,13 @@
 import { hostOf } from "./analysis";
 import { pageRule, pageTaskTitle, promptsLeftOut } from "./pages";
 import {
-  CITING_SURFACES,
   type SiteCheck,
   SURFACE_LABELS,
   SURFACES_BY_KIND,
   type Surface,
   type TrackedQuery,
 } from "./schemas";
-import { summarizeBySurface } from "./scoring";
+import { isCounted, isCountedAnswer, summarizeBySurface } from "./scoring";
 import { SITE_CHECKS } from "./site";
 import { summarizeSources, unnamedSources } from "./sources";
 
@@ -28,6 +27,8 @@ interface LocationFacts {
 interface ResultFacts {
   tracked_query_id?: string;
   surface: Surface;
+  /** False when Google showed nothing for the search, which then counts toward no rule. */
+  shown?: boolean;
   mentioned: boolean;
   competitors: string[];
   cited_urls?: readonly string[];
@@ -79,6 +80,8 @@ export function deriveRecommendations(
   queries: readonly Pick<TrackedQuery, "id" | "kind" | "text" | "is_active">[] = [],
 ): DerivedRecommendation[] {
   const recommendations: DerivedRecommendation[] = [];
+  // A search where Google showed nothing says nothing about the business (ADR 0024).
+  const counted = results.filter(isCounted);
 
   if (!location.website) {
     recommendations.push({
@@ -102,10 +105,10 @@ export function deriveRecommendations(
     });
   }
 
-  for (const summary of summarizeBySurface(results)) {
+  for (const summary of summarizeBySurface(counted)) {
     if (summary.mentions > 0) continue;
     const named = mostNamed(
-      results.filter((result) => result.surface === summary.surface),
+      counted.filter((result) => result.surface === summary.surface),
       3,
     );
     const label = SURFACE_LABELS[summary.surface];
@@ -118,12 +121,12 @@ export function deriveRecommendations(
     });
   }
 
-  const answers = results
-    .filter((result) => CITING_SURFACES.includes(result.surface))
+  const answers = counted
+    .filter(isCountedAnswer)
     .map((result) => ({ mentioned: result.mentioned, cited_urls: result.cited_urls ?? [] }));
   const sources = summarizeSources(answers, location.website, Number.POSITIVE_INFINITY);
 
-  const competitors = results.flatMap((result) => result.competitors);
+  const competitors = counted.flatMap((result) => result.competitors);
   for (const source of unnamedSources(sources, competitors)) {
     recommendations.push({
       rule: `source:${source.host}`,
@@ -141,7 +144,7 @@ export function deriveRecommendations(
     });
   }
 
-  for (const { query, answers: asked } of promptsLeftOut(location.website, queries, results)) {
+  for (const { query, answers: asked } of promptsLeftOut(location.website, queries, counted)) {
     recommendations.push({
       rule: pageRule(query.id),
       title: pageTaskTitle(query.text),

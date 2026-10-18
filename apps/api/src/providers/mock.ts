@@ -66,7 +66,16 @@ function listed({ location, query, at }: ObserveInput, surface: Surface): string
   return names;
 }
 
+/**
+ * Google shows no AI Overview for many local keywords, so the sample shows none for about one
+ * keyword in three: the same ones every day, chosen by the keyword's wording.
+ */
+const showsNoOverview = (input: ObserveInput) => hash(input.query.text) % 3 === 0;
+
 function observation(input: ObserveInput, surface: Surface): Observation {
+  if (surface === "google_ai_overview" && showsNoOverview(input)) {
+    return { kind: "answer", text: "", businesses: [], cited_urls: [] };
+  }
   const names = listed(input, surface);
   if (surface === "google_local_pack" || surface === "google_organic") {
     return {

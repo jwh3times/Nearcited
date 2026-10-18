@@ -3,6 +3,8 @@ import {
   findPhoneNumbersInText,
   isSupportedCountry,
 } from "libphonenumber-js/min";
+import { isGoogle } from "./google";
+import type { Surface } from "./schemas";
 
 /**
  * Turns what a surface returned into a finding about one business.
@@ -39,6 +41,11 @@ export interface BusinessIdentity {
 }
 
 export interface Finding {
+  /**
+   * False when Google showed nothing on the surface for the search: no AI Overview, no AI Mode
+   * answer, no map or organic results. It is then not named either, and counts nowhere.
+   */
+  shown: boolean;
   mentioned: boolean;
   /** 1-based rank among the businesses the surface listed, when the surface gives an order. */
   position: number | null;
@@ -168,8 +175,40 @@ export function phonesGivenFor(
   );
 }
 
-export function analyzeObservation(observation: Observation, business: BusinessIdentity): Finding {
+/**
+ * Whether the surface showed anything for the search. Only Google can show nothing: an
+ * assistant always answers, and an answer that names nobody is still one that left the business
+ * out.
+ */
+function wasShown(observation: Observation, surface: Surface): boolean {
+  if (!isGoogle(surface)) return true;
+  if (observation.kind === "ranking") return observation.entries.length > 0;
+  return (
+    observation.text.trim() !== "" ||
+    observation.businesses.length > 0 ||
+    observation.cited_urls.length > 0
+  );
+}
+
+/** What a result holds when nothing was shown: not named, and nothing else. */
+const EMPTY_FINDING: Finding = {
+  shown: false,
+  mentioned: false,
+  position: null,
+  competitors: [],
+  cited_urls: [],
+  answer_excerpt: null,
+  phones: [],
+};
+
+export function analyzeObservation(
+  observation: Observation,
+  business: BusinessIdentity,
+  /** The surface it came from, which decides whether it can have shown nothing. */
+  surface: Surface,
+): Finding {
   const businessHost = hostOf(business.website);
+  if (!wasShown(observation, surface)) return { ...EMPTY_FINDING };
 
   if (observation.kind === "ranking") {
     const index = observation.entries.findIndex(
@@ -179,6 +218,7 @@ export function analyzeObservation(observation: Observation, business: BusinessI
         namesMatch(entry.name, business.name),
     );
     return {
+      shown: true,
       mentioned: index !== -1,
       position: index === -1 ? null : index + 1,
       competitors: unique(
@@ -199,6 +239,7 @@ export function analyzeObservation(observation: Observation, business: BusinessI
   const cited = observation.cited_urls.some((url) => hostsMatch(hostOf(url), businessHost));
 
   return {
+    shown: true,
     mentioned: listedIndex !== -1 || namedInText || cited,
     position: listedIndex === -1 ? null : listedIndex + 1,
     competitors: unique(

@@ -70,7 +70,7 @@ system works; this file only settles vocabulary.
   `docs/adr/0015-an-alert-is-kept-not-worked-out-again.md`.
 - **Drop**: the alert that a prompt on one assistant, or a keyword on one Google surface, named
   the business and has stopped: none of its latest three checks did, and at least three of the
-  four before them did.
+  four before them did. A check where nothing was shown is passed over.
 - **First sighting**: the alert that the written answers have begun to name a business, or to
   cite a site, that no written answer of any earlier scan on record named or cited. Said once,
   and of the whole record, not of the scan window.
@@ -167,6 +167,11 @@ system works; this file only settles vocabulary.
 - **Google results**: the allowance (`google_results`, included or not) that has a scan check a
   Google keyword on Google's four surfaces. It is on no plan; the operator can give it to one
   organization. See `docs/adr/0023-google-results-are-bought-and-checked-from-one-point.md`.
+- **Nothing shown**: a Google check where Google showed nothing for the keyword: no AI Overview, no
+  AI Mode answer, no map or organic results. It is kept, so its column can say so, and is neither
+  named nor not named: it counts toward no score, rate, alert or recommendation. An assistant's
+  check is never nothing shown. See
+  `docs/adr/0024-a-search-that-showed-nothing-is-kept-and-not-counted.md`.
 - **Check point** (or **point**): the latitude and longitude a location's Google results are
   checked from: its street address, or the middle of its city when it has none or the address
   cannot be found. The worker finds it from the address and is the only one to write it. See

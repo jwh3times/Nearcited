@@ -1,4 +1,4 @@
-import { SURFACES, type Surface, type Tier } from "./schemas";
+import { type CheckOutcome, CITING_SURFACES, SURFACES, type Surface, type Tier } from "./schemas";
 import { defaultTuning, type ScoreWeights } from "./tuning";
 
 /**
@@ -37,22 +37,27 @@ export function visibilityScore(
 
 export interface SurfaceSummary {
   surface: Surface;
+  /** The checks that showed something. */
   checks: number;
   mentions: number;
+  /** The checks where Google showed nothing. */
+  not_shown: number;
 }
 
 /** Per-surface totals, in canonical surface order, for surfaces that were checked. */
 export function summarizeBySurface(
-  results: readonly { surface: Surface; mentioned: boolean }[],
+  results: readonly { surface: Surface; shown?: boolean; mentioned: boolean }[],
 ): SurfaceSummary[] {
   return SURFACES.map((surface) => {
     const forSurface = results.filter((result) => result.surface === surface);
+    const shown = forSurface.filter(isCounted);
     return {
       surface,
-      checks: forSurface.length,
-      mentions: forSurface.filter((result) => result.mentioned).length,
+      checks: shown.length,
+      mentions: shown.filter((result) => result.mentioned).length,
+      not_shown: forSurface.length - shown.length,
     };
-  }).filter((summary) => summary.checks > 0);
+  }).filter((summary) => summary.checks + summary.not_shown > 0);
 }
 
 /**
@@ -70,19 +75,38 @@ export interface WindowCheck {
   surface: Surface;
   /** The model it was asked with. Left out, as on a result kept before tiers, it is Standard. */
   tier?: Tier;
+  /** False when Google showed nothing for the search. Left out, it was shown. */
+  shown?: boolean;
   mentioned: boolean;
   position: number | null;
 }
+
+/**
+ * Whether a check counts. One where Google showed nothing is kept, so its column can say so,
+ * and counted nowhere: not in a score, a rate, an alert or a recommendation (ADR 0024).
+ */
+export const isCounted = (check: { shown?: boolean }): boolean => check.shown !== false;
+
+/** Whether a check is a written answer that could cite pages, and counts. */
+export const isCountedAnswer = (check: { surface: Surface; shown?: boolean }): boolean =>
+  CITING_SURFACES.includes(check.surface) && isCounted(check);
 
 /** One prompt on one surface, counted over the window. */
 export interface WindowCell {
   tracked_query_id: string;
   surface: Surface;
+  /** The checks that showed something. */
   checks: number;
   mentions: number;
-  /** Whether each check named the business, oldest first. As long as `checks`. */
-  history: boolean[];
+  /** The checks where Google showed nothing. */
+  not_shown: number;
+  /** What each check found, oldest first. As long as `checks` and `not_shown` together. */
+  history: CheckOutcome[];
 }
+
+/** What one check found. */
+export const outcomeOf = (check: { shown?: boolean; mentioned: boolean }): CheckOutcome =>
+  !isCounted(check) ? "not_shown" : check.mentioned ? "named" : "not_named";
 
 /**
  * One prompt on one surface at one tier. A prompt asked of a stronger model is a cell of its
@@ -128,12 +152,16 @@ export function summarizeWindow(scans: readonly (readonly WindowCheck[])[]): Win
       surface: check.surface,
       checks: 0,
       mentions: 0,
+      not_shown: 0,
       history: [],
     };
-    cell.checks += 1;
-    if (check.mentioned) cell.mentions += 1;
+    if (!isCounted(check)) cell.not_shown += 1;
+    else {
+      cell.checks += 1;
+      if (check.mentioned) cell.mentions += 1;
+    }
     // The pool is newest scan first, so adding at the front leaves the oldest first.
-    cell.history.unshift(check.mentioned);
+    cell.history.unshift(outcomeOf(check));
     cells.set(key, cell);
   }
   return [...cells.values()];
@@ -150,7 +178,8 @@ export function windowScore(
   weights: ScoreWeights = defaultTuning.score,
 ): number | null {
   const totals = new Map<string, { sum: number; checks: number }>();
-  for (const check of poolWindow(scans)) {
+  // A cell whose checks all showed nothing is left out, so it neither raises nor lowers it.
+  for (const check of poolWindow(scans).filter(isCounted)) {
     const key = cellKey(check);
     const total = totals.get(key) ?? { sum: 0, checks: 0 };
     total.sum += check.mentioned ? positionWeight(check.position, weights) : 0;

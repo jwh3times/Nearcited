@@ -313,9 +313,12 @@ export class StoreError extends Error {
   }
 }
 
-/** A result as a scan keeps it. Left out, the tier is Standard, as the database keeps it. */
-export type NewScanResult = Omit<ScanResult, "id" | "scan_id" | "sampled_at" | "tier"> &
-  Partial<Pick<ScanResult, "tier">>;
+/**
+ * A result as a scan keeps it. Left out, as the database keeps it, it was asked on Standard and
+ * showed something.
+ */
+export type NewScanResult = Omit<ScanResult, "id" | "scan_id" | "sampled_at" | "tier" | "shown"> &
+  Partial<Pick<ScanResult, "tier" | "shown">>;
 
 export interface CompletedScan {
   score: number | null;

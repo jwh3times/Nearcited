@@ -132,6 +132,7 @@ export async function runAuditPart(
             analyzeObservation(
               await provider.observe({ ...input, onUsage: used.on(surface) }),
               input.location,
+              surface,
             ),
           ),
         );

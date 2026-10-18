@@ -34,6 +34,18 @@ export function surfaceRates(
 }
 
 /**
+ * Why a location has no score, when the reason is that Google showed nothing: every check in
+ * the window was a search with nothing on it, which counts neither way (ADR 0024). Null when
+ * anything was shown, or nothing was checked.
+ */
+export function noScoreReason(window: ScanWindow): string | null {
+  const { cells, scans } = window;
+  if (cells.length === 0 || cells.some((cell) => cell.checks > 0)) return null;
+  const over = scans === 1 ? "the latest scan" : `the last ${scans} scans`;
+  return `No score yet: Google showed nothing for these searches in ${over}.`;
+}
+
+/**
  * How dark a rate is shaded: the share of green mixed into the cell, and whether the text on it
  * has to switch to the light colour to stay readable.
  */

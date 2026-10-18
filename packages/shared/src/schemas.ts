@@ -265,11 +265,21 @@ export const ScanSchema = z.object({
 });
 export type Scan = z.infer<typeof ScanSchema>;
 
+/** What one check found: the business named, left out, or nothing shown at all (ADR 0024). */
+export const CHECK_OUTCOMES = ["named", "not_named", "not_shown"] as const;
+export const CheckOutcomeSchema = z.enum(CHECK_OUTCOMES);
+export type CheckOutcome = z.infer<typeof CheckOutcomeSchema>;
+
 export const ScanResultSchema = z.object({
   id: Id,
   scan_id: Id,
   tracked_query_id: Id,
   surface: SurfaceSchema,
+  /**
+   * False when Google showed nothing for the search on this surface: no AI Overview, no AI Mode
+   * answer, no map or organic results. Such a result is kept and counted nowhere (ADR 0024).
+   */
+  shown: z.boolean(),
   mentioned: z.boolean(),
   position: z.number().int().positive().nullable(),
   competitors: z.array(z.string()),
@@ -1680,10 +1690,13 @@ export const ScanWindowSchema = z.object({
     z.object({
       tracked_query_id: Id,
       surface: SurfaceSchema,
-      checks: z.number().int().positive(),
+      /** The checks that showed something, which a rate is out of. None when no check did. */
+      checks: z.number().int().nonnegative(),
       mentions: z.number().int().nonnegative(),
-      /** Whether each check named the business, oldest first. */
-      history: z.array(z.boolean()),
+      /** The checks where Google showed nothing, which count neither way. */
+      not_shown: z.number().int().nonnegative(),
+      /** What each check found, oldest first, every check in the window included. */
+      history: z.array(CheckOutcomeSchema),
     }),
   ),
   /** How many answers in the window could cite pages, which is what `sources` is counted over. */

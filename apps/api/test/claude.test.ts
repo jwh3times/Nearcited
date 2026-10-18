@@ -172,6 +172,7 @@ describe("parseClaudeContent", () => {
     const finding = analyzeObservation(
       parseClaudeContent(blocks([...searched, text(goodAnswer)])),
       location,
+      "claude",
     );
     expect(finding).toMatchObject({
       mentioned: true,

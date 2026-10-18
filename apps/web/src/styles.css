@@ -1353,11 +1353,18 @@ details.as-table td {
 }
 
 .history-hit,
-.history-miss {
+.history-miss,
+.history-none {
   width: 0.5625rem;
   height: 0.5625rem;
   border-radius: 50%;
   border: 1.5px solid var(--line);
+}
+
+/* A search where Google showed nothing: neither a hit nor a miss. */
+.history-none {
+  border-style: dashed;
+  opacity: 0.6;
 }
 
 .history-hit {

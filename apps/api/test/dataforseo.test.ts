@@ -281,7 +281,7 @@ describe("the DataForSEO provider", () => {
         { name: "tonys.example", website: "https://tonys.example/pizza", place_id: null },
       ],
     });
-    expect(analyzeObservation(observation, location)).toMatchObject({
+    expect(analyzeObservation(observation, location, "google_organic")).toMatchObject({
       mentioned: true,
       position: 2,
     });
@@ -304,7 +304,9 @@ describe("the DataForSEO provider", () => {
       businesses: [],
       cited_urls: ["https://yelp.example/raleigh-pizza", "https://joespizza.example/menu"],
     });
-    expect(analyzeObservation(overviewSeen as never, location).mentioned).toBe(true);
+    expect(
+      analyzeObservation(overviewSeen as never, location, "google_ai_overview").mentioned,
+    ).toBe(true);
   });
 
   it("records the AI Overview as a search only when there was one", async () => {
@@ -317,7 +319,9 @@ describe("the DataForSEO provider", () => {
       businesses: [],
       cited_urls: [],
     });
-    expect(analyzeObservation(without.observation, location).mentioned).toBe(false);
+    expect(analyzeObservation(without.observation, location, "google_ai_overview").mentioned).toBe(
+      false,
+    );
     expect(without.used).toEqual([]);
   });
 
@@ -342,7 +346,7 @@ describe("the DataForSEO provider", () => {
         { name: "Capital Slice", website: null, place_id: null },
       ],
     });
-    expect(analyzeObservation(observation, location)).toMatchObject({
+    expect(analyzeObservation(observation, location, "google_local_pack")).toMatchObject({
       mentioned: true,
       position: 2,
       competitors: ["Tony's Slice House", "Capital Slice"],
@@ -365,7 +369,9 @@ describe("the DataForSEO provider", () => {
       businesses: [],
       cited_urls: ["https://raleigheats.example/slices"],
     });
-    expect(analyzeObservation(observation, location)).toMatchObject({ mentioned: true });
+    expect(analyzeObservation(observation, location, "google_ai_mode")).toMatchObject({
+      mentioned: true,
+    });
     expect(used).toEqual([search("dataforseo/ai-mode", 1)]);
   });
 

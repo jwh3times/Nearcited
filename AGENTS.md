@@ -267,7 +267,11 @@ pass `pnpm check` and run in mock mode without it.
   checks the Google surfaces only where an organization's allowances include `google_results`
   (`coveredSurfaces`, `packages/shared/src/google.ts`), never because `surfaces` names them, and
   only when `DATAFORSEO_LOGIN`, `DATAFORSEO_PASSWORD` and `MAPBOX_TOKEN` are all set. A location
-  that cannot be placed is not checked on Google. Keep all three.
+  that cannot be placed is not checked on Google. Keep all three. A Google search that showed
+  nothing is kept as such (`scan_results.shown`), decided in `analyzeObservation` and never by a
+  provider, and counts nowhere: whatever counts checks asks `isCounted`, so it raises, counts
+  toward and clears nothing
+  (`docs/adr/0024-a-search-that-showed-nothing-is-kept-and-not-counted.md`).
 - **Structured details carry only what a location holds.** A detail not on file is left out, never
   filled in, and no model writes any of it (`packages/shared/src/structured-details.ts`).
 - **Tuning is data, and its real values are private.** A new prompt, weight or sampling value
