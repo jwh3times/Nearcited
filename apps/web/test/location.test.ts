@@ -1,6 +1,11 @@
 import { type Location, LocationInputSchema } from "@nearcited/shared";
 import { describe, expect, it } from "vitest";
-import { googlePointLine, locationFormValues, wantsGoogleKeyword } from "../src/lib/location";
+import {
+  googlePointLine,
+  locationFormValues,
+  startingKind,
+  wantsGoogleKeyword,
+} from "../src/lib/location";
 
 const location: Location = {
   id: "c0000000-0000-4000-8000-000000000003",
@@ -148,5 +153,23 @@ describe("wantsGoogleKeyword", () => {
   it("is false with a Google keyword, or where Google is not checked", () => {
     expect(wantsGoogleKeyword(["chatgpt", "google_local_pack"], [prompt, keyword])).toBe(false);
     expect(wantsGoogleKeyword(["chatgpt"], [prompt])).toBe(false);
+  });
+});
+
+describe("startingKind", () => {
+  const google = ["chatgpt", "google_local_pack"] as const;
+  const prompt = { kind: "ai_prompt" as const, is_active: true };
+
+  it("starts a new location on a prompt, whatever is checked", () => {
+    expect(startingKind(google, [])).toBe("ai_prompt");
+    expect(startingKind(google, [{ ...prompt, is_active: false }])).toBe("ai_prompt");
+  });
+
+  it("starts on a keyword where Google is checked and the location has prompts but no keyword", () => {
+    expect(startingKind(google, [prompt])).toBe("search_keyword");
+    expect(startingKind(google, [prompt, { kind: "search_keyword", is_active: true }])).toBe(
+      "ai_prompt",
+    );
+    expect(startingKind(["chatgpt"], [prompt])).toBe("ai_prompt");
   });
 });
