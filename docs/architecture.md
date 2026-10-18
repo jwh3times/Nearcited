@@ -233,7 +233,8 @@ looked up even when nothing was found, so it is not looked up again until the ad
 It is written by `setLocationPoint`, a Store method only the worker calls, and the database
 keeps `latitude`, `longitude`, `point_source` and `geocoded_from` as they were for any write by
 a signed-in caller (`guard_location_point`). A location that cannot be placed at all is not
-checked on Google in that scan, and the scan checks the rest.
+checked on Google in that scan, and the scan checks the rest; it is looked up again at the next
+scan. A scan with nothing but Google keywords for such a location fails, saying why.
 
 **What a Google check is billed for.** DataForSEO bills each call by the request. Its published
 rates on 2026-10-17 were: Google's results page live $0.002 a request, with $0.002 more for
