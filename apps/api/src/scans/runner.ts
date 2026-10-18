@@ -3,11 +3,15 @@ import {
   type AlertsToTell,
   analyzeObservation,
   analyzeSite,
+  coveredSurfaces,
   deriveAlerts,
   deriveRecommendations,
   FIRST_SEEN_SCANS,
   hasNewcomers,
+  isGoogle,
   type Location,
+  needsPoint,
+  pointQuery,
   poolWindow,
   SCAN_WINDOW,
   type Scan,
@@ -21,8 +25,10 @@ import {
   windowScore,
 } from "@nearcited/shared";
 import { type ProviderRegistry, planSurfaces } from "../providers";
+import type { Geocoder } from "../providers/mapbox";
+import type { CallUsage } from "../providers/types";
 import { usageTally } from "../providers/usage";
-import { type NewScanResult, type Store, StoreError } from "../store/types";
+import { type LocationPoint, type NewScanResult, type Store, StoreError } from "../store/types";
 
 export interface ScanReport {
   location: Location;
@@ -64,6 +70,11 @@ export interface RunScanDeps {
    */
   inspectSite?: (website: string) => Promise<SiteSnapshot>;
   /**
+   * Finds the point a location's Google results are checked from. Without it, a location with no
+   * point kept is not checked on Google.
+   */
+  geocode?: Geocoder;
+  /**
    * Called after a scheduled scan succeeds, and answers whether the report went to anyone. A
    * failure here is logged and does not fail the scan.
    */
@@ -88,8 +99,10 @@ export async function runScan(scanId: string, deps: RunScanDeps): Promise<ScanOu
 
   const scan = await store.getScan(scanId);
   if (!scan || scan.status === "succeeded") return "skipped";
-  const location = await store.getLocation(scan.location_id);
-  if (!location) return "skipped";
+  const stored = await store.getLocation(scan.location_id);
+  if (!stored) return "skipped";
+  // Its point may be found below, before its Google checks.
+  let location: Location = stored;
   const organization = await store.getOrganization(location.organization_id);
 
   // A test organization's scans are generated even where everyone else's are real: they ask no
@@ -137,8 +150,8 @@ export async function runScan(scanId: string, deps: RunScanDeps): Promise<ScanOu
     // A scan checks the surfaces that are set up and that the organization's plan covers. Each
     // check costs money, so a surface outside the plan is never called.
     const covered = (kind: (typeof queries)[number]["kind"]) =>
-      planSurfaces(SURFACES_BY_KIND[kind], organization?.surfaces ?? null);
-    const checks = queries.flatMap((query) =>
+      planSurfaces(SURFACES_BY_KIND[kind], organization ? coveredSurfaces(organization) : null);
+    let checks = queries.flatMap((query) =>
       covered(query.kind).flatMap((surface) => {
         const strong =
           tierOn(surface) === "stronger" ? deps.strongerProviders?.[surface] : undefined;
@@ -147,9 +160,29 @@ export async function runScan(scanId: string, deps: RunScanDeps): Promise<ScanOu
         return provider ? [{ query, provider, tier }] : [];
       }),
     );
+    // Google is checked from the location's own point, found from its address before the first
+    // Google check, again when the address changes, and again at each scan while it cannot be
+    // placed at all. Generated results need none.
+    if (!sampleData && checks.some((check) => isGoogle(check.provider.surface))) {
+      if ((needsPoint(location) || location.latitude === null) && deps.geocode) {
+        const point = await findPoint(location, deps.geocode, used.on(null));
+        await store.setLocationPoint(location.id, point);
+        location = { ...location, ...point };
+      }
+      // A location that could not be placed is not checked on Google this time.
+      if (location.latitude === null) {
+        checks = checks.filter((check) => !isGoogle(check.provider.surface));
+        if (checks.length === 0) {
+          throw new PermanentScanFailure(
+            "Google was not checked: the location's address could not be found on the map. Check its city and street address.",
+          );
+        }
+      }
+    }
     if (checks.length === 0) {
       throw new PermanentScanFailure("No data provider is configured for these queries.");
     }
+    const checked = location;
 
     const at = now();
     // One failed check fails the whole scan. Scoring a partial scan would move the number for
@@ -157,7 +190,7 @@ export async function runScan(scanId: string, deps: RunScanDeps): Promise<ScanOu
     const results: NewScanResult[] = await Promise.all(
       checks.map(async ({ query, provider, tier }) => {
         const observation = await provider.observe({
-          location,
+          location: checked,
           query,
           at,
           onUsage: used.on(provider.surface),
@@ -166,7 +199,7 @@ export async function runScan(scanId: string, deps: RunScanDeps): Promise<ScanOu
           tracked_query_id: query.id,
           surface: provider.surface,
           tier,
-          ...analyzeObservation(observation, location),
+          ...analyzeObservation(observation, checked),
         };
       }),
     );
@@ -280,4 +313,30 @@ export async function runScan(scanId: string, deps: RunScanDeps): Promise<ScanOu
     if (error instanceof PermanentScanFailure) return "failed";
     throw error;
   }
+}
+
+/**
+ * Where a location's Google results are checked from: its street address, or the middle of its
+ * city when it has none or the address cannot be found, or nowhere when neither can. What was
+ * looked for is kept either way, so it is not looked for again until the address changes.
+ */
+async function findPoint(
+  location: Location,
+  geocode: Geocoder,
+  onUsage: (usage: CallUsage) => void,
+): Promise<LocationPoint> {
+  const wanted = pointQuery(location);
+  const where = { country_code: location.country_code };
+  const found = await geocode({ ...wanted, ...where }, onUsage);
+  const city =
+    found || wanted.source === "city"
+      ? null
+      : await geocode({ ...pointQuery({ ...location, address_line: null }), ...where }, onUsage);
+  const point = found ?? city;
+  return {
+    latitude: point?.latitude ?? null,
+    longitude: point?.longitude ?? null,
+    point_source: point ? (found ? wanted.source : "city") : null,
+    geocoded_from: wanted.query,
+  };
 }

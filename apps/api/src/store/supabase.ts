@@ -305,7 +305,7 @@ const CONNECTION_COLUMNS =
 const CONNECTION_MATCH_COLUMNS = "location_id, external_id, external_label, matched_at";
 
 const LOCATION_COLUMNS =
-  "id, organization_id, name, website, phone, address_line, city, region, postal_code, country_code, google_place_id, primary_category, what_we_do, paused_by_plan, last_scanned_at, created_at";
+  "id, organization_id, name, website, phone, address_line, city, region, postal_code, country_code, google_place_id, latitude, longitude, point_source, geocoded_from, primary_category, what_we_do, paused_by_plan, last_scanned_at, created_at";
 const SCAN_COLUMNS =
   "id, location_id, status, trigger, visibility_score, error, sample_data, tiers, created_at, started_at, finished_at";
 
@@ -2182,6 +2182,11 @@ export function createSupabaseStore(
         .from("provider_usage")
         .insert(usage.map((row) => ({ ...source, ...row })));
       if (error) fail("Record usage", error);
+    },
+
+    async setLocationPoint(id, point) {
+      const { error } = await db.from("locations").update(point).eq("id", id);
+      if (error) fail("Keep a location's point", error);
     },
 
     async markScanRunning(id, sampleData) {

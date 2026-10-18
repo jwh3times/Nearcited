@@ -1,6 +1,7 @@
 import {
   type LocationDetail as Detail,
   hostOf,
+  isGoogle,
   needsBusinessBlock,
   QUERY_KIND_LABELS,
   type QueryKind,
@@ -38,6 +39,7 @@ import { draftsBeingWritten, WRITING_MS } from "../lib/drafts";
 import { useFormErrors } from "../lib/form";
 import { cadence, formatDate, listOf } from "../lib/format";
 import { hostedPagesKey, offersPages } from "../lib/hosted-pages";
+import { googlePointLine, wantsGoogleKeyword } from "../lib/location";
 import { locationKey, placeOf, scansKey } from "../lib/locations";
 import { tallyCompetitors } from "../lib/matrix";
 import { windowRate } from "../lib/summary";
@@ -166,14 +168,20 @@ export function LocationDetail() {
     (recommendation) => recommendation.status === "open" && !inPlan(recommendation.rule),
   );
   const scanning = inFlight(scan) || startScan.isPending;
-  // Each says when it is asked on a stronger model the organization pays for.
-  const assistants = listOf(
-    surfaces.map((surface) =>
-      organization
-        ? surfaceWithTier(surface, tierOf(organization, surface))
-        : SURFACE_LABELS[surface],
-    ),
-  );
+  // Each says when it is asked on a stronger model the organization pays for. Google's surfaces
+  // are named once, as Google.
+  const checksGoogle = surfaces.some(isGoogle);
+  const assistants = listOf([
+    ...surfaces
+      .filter((surface) => !isGoogle(surface))
+      .map((surface) =>
+        organization
+          ? surfaceWithTier(surface, tierOf(organization, surface))
+          : SURFACE_LABELS[surface],
+      ),
+    ...(checksGoogle ? ["Google"] : []),
+  ]);
+  const wantsKeyword = wantsGoogleKeyword(surfaces, queries);
 
   /** Swaps the tab in place. If the bar is stuck to the top, the new tab starts at the top. */
   function openTab(next: Tab) {
@@ -398,12 +406,24 @@ export function LocationDetail() {
               />
             )}
             <ErrorNote error={setQueryActive.error} />
+            {/* Generated results are checked from nowhere, so there is no point to speak of. */}
+            {checksGoogle && !me.data?.sample_data && !organization?.is_test && (
+              <p className="small muted">{googlePointLine(location)}</p>
+            )}
+            {wantsKeyword && (
+              <p className="small">
+                Your plan includes Google results, but this location has no Google keyword. Add one
+                to see where you show on Google's map pack, its organic results, its AI Overview and
+                AI Mode.
+              </p>
+            )}
             {!readOnly && (
               <AddQuery
                 locationId={location.id}
                 onAdded={refresh}
                 used={active.length}
                 allowed={organization?.max_queries_per_location}
+                startWith={wantsKeyword ? "search_keyword" : "ai_prompt"}
               />
             )}
           </>
@@ -647,16 +667,19 @@ function AddQuery({
   onAdded,
   used,
   allowed,
+  startWith,
 }: {
   locationId: string;
   onAdded: () => unknown;
   /** Active prompts on this location, and how many its organization allows. */
   used: number;
   allowed: number | undefined;
+  /** The kind the form starts on. */
+  startWith: QueryKind;
 }) {
   // The database enforces the limit. This only saves a round trip and says why.
   const atLimit = allowed !== undefined && used >= allowed;
-  const [kind, setKind] = useState<QueryKind>("ai_prompt");
+  const [kind, setKind] = useState<QueryKind>(startWith);
   const [text, setText] = useState("");
   const create = useMutation({
     mutationFn: () => api.createQuery(locationId, { kind, text }),

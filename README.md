@@ -6,8 +6,10 @@ Tracks whether a local business gets named when people ask an AI assistant or se
 what it sells, and who gets named instead.
 
 **Status: early.** Two real providers exist: ChatGPT, through OpenAI's API with web search, and
-Claude, through Anthropic's. The other five surfaces are not built, and local development runs
-on generated sample data. See [What is not built](#what-is-not-built).
+Claude, through Anthropic's. Google's four surfaces are built, bought from DataForSEO, and checked
+only for an organization whose allowances include Google results, which no plan does yet.
+Perplexity and Gemini are not built, and local development runs on generated sample data. See
+[What is not built](#what-is-not-built).
 
 ## Contents
 
@@ -35,8 +37,10 @@ each location they list the **queries** to track. A query is either a prompt som
 an AI assistant ("best emergency plumber in Asheville") or a keyword they would type into Google.
 
 A **scan** runs every active query on every **surface** that kind of query applies to. The
-surfaces are ChatGPT, Gemini, Perplexity, Claude, Google AI Overview, the Google local pack and
-Google organic results. For each one, a provider fetches what the surface returned, and shared
+surfaces are ChatGPT, Gemini, Perplexity and Claude for a prompt, and Google's map pack, organic
+results, AI Overview and AI Mode for a keyword. A scan checks the Google ones only where the
+organization's allowances include Google results, from the location's own point, which the Worker
+finds from its address. For each one, a provider fetches what the surface returned, and shared
 code decides whether the business was named, at what position, and who was named instead. The
 scan then stores a 0 to 100 visibility score and a list of recommendations.
 
@@ -436,6 +440,8 @@ The Worker reads its settings from `vars` in `apps/api/wrangler.jsonc`. Locally,
 | `COMMIT` | no | Optional. The commit a deployment was built from, shown in the operator's view. The deploy workflow sets it. |
 | `EMAIL_FROM` | no | The sender of scan reports. |
 | `EMAIL_REPLY_TO` | no | Optional. Where a reply to a scan report goes. Without it, replies go to `EMAIL_FROM`. |
+| `DATAFORSEO_LOGIN`, `DATAFORSEO_PASSWORD` | yes | Optional. DataForSEO's API sign-in, which buys Google's results. |
+| `MAPBOX_TOKEN` | yes | Optional. A Mapbox access token, which finds the point a location's Google results are checked from (permanent geocoding, which needs a card on the Mapbox account). Google is checked in live mode only when all three of these are set, and only for an organization whose allowances include Google results. |
 | `OPENAI_API_KEY` | yes | Optional. In live mode, scans check ChatGPT when it is set and skip that surface when it is not. |
 | `ANTHROPIC_API_KEY` | yes | Optional. The same, for Claude. It also writes drafts on real data, with instructions for the kind of draft from the private tuning; without the key, or without the instructions, none is written and no task is offered one. |
 | `RESEND_API_KEY` | yes | Optional. Without it, scheduled scans finish without sending a report, nobody is emailed when a connection breaks or told what was done for them, a price change cannot be announced, and no action can be approved (unless the deployment serves sample data, or the organization is a test one). |
@@ -585,7 +591,7 @@ The migrations in `supabase/migrations/` define everything. An organization bein
 | `organizations` | The tenant. Every other row belongs to one. Holds its usage limits (locations, active prompts per location, manual scans a calendar month) and its plan settings (which plan it is on, whether a report is emailed, how many days apart it is scanned, on which surfaces, which of them on a stronger model (`stronger_surfaces`), and its allowances). |
 | `platform_roles` | What an account is to the product as a whole (`operator` or `test`). A user reads only their own row, the operator reads all; rows are written with the secret key. An organization made by a `test` account is flagged `is_test` and scans on generated data. |
 | `memberships` | Which users belong to an organization, as `owner`, `admin` or `member`. |
-| `locations` | A business at an address, with what its owner says it does in a few sentences (`what_we_do`, at most 600 characters). How often it is scanned is its organization's plan's to say. |
+| `locations` | A business at an address, with what its owner says it does in a few sentences (`what_we_do`, at most 600 characters). How often it is scanned is its organization's plan's to say. It also holds the point its Google results are checked from (`latitude`, `longitude`, `point_source`, `address` or `city`, and `geocoded_from`, what was looked up to find it), which the Worker finds and writes and no API role can change. |
 | `tracked_queries` | The prompts and keywords checked for a location. A retired one is kept, with its results, but not scanned. |
 | `scans` | One run for a location: its trigger, status, whether it ran on sample data, the score over the window it closed, the tier asked on each surface (`tiers`), and the check of the location's website it made. |
 | `scan_results` | One row per query and surface: its `tier` (`standard` or `stronger`), named or not, position, who else was named, and the phone numbers the answer gave for the business (`phones`, in international form, read as the scan finishes since only an excerpt of the answer is kept). |
@@ -594,7 +600,7 @@ The migrations in `supabase/migrations/` define everything. An organization bein
 | `audits` | A shareable audit: the business, its prompts, the results as each prompt finishes, and its token, expiry and revocation. Belongs to no organization; only the operator can read it through the API. |
 | `operator_actions` | What the operator changed or made, one row per action, with who and what: an organization's limits before and after, a plan's settings or prices before and after, or the audit made. Written only by the function that does it; only the operator can read it through the API. |
 | `plans` | What is on sale: a monthly price for the locations a plan includes, a price for each extra location, its limits and its allowances. Read by everyone; written by no API role. An organization's `plan_key` names its plan, or is null when its limits were set by hand. |
-| `allowance_kinds` | The kinds of work a plan can include, each counted (a number a month for each location) or not (included or not). A plan's or an organization's allowances may name only these, and the database refuses any other. Five exist: `drafts`, counted, which every paid plan includes and the free plan does not (the migration `20261012180000_drafts_on_plans.sql` set the numbers the plans started with, and gave an organization already on one its plan's, leaving a test organization's and any other limit an operator set for it); `visits`, included or not, which every paid plan includes and the free plan does not (the migration `20261013220000_visits_shown.sql` put it on the paid plans and gave it to an organization already on one, leaving a test organization, which already had it, and any other limit an operator set for it); `wordpress` and `hosted_pages`, included or not, which the connections of those kinds need; and `stronger_models`, included or not, which Enterprise includes (the migration `20261017000000_stronger_models.sql`; the plans' older `stronger_models` column stays until no Worker reads it). Read by everyone; written by no API role. |
+| `allowance_kinds` | The kinds of work a plan can include, each counted (a number a month for each location) or not (included or not). A plan's or an organization's allowances may name only these, and the database refuses any other. Six exist: `drafts`, counted, which every paid plan includes and the free plan does not (the migration `20261012180000_drafts_on_plans.sql` set the numbers the plans started with, and gave an organization already on one its plan's, leaving a test organization's and any other limit an operator set for it); `visits`, included or not, which every paid plan includes and the free plan does not (the migration `20261013220000_visits_shown.sql` put it on the paid plans and gave it to an organization already on one, leaving a test organization, which already had it, and any other limit an operator set for it); `wordpress` and `hosted_pages`, included or not, which the connections of those kinds need; `stronger_models`, included or not, which Enterprise includes (the migration `20261017000000_stronger_models.sql`; the plans' older `stronger_models` column stays until no Worker reads it); and `google_results`, included or not, on no plan, which a scan needs to check the Google surfaces (the migration `20261019000000_google_results.sql`; the operator can give it to one organization). Read by everyone; written by no API role. |
 | `allowance_use` | How much of each counted allowance an organization has used in a calendar month (UTC). Read by the organization's members and the operator; written only by the Worker, through `claim_allowance()` and `release_allowance()`. |
 | `plan_prices` | Every set of prices a plan has been sold at (the plan's price, its extra-location price and, optionally, its stronger-model price for each location, in cents, with the Stripe price IDs, one stronger price for each assistant). The newest is also on the plan's row. A subscription is matched to its plan by any of them. Read by anyone signed in, not by a visitor; written by no API role. |
 | `price_changes` | One announcement per plan: the price version subscribers move to, the day it takes effect, and when it was reminded, called off or completed. Read by anyone signed in; written by no API role, only by the operator's functions. |
@@ -716,6 +722,9 @@ The `integration` job in `.github/workflows/ci.yml` is a working example.
    pnpm exec wrangler secret put RESEND_API_KEY   # optional: emailed reports and notices
    pnpm exec wrangler secret put OPENAI_API_KEY   # optional: live ChatGPT checks
    pnpm exec wrangler secret put ANTHROPIC_API_KEY   # optional: live Claude checks and drafts
+   pnpm exec wrangler secret put DATAFORSEO_LOGIN   # optional: Google checks, with the next two
+   pnpm exec wrangler secret put DATAFORSEO_PASSWORD
+   pnpm exec wrangler secret put MAPBOX_TOKEN
    pnpm exec wrangler secret put STRIPE_SECRET_KEY   # optional: subscriptions, with the next
    pnpm exec wrangler secret put STRIPE_WEBHOOK_SECRET
    pnpm exec wrangler secret put CLOUDFLARE_HOSTNAMES_TOKEN   # optional: answer subdomains; may create and remove custom hostnames on the zone only
@@ -749,7 +758,8 @@ Exactly `mock` serves generated data instead, which is what `.dev.vars.example` 
 development. Any other value means live. A live build needs the private
 tuning file, so the deploy has to run where `private/` is checked out, which the workflow does.
 Without the file, live scans fail with a message saying so. With it, a live scan checks each
-surface whose key is set (ChatGPT with `OPENAI_API_KEY`, Claude with `ANTHROPIC_API_KEY`) and skips the rest; with
+surface whose key is set (ChatGPT with `OPENAI_API_KEY`, Claude with `ANTHROPIC_API_KEY`, Google
+with `DATAFORSEO_LOGIN`, `DATAFORSEO_PASSWORD` and `MAPBOX_TOKEN` together) and skips the rest; with
 no key set at all, scans fail with "No data provider is configured". A draft is another matter:
 Claude writes it, so it needs `ANTHROPIC_API_KEY` and, in the private tuning, instructions for its
 kind. Without either, on a live deployment, no task is offered a draft and asking for one by hand
@@ -782,7 +792,8 @@ Nothing here needs it. A public clone installs, passes `pnpm check` and runs on 
 without it.
 
 The one thing the build takes from it is `private/tuning.json`: prompt wording, score weights and
-the instructions a draft is written from, as data. All the code that uses those values is here,
+the instructions a draft is written from, and how Google results are checked, as data. All the code
+that uses those values is here,
 with placeholder defaults in `packages/shared/src/tuning.ts`. Wrangler runs
 `scripts/prepare-tuning.mjs` before every dev session and deploy, which bundles the private file
 when it is present and the defaults when it is not. Live scans refuse to run on the defaults, so a
@@ -830,10 +841,12 @@ pnpm sync:agents
 
 ## What is not built
 
-- **Most real data providers.** ChatGPT and Claude are implemented (`chatgpt.ts` and
-  `claude.ts` in `apps/api/src/providers/`). Perplexity, Gemini and the three Google surfaces
-  are not;
+- **Most real data providers.** ChatGPT, Claude and Google's four surfaces are implemented
+  (`chatgpt.ts`, `claude.ts` and `dataforseo.ts` in `apps/api/src/providers/`, with `mapbox.ts`
+  finding the point). Perplexity and Gemini are not;
   `apps/api/src/providers/live.ts` has notes on what each needs.
+- **Google results on a plan.** The `google_results` allowance is on no plan. The operator can
+  give it to one organization with the limits editor.
 - **Undoing a closing.** An owner can close the account from Account settings, and it cannot be
   reopened: there is no waiting period and no undo. What an owner added to a WordPress site stays
   there.

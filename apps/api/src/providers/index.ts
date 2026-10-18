@@ -7,7 +7,8 @@ import {
   type TuningSource,
 } from "@nearcited/shared";
 import type { Env } from "../env";
-import { createLiveProviders, liveSurfaces } from "./live";
+import { createLiveProviders, type LiveKeys, liveSurfaces } from "./live";
+import { createMapboxGeocoder, type Geocoder } from "./mapbox";
 import { createMockProviders } from "./mock";
 import type { ProviderRegistry } from "./types";
 
@@ -39,10 +40,17 @@ export function createStrongerProviders(env: Env, tuning: Tuning): ProviderRegis
 }
 
 /** The surfaces a scan checks in this environment. Sample data covers all of them. */
-export function checkedSurfaces(
-  env: Pick<Env, "PROVIDER_MODE" | "OPENAI_API_KEY" | "ANTHROPIC_API_KEY">,
-): Surface[] {
+export function checkedSurfaces(env: Pick<Env, "PROVIDER_MODE"> & LiveKeys): Surface[] {
   return usesSampleData(env) ? [...SURFACES] : liveSurfaces(env);
+}
+
+/** What finds a location's point for its Google results, where live scans check Google. */
+export function createGeocoder(
+  env: Pick<Env, "PROVIDER_MODE" | "MAPBOX_TOKEN">,
+): Geocoder | undefined {
+  return usesSampleData(env) || !env.MAPBOX_TOKEN
+    ? undefined
+    : createMapboxGeocoder({ token: env.MAPBOX_TOKEN });
 }
 
 /**

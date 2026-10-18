@@ -256,7 +256,18 @@ pass `pnpm check` and run in mock mode without it.
   bounds: they are read added up, by `location_visits()`, and never row by row. A work list the
   schedule reads again at its next run, and takes only the first of, may stay as it is.
 - **Providers only fetch.** They return an `Observation`; `analyzeObservation` in the shared
-  package decides what it means. Do not put matching logic in a provider.
+  package decides what it means. Do not put matching logic in a provider. That holds for a Google
+  check (`apps/api/src/providers/dataforseo.ts`) as for an assistant's.
+- **Only the worker writes a location's point, and Google is checked only where a plan allows
+  it.** `latitude`, `longitude`, `point_source` and `geocoded_from` are written by the worker
+  alone, through `setLocationPoint` after the scan runner looks the address up
+  (`docs/adr/0023-google-results-are-bought-and-checked-from-one-point.md`); the
+  `guard_location_point` trigger keeps them as they were for any other writer. Nothing on a
+  request path writes them, and nothing a request sends decides where a check is made from. A scan
+  checks the Google surfaces only where an organization's allowances include `google_results`
+  (`coveredSurfaces`, `packages/shared/src/google.ts`), never because `surfaces` names them, and
+  only when `DATAFORSEO_LOGIN`, `DATAFORSEO_PASSWORD` and `MAPBOX_TOKEN` are all set. A location
+  that cannot be placed is not checked on Google. Keep all three.
 - **Structured details carry only what a location holds.** A detail not on file is left out, never
   filled in, and no model writes any of it (`packages/shared/src/structured-details.ts`).
 - **Tuning is data, and its real values are private.** A new prompt, weight or sampling value

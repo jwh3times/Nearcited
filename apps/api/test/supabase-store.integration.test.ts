@@ -694,6 +694,17 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
       error: "abandoned",
     });
 
+    // The point Google is checked from is the worker's to keep. A member's write leaves it.
+    const point = {
+      latitude: 35.7796,
+      longitude: -78.6382,
+      point_source: "address" as const,
+      geocoded_from: "1 Main St, Raleigh, US",
+    };
+    await worker.setLocationPoint(location.id, point);
+    await aliceStore.setLocationPoint(location.id, { ...point, latitude: 1, longitude: 1 });
+    expect(await aliceStore.getLocation(location.id)).toMatchObject(point);
+
     await worker.markScanRunning(scan.id, false);
     expect(await aliceStore.getScan(scan.id)).toMatchObject({ status: "running" });
 

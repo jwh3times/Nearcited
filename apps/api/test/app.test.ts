@@ -308,8 +308,8 @@ describe("organizations and locations", () => {
     expect(detail.queries.map((q) => q.id)).toEqual([query.id]);
     expect(detail.latest_scan).toBeNull();
     expect(detail.window).toEqual({ size: 7, scans: 0, cells: [], answers: 0, sources: [] });
-    // Sample data covers every surface.
-    expect(detail.surfaces).toHaveLength(7);
+    // Sample data covers every surface, Google's only where the allowances include it.
+    expect(detail.surfaces).toEqual(["chatgpt", "gemini", "perplexity", "claude"]);
     expect(detail.recommendations).toEqual([]);
   });
 
@@ -317,12 +317,22 @@ describe("organizations and locations", () => {
     const { location } = await seed();
     const organization = db.organizations.find((o) => o.id === location.organization_id);
     if (!organization) throw new Error("no organization");
+    // Google is covered by the allowance for Google results, whatever the assistants say.
     organization.surfaces = ["claude", "google_local_pack"];
+    const surfaces = async () =>
+      LocationDetailSchema.parse(
+        await (await call(alice, "GET", `/locations/${location.id}`)).json(),
+      ).surfaces;
+    expect(await surfaces()).toEqual(["claude"]);
 
-    const detail = LocationDetailSchema.parse(
-      await (await call(alice, "GET", `/locations/${location.id}`)).json(),
-    );
-    expect(detail.surfaces).toEqual(["claude", "google_local_pack"]);
+    organization.allowances = { ...organization.allowances, google_results: true };
+    expect(await surfaces()).toEqual([
+      "claude",
+      "google_ai_overview",
+      "google_local_pack",
+      "google_organic",
+      "google_ai_mode",
+    ]);
   });
 
   it("returns how often the business was named over the recent successful scans", async () => {

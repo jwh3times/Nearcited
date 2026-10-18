@@ -20,6 +20,7 @@ export const SURFACES = [
   "google_ai_overview",
   "google_local_pack",
   "google_organic",
+  "google_ai_mode",
 ] as const;
 export const SurfaceSchema = z.enum(SURFACES);
 export type Surface = z.infer<typeof SurfaceSchema>;
@@ -40,13 +41,14 @@ export type Tier = z.infer<typeof TierSchema>;
 /** A prompt is asked of assistants; a keyword is searched on Google. */
 export const SURFACES_BY_KIND: Record<QueryKind, readonly Surface[]> = {
   ai_prompt: ["chatgpt", "gemini", "perplexity", "claude"],
-  search_keyword: ["google_local_pack", "google_organic", "google_ai_overview"],
+  search_keyword: ["google_local_pack", "google_organic", "google_ai_overview", "google_ai_mode"],
 };
 
 /** The surfaces whose answers list the pages they were built from. */
 export const CITING_SURFACES: readonly Surface[] = [
   ...SURFACES_BY_KIND.ai_prompt,
   "google_ai_overview",
+  "google_ai_mode",
 ];
 
 export const SURFACE_LABELS: Record<Surface, string> = {
@@ -57,6 +59,7 @@ export const SURFACE_LABELS: Record<Surface, string> = {
   google_ai_overview: "AI Overview",
   google_local_pack: "Map pack",
   google_organic: "Organic",
+  google_ai_mode: "AI Mode",
 };
 
 export const QUERY_KIND_LABELS: Record<QueryKind, string> = {
@@ -196,6 +199,20 @@ export const LocationSchema = z.object({
   postal_code: z.string().nullable(),
   country_code: z.string(),
   google_place_id: z.string().nullable(),
+  /**
+   * The point its Google results are checked from, found by the worker from its address
+   * (`docs/adr/0023-google-results-are-bought-and-checked-from-one-point.md`). Null until found,
+   * and when nothing could be.
+   */
+  latitude: z.number().nullable(),
+  longitude: z.number().nullable(),
+  /** Whether the point is its street address or the middle of its city. */
+  point_source: z.enum(["address", "city"]).nullable(),
+  /**
+   * What was looked up to find the point (`pointQuery`). When it is no longer what the location
+   * holds, the address has changed and the point is found again before its next Google check.
+   */
+  geocoded_from: z.string().nullable(),
   primary_category: z.string().nullable(),
   /** What the business does, in its owner's words. A draft states nothing about it but this. */
   what_we_do: z.string().nullable(),

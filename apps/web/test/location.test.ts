@@ -1,6 +1,6 @@
 import { type Location, LocationInputSchema } from "@nearcited/shared";
 import { describe, expect, it } from "vitest";
-import { locationFormValues } from "../src/lib/location";
+import { googlePointLine, locationFormValues, wantsGoogleKeyword } from "../src/lib/location";
 
 const location: Location = {
   id: "c0000000-0000-4000-8000-000000000003",
@@ -14,6 +14,10 @@ const location: Location = {
   postal_code: "27601",
   country_code: "US",
   google_place_id: null,
+  latitude: null,
+  longitude: null,
+  point_source: null,
+  geocoded_from: null,
   primary_category: "Pizza restaurant",
   what_we_do: null,
   paused_by_plan: false,
@@ -54,5 +58,95 @@ describe("locationFormValues", () => {
     expect({ ...location, ...LocationInputSchema.parse(locationFormValues(location)) }).toEqual(
       location,
     );
+  });
+});
+
+describe("googlePointLine", () => {
+  const found = {
+    ...location,
+    latitude: 35.7795897,
+    longitude: -78.6381787,
+    point_source: "address" as const,
+    geocoded_from: "12 Fayetteville St, Raleigh 27601, US",
+  };
+
+  it("says Google is checked from the street address it was found at", () => {
+    expect(googlePointLine(found)).toBe(
+      "Google results are checked from 12 Fayetteville St, Raleigh.",
+    );
+  });
+
+  it("says a new address is checked from the next scan", () => {
+    expect(googlePointLine({ ...found, address_line: "9 Oak Ave" })).toBe(
+      "Google results will be checked from 9 Oak Ave, Raleigh, from the next scan.",
+    );
+  });
+
+  it("asks for the street address when the city is all there is", () => {
+    const city = { ...location, address_line: null, postal_code: null };
+    const message =
+      "Google results are checked from the middle of Raleigh. Add the street address to check them from your door.";
+    expect(googlePointLine(city)).toBe(message);
+    expect(
+      googlePointLine({
+        ...city,
+        latitude: 35.77,
+        longitude: -78.63,
+        point_source: "city",
+        geocoded_from: "Raleigh, US",
+      }),
+    ).toBe(message);
+  });
+
+  it("says when the street address could not be found, and that the city is used", () => {
+    expect(googlePointLine({ ...found, latitude: 35.77, point_source: "city" })).toBe(
+      "12 Fayetteville St couldn't be found on the map, so Google results are checked from the middle of Raleigh. Check the street address.",
+    );
+  });
+
+  it("says when the city could not be found, with no street address to look for", () => {
+    expect(
+      googlePointLine({
+        ...location,
+        address_line: null,
+        postal_code: null,
+        geocoded_from: "Raleigh, US",
+      }),
+    ).toBe(
+      "Raleigh couldn't be found on the map, so Google results aren't checked. Check the city.",
+    );
+  });
+
+  it("says when the location could not be placed at all", () => {
+    expect(
+      googlePointLine({
+        ...found,
+        latitude: null,
+        longitude: null,
+        point_source: null,
+      }),
+    ).toBe(
+      "Neither 12 Fayetteville St nor Raleigh could be found on the map, so Google results aren't checked. Check the address.",
+    );
+  });
+});
+
+describe("wantsGoogleKeyword", () => {
+  const keyword = { kind: "search_keyword" as const, is_active: true };
+  const prompt = { kind: "ai_prompt" as const, is_active: true };
+
+  it("is true where Google is checked and the location has no Google keyword", () => {
+    expect(wantsGoogleKeyword(["chatgpt", "google_local_pack"], [prompt])).toBe(true);
+    expect(
+      wantsGoogleKeyword(
+        ["chatgpt", "google_local_pack"],
+        [prompt, { ...keyword, is_active: false }],
+      ),
+    ).toBe(true);
+  });
+
+  it("is false with a Google keyword, or where Google is not checked", () => {
+    expect(wantsGoogleKeyword(["chatgpt", "google_local_pack"], [prompt, keyword])).toBe(false);
+    expect(wantsGoogleKeyword(["chatgpt"], [prompt])).toBe(false);
   });
 });

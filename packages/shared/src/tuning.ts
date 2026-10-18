@@ -109,6 +109,25 @@ const ClaudeSettingsSchema = z.object({
   max_searches: z.number().int().min(1).max(10),
 });
 
+/**
+ * How a Google keyword is checked from a location's point. Each changes what is seen, as a
+ * sampling setting does, so the values a deployment runs on are kept with the rest of the tuning.
+ */
+export const GoogleTuningSchema = z.object({
+  /** How far around the point Google's results page is searched, in metres. */
+  radius_m: z.number().int().min(199).max(199_999),
+  /** The map's zoom for the map pack and AI Mode, from 4 (a country) to 18 (a street). */
+  zoom: z.number().int().min(4).max(18),
+  /** How many organic results are read. Every ten more is charged as another search. */
+  organic_depth: z.number().int().min(10).max(100).multipleOf(10),
+  /** How many map results are read, as for the organic ones. */
+  map_depth: z.number().int().min(10).max(100).multipleOf(10),
+});
+export type GoogleTuning = z.infer<typeof GoogleTuningSchema>;
+
+/** Placeholders: the public build's guess, not what any deployment was tuned to. */
+const DEFAULT_GOOGLE: GoogleTuning = { radius_m: 1000, zoom: 14, organic_depth: 10, map_depth: 20 };
+
 export const TuningSchema = z.object({
   score: ScoreWeightsSchema,
   prompts: PromptsSchema,
@@ -124,6 +143,8 @@ export const TuningSchema = z.object({
    * no entry here has no known cost: it is never priced as another model.
    */
   rates: RatesSchema,
+  /** How Google results are checked. Left out, the placeholders are used. */
+  google: GoogleTuningSchema.default(DEFAULT_GOOGLE),
   /**
    * Request settings and instructions for drafts. Left out, no draft is written on real data: a
    * tuning file from before drafts existed still loads, and writes none.
@@ -160,6 +181,7 @@ export const defaultTuning: Tuning = {
     stronger: { model: "claude-opus-5-5", effort: "low", max_searches: 1 },
   },
   rates: {},
+  google: DEFAULT_GOOGLE,
   drafts: {
     model: "claude-sonnet-5-5",
     effort: "low",

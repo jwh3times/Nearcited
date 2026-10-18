@@ -80,6 +80,11 @@ export type DraftOutcome =
     }
   | { outcome: "failed" | "again"; why: string };
 
+/** Where a location's Google results are checked from, as the worker found it. */
+export type LocationPoint = Pick<Location, "latitude" | "longitude" | "point_source"> & {
+  geocoded_from: string;
+};
+
 /** What the payment provider knows about an organization, as its owner's checkout needs it. */
 export interface BillingState {
   organization_id: string;
@@ -606,6 +611,12 @@ export interface Store {
   listPlatformRoles(): Promise<Record<string, PlatformRole>>;
   createLocation(organizationId: string, input: LocationInput): Promise<Location>;
   getLocation(id: string): Promise<Location | null>;
+  /**
+   * Keeps the point a location's Google results are checked from and what was looked up to find
+   * it; null coordinates keep that nothing was found. Worker only: the database keeps what a
+   * signed-in caller writes to these as it was, so nothing a request sends decides the point.
+   */
+  setLocationPoint(id: string, point: LocationPoint): Promise<void>;
   /** Replaces every field a user may set. Null when the caller cannot see the location. */
   /**
    * Brings a location paused by the plan back into use. When the plan has no room, `insteadOf`

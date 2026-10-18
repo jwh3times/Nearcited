@@ -7,6 +7,8 @@ import {
   liveScansUnavailable,
   type ProviderRegistry,
 } from "../src/providers";
+import { createDataForSeoProviders } from "../src/providers/dataforseo";
+import { createMapboxGeocoder } from "../src/providers/mapbox";
 import { createMockProviders } from "../src/providers/mock";
 import type { CallUsage } from "../src/providers/types";
 import { runScan, type ScanReport } from "../src/scans/runner";
@@ -1530,5 +1532,240 @@ describe("alerts", () => {
     };
     await expect(runScan(queued.id, { store: worker, providers: broken })).rejects.toThrow();
     expect(db.alerts).toEqual([]);
+  });
+});
+
+describe("Google results", () => {
+  /** DataForSEO and Mapbox, answering as their recorded responses do. Only the shape matters. */
+  const task = (items: unknown[]) => ({
+    status_code: 20000,
+    tasks: [
+      { status_code: 20000, status_message: "Ok.", result: [{ items_count: items.length, items }] },
+    ],
+  });
+  const answer = (text: string, url: string) => ({
+    type: "ai_overview",
+    items: [{ type: "ai_overview_element", text, references: [{ url }] }],
+    references: [],
+  });
+  const vendor = {
+    organic: task([
+      answer("Joe's Pizza is a favourite.", "https://joes.example/menu"),
+      {
+        type: "organic",
+        rank_group: 1,
+        domain: "yelp.example",
+        url: "https://yelp.example/",
+        website_name: "Yelp",
+      },
+      {
+        type: "organic",
+        rank_group: 2,
+        domain: "joes.example",
+        url: "https://joes.example/",
+        website_name: "Joe's Pizza",
+      },
+    ]),
+    local_finder: task([
+      { type: "local_pack", rank_group: 1, title: "Joe's Pizza", url: "https://joes.example/" },
+      { type: "local_pack", rank_group: 2, title: "Tony's Slice House", url: null },
+    ]),
+    ai_mode: task([answer("Try Tony's Slice House.", "https://tonys.example/")]),
+  };
+  const feature = (latitude: number, longitude: number) => ({
+    features: [
+      { properties: { coordinates: { latitude, longitude }, match_code: { confidence: "exact" } } },
+    ],
+  });
+
+  let places: Record<string, unknown>;
+  let failing: string | null;
+  const fetchStub = vi.fn<typeof fetch>(async (url) => {
+    const asked = new URL(String(url));
+    if (asked.hostname === "api.mapbox.com") {
+      const type = asked.searchParams.get("types") ?? "";
+      return Response.json(places[type] ?? { features: [] });
+    }
+    const endpoint = asked.pathname.split("/")[4] as keyof typeof vendor;
+    if (endpoint === failing) return new Response("busy", { status: 503 });
+    return Response.json(vendor[endpoint]);
+  });
+  const sentTo = (host: string) =>
+    fetchStub.mock.calls
+      .map(([url]) => new URL(String(url)))
+      .filter((url) => url.hostname === host);
+
+  const google = () => ({
+    ...providers,
+    ...createDataForSeoProviders({
+      login: "l",
+      password: "p",
+      tuning: defaultTuning,
+      fetch: fetchStub,
+    }),
+  });
+  const geocode = createMapboxGeocoder({ token: "pk.test", fetch: fetchStub });
+  const scanned = async () => {
+    const scan = await queueScan();
+    const outcome = await runScan(scan.id, { store: worker, providers: google(), geocode });
+    return {
+      outcome,
+      surfaces: (await worker.listScanResults(scan.id)).map((r) => r.surface).sort(),
+    };
+  };
+  const location = () => {
+    const found = db.locations[0];
+    if (!found) throw new Error("no location");
+    return found;
+  };
+  const withGoogle = (included = true) => {
+    const organization = db.organizations[0];
+    if (!organization) throw new Error("no organization");
+    organization.surfaces = ["chatgpt"];
+    organization.allowances = included ? { google_results: true } : {};
+  };
+
+  beforeEach(async () => {
+    fetchStub.mockClear();
+    failing = null;
+    places = { address: feature(35.7795897, -78.6381787), place: feature(35.7721, -78.6386) };
+    await memoryStore(db, owner).createQuery(locationId, {
+      kind: "search_keyword",
+      text: "pizza near me",
+    });
+    Object.assign(location(), { address_line: "1 Main St", postal_code: "27601" });
+  });
+
+  it("checks a keyword on all four Google surfaces where the plan includes Google results", async () => {
+    withGoogle();
+    expect(await scanned()).toEqual({
+      outcome: "succeeded",
+      surfaces: [
+        "chatgpt",
+        "google_ai_mode",
+        "google_ai_overview",
+        "google_local_pack",
+        "google_organic",
+      ],
+    });
+    const found = (surface: string) => db.results.find((result) => result.surface === surface);
+    expect(found("google_local_pack")).toMatchObject({ mentioned: true, position: 1 });
+    expect(found("google_organic")).toMatchObject({ mentioned: true, position: 2 });
+    expect(found("google_ai_overview")).toMatchObject({ mentioned: true });
+    expect(found("google_ai_mode")).toMatchObject({ mentioned: false });
+
+    // From the point its street address was found at, which is kept on the location.
+    expect(location()).toMatchObject({
+      latitude: 35.7795897,
+      longitude: -78.6381787,
+      point_source: "address",
+      geocoded_from: "1 Main St, Raleigh, NC 27601, US",
+    });
+    const map = fetchStub.mock.calls.find(([url]) => String(url).includes("local_finder"));
+    expect(JSON.parse(String(map?.[1]?.body))[0].location_coordinate).toBe(
+      "35.7795897,-78.6381787,14z",
+    );
+    // What each call used, the lookup included, for the operator's costs.
+    expect(db.usage.map((row) => [row.surface, row.model, row.searches])).toEqual(
+      expect.arrayContaining([
+        [null, "mapbox/geocode-permanent", 1],
+        ["google_ai_mode", "dataforseo/ai-mode", 1],
+        ["google_ai_overview", "dataforseo/ai-overview", 1],
+        ["google_local_pack", "dataforseo/local-finder", 1],
+        ["google_organic", "dataforseo/organic", 1],
+      ]),
+    );
+  });
+
+  it("checks no Google surface, and looks nothing up, where the plan does not include it", async () => {
+    withGoogle(false);
+    expect(await scanned()).toEqual({ outcome: "succeeded", surfaces: ["chatgpt"] });
+    expect(fetchStub).not.toHaveBeenCalled();
+    expect(location().geocoded_from).toBeNull();
+  });
+
+  it("finds the point once, and again only after the address changes", async () => {
+    withGoogle();
+    await scanned();
+    await scanned();
+    expect(sentTo("api.mapbox.com")).toHaveLength(1);
+
+    const { id, organization_id, paused_by_plan, last_scanned_at, created_at, ...held } =
+      location();
+    await memoryStore(db, owner).updateLocation(id, { ...held, address_line: "9 Oak Ave" });
+    places.address = feature(35.8, -78.7);
+    await scanned();
+    expect(sentTo("api.mapbox.com").map((url) => url.searchParams.get("q"))).toEqual([
+      "1 Main St, Raleigh, NC 27601, US",
+      "9 Oak Ave, Raleigh, NC 27601, US",
+    ]);
+    expect(location()).toMatchObject({ latitude: 35.8, longitude: -78.7, point_source: "address" });
+  });
+
+  it("checks from the middle of the city when there is no street address", async () => {
+    withGoogle();
+    Object.assign(location(), { address_line: null });
+    expect((await scanned()).surfaces).toContain("google_local_pack");
+    expect(sentTo("api.mapbox.com")[0]?.searchParams.get("types")).toBe("place");
+    expect(location()).toMatchObject({
+      latitude: 35.7721,
+      point_source: "city",
+      geocoded_from: "Raleigh, NC, US",
+    });
+  });
+
+  it("checks from the middle of the city when the street address cannot be found", async () => {
+    withGoogle();
+    places.address = { features: [] };
+    await scanned();
+    expect(location()).toMatchObject({
+      latitude: 35.7721,
+      point_source: "city",
+      // The address that was looked for, so it is not looked for again until it changes.
+      geocoded_from: "1 Main St, Raleigh, NC 27601, US",
+    });
+  });
+
+  it("leaves Google out of a scan when the location cannot be placed, and looks again next time", async () => {
+    withGoogle();
+    places = {};
+    expect(await scanned()).toEqual({ outcome: "succeeded", surfaces: ["chatgpt"] });
+    expect(sentTo("api.dataforseo.com")).toEqual([]);
+    expect(location()).toMatchObject({ latitude: null, point_source: null });
+
+    places = { place: feature(35.7721, -78.6386) };
+    expect((await scanned()).surfaces).toContain("google_local_pack");
+    expect(location()).toMatchObject({ latitude: 35.7721, point_source: "city" });
+  });
+
+  it("says why, without retrying, when Google is all there is and the location cannot be placed", async () => {
+    withGoogle();
+    places = {};
+    db.queries = db.queries.filter((query) => query.kind === "search_keyword");
+    const scan = await queueScan();
+    expect(await runScan(scan.id, { store: worker, providers: google(), geocode })).toBe("failed");
+    expect((await worker.getScan(scan.id))?.error).toBe(
+      "Google was not checked: the location's address could not be found on the map. Check its city and street address.",
+    );
+  });
+
+  it("checks Google only where the allowances include it, whatever the surfaces say", async () => {
+    withGoogle(false);
+    const organization = db.organizations[0];
+    if (!organization) throw new Error("no organization");
+    organization.surfaces = null;
+    expect((await scanned()).surfaces).toEqual(["chatgpt", "gemini"]);
+    expect(fetchStub).not.toHaveBeenCalled();
+  });
+
+  it("fails the whole scan when a Google call fails, for the queue to try again", async () => {
+    withGoogle();
+    failing = "local_finder";
+    const scan = await queueScan();
+    await expect(runScan(scan.id, { store: worker, providers: google(), geocode })).rejects.toThrow(
+      "DataForSEO the map results failed (HTTP 503).",
+    );
+    expect((await worker.getScan(scan.id))?.status).toBe("failed");
+    expect(db.results).toEqual([]);
   });
 });
