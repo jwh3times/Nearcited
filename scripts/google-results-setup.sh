@@ -382,7 +382,7 @@ stage "Get a location ready"
 step "Open one of that organization's locations, signed in as its owner."
 step "Make sure its street address is filled in (Settings), so Google is checked from the door."
 step "On Prompts, add a few Google keywords: Type → Google keyword, then Add keyword."
-say "Under the grid it says where Google results are checked from, once the first scan has run."
+warn "Don't run a scan yet: the next stage reads DataForSEO's balance first, then asks for one."
 ask KEYWORDS "How many active Google keywords does the location have now?"
 until [[ "$KEYWORDS" =~ ^[1-9][0-9]*$ ]]; do ask KEYWORDS "Enter a whole number, 1 or more:"; done
 ask PROMPTS "And how many active assistant prompts?"
@@ -392,15 +392,23 @@ stage "Measure one scan"
 say "DataForSEO's balance is its own record of what it charged, so the difference across one"
 say "scan is what that scan's Google checks cost. The assistants and Mapbox are billed"
 say "elsewhere and do not move it."
-if ! before=$(dfs_balance); then warn "Could not read the balance."; exit 1; fi
-note "Balance before: \$$before"
-step "On the location, click Run scan, and wait until the page shows the new results."
-step "Check the Google columns are filled in, and the line under the grid says where from."
-pause "Press Enter once the scan has finished"
-note "Waiting half a minute for the balance to catch up."
-sleep 30
-if ! after=$(dfs_balance); then warn "Could not read the balance."; exit 1; fi
-spent=$(jq -n --argjson b "$before" --argjson a "$after" '($b - $a) * 1e6 | round / 1e6')
+while true; do
+  if ! before=$(dfs_balance); then warn "Could not read the balance."; exit 1; fi
+  note "Balance before: \$$before"
+  step "On the location, click Run scan, and wait until the page shows the new results."
+  step "Check the Google columns are filled in, and the line under the grid says where from."
+  pause "Press Enter once the scan has finished"
+  note "Waiting half a minute for the balance to catch up."
+  sleep 30
+  if ! after=$(dfs_balance); then warn "Could not read the balance."; exit 1; fi
+  spent=$(jq -n --argjson b "$before" --argjson a "$after" '($b - $a) * 1e6 | round / 1e6')
+  # A scan that checked Google always costs something, so nothing spent is not a reading.
+  if jq -en --argjson s "$spent" '$s > 0' >/dev/null; then break; fi
+  warn "The balance did not move, so no Google check was charged between the two readings."
+  note "The scan may have run before the first reading, not have finished, or not have checked"
+  note "Google: the location needs a Google keyword and the organization the allowance."
+  confirm "Measure again with a new scan?" || exit 1
+done
 each=$(jq -n --argjson s "$spent" --argjson k "$KEYWORDS" '($s / $k) * 1e6 | round / 1e6')
 note "Balance after: \$$after"
 printf '  %s✓%s The scan cost \$%s at DataForSEO: \$%s for each of %s Google keywords.\n' \
@@ -422,8 +430,8 @@ else
 Measured $DAY with \`scripts/google-results-setup.sh\` (public issue #219), on one real
 location of the owner's own organization, given the \`google_results\` allowance for it.
 
-One manual scan of a location with $KEYWORDS active Google keywords and $PROMPTS active assistant
-prompts, on the tuning's \`google\` settings as deployed. DataForSEO's balance, read from its
+One manual scan of a location with $KEYWORDS active Google keyword(s) and $PROMPTS active assistant
+prompt(s), on the tuning's \`google\` settings as deployed. DataForSEO's balance, read from its
 \`user_data\` endpoint, went from \$$before to \$$after: **\$$spent for the scan, \$$each for
 each Google keyword**, for its four surfaces (results page with the AI Overview, Local Finder,
 AI Mode).
