@@ -1,4 +1,5 @@
 import {
+  type CheckOutcome,
   type QueryKind,
   type ScanResult,
   type ScanWindow,
@@ -6,7 +7,7 @@ import {
   type Surface,
   type TrackedQuery,
 } from "@nearcited/shared";
-import { buildMatrix, type MatrixCell, ordinal } from "../lib/matrix";
+import { buildMatrix, historyWords, type MatrixCell, readCell } from "../lib/matrix";
 import { Labelled } from "./Labelled";
 import { RateCell } from "./RateCell";
 
@@ -89,27 +90,24 @@ export function PromptGrid({ queries, results, window, surfaces, onRetire }: Pro
  * shade is never the only signal.
  */
 function Cell({ cell }: { cell: MatrixCell }) {
-  const { result, rate } = cell;
-  if (!result) return <span className="small muted">Not checked</span>;
-
-  const checks = rate?.checks ?? 1;
-  const mentions = rate?.mentions ?? (result.mentioned ? 1 : 0);
-  const latest = !result.mentioned
-    ? "Not named latest"
-    : result.position === null
-      ? "Named"
-      : `Latest ${ordinal(result.position)}`;
+  const reading = readCell(cell);
+  if (reading.kind === "not_checked") return <span className="small muted">Not checked</span>;
+  const { rate } = cell;
 
   return (
     <span className="acell">
-      {mentions > 0 ? (
+      {reading.kind === "nothing_shown" ? (
+        <span className="none">{reading.text}</span>
+      ) : reading.mentions > 0 ? (
         <span className="top">
-          <RateCell rate={mentions / checks} chip>{`${mentions} of ${checks}`}</RateCell>
-          {latest}
+          <RateCell rate={reading.mentions / reading.checks} chip>
+            {`${reading.mentions} of ${reading.checks}`}
+          </RateCell>
+          {reading.latest}
         </span>
       ) : (
         <span className="none">
-          <span className="ring" aria-hidden="true" />0 of {checks}
+          <span className="ring" aria-hidden="true" />0 of {reading.checks}
         </span>
       )}
       {rate && rate.history.length > 1 && <History checks={rate.history} />}
@@ -117,14 +115,22 @@ function Cell({ cell }: { cell: MatrixCell }) {
   );
 }
 
-/** How this prompt has moved on this surface: one dot per recent scan, oldest on the left. */
-function History({ checks }: { checks: boolean[] }) {
-  const words = checks.map((named) => (named ? "named" : "not named")).join(", ");
+const DOT_CLASSES: Record<CheckOutcome, string> = {
+  named: "history-hit",
+  not_named: "history-miss",
+  not_shown: "history-none",
+};
+
+/**
+ * How this prompt has moved on this surface: one dot per recent scan, oldest on the left. A
+ * search where Google showed nothing is a dot of its own, so it is not read as a miss.
+ */
+function History({ checks }: { checks: CheckOutcome[] }) {
   return (
-    <span className="history" role="img" aria-label={`Oldest to latest: ${words}`}>
-      {checks.map((named, index) => (
+    <span className="history" role="img" aria-label={historyWords(checks)}>
+      {checks.map((outcome, index) => (
         // biome-ignore lint/suspicious/noArrayIndexKey: dots are positional and never reorder
-        <span key={index} className={named ? "history-hit" : "history-miss"} />
+        <span key={index} className={DOT_CLASSES[outcome]} />
       ))}
     </span>
   );

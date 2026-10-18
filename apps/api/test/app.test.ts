@@ -377,7 +377,8 @@ describe("organizations and locations", () => {
           surface: "chatgpt",
           checks: 3,
           mentions: 2,
-          history: [true, false, true],
+          not_shown: 0,
+          history: ["named", "not_named", "named"],
         },
       ],
       // The sites those three answers cited, and how many of the answers named the business.

@@ -47,8 +47,8 @@ describe("summarizeBySurface", () => {
         { surface: "chatgpt", mentioned: true },
       ]),
     ).toEqual([
-      { surface: "chatgpt", checks: 2, mentions: 1 },
-      { surface: "google_local_pack", checks: 1, mentions: 1 },
+      { surface: "chatgpt", checks: 2, mentions: 1, not_shown: 0 },
+      { surface: "google_local_pack", checks: 1, mentions: 1, not_shown: 0 },
     ]);
   });
 });
@@ -162,14 +162,16 @@ describe("the scan window", () => {
         surface: "chatgpt",
         checks: 3,
         mentions: 2,
-        history: [true, false, true],
+        not_shown: 0,
+        history: ["named", "not_named", "named"],
       },
       {
         tracked_query_id: "q1",
         surface: "claude",
         checks: 3,
         mentions: 1,
-        history: [true, false, false],
+        not_shown: 0,
+        history: ["named", "not_named", "not_named"],
       },
     ]);
   });
@@ -181,7 +183,14 @@ describe("the scan window", () => {
     ];
     // q1 was removed and Claude is no longer checked: neither counts any more.
     expect(summarizeWindow(scans)).toEqual([
-      { tracked_query_id: "q2", surface: "chatgpt", checks: 2, mentions: 2, history: [true, true] },
+      {
+        tracked_query_id: "q2",
+        surface: "chatgpt",
+        checks: 2,
+        mentions: 2,
+        not_shown: 0,
+        history: ["named", "named"],
+      },
     ]);
     expect(poolWindow(scans)).toHaveLength(2);
   });

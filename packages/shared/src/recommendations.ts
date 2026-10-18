@@ -8,7 +8,7 @@ import {
   type Surface,
   type TrackedQuery,
 } from "./schemas";
-import { summarizeBySurface } from "./scoring";
+import { isCounted, summarizeBySurface } from "./scoring";
 import { SITE_CHECKS } from "./site";
 import { summarizeSources, unnamedSources } from "./sources";
 
@@ -28,6 +28,8 @@ interface LocationFacts {
 interface ResultFacts {
   tracked_query_id?: string;
   surface: Surface;
+  /** False when Google showed nothing for the search, which then counts toward no rule. */
+  shown?: boolean;
   mentioned: boolean;
   competitors: string[];
   cited_urls?: readonly string[];
@@ -74,11 +76,13 @@ function mostNamed(results: readonly ResultFacts[], limit: number): string[] {
  */
 export function deriveRecommendations(
   location: LocationFacts,
-  results: readonly ResultFacts[],
+  checks: readonly ResultFacts[],
   site: SiteCheck | null = null,
   queries: readonly Pick<TrackedQuery, "id" | "kind" | "text" | "is_active">[] = [],
 ): DerivedRecommendation[] {
   const recommendations: DerivedRecommendation[] = [];
+  // A search where Google showed nothing says nothing about the business (ADR 0024).
+  const results = checks.filter(isCounted);
 
   if (!location.website) {
     recommendations.push({
@@ -103,7 +107,7 @@ export function deriveRecommendations(
   }
 
   for (const summary of summarizeBySurface(results)) {
-    if (summary.mentions > 0) continue;
+    if (summary.checks === 0 || summary.mentions > 0) continue;
     const named = mostNamed(
       results.filter((result) => result.surface === summary.surface),
       3,

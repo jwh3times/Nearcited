@@ -1,6 +1,15 @@
 import type { ScanResult, TrackedQuery } from "@nearcited/shared";
 import { describe, expect, it } from "vitest";
-import { buildMatrix, markName, ordinal, tallyCompetitors } from "../src/lib/matrix";
+import {
+  buildMatrix,
+  historyWords,
+  type MatrixCell,
+  markName,
+  nothingShownLine,
+  ordinal,
+  readCell,
+  tallyCompetitors,
+} from "../src/lib/matrix";
 
 const query = (id: string, kind: TrackedQuery["kind"], text: string): TrackedQuery => ({
   id,
@@ -21,6 +30,7 @@ const result = (
   scan_id: "scan",
   tracked_query_id: queryId,
   surface,
+  shown: true,
   mentioned: true,
   position: 1,
   competitors,
@@ -62,7 +72,8 @@ describe("buildMatrix", () => {
             surface: "gemini",
             checks: 3,
             mentions: 2,
-            history: [true, false, true],
+            not_shown: 0,
+            history: ["named", "not_named", "named"],
           },
         ],
         answers: 0,
@@ -98,6 +109,81 @@ describe("buildMatrix", () => {
   it("leaves out a kind with no queries", () => {
     expect(buildMatrix([query("p1", "ai_prompt", "best pizza")], [])).toHaveLength(1);
     expect(buildMatrix([], [])).toEqual([]);
+  });
+});
+
+describe("readCell", () => {
+  const nothing = (surface: ScanResult["surface"]): ScanResult => ({
+    ...result("k1", surface),
+    shown: false,
+    mentioned: false,
+    position: null,
+  });
+  const rate = (checks: number, mentions: number, not_shown: number) => ({
+    checks,
+    mentions,
+    not_shown,
+    history: [],
+  });
+  const cell = (
+    surface: ScanResult["surface"],
+    latest: ScanResult | null,
+    window: MatrixCell["rate"] = null,
+  ): MatrixCell => ({ surface, result: latest, rate: window });
+
+  it("says a surface was not checked when the scan holds nothing for it", () => {
+    expect(readCell(cell("chatgpt", null))).toEqual({ kind: "not_checked" });
+  });
+
+  it("counts the rate over the checks that showed something", () => {
+    expect(readCell(cell("google_organic", result("k1", "google_organic"), rate(4, 3, 2)))).toEqual(
+      { kind: "rate", mentions: 3, checks: 4, latest: "Latest 1st" },
+    );
+  });
+
+  it("says what was missing when the latest search showed nothing, beside the rate", () => {
+    expect(
+      readCell(cell("google_ai_overview", nothing("google_ai_overview"), rate(2, 1, 1))),
+    ).toEqual({ kind: "rate", mentions: 1, checks: 2, latest: "No AI Overview latest" });
+  });
+
+  it("says what was missing, in place of a rate, when no search in the window showed anything", () => {
+    const words = (surface: ScanResult["surface"], notShown: number) =>
+      readCell(cell(surface, nothing(surface), rate(0, 0, notShown)));
+    expect(words("google_ai_overview", 5)).toEqual({
+      kind: "nothing_shown",
+      text: "No AI Overview in the last 5 scans",
+    });
+    expect(words("google_ai_mode", 2)).toMatchObject({
+      text: "No AI Mode answer in the last 2 scans",
+    });
+    expect(words("google_local_pack", 1)).toMatchObject({
+      text: "No map results in the latest scan",
+    });
+    expect(words("google_organic", 3)).toMatchObject({
+      text: "No organic results in the last 3 scans",
+    });
+  });
+});
+
+describe("historyWords", () => {
+  it("names each kind of dot, oldest first", () => {
+    expect(historyWords(["named", "not_named", "not_shown"])).toBe(
+      "Oldest to latest: named, not named, nothing shown",
+    );
+  });
+});
+
+describe("nothingShownLine", () => {
+  it("says what Google did not show, when, and that it does not count against the business", () => {
+    const line = (surface: ScanResult["surface"]) =>
+      nothingShownLine({ surface, sampled_at: "2026-10-18T09:00:00Z" }, "pizza near me");
+    expect(line("google_ai_overview")).toMatch(
+      /^Google showed no AI Overview for “pizza near me” when it was checked on .+\. This doesn't count against the business\.$/,
+    );
+    expect(line("google_ai_mode")).toContain("Google gave no AI Mode answer for “pizza near me”");
+    expect(line("google_local_pack")).toContain("Google showed no map results for");
+    expect(line("google_organic")).toContain("Google showed no organic results for");
   });
 });
 

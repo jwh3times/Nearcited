@@ -1,4 +1,5 @@
 import {
+  type CheckOutcome,
   QUERY_KINDS,
   type QueryKind,
   type ScanResult,
@@ -7,13 +8,17 @@ import {
   type Surface,
   type TrackedQuery,
 } from "@nearcited/shared";
+import { formatDate } from "./format";
 
 export interface MatrixCell {
   surface: Surface;
   /** Null when this surface was not checked for this query in the scan. */
   result: ScanResult | null;
-  /** How often the business was named over the recent scans. Null before the first one. */
-  rate: { checks: number; mentions: number; history: boolean[] } | null;
+  /**
+   * How often the business was named over the recent scans, out of the checks that showed
+   * something. Null before the first one.
+   */
+  rate: { checks: number; mentions: number; not_shown: number; history: CheckOutcome[] } | null;
 }
 
 export interface MatrixRow {
@@ -68,6 +73,74 @@ export function buildMatrix(
         })),
     };
   }).filter((group) => group.rows.length > 0);
+}
+
+/** What Google left out, in a cell's words, for each surface on which it can show nothing. */
+const NOTHING_SHOWN: Partial<Record<Surface, string>> = {
+  google_ai_overview: "No AI Overview",
+  google_ai_mode: "No AI Mode answer",
+  google_local_pack: "No map results",
+  google_organic: "No organic results",
+};
+
+/** The same, as a sentence says it. */
+const NOTHING_SHOWN_SAID: Partial<Record<Surface, string>> = {
+  google_ai_overview: "showed no AI Overview",
+  google_ai_mode: "gave no AI Mode answer",
+  google_local_pack: "showed no map results",
+  google_organic: "showed no organic results",
+};
+
+export type CellReading =
+  | { kind: "not_checked" }
+  /** No search in the window showed anything, so there is no rate to give. */
+  | { kind: "nothing_shown"; text: string }
+  | { kind: "rate"; mentions: number; checks: number; latest: string };
+
+/**
+ * What a cell says. A check where Google showed nothing is out of the rate, and the cell says
+ * what was missing instead of calling the business not named (ADR 0024).
+ */
+export function readCell({ surface, result, rate }: MatrixCell): CellReading {
+  if (!result) return { kind: "not_checked" };
+  const missing = NOTHING_SHOWN[surface] ?? "Nothing shown";
+  const checks = rate?.checks ?? (result.shown ? 1 : 0);
+  if (checks === 0) {
+    const scans = rate?.not_shown ?? 1;
+    return {
+      kind: "nothing_shown",
+      text: `${missing} ${scans === 1 ? "in the latest scan" : `in the last ${scans} scans`}`,
+    };
+  }
+  const latest = !result.shown
+    ? `${missing} latest`
+    : !result.mentioned
+      ? "Not named latest"
+      : result.position === null
+        ? "Named"
+        : `Latest ${ordinal(result.position)}`;
+  return { kind: "rate", mentions: rate?.mentions ?? (result.mentioned ? 1 : 0), checks, latest };
+}
+
+const OUTCOME_WORDS: Record<CheckOutcome, string> = {
+  named: "named",
+  not_named: "not named",
+  not_shown: "nothing shown",
+};
+
+/** A cell's dots read out, for a screen reader. */
+export function historyWords(history: readonly CheckOutcome[]): string {
+  return `Oldest to latest: ${history.map((outcome) => OUTCOME_WORDS[outcome]).join(", ")}`;
+}
+
+/** What the answers say for a search where Google showed nothing. */
+export function nothingShownLine(
+  result: Pick<ScanResult, "surface" | "sampled_at">,
+  query: string | undefined,
+): string {
+  const said = NOTHING_SHOWN_SAID[result.surface] ?? "showed nothing";
+  const searched = query ? ` for “${query}”` : "";
+  return `Google ${said}${searched} when it was checked on ${formatDate(result.sampled_at)}. This doesn't count against the business.`;
 }
 
 export interface CompetitorTally {

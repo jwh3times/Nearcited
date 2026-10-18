@@ -1,5 +1,12 @@
-import { defaultTuning, type Observation, type ScanMessage, SURFACES } from "@nearcited/shared";
+import {
+  defaultTuning,
+  LocationDetailSchema,
+  type Observation,
+  type ScanMessage,
+  SURFACES,
+} from "@nearcited/shared";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createApp } from "../src/app";
 import { buildScanReportEmail, emailMessage } from "../src/email/report";
 import type { Env } from "../src/env";
 import {
@@ -239,6 +246,30 @@ describe("mock providers", () => {
         surface === "google_local_pack" || surface === "google_organic" ? "ranking" : "answer";
       expect(first?.kind, surface).toBe(expectedKind);
     }
+  });
+
+  it("show no AI Overview for a few keywords, the same ones on every day", async () => {
+    const overview = createMockProviders().google_ai_overview;
+    const location = db.locations[0];
+    if (!location || !overview) throw new Error("seed failed");
+    const keywords = [
+      "pizza near me",
+      "late night pizza",
+      "pizza delivery",
+      "best pizza downtown",
+      "gluten free pizza",
+      "pizza by the slice",
+    ];
+    const empty = async (text: string, day: string) => {
+      const query = { ...db.queries[0], id: `q-${text}`, kind: "search_keyword", text } as never;
+      const seen = await overview.observe({ location, query, at: new Date(day) });
+      return seen.kind === "answer" && seen.text === "";
+    };
+    const monday = await Promise.all(keywords.map((text) => empty(text, "2026-10-05T08:00:00Z")));
+    const friday = await Promise.all(keywords.map((text) => empty(text, "2026-10-09T08:00:00Z")));
+    expect(friday).toEqual(monday);
+    expect(monday).toContain(true);
+    expect(monday).toContain(false);
   });
 
   it("run end to end through a scan", async () => {
@@ -1580,6 +1611,8 @@ describe("Google results", () => {
 
   let places: Record<string, unknown>;
   let failing: string | null;
+  /** What a call answers in place of the vendor's usual response. */
+  let answered: Partial<Record<keyof typeof vendor, unknown>>;
   const fetchStub = vi.fn<typeof fetch>(async (url) => {
     const asked = new URL(String(url));
     if (asked.hostname === "api.mapbox.com") {
@@ -1588,7 +1621,7 @@ describe("Google results", () => {
     }
     const endpoint = asked.pathname.split("/")[4] as keyof typeof vendor;
     if (endpoint === failing) return new Response("busy", { status: 503 });
-    return Response.json(vendor[endpoint]);
+    return Response.json(answered[endpoint] ?? vendor[endpoint]);
   });
   const sentTo = (host: string) =>
     fetchStub.mock.calls
@@ -1628,6 +1661,7 @@ describe("Google results", () => {
   beforeEach(async () => {
     fetchStub.mockClear();
     failing = null;
+    answered = {};
     places = { address: feature(35.7795897, -78.6381787), place: feature(35.7721, -78.6386) };
     await memoryStore(db, owner).createQuery(locationId, {
       kind: "search_keyword",
@@ -1675,6 +1709,161 @@ describe("Google results", () => {
         ["google_organic", "dataforseo/organic", 1],
       ]),
     );
+  });
+
+  /** Google showed no AI Overview, no map results and no AI Mode answer; organic as usual. */
+  const nothingShown = () => {
+    answered = {
+      organic: task(
+        (vendor.organic.tasks[0]?.result[0]?.items ?? []).filter(
+          (item) => (item as { type: string }).type === "organic",
+        ),
+      ),
+      local_finder: task([]),
+      ai_mode: task([]),
+    };
+  };
+
+  it("keeps a Google search that showed nothing as nothing shown, and scores without it", async () => {
+    withGoogle();
+    nothingShown();
+    const scan = await queueScan();
+    await runScan(scan.id, { store: worker, providers: google(), geocode });
+    const found = (surface: string) => db.results.find((result) => result.surface === surface);
+    expect(found("google_ai_overview")).toMatchObject({ shown: false, mentioned: false });
+    expect(found("google_local_pack")).toMatchObject({ shown: false, mentioned: false });
+    expect(found("google_ai_mode")).toMatchObject({ shown: false, mentioned: false });
+    expect(found("google_organic")).toMatchObject({ shown: true, mentioned: true, position: 2 });
+    // An assistant always answers, whoever it names.
+    expect(found("chatgpt")).toMatchObject({ shown: true });
+    // ChatGPT and the organic results both name the business second (0.8 each); the three
+    // surfaces that showed nothing count neither way: (0.8 + 0.8) / 2.
+    expect((await worker.getScan(scan.id))?.visibility_score).toBe(80);
+  });
+
+  /** The location as its page reads it, through the API. */
+  const page = async () => {
+    const app = createApp({
+      authenticate: async () => ({
+        user: { id: owner, email: "owner@example.com" },
+        store: memoryStore(db, owner),
+      }),
+      publicStore: () => memoryStore(db, "nobody"),
+    });
+    const response = await app.request(`/api/locations/${locationId}`, {}, {
+      PROVIDER_MODE: "live",
+    } as Env);
+    return LocationDetailSchema.parse(await response.json());
+  };
+  const cell = (detail: Awaited<ReturnType<typeof page>>, surface: string) =>
+    detail.window.cells.find((candidate) => candidate.surface === surface);
+
+  it("counts a rate over the checks that showed something, and keeps the ones that did not", async () => {
+    withGoogle();
+    await scanned();
+    nothingShown();
+    await scanned();
+    const detail = await page();
+    expect(cell(detail, "google_ai_overview")).toMatchObject({
+      checks: 1,
+      mentions: 1,
+      not_shown: 1,
+      history: ["named", "not_shown"],
+    });
+    expect(cell(detail, "google_organic")).toMatchObject({
+      checks: 2,
+      mentions: 2,
+      not_shown: 0,
+      history: ["named", "named"],
+    });
+    expect(cell(detail, "chatgpt")).toMatchObject({ history: ["named", "named"] });
+    // ChatGPT twice, and the AI Overview and AI Mode once each: the second scan's showed nothing.
+    expect(detail.window.answers).toBe(4);
+  });
+
+  const organicOnly = () =>
+    (vendor.organic.tasks[0]?.result[0]?.items ?? []).filter(
+      (item) => (item as { type: string }).type === "organic",
+    );
+  /** An AI Overview that names only a competitor. */
+  const overviewMisses = () => {
+    answered = {
+      organic: task([
+        answer("Try Tony's Slice House.", "https://tonys.example/"),
+        ...organicOnly(),
+      ]),
+    };
+  };
+  const drops = async () =>
+    (await worker.listAlerts(locationId, false))
+      .filter((alert) => alert.kind === "drop")
+      .map((alert) => (alert.kind === "drop" ? [alert.surface, alert.facts] : null));
+
+  it("raises no drop when an overview that named the business stops being shown", async () => {
+    withGoogle();
+    for (let i = 0; i < 4; i++) await scanned();
+    nothingShown();
+    for (let i = 0; i < 3; i++) await scanned();
+    expect(await drops()).toEqual([]);
+  });
+
+  it("raises a drop over the checks that showed something, looking past one that did not", async () => {
+    withGoogle();
+    for (let i = 0; i < 3; i++) await scanned();
+    nothingShown();
+    await scanned();
+    overviewMisses();
+    for (let i = 0; i < 3; i++) await scanned();
+    expect(await drops()).toEqual([
+      [
+        "google_ai_overview",
+        expect.objectContaining({ missed: 3, checks_before: 3, named_before: 3 }),
+      ],
+    ]);
+  });
+
+  it("recommends nothing for a Google column where nothing was shown", async () => {
+    withGoogle();
+    nothingShown();
+    await scanned();
+    const rules = (await worker.listRecommendations(locationId)).map((r) => r.rule);
+    expect(rules).not.toContain("absent:google_ai_overview");
+    expect(rules).not.toContain("absent:google_local_pack");
+    expect(rules).not.toContain("absent:google_ai_mode");
+  });
+
+  /** A scheduled scan's report email. */
+  const emailed = async () => {
+    const scan = await queueScan("scheduled");
+    let report: ScanReport | undefined;
+    await runScan(scan.id, {
+      store: worker,
+      providers: google(),
+      geocode,
+      notify: async (sent) => {
+        report = sent;
+        return true;
+      },
+    });
+    if (!report) throw new Error("no report");
+    return buildScanReportEmail(report, "https://app.example/").text;
+  };
+
+  it("says in the report how many searches showed nothing", async () => {
+    withGoogle();
+    await scanned();
+    nothingShown();
+    const text = await emailed();
+    expect(text).toContain("AI Overview: named in 1 of 1, not shown for 1 search");
+    expect(text).toContain("Organic: named in 2 of 2\n");
+  });
+
+  it("says in the report when a search showed nothing in any scan", async () => {
+    withGoogle();
+    nothingShown();
+    await scanned();
+    const text = await emailed();
+    expect(text).toContain("AI Overview: not shown for any of 2 searches");
   });
 
   it("checks no Google surface, and looks nothing up, where the plan does not include it", async () => {

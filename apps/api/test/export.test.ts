@@ -104,6 +104,7 @@ async function seed() {
       scan_id: scan.id,
       tracked_query_id: prompt.id,
       surface: "chatgpt",
+      shown: true,
       mentioned: true,
       position: 1,
       competitors: ["Pie Hole"],

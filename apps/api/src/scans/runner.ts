@@ -199,7 +199,7 @@ export async function runScan(scanId: string, deps: RunScanDeps): Promise<ScanOu
           tracked_query_id: query.id,
           surface: provider.surface,
           tier,
-          ...analyzeObservation(observation, checked),
+          ...analyzeObservation(observation, checked, provider.surface),
         };
       }),
     );

@@ -4,6 +4,7 @@ import {
   CITING_SURFACES,
   type Draft,
   type DraftKind,
+  isCounted,
   type Location,
   pageDraftSubject,
   poolWindow,
@@ -21,7 +22,9 @@ export function citedIn(
   website: string | null,
 ): { answers: ScanResult[]; sources: SourceSummary[] } {
   // The same pool the rates are counted over, narrowed to the answers that list their sources.
-  const answers = poolWindow(recent).filter((result) => CITING_SURFACES.includes(result.surface));
+  const answers = poolWindow(recent).filter(
+    (result) => CITING_SURFACES.includes(result.surface) && isCounted(result),
+  );
   // Every site, so nothing is called uncited because a list was cut.
   return { answers, sources: summarizeSources(answers, website, Number.POSITIVE_INFINITY) };
 }

@@ -15,7 +15,7 @@ import {
   type Surface,
   type Tier,
 } from "./schemas";
-import { cellKey, SCAN_WINDOW } from "./scoring";
+import { cellKey, isCounted, SCAN_WINDOW } from "./scoring";
 import { belongsTo, summarizeSources } from "./sources";
 
 /**
@@ -32,7 +32,8 @@ import { belongsTo, summarizeSources } from "./sources";
  *   checks did not name the business and at least `DROP_NAMED_BEFORE` of the
  *   `DROP_CHECKS_BEFORE` before them did. Cleared when a check made after the alert was raised
  *   names the business, or when the prompt, the surface or the tier is no longer checked. Never
- *   by age.
+ *   by age. A check where Google showed nothing is passed over: it neither misses nor names, so
+ *   it raises, counts toward and clears nothing (ADR 0024).
  * - A first sighting, of a business or of a site. Raised when the written answers of the latest
  *   `FIRST_SEEN_SCANS` scans name the business, or cite the site, in at least
  *   `FIRST_SEEN_ANSWERS` answers across at least `FIRST_SEEN_IN_SCANS` of those scans, and no
@@ -78,6 +79,8 @@ export interface AlertCheck {
   surface: Surface;
   /** The model it was asked with. Left out, as on a result kept before tiers, it is Standard. */
   tier?: Tier;
+  /** False when Google showed nothing for the search. Left out, it was shown. */
+  shown?: boolean;
   mentioned: boolean;
   competitors: readonly string[];
   cited_urls: readonly string[];
@@ -238,8 +241,12 @@ function drops(
   for (const [cell, checks] of cells) {
     const [first] = checks;
     if (!first) continue;
-    const recent = checks.slice(0, DROP_MISSES + DROP_CHECKS_BEFORE);
-    if (recent.length < DROP_MISSES + DROP_CHECKS_BEFORE) continue;
+    // The cell must have been checked in enough scans; of those, only the checks that showed
+    // something can miss or name.
+    const checked = checks.slice(0, DROP_MISSES + DROP_CHECKS_BEFORE);
+    if (checked.length < DROP_MISSES + DROP_CHECKS_BEFORE) continue;
+    const recent = checked.filter(({ check }) => isCounted(check));
+    if (recent.length < DROP_MISSES + DROP_NAMED_BEFORE) continue;
     if (recent.slice(0, DROP_MISSES).some(({ check }) => check.mentioned)) continue;
     const namedBefore = recent.slice(DROP_MISSES).filter(({ check }) => check.mentioned).length;
     if (namedBefore < DROP_NAMED_BEFORE) continue;

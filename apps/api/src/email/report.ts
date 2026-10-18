@@ -2,6 +2,7 @@ import {
   alertDetail,
   alertEnded,
   groupAlerts,
+  type SurfaceSummary,
   summarizeBySurface,
   surfaceWithTier,
 } from "@nearcited/shared";
@@ -62,6 +63,19 @@ function subjectOf(report: ScanReport): string {
   return `${location.name}: visibility ${score === null ? "not scored" : `${score} of 100`}`;
 }
 
+const searches = (count: number) => (count === 1 ? "1 search" : `${count} searches`);
+
+/** How often a surface named the business, out of the checks where something was shown. */
+function countsLine({ checks, mentions, not_shown }: SurfaceSummary): string {
+  if (checks === 0) {
+    return not_shown === 1
+      ? "not shown for the 1 search"
+      : `not shown for any of ${not_shown} searches`;
+  }
+  const named = `named in ${mentions} of ${checks}`;
+  return not_shown > 0 ? `${named}, not shown for ${searches(not_shown)}` : named;
+}
+
 export function buildScanReportEmail(report: ScanReport, appUrl: string): Email {
   const { location, score, window } = report;
   // The window holds only the tier this scan asked each surface on, so this scan says which.
@@ -69,7 +83,7 @@ export function buildScanReportEmail(report: ScanReport, appUrl: string): Email 
     report.results.find((result) => result.surface === surface)?.tier;
   const lines = summarizeBySurface(window.results).map(
     (summary) =>
-      `  ${surfaceWithTier(summary.surface, tierOn(summary.surface))}: named in ${summary.mentions} of ${summary.checks}`,
+      `  ${surfaceWithTier(summary.surface, tierOn(summary.surface))}: ${countsLine(summary)}`,
   );
   const link = `${appUrl.replace(/\/$/, "")}/locations/${location.id}`;
 

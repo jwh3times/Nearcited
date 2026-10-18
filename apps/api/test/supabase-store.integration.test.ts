@@ -738,6 +738,17 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
           answer_excerpt: null,
           phones: [],
         },
+        {
+          tracked_query_id: query.id,
+          surface: "google_ai_overview",
+          shown: false,
+          mentioned: false,
+          position: null,
+          competitors: [],
+          cited_urls: [],
+          answer_excerpt: null,
+          phones: [],
+        },
       ],
       recommendations: [{ rule: "absent:gemini", title: "Not named on Gemini", detail: "Detail" }],
       alerts: {
@@ -757,7 +768,11 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
     const finished = await aliceStore.getScan(scan.id);
     expect(finished).toMatchObject({ status: "succeeded", visibility_score: 62.5, error: null });
     // The scan keeps the tier it asked each surface on.
-    expect(finished?.tiers).toEqual({ chatgpt: "stronger", gemini: "standard" });
+    expect(finished?.tiers).toEqual({
+      chatgpt: "stronger",
+      gemini: "standard",
+      google_ai_overview: "standard",
+    });
     expect(await aliceStore.listScans(location.id, 5)).toEqual([finished]);
     expect((await aliceStore.getLocation(location.id))?.last_scanned_at).not.toBeNull();
 
@@ -772,6 +787,13 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
     expect(results.map((r) => [r.surface, r.mentioned, r.position]).sort()).toEqual([
       ["chatgpt", true, 2],
       ["gemini", false, null],
+      ["google_ai_overview", false, null],
+    ]);
+    // A search where Google showed nothing is kept as one; the rest showed something.
+    expect(results.map((r) => [r.surface, r.shown]).sort()).toEqual([
+      ["chatgpt", true],
+      ["gemini", true],
+      ["google_ai_overview", false],
     ]);
     expect(results.find((r) => r.surface === "chatgpt")).toMatchObject({
       competitors: ["Tony's Slice House"],
@@ -784,6 +806,7 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
     expect(results.map((r) => [r.surface, r.tier]).sort()).toEqual([
       ["chatgpt", "stronger"],
       ["gemini", "standard"],
+      ["google_ai_overview", "standard"],
     ]);
 
     expect(await bobStore.getScan(scan.id)).toBeNull();
