@@ -157,6 +157,8 @@ describe("downloading everything", () => {
 
   it("answers an owner with everything the organization holds, in the export's shape", async () => {
     const exported = AccountExportSchema.parse(await exportOf(owner, org));
+    // Whether Google showed anything for each search goes with it.
+    expect(exported.answers.map((row) => row.shown)).toEqual([true]);
     expect(exported.organization.id).toBe(org);
     expect(exported.locations.map((row) => row.id)).toEqual([location]);
     expect(exported.prompts).toHaveLength(1);

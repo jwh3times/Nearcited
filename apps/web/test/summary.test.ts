@@ -32,6 +32,20 @@ describe("surfaceRates", () => {
       { surface: "gemini", checks: 0, mentions: 0, rate: null },
     ]);
   });
+
+  it("counts only the checks where Google showed something", () => {
+    const overview = {
+      tracked_query_id: "k1",
+      surface: "google_ai_overview" as const,
+      checks: 2,
+      mentions: 1,
+      not_shown: 5,
+      history: [],
+    };
+    expect(surfaceRates([overview], ["google_ai_overview"])).toEqual([
+      { surface: "google_ai_overview", checks: 2, mentions: 1, rate: 0.5 },
+    ]);
+  });
 });
 
 describe("noScoreReason", () => {

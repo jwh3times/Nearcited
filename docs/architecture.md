@@ -258,9 +258,18 @@ would have to come from a data vendor.
 An assistant can name different businesses for the same prompt an hour apart, so one answer is a
 sample. The product reports and scores over a window instead (`SCAN_WINDOW`, seven scans):
 
-- **A cell is one prompt on one surface at one tier** (`cellKey`, `packages/shared/src/scoring.ts`, which alerts use too). Moving an assistant between Standard and Stronger starts a new cell rather than mixing two models' answers; the location page and score history mark the change. The grid shows "x of y": how many of the cell's checks
-  in the window named the business. The latest answer is shown beneath.
-- **The score averages each cell over its own checks, then averages the cells.** A prompt added
+- **A cell is one prompt on one surface at one tier** (`cellKey`, `packages/shared/src/scoring.ts`, which alerts use too). Moving an assistant between Standard and Stronger starts a new cell rather than mixing two models' answers; the location page and score history mark the change. The grid shows "x of y": how many of the cell's
+  shown checks in the window named the business. A Google check that showed nothing is not in y
+  (see the next point). The latest answer is shown beneath.
+- **A Google check where Google showed nothing is kept and counted nowhere**
+  (`docs/adr/0024-a-search-that-showed-nothing-is-kept-and-not-counted.md`). When a search returns no
+  AI Overview, no AI Mode answer, or no map or organic results, `analyzeObservation` (which takes the
+  surface as a required third argument) sets `scan_results.shown` to false. `isCounted` and
+  `isCountedAnswer` (`packages/shared/src/scoring.ts`) are the one place that says so, and the
+  score, the rates, the recommendations and the alerts all pass such a check over. A cell's `checks`
+  are its shown checks and `not_shown` counts the rest.
+- **The score averages each cell over its own shown checks, then averages the cells.** A cell with no
+  shown check is left out, and when nothing is left the score is null. A prompt added
   yesterday counts as much as one tracked all week.
 - **The newest scan decides which cells exist.** A retired prompt, or a surface no longer
   checked, drops out of the rate at once. A scan that asked only retired prompts adds nothing,
@@ -277,8 +286,9 @@ sample. The product reports and scores over a window instead (`SCAN_WINDOW`, sev
 
 A new location has one scan in its window and reads "named" or "not named" until more arrive.
 
-Each cell also carries its `history`, whether each check in the window named the business, which
-the grid draws as a strip of dots. The chart of the score over time on the location page plots
+Each cell also carries its `history`, what each check in the window found (`named`, `not_named` or
+`not_shown`, oldest first), which the grid draws as a strip of dots, a dashed one for a search that
+showed nothing. The chart of the score over time on the location page plots
 each successful scan's `visibility_score` from `GET /api/locations/:id/scans`, on a fixed 0 to
 100 axis, and only for scans of the same kind as the latest one.
 
@@ -656,9 +666,11 @@ and never what to do, and no model writes one.
 
 - **A drop is a prompt on one surface that named the business and has stopped.** It is raised when
   the latest `DROP_MISSES` (3) checks of the cell did not name the business and at least
-  `DROP_NAMED_BEFORE` (3) of the `DROP_CHECKS_BEFORE` (4) before them did. It needs all seven
-  checks in the cell, a full `SCAN_WINDOW`, so a new location or a new prompt is quiet until
-  its seventh scan. The thresholds are public constants, not tuning. The row keeps the counts it
+  `DROP_NAMED_BEFORE` (3) of the `DROP_CHECKS_BEFORE` (4) before them did. It needs the cell's
+  window to be full (seven checks, a full `SCAN_WINDOW`), so a new location or a new prompt is quiet
+  until its seventh scan, and, among those checks, three misses with three named before them. A
+  check where Google showed nothing is passed over: it neither misses nor names, so a window with
+  too few shown checks raises nothing. The thresholds are public constants, not tuning. The row keeps the counts it
   rests on (`facts`: the prompt as asked, how many checks in a row missed, how many came before
   and how many of those named the business) and when the run of misses began (`since`). A drop
   that could not be raised at its third miss (the cell's window was not yet full, or alerts did

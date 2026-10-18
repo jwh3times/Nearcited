@@ -180,8 +180,8 @@ export function phonesGivenFor(
  * assistant always answers, and an answer that names nobody is still one that left the business
  * out.
  */
-function wasShown(observation: Observation, surface: Surface | undefined): boolean {
-  if (!surface || !isGoogle(surface)) return true;
+function wasShown(observation: Observation, surface: Surface): boolean {
+  if (!isGoogle(surface)) return true;
   if (observation.kind === "ranking") return observation.entries.length > 0;
   return (
     observation.text.trim() !== "" ||
@@ -191,7 +191,7 @@ function wasShown(observation: Observation, surface: Surface | undefined): boole
 }
 
 /** What a result holds when nothing was shown: not named, and nothing else. */
-const NOTHING_SHOWN: Finding = {
+const EMPTY_FINDING: Finding = {
   shown: false,
   mentioned: false,
   position: null,
@@ -205,10 +205,10 @@ export function analyzeObservation(
   observation: Observation,
   business: BusinessIdentity,
   /** The surface it came from, which decides whether it can have shown nothing. */
-  surface?: Surface,
+  surface: Surface,
 ): Finding {
   const businessHost = hostOf(business.website);
-  if (!wasShown(observation, surface)) return { ...NOTHING_SHOWN };
+  if (!wasShown(observation, surface)) return { ...EMPTY_FINDING };
 
   if (observation.kind === "ranking") {
     const index = observation.entries.findIndex(

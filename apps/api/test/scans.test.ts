@@ -1866,6 +1866,39 @@ describe("Google results", () => {
     expect(text).toContain("AI Overview: not shown for any of 2 searches");
   });
 
+  it("keeps empty organic results as nothing shown, and an assistant naming nobody as not named", async () => {
+    withGoogle();
+    answered = { organic: task([]) };
+    const scan = await queueScan();
+    await runScan(scan.id, {
+      store: worker,
+      providers: {
+        ...google(),
+        chatgpt: {
+          surface: "chatgpt",
+          observe: async () => ({ kind: "answer", text: "", businesses: [], cited_urls: [] }),
+        },
+      },
+      geocode,
+    });
+    const found = (surface: string) => db.results.find((result) => result.surface === surface);
+    expect(found("google_organic")).toMatchObject({ shown: false, mentioned: false });
+    expect(found("chatgpt")).toMatchObject({ shown: true, mentioned: false });
+  });
+
+  it("gives no score when Google showed nothing for any of the searches", async () => {
+    withGoogle();
+    const organization = db.organizations[0];
+    if (organization) organization.surfaces = [];
+    nothingShown();
+    answered.organic = task([]);
+    const scan = await queueScan();
+    expect(await runScan(scan.id, { store: worker, providers: google(), geocode })).toBe(
+      "succeeded",
+    );
+    expect((await worker.getScan(scan.id))?.visibility_score).toBeNull();
+  });
+
   it("checks no Google surface, and looks nothing up, where the plan does not include it", async () => {
     withGoogle(false);
     expect(await scanned()).toEqual({ outcome: "succeeded", surfaces: ["chatgpt"] });

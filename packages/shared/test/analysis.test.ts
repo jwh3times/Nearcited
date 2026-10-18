@@ -72,6 +72,7 @@ describe("analyzeObservation: rankings", () => {
         ],
       },
       business,
+      "google_local_pack",
     );
     expect(finding).toMatchObject({
       mentioned: true,
@@ -84,6 +85,7 @@ describe("analyzeObservation: rankings", () => {
     const finding = analyzeObservation(
       { kind: "ranking", entries: [{ name: "Tony's Slice House" }, { name: "Crust & Co" }] },
       business,
+      "google_local_pack",
     );
     expect(finding.mentioned).toBe(false);
     expect(finding.position).toBeNull();
@@ -94,6 +96,7 @@ describe("analyzeObservation: rankings", () => {
     const finding = analyzeObservation(
       { kind: "ranking", entries: [{ name: "Tony's Slice House", place_id: null }] },
       { ...business, google_place_id: null },
+      "google_local_pack",
     );
     expect(finding.mentioned).toBe(false);
   });
@@ -109,6 +112,7 @@ describe("analyzeObservation: answers", () => {
         cited_urls: ["https://tonys.example"],
       },
       business,
+      "chatgpt",
     );
     expect(finding).toMatchObject({ mentioned: true, position: 2 });
     expect(finding.competitors).toEqual(["Tony's Slice House"]);
@@ -124,6 +128,7 @@ describe("analyzeObservation: answers", () => {
         cited_urls: ["https://order.joespizza.example/late-night"],
       },
       business,
+      "chatgpt",
     );
     expect(finding).toMatchObject({ mentioned: true, position: null });
   });
@@ -137,6 +142,7 @@ describe("analyzeObservation: answers", () => {
         cited_urls: [],
       },
       business,
+      "chatgpt",
     );
     expect(finding.mentioned).toBe(false);
   });
@@ -151,6 +157,7 @@ describe("analyzeObservation: answers", () => {
         cited_urls: [],
       },
       business,
+      "chatgpt",
     );
     expect(finding.answer_excerpt).toContain("Joe's Pizza");
     expect(finding.answer_excerpt?.length).toBeLessThanOrEqual(282);
@@ -234,12 +241,14 @@ describe("phonesGivenFor", () => {
         cited_urls: [],
       },
       { ...business, country_code: "US" },
+      "chatgpt",
     );
     expect(answer.phones).toEqual(["+19195550101"]);
 
     const ranking = analyzeObservation(
       { kind: "ranking", entries: [{ name: "Joe's Pizza (919) 555-0101" }] },
       business,
+      "google_local_pack",
     );
     expect(ranking.phones).toEqual([]);
   });

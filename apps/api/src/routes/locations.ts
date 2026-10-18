@@ -4,13 +4,12 @@ import {
   buildDetailsFix,
   buildPageTasks,
   buildTasks,
-  CITING_SURFACES,
   coveredSurfaces,
   type DetailsEvidence,
   type DraftKind,
   draftsStanding,
   FETCHES_SHOWN_DAYS,
-  isCounted,
+  isCountedAnswer,
   type LocationDetail,
   LocationInputSchema,
   MAX_SCANS_SINCE,
@@ -89,8 +88,7 @@ locationRoutes.get("/locations/:id", async (c) => {
 
   // For each recommendation a member marked, the answers either side of the mark. They are
   // read separately from the window: the window moves on, and the mark stays where it was put.
-  const citing = (scans: Awaited<typeof recent>) =>
-    scans.flat().filter((result) => CITING_SURFACES.includes(result.surface) && isCounted(result));
+  const citing = (scans: Awaited<typeof recent>) => scans.flat().filter(isCountedAnswer);
   const around = new Map(
     await Promise.all(
       recommendations

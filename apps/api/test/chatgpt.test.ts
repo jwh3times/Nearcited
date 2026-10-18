@@ -167,7 +167,11 @@ describe("parseChatGptResponse", () => {
   });
 
   it("produces an observation the shared analysis can judge", () => {
-    const finding = analyzeObservation(parseChatGptResponse(apiResponse(goodAnswer)), location);
+    const finding = analyzeObservation(
+      parseChatGptResponse(apiResponse(goodAnswer)),
+      location,
+      "chatgpt",
+    );
     expect(finding).toMatchObject({
       mentioned: true,
       position: 2,

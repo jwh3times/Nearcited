@@ -108,6 +108,7 @@ function Cell({ cell }: { cell: MatrixCell }) {
       ) : (
         <span className="none">
           <span className="ring" aria-hidden="true" />0 of {reading.checks}
+          {reading.latest_not_shown && ` · ${reading.latest}`}
         </span>
       )}
       {rate && rate.history.length > 1 && <History checks={rate.history} />}

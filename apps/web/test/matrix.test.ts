@@ -137,14 +137,20 @@ describe("readCell", () => {
 
   it("counts the rate over the checks that showed something", () => {
     expect(readCell(cell("google_organic", result("k1", "google_organic"), rate(4, 3, 2)))).toEqual(
-      { kind: "rate", mentions: 3, checks: 4, latest: "Latest 1st" },
+      { kind: "rate", mentions: 3, checks: 4, latest: "Latest 1st", latest_not_shown: false },
     );
   });
 
   it("says what was missing when the latest search showed nothing, beside the rate", () => {
     expect(
       readCell(cell("google_ai_overview", nothing("google_ai_overview"), rate(2, 1, 1))),
-    ).toEqual({ kind: "rate", mentions: 1, checks: 2, latest: "No AI Overview latest" });
+    ).toEqual({
+      kind: "rate",
+      mentions: 1,
+      checks: 2,
+      latest: "No AI Overview latest",
+      latest_not_shown: true,
+    });
   });
 
   it("says what was missing, in place of a rate, when no search in the window showed anything", () => {

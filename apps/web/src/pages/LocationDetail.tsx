@@ -1,6 +1,7 @@
 import {
   type LocationDetail as Detail,
   hostOf,
+  isCounted,
   isGoogle,
   needsBusinessBlock,
   QUERY_KIND_LABELS,
@@ -155,8 +156,8 @@ export function LocationDetail() {
   const retired = queries.filter((query) => !query.is_active);
   const results = scan?.status === "succeeded" ? scan.results : [];
   // A search where Google showed nothing counts neither way, so it is said apart (ADR 0024).
-  const shownResults = results.filter((result) => result.shown);
-  const nothingShown = results.filter((result) => !result.shown);
+  const shownResults = results.filter(isCounted);
+  const nothingShown = results.filter((result) => !isCounted(result));
   const excerpts = results.filter((result) => result.answer_excerpt);
   const noScore =
     scan?.status === "succeeded" && scan.visibility_score === null

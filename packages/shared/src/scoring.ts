@@ -1,4 +1,4 @@
-import { type CheckOutcome, SURFACES, type Surface, type Tier } from "./schemas";
+import { type CheckOutcome, CITING_SURFACES, SURFACES, type Surface, type Tier } from "./schemas";
 import { defaultTuning, type ScoreWeights } from "./tuning";
 
 /**
@@ -86,6 +86,10 @@ export interface WindowCheck {
  * and counted nowhere: not in a score, a rate, an alert or a recommendation (ADR 0024).
  */
 export const isCounted = (check: { shown?: boolean }): boolean => check.shown !== false;
+
+/** Whether a check is a written answer that could cite pages, and counts. */
+export const isCountedAnswer = (check: { surface: Surface; shown?: boolean }): boolean =>
+  CITING_SURFACES.includes(check.surface) && isCounted(check);
 
 /** One prompt on one surface, counted over the window. */
 export interface WindowCell {
