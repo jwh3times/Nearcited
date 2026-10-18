@@ -236,15 +236,15 @@ a signed-in caller (`guard_location_point`). A location that cannot be placed at
 checked on Google in that scan, and the scan checks the rest.
 
 **What a Google check is billed for.** DataForSEO bills each call by the request. Its published
-rates were: Google's results page live $0.002 a request, with $0.002 more for
+rates on 2026-10-17 were: Google's results page live $0.002 a request, with $0.002 more for
 loading the AI Overview, refunded when none appears; Local Finder live $0.002 for each 10 results
-(so `map_depth` sets what it costs); AI Mode live $0.004 a request. The organic results cost
-more for each 10 deeper they are read (`organic_depth`). Mapbox's permanent geocoding was $5 per
-1,000 lookups. The provider records each call as searches under a name for it
+returned; AI Mode live $0.004 a request. The organic results cost more for each 10 deeper they
+are read (`organic_depth`). Mapbox's permanent geocoding was $5 per 1,000 lookups. The provider
+records each call as searches under a name for it
 (`dataforseo/organic`, `dataforseo/ai-overview`, recorded only when an overview came back,
 `dataforseo/local-finder` and `dataforseo/ai-mode`), and the geocoding as
 `mapbox/geocode-permanent` with no surface. A name with no entry in the tuning's `rates` has no
-cost. What a Google check was measured to cost is kept in the private pricing notes, with the
+cost. What a Google check is measured to cost is kept in the private pricing notes, with the
 rest.
 
 **Gemini is not built on Google's API, on purpose.** Google's terms for Grounding with Google
