@@ -161,6 +161,16 @@ system works; this file only settles vocabulary.
   not, or a number a month for each location the plan covers. A limit caps what an owner sets up;
   an allowance says what work is done for them. See
   `docs/adr/0012-a-plans-allowances-are-one-set.md`.
+- **Surface**: one place a query is checked: an assistant (ChatGPT, Gemini, Perplexity, Claude) for
+  a prompt, or one of Google's four (map pack, organic, AI Overview, AI Mode) for a keyword. A
+  scan checks the Google ones only where the organization's allowances include Google results.
+- **Google results**: the allowance (`google_results`, included or not) that has a scan check a
+  Google keyword on Google's four surfaces. It is on no plan; the operator can give it to one
+  organization. See `docs/adr/0023-google-results-are-bought-and-checked-from-one-point.md`.
+- **Check point** (or **point**): the latitude and longitude a location's Google results are
+  checked from: its street address, or the middle of its city when it has none or the address
+  cannot be found. The worker finds it from the address and is the only one to write it. See
+  `docs/adr/0023-google-results-are-bought-and-checked-from-one-point.md`.
 - **Tier**: the model an assistant is asked with for an organization. **Standard** is the one the
   deployment checks everyone with; **Stronger** is a more capable one its owner pays for on that
   assistant, a month for each location paid for on top of the plan, on a plan that includes stronger

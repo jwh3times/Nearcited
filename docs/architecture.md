@@ -73,6 +73,9 @@ POST /api/locations/:id/scans          cron
                        |
               queue consumer: runScan()
                        |
+     the surfaces are the organization's plan's, with Google's only where its allowances
+     include google_results; before the first Google check, the location's point is found
+     (Mapbox) and kept, and again when its address changes. No point: no Google check.
      for each active query x each surface that kind is checked on:
         provider.observe()   -> Observation   (what the surface returned)
         analyzeObservation() -> Finding       (was the business named, where, who else, and the
@@ -123,8 +126,10 @@ leave the server; the rates do not.
 
 ## Tuning
 
-Prompt wording, score weights and what writes a draft (its model, effort, length and the
-instructions for each kind of draft) are values, defined by `TuningSchema` in
+Prompt wording, score weights, how Google results are checked (`google`: the radius around the
+point, the map's zoom and how deep the organic and map results are read) and what writes a draft
+(its model, effort, length and the instructions for each kind of draft) are values, defined by
+`TuningSchema` in
 `packages/shared/src/tuning.ts` with placeholder defaults. The values a deployment really uses
 live in the private companion repository as `private/tuning.json`
 ([ADR 0001](adr/0001-private-tuning-as-data.md)).
@@ -157,7 +162,11 @@ tuning. A kind with no instructions is not written, and nothing falls back to a 
 
 ## Live providers
 
-A live scan checks each surface whose key is set and skips the rest (`createLiveProviders`).
+A live scan checks each surface whose key is set and skips the rest (`createLiveProviders`). The
+Google surfaces are set up when `DATAFORSEO_LOGIN`, `DATAFORSEO_PASSWORD` and `MAPBOX_TOKEN` are
+all set (`liveSurfaces`), and a scan checks them only for an organization whose allowances include
+`google_results` (`coveredSurfaces`, `packages/shared/src/google.ts`), whatever its `surfaces`
+say. Sample data covers them all.
 
 **ChatGPT** (`apps/api/src/providers/chatgpt.ts`) calls OpenAI's Responses API with the
 `web_search` tool, told to search as someone in the location's city, and asks for the answer and
@@ -205,6 +214,38 @@ public and this section may quote them. What a call really used and what it came
 models and settings compared on cost, is the owner's research and is kept in the private
 companion with the pricing (see "Private companion" in `AGENTS.md`). The rates a deployment
 turns recorded usage into spend with are the tuning's `rates`.
+
+**Google** (`apps/api/src/providers/dataforseo.ts`) is bought from DataForSEO's live SERP
+interface, because Google has no interface for its results
+([ADR 0023](adr/0023-google-results-are-bought-and-checked-from-one-point.md)). One Google
+keyword is three calls on four surfaces: Google's results page, read for the organic results and,
+asked to load the AI Overview in full, for the AI Overview too (one call serves both surfaces);
+Local Finder, read as the map pack; and AI Mode. Each call is made from the location's point, a
+radius and zoom from the tuning's `google` block, and a call that fails fails the scan. A
+provider only fetches here too: `analyzeObservation` decides whether the business was named.
+AI Mode, like the AI Overview, lists the sites it cites.
+
+The point comes from Mapbox's forward geocoding with permanent results
+(`apps/api/src/providers/mapbox.ts`), the kind whose terms allow keeping it. The scan runner
+looks the location's address up before its first Google check and again when the address
+changes (`needsPoint`, `pointQuery`), falls back to the middle of its city, and keeps what was
+looked up even when nothing was found, so it is not looked up again until the address changes.
+It is written by `setLocationPoint`, a Store method only the worker calls, and the database
+keeps `latitude`, `longitude`, `point_source` and `geocoded_from` as they were for any write by
+a signed-in caller (`guard_location_point`). A location that cannot be placed at all is not
+checked on Google in that scan, and the scan checks the rest.
+
+**What a Google check is billed for.** DataForSEO bills each call by the request. Its published
+rates were: Google's results page live $0.002 a request, with $0.002 more for
+loading the AI Overview, refunded when none appears; Local Finder live $0.002 for each 10 results
+(so `map_depth` sets what it costs); AI Mode live $0.004 a request. The organic results cost
+more for each 10 deeper they are read (`organic_depth`). Mapbox's permanent geocoding was $5 per
+1,000 lookups. The provider records each call as searches under a name for it
+(`dataforseo/organic`, `dataforseo/ai-overview`, recorded only when an overview came back,
+`dataforseo/local-finder` and `dataforseo/ai-mode`), and the geocoding as
+`mapbox/geocode-permanent` with no surface. A name with no entry in the tuning's `rates` has no
+cost. What a Google check was measured to cost is kept in the private pricing notes, with the
+rest.
 
 **Gemini is not built on Google's API, on purpose.** Google's terms for Grounding with Google
 Search do not allow grounded results to be stored, analysed or collected into a database, and a
@@ -1703,6 +1744,11 @@ subdomain alone and is, with `record_page_fetch()`, the only thing the Pages Wor
 `hosted_page_fetches` is read by the location's members and the operator, with no policy or grant for
 a caller who is not signed in, and written by no API role, only by `record_page_fetch()`.
 
+A location's point (`latitude`, `longitude`, `point_source`, `geocoded_from`) is read like the rest
+of the location and written by the worker alone: the `guard_location_point` trigger keeps those
+columns as they were for any write by `anon` or `authenticated`, so nothing a request sends decides
+where a check is made from.
+
 `export_organization()` answers an owner of the organization and no one else (see "Downloading
 everything").
 
@@ -2064,7 +2110,9 @@ drop it.
 ## Limits to design around
 
 - **Each provider call is a subrequest**, and a scan makes (queries x surfaces) of them in one
-  invocation, plus up to fifteen site requests (the page twice and `robots.txt`, each with up
+  invocation (a Google keyword is three calls, not four, since the organic results and the AI
+  Overview share one, and a scan that has to find a location's point adds one or two lookups), plus
+  up to fifteen site requests (the page twice and `robots.txt`, each with up
   to four redirects) unless it serves sample data. Workers cap subrequests and CPU time per
   invocation,
   and the caps differ by plan. Check the current numbers before raising the queries allowed per
