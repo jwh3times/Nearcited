@@ -80,12 +80,12 @@ export type DraftOutcome =
     }
   | { outcome: "failed" | "again"; why: string };
 
-/** What the payment provider knows about an organization, as its owner's checkout needs it. */
 /** Where a location's Google results are checked from, as the worker found it. */
 export type LocationPoint = Pick<Location, "latitude" | "longitude" | "point_source"> & {
   geocoded_from: string;
 };
 
+/** What the payment provider knows about an organization, as its owner's checkout needs it. */
 export interface BillingState {
   organization_id: string;
   is_test: boolean;

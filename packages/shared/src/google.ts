@@ -1,4 +1,4 @@
-import type { Location, Organization, Surface } from "./schemas";
+import { type Location, type Organization, SURFACES, type Surface } from "./schemas";
 
 /**
  * Google results: what a Google keyword shows on Google's map pack, its organic results, its AI
@@ -18,16 +18,16 @@ export const GOOGLE_SURFACES = [
 ] as const satisfies readonly Surface[];
 
 /**
- * The surfaces an organization's scans may check: the assistants it is checked on, and the
- * Google surfaces where its allowances include Google results. Null means every surface that is
- * set up, as for an organization with no plan.
+ * The surfaces an organization's scans may check: the assistants it is checked on, every one
+ * where its `surfaces` is null, and the Google surfaces only where its allowances include Google
+ * results, whatever `surfaces` says.
  */
 export function coveredSurfaces(
   organization: Pick<Organization, "surfaces" | "allowances">,
-): Surface[] | null {
-  if (organization.surfaces === null) return null;
+): Surface[] {
   const google = GOOGLE_RESULTS_ALLOWANCE in organization.allowances ? GOOGLE_SURFACES : [];
-  return [...organization.surfaces.filter((surface) => !isGoogle(surface)), ...google];
+  const others = (organization.surfaces ?? SURFACES).filter((surface) => !isGoogle(surface));
+  return [...others, ...google];
 }
 
 /** True for a surface of Google's own. */

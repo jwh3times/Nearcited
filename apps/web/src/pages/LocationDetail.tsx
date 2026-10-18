@@ -406,7 +406,10 @@ export function LocationDetail() {
               />
             )}
             <ErrorNote error={setQueryActive.error} />
-            {checksGoogle && <p className="small muted">{googlePointLine(location)}</p>}
+            {/* Generated results are checked from nowhere, so there is no point to speak of. */}
+            {checksGoogle && !me.data?.sample_data && !organization?.is_test && (
+              <p className="small muted">{googlePointLine(location)}</p>
+            )}
             {wantsKeyword && (
               <p className="small">
                 Your plan includes Google results, but this location has no Google keyword. Add one

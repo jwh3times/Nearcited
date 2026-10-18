@@ -16,11 +16,13 @@ export type LiveKeys = Pick<
 >;
 
 /**
- * True when Google can be checked: DataForSEO's sign-in for the results, and Mapbox for the point
- * they are checked from. One without the other checks nothing.
+ * DataForSEO's sign-in where Google can be checked: it gives the results, and Mapbox the point
+ * they are checked from, so one without the other checks nothing. Null where it cannot.
  */
-function checksGoogle(env: LiveKeys): boolean {
-  return Boolean(env.DATAFORSEO_LOGIN && env.DATAFORSEO_PASSWORD && env.MAPBOX_TOKEN);
+function googleSignIn(env: LiveKeys): { login: string; password: string } | null {
+  return env.DATAFORSEO_LOGIN && env.DATAFORSEO_PASSWORD && env.MAPBOX_TOKEN
+    ? { login: env.DATAFORSEO_LOGIN, password: env.DATAFORSEO_PASSWORD }
+    : null;
 }
 
 /**
@@ -58,16 +60,8 @@ export function createLiveProviders(env: LiveKeys, tuning: Tuning): ProviderRegi
       tuning,
     });
   }
-  if (checksGoogle(env) && env.DATAFORSEO_LOGIN && env.DATAFORSEO_PASSWORD) {
-    Object.assign(
-      providers,
-      createDataForSeoProviders({
-        login: env.DATAFORSEO_LOGIN,
-        password: env.DATAFORSEO_PASSWORD,
-        tuning,
-      }),
-    );
-  }
+  const signIn = googleSignIn(env);
+  if (signIn) Object.assign(providers, createDataForSeoProviders({ ...signIn, tuning }));
   return providers;
 }
 
@@ -76,6 +70,6 @@ export function liveSurfaces(env: LiveKeys): Surface[] {
   const surfaces: Surface[] = [];
   if (env.OPENAI_API_KEY) surfaces.push("chatgpt");
   if (env.ANTHROPIC_API_KEY) surfaces.push("claude");
-  if (checksGoogle(env)) surfaces.push(...GOOGLE_SURFACES);
+  if (googleSignIn(env)) surfaces.push(...GOOGLE_SURFACES);
   return surfaces;
 }

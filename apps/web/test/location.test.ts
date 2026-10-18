@@ -104,6 +104,19 @@ describe("googlePointLine", () => {
     );
   });
 
+  it("says when the city could not be found, with no street address to look for", () => {
+    expect(
+      googlePointLine({
+        ...location,
+        address_line: null,
+        postal_code: null,
+        geocoded_from: "Raleigh, US",
+      }),
+    ).toBe(
+      "Raleigh couldn't be found on the map, so Google results aren't checked. Check the city.",
+    );
+  });
+
   it("says when the location could not be placed at all", () => {
     expect(
       googlePointLine({

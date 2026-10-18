@@ -34,6 +34,10 @@ export function locationFormValues(location: Location): Required<LocationFormVal
 export function googlePointLine(location: Location): string {
   const street = location.address_line?.trim();
   const city = location.city;
+  const unplaced = !needsPoint(location) && location.latitude === null;
+  if (!street && unplaced) {
+    return `${city} couldn't be found on the map, so Google results aren't checked. Check the city.`;
+  }
   if (!street) {
     return `Google results are checked from the middle of ${city}. Add the street address to check them from your door.`;
   }

@@ -1726,12 +1726,36 @@ describe("Google results", () => {
     });
   });
 
-  it("leaves Google out of a scan when the location cannot be placed at all", async () => {
+  it("leaves Google out of a scan when the location cannot be placed, and looks again next time", async () => {
     withGoogle();
     places = {};
     expect(await scanned()).toEqual({ outcome: "succeeded", surfaces: ["chatgpt"] });
     expect(sentTo("api.dataforseo.com")).toEqual([]);
     expect(location()).toMatchObject({ latitude: null, point_source: null });
+
+    places = { place: feature(35.7721, -78.6386) };
+    expect((await scanned()).surfaces).toContain("google_local_pack");
+    expect(location()).toMatchObject({ latitude: 35.7721, point_source: "city" });
+  });
+
+  it("says why, without retrying, when Google is all there is and the location cannot be placed", async () => {
+    withGoogle();
+    places = {};
+    db.queries = db.queries.filter((query) => query.kind === "search_keyword");
+    const scan = await queueScan();
+    expect(await runScan(scan.id, { store: worker, providers: google(), geocode })).toBe("failed");
+    expect((await worker.getScan(scan.id))?.error).toBe(
+      "Google was not checked: the location's address could not be found on the map. Check its city and street address.",
+    );
+  });
+
+  it("checks Google only where the allowances include it, whatever the surfaces say", async () => {
+    withGoogle(false);
+    const organization = db.organizations[0];
+    if (!organization) throw new Error("no organization");
+    organization.surfaces = null;
+    expect((await scanned()).surfaces).toEqual(["chatgpt", "gemini"]);
+    expect(fetchStub).not.toHaveBeenCalled();
   });
 
   it("fails the whole scan when a Google call fails, for the queue to try again", async () => {

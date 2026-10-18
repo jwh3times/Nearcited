@@ -141,25 +141,26 @@ export function createDataForSeoProviders(options: DataForSeoOptions): ProviderR
 
   // Google's results page for one check, shared by the organic results and the AI Overview: a
   // scan asks both for the same keyword at the same moment, and it is one call for the two.
-  const pages = new Map<string, { page: Promise<Result>; readers: number }>();
+  // Both ask before either answer arrives, so the page is forgotten once it has arrived.
+  const pages = new Map<string, Promise<Result>>();
   function resultsPage({ location, query, at }: ObserveInput): Promise<Result> {
     const key = `${location.id}|${query.id}|${at.toISOString()}`;
-    let shared = pages.get(key);
-    if (!shared) {
-      const page = ask("page", {
+    let page = pages.get(key);
+    if (!page) {
+      page = ask("page", {
         keyword: query.text,
         location_coordinate: `${point(location)},${google.radius_m}`,
         language_code: LANGUAGE,
         depth: google.organic_depth,
         load_async_ai_overview: true,
       });
-      shared = { page, readers: 0 };
-      pages.set(key, shared);
+      pages.set(key, page);
+      page.then(
+        () => pages.delete(key),
+        () => pages.delete(key),
+      );
     }
-    // Two read it, and then it is forgotten.
-    shared.readers += 1;
-    if (shared.readers >= 2) pages.delete(key);
-    return shared.page;
+    return page;
   }
 
   const providers: Record<(typeof GOOGLE_SURFACES)[number], SurfaceProvider["observe"]> = {

@@ -308,8 +308,8 @@ describe("organizations and locations", () => {
     expect(detail.queries.map((q) => q.id)).toEqual([query.id]);
     expect(detail.latest_scan).toBeNull();
     expect(detail.window).toEqual({ size: 7, scans: 0, cells: [], answers: 0, sources: [] });
-    // Sample data covers every surface.
-    expect(detail.surfaces).toHaveLength(8);
+    // Sample data covers every surface, Google's only where the allowances include it.
+    expect(detail.surfaces).toEqual(["chatgpt", "gemini", "perplexity", "claude"]);
     expect(detail.recommendations).toEqual([]);
   });
 

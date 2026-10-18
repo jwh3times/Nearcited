@@ -161,16 +161,23 @@ export async function runScan(scanId: string, deps: RunScanDeps): Promise<ScanOu
       }),
     );
     // Google is checked from the location's own point, found from its address before the first
-    // Google check and again when the address changes. Generated results need none.
+    // Google check, again when the address changes, and again at each scan while it cannot be
+    // placed at all. Generated results need none.
     if (!sampleData && checks.some((check) => isGoogle(check.provider.surface))) {
-      if (needsPoint(location) && deps.geocode) {
+      if ((needsPoint(location) || location.latitude === null) && deps.geocode) {
         const point = await findPoint(location, deps.geocode, used.on(null));
         await store.setLocationPoint(location.id, point);
         location = { ...location, ...point };
       }
-      // A location that could not be placed at all is not checked on Google this time.
-      const placed = location.latitude !== null;
-      checks = checks.filter((check) => placed || !isGoogle(check.provider.surface));
+      // A location that could not be placed is not checked on Google this time.
+      if (location.latitude === null) {
+        checks = checks.filter((check) => !isGoogle(check.provider.surface));
+        if (checks.length === 0) {
+          throw new PermanentScanFailure(
+            "Google was not checked: the location's address could not be found on the map. Check its city and street address.",
+          );
+        }
+      }
     }
     if (checks.length === 0) {
       throw new PermanentScanFailure("No data provider is configured for these queries.");
