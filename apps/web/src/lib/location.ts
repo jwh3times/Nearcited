@@ -4,6 +4,7 @@ import {
   type Location,
   type LocationFormValues,
   needsPoint,
+  type QueryKind,
   type Surface,
   type TrackedQuery,
 } from "@nearcited/shared";
@@ -51,6 +52,20 @@ export function googlePointLine(location: Location): string {
     return `${street} couldn't be found on the map, so Google results are checked from the middle of ${city}. Check the street address.`;
   }
   return `Neither ${street} nor ${city} could be found on the map, so Google results aren't checked. Check the address.`;
+}
+
+/**
+ * The kind the form to add a prompt or keyword starts on: a Google keyword where Google is
+ * checked and the location has prompts but no keyword yet, and otherwise a prompt, which is
+ * where a new location starts.
+ */
+export function startingKind(
+  surfaces: readonly Surface[],
+  queries: readonly Pick<TrackedQuery, "kind" | "is_active">[],
+): QueryKind {
+  return wantsGoogleKeyword(surfaces, queries) && queries.some((query) => query.is_active)
+    ? "search_keyword"
+    : "ai_prompt";
 }
 
 /** True where Google is checked and the location tracks no Google keyword to check it with. */

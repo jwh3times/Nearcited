@@ -39,7 +39,7 @@ import { draftsBeingWritten, WRITING_MS } from "../lib/drafts";
 import { useFormErrors } from "../lib/form";
 import { cadence, formatDate, listOf } from "../lib/format";
 import { hostedPagesKey, offersPages } from "../lib/hosted-pages";
-import { googlePointLine, wantsGoogleKeyword } from "../lib/location";
+import { googlePointLine, startingKind, wantsGoogleKeyword } from "../lib/location";
 import { locationKey, placeOf, scansKey } from "../lib/locations";
 import { tallyCompetitors } from "../lib/matrix";
 import { windowRate } from "../lib/summary";
@@ -423,7 +423,7 @@ export function LocationDetail() {
                 onAdded={refresh}
                 used={active.length}
                 allowed={organization?.max_queries_per_location}
-                startWith={wantsKeyword ? "search_keyword" : "ai_prompt"}
+                startWith={startingKind(surfaces, queries)}
               />
             )}
           </>
