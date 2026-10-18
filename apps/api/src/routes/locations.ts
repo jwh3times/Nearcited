@@ -5,6 +5,7 @@ import {
   buildPageTasks,
   buildTasks,
   CITING_SURFACES,
+  coveredSurfaces,
   type DetailsEvidence,
   type DraftKind,
   draftsStanding,
@@ -149,7 +150,7 @@ locationRoutes.get("/locations/:id", async (c) => {
     }),
     surfaces: planSurfaces(
       sample ? [...SURFACES] : checkedSurfaces(c.env),
-      organization?.surfaces ?? null,
+      organization ? coveredSurfaces(organization) : null,
     ),
     recommendations,
     tasks: buildTasks({

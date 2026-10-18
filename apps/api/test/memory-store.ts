@@ -2720,6 +2720,10 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         what_we_do: input.what_we_do ?? null,
         id: crypto.randomUUID(),
         organization_id: organizationId,
+        latitude: null,
+        longitude: null,
+        point_source: null,
+        geocoded_from: null,
         paused_by_plan: false,
         last_scanned_at: null,
         created_at: timestamp(),
@@ -3088,6 +3092,13 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
     async recordUsage(source, usage) {
       if (userId !== null) throw new StoreError("forbidden", "worker only");
       db.usage.push(...usage.map((row) => ({ ...source, ...row, created_at: timestamp() })));
+    },
+
+    async setLocationPoint(id, point) {
+      // As the database's guard does: a signed-in caller's write leaves the point as it was.
+      if (userId !== null) return;
+      const location = db.locations.find((candidate) => candidate.id === id);
+      if (location) Object.assign(location, point);
     },
 
     async markScanRunning(id, sampleData) {

@@ -14,6 +14,11 @@ OPENAI_API_KEY=
 # Optional. The same, for Claude. It also writes drafts on real data, once the private tuning has
 # instructions for them.
 ANTHROPIC_API_KEY=
+# Optional. Live scans check Google keywords when all three are set: DataForSEO's API sign-in,
+# and a Mapbox token for the point Google is checked from.
+DATAFORSEO_LOGIN=
+DATAFORSEO_PASSWORD=
+MAPBOX_TOKEN=
 # Optional. Leave blank to skip sending emails. Without it, a deployment on live data cannot
 # approve an action.
 RESEND_API_KEY=

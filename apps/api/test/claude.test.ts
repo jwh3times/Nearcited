@@ -94,6 +94,10 @@ const location: Location = {
   postal_code: null,
   country_code: "US",
   google_place_id: null,
+  latitude: null,
+  longitude: null,
+  point_source: null,
+  geocoded_from: null,
   primary_category: null,
   what_we_do: null,
   paused_by_plan: false,
@@ -341,7 +345,20 @@ describe("createLiveProviders with Claude", () => {
     expect(checkedSurfaces({ ...live, ANTHROPIC_API_KEY: "key" })).toEqual(["claude"]);
     const both = { ...live, OPENAI_API_KEY: "key", ANTHROPIC_API_KEY: "key" };
     expect(checkedSurfaces(both)).toEqual(Object.keys(createLiveProviders(both, defaultTuning)));
+    // Google needs DataForSEO for the results and Mapbox for the point they are checked from.
+    const vendor = { ...live, DATAFORSEO_LOGIN: "login", DATAFORSEO_PASSWORD: "password" };
+    expect(checkedSurfaces(vendor)).toEqual([]);
+    const google = { ...vendor, MAPBOX_TOKEN: "pk.test" };
+    expect(checkedSurfaces(google)).toEqual([
+      "google_local_pack",
+      "google_organic",
+      "google_ai_overview",
+      "google_ai_mode",
+    ]);
+    expect(checkedSurfaces(google)).toEqual(
+      Object.keys(createLiveProviders(google, defaultTuning)),
+    );
     // Sample data covers every surface, whatever keys are set.
-    expect(checkedSurfaces({ PROVIDER_MODE: "mock" })).toHaveLength(7);
+    expect(checkedSurfaces({ PROVIDER_MODE: "mock" })).toHaveLength(8);
   });
 });

@@ -34,6 +34,12 @@ export const ALLOWANCE_KINDS: Record<string, AllowanceKind> = {
     counted: false,
     name: "Stronger models, paid for each location on each assistant",
   },
+  // Google's map pack, organic results, AI Overview and AI Mode, for each Google keyword
+  // (`google.ts`). `GOOGLE_RESULTS_ALLOWANCE` there is this key.
+  google_results: {
+    counted: false,
+    name: "Google results: map pack, organic, AI Overview and AI Mode",
+  },
 };
 
 /** The most a plan may give of a counted kind, for each location, in a month. */

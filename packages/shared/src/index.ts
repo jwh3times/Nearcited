@@ -6,6 +6,7 @@ export * from "./analysis";
 export * from "./asking";
 export * from "./audit";
 export * from "./drafts";
+export * from "./google";
 export * from "./hosted-pages";
 export * from "./inputs";
 export * from "./limits";

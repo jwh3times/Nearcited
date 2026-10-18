@@ -53,6 +53,7 @@ import { createLiveDraftWriter, liveDraftKinds } from "./drafts/claude";
 import { buildScanReportEmail, type Email, sendEmail } from "./email/report";
 import type { Env } from "./env";
 import {
+  createGeocoder,
   createProviders,
   createStrongerProviders,
   liveScansUnavailable,
@@ -421,6 +422,7 @@ export default {
           sampleData: usesSampleData(env),
           // A deployment on sample data makes no real requests, so it does not fetch sites either.
           inspectSite: usesSampleData(env) ? undefined : fetchSite,
+          geocode: createGeocoder(env),
           // Without a Resend key there is nobody to tell, so skip the owner lookup too.
           notify: env.RESEND_API_KEY
             ? async (report) => {

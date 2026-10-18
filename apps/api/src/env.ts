@@ -56,6 +56,18 @@ export interface Env {
    * draft is written.
    */
   ANTHROPIC_API_KEY?: string;
+  /**
+   * Optional secrets. DataForSEO's API sign-in. With both, and `MAPBOX_TOKEN`, live scans check a
+   * Google keyword on the map pack, organic results, AI Overview and AI Mode, for an organization
+   * whose plan includes Google results. Without them the Google surfaces are skipped.
+   */
+  DATAFORSEO_LOGIN?: string;
+  DATAFORSEO_PASSWORD?: string;
+  /**
+   * Optional secret. A Mapbox access token, for finding the point a location's Google results
+   * are checked from. Its account needs a card on file, which permanent geocoding requires.
+   */
+  MAPBOX_TOKEN?: string;
   /** Optional. Without it, scheduled scans finish without sending a report. */
   RESEND_API_KEY?: string;
   /** Optional secret. Without both Stripe values nobody can subscribe and the webhook is off. */
