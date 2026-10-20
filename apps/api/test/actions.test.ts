@@ -1132,6 +1132,10 @@ describe("standing permission", () => {
 
   it("is given and ended by an owner or admin, and by nobody else", async () => {
     const { organization, location } = await earned();
+    // A stranger is told nothing, about the organization or what stands for it.
+    expect((await give(carol, organization.id)).status).toBe(404);
+    expect((await end(carol, organization.id)).status).toBe(404);
+    expect((await call(carol, "GET", `/locations/${location.id}/actions`)).status).toBe(404);
     db.operators.add(carol);
     for (const user of [bob, carol]) {
       expect((await give(user, organization.id)).status, user).toBe(404);
