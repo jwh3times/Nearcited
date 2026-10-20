@@ -1,6 +1,6 @@
 import { buildActionNoticeEmail, type NoticedAction } from "../email/action-notice";
 import type { Email } from "../email/report";
-import type { ActionToTell, Store } from "../store/types";
+import type { ActionToTell, PermissionToTell, Store } from "../store/types";
 
 export interface NoticeDeps {
   store: Store;
@@ -14,8 +14,9 @@ export interface NoticeDeps {
 
 /**
  * Tells each organization's owners, in one message, what was carried out for it since the last
- * and what is newly waiting for a yes. The daily run calls it, so every action is told within
- * about a day, well inside the 48 hours.
+ * and what is newly waiting for a yes, and any standing permission given or ended since. The daily
+ * run calls it, so every action is told within about a day, well inside the 48 hours. A
+ * permission given or ended holds nothing up while it is untold: only actions do.
  *
  * A test organization is never written to: its actions are marked told, since the record on its
  * page is the notice. The same goes for a deployment on sample data that has no email to send
@@ -40,6 +41,14 @@ export async function sendActionNotices({
       row,
     ]);
   }
+  const permissionsOf = new Map<string, PermissionToTell[]>();
+  for (const row of await store.listPermissionsToTell()) {
+    permissionsOf.set(row.organization_id, [
+      ...(permissionsOf.get(row.organization_id) ?? []),
+      row,
+    ]);
+    if (!byOrganization.has(row.organization_id)) byOrganization.set(row.organization_id, []);
+  }
 
   let told = 0;
   for (const [organizationId, rows] of byOrganization) {
@@ -49,7 +58,20 @@ export async function sendActionNotices({
       rows.filter((row) => row.action.status === status);
     const done = pick("done");
     const waiting = pick("proposed");
+    const permissions = permissionsOf.get(organizationId) ?? [];
+    const given = permissions.filter((row) => row.given_untold).map((row) => row.permission);
+    const ended = permissions.filter((row) => row.ended_untold).map((row) => row.permission);
     const mark = async () => {
+      await store.markPermissionsTold(
+        given.map((permission) => permission.id),
+        "given",
+        at,
+      );
+      await store.markPermissionsTold(
+        ended.map((permission) => permission.id),
+        "ended",
+        at,
+      );
       await store.markActionsTold(
         done.map((row) => row.action.id),
         "done",
@@ -72,7 +94,14 @@ export async function sendActionNotices({
     try {
       await send(
         owners,
-        buildActionNoticeEmail({ organization: organization.name, done, waiting, appUrl }),
+        buildActionNoticeEmail({
+          organization: organization.name,
+          done,
+          waiting,
+          given,
+          ended,
+          appUrl,
+        }),
       );
     } catch (error) {
       // One organization's failed email must not stop the others being told.

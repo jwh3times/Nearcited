@@ -22,12 +22,14 @@ import type {
   Scan,
   ScanResult,
   SiteCheck,
+  StandingPermission,
   TaskPageFetches,
   TrackedQuery,
   UsageByMonth,
   VisitAssistant,
 } from "@nearcited/shared";
 import {
+  ACTION_KINDS,
   AccountExportSchema,
   ALLOWANCE_KINDS,
   allowanceErrors,
@@ -43,6 +45,8 @@ import {
   PAGES_SHOWN,
   PLAN_ASSISTANTS,
   reductions,
+  STANDING_PERMISSION_AFTER,
+  STANDING_PERMISSION_ALLOWANCE,
   STRONGER_MODELS_ALLOWANCE,
   VISITS_ALLOWANCE,
   websiteDomain,
@@ -124,6 +128,12 @@ export interface MemoryDb {
     seen_until: string | null;
     /** The month, as `YYYY-MM`, whose allowance this action holds one of. */
     allowance_month: string | null;
+  })[];
+  /** Every standing permission given, with its organization and when its owners were told. */
+  standingPermissions: (StandingPermission & {
+    organization_id: string;
+    given_told_at: string | null;
+    ended_told_at: string | null;
   })[];
   /** Every draft, with the worker's own bookkeeping beside what a member is sent. */
   drafts: (Draft & {
@@ -259,6 +269,7 @@ export function createMemoryDb(): MemoryDb {
     limitChanges: [],
     allowanceUse: new Map(),
     actions: [],
+    standingPermissions: [],
     drafts: [],
     listings: [],
     promptPages: [],
@@ -485,6 +496,10 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
     lapse_reason: null,
     retry_of: null,
     takes_back: null,
+    approved_under: null,
+    approved_under_by_email: null,
+    approved_under_at: null,
+    always_asks: action.always_asks ?? false,
     attempts: 0,
     carrying_since: null,
     told_at: null,
@@ -495,6 +510,98 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
     seen_until: "seen_until" in action ? action.seen_until : seenUntil(action, now),
     allowance_month: null,
   });
+  /** The standing permission current for an organization and a kind, if one is. */
+  const currentPermission = (organizationId: string, kind: string) =>
+    db.standingPermissions.find(
+      (kept) => kept.organization_id === organizationId && kept.kind === kind && !kept.ended_at,
+    );
+  /** Whether a caller is an owner or admin of an organization not being closed. */
+  const ownsOrAdmins = (organizationId: string) =>
+    !closing(organizationId) &&
+    db.memberships.some(
+      (m) =>
+        m.organization_id === organizationId &&
+        m.user_id === userId &&
+        (m.role === "owner" || m.role === "admin"),
+    );
+  /** Mirrors standing_permission_count(): approved as proposed by a member, done, kept. */
+  const permissionCount = (organizationId: string, kind: string) =>
+    Math.min(
+      db.actions.filter(
+        (action) =>
+          action.kind === kind &&
+          action.status === "done" &&
+          action.approved_under === null &&
+          action.approved_text === null &&
+          action.takes_back === null &&
+          !db.actions.some((back) => back.takes_back === action.id) &&
+          organizationOf(action.location_id)?.id === organizationId,
+      ).length,
+      STANDING_PERMISSION_AFTER,
+    );
+  /** Mirrors return_to_waiting(): back to waiting with fresh days, unless it is under way. */
+  const returnToWaiting = (action: MemoryDb["actions"][number]) => {
+    const now = db.now ?? new Date().toISOString();
+    const stale = new Date(Date.parse(now) - 10 * 60_000).toISOString();
+    if (action.status !== "approved" || action.approved_under === null) return;
+    if (action.carrying_since !== null && action.carrying_since >= stale) return;
+    // What it took from the month is given back, as finish_action() gives it back.
+    if (action.allowance_month) {
+      const needed = db.actionKindTerms.get(action.kind)?.allowance;
+      const key = `${organizationOf(action.location_id)?.id}:${needed}:${action.allowance_month}`;
+      db.allowanceUse.set(key, Math.max((db.allowanceUse.get(key) ?? 0) - 1, 0));
+    }
+    Object.assign(action, {
+      status: "proposed",
+      approved_at: null,
+      approved_under: null,
+      approved_under_by_email: null,
+      approved_under_at: null,
+      lapses_at: new Date(Date.parse(now) + 14 * 86_400_000).toISOString(),
+      waiting_told_at: null,
+      attempts: 0,
+      carrying_since: null,
+      failure: null,
+      allowance_month: null,
+    });
+  };
+  /** Mirrors end_permission(): ends it, and what it approved and is not under way waits again. */
+  const endPermission = (
+    permission: MemoryDb["standingPermissions"][number],
+    reason: StandingPermission["end_reason"],
+    byUser: string | null,
+    byAction: string | null = null,
+  ) => {
+    if (permission.ended_at) return;
+    Object.assign(permission, {
+      ended_at: db.now ?? new Date().toISOString(),
+      end_reason: reason,
+      ended_by_email: byUser === null ? null : (db.emails.get(byUser) ?? null),
+      ended_by_action: byAction,
+    });
+    for (const action of db.actions.filter((kept) => kept.approved_under === permission.id)) {
+      returnToWaiting(action);
+    }
+  };
+  /**
+   * Mirrors the end_permissions_off_plan trigger, which ends a permission the moment its
+   * organization's allowances stop including it. Here the allowances are written in many places,
+   * so it is caught up with before anything that reads a permission.
+   */
+  const endOffPlan = () => {
+    for (const permission of db.standingPermissions.filter((kept) => !kept.ended_at)) {
+      const organization = db.organizations.find((o) => o.id === permission.organization_id);
+      if (organization?.allowances[STANDING_PERMISSION_ALLOWANCE] === undefined) {
+        endPermission(permission, "plan", null);
+      }
+    }
+  };
+  const sentPermission = ({
+    organization_id: _organization,
+    given_told_at: _given,
+    ended_told_at: _ended,
+    ...permission
+  }: MemoryDb["standingPermissions"][number]): StandingPermission => permission;
   /** Mirrors the due and sync rules: working, or broken only by failing, which is still tried. */
   const syncs = (connection: Connection) =>
     connection.status === "working" ||
@@ -690,6 +797,9 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         alerts: db.alerts.filter((alert) => at.has(alert.location_id)),
         drafts: db.drafts.filter((draft) => at.has(draft.location_id)),
         actions: db.actions.filter((action) => at.has(action.location_id)),
+        standing_permissions: db.standingPermissions.filter(
+          (kept) => kept.organization_id === organizationId,
+        ),
         connections,
         listings: db.listings.filter((listing) => at.has(listing.location_id)),
         page_addresses: db.promptPages.filter((page) => at.has(page.location_id)),
@@ -817,6 +927,9 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
       db.recommendations = db.recommendations.filter((task) => !at.has(task.location_id));
       db.alerts = db.alerts.filter((alert) => !at.has(alert.location_id));
       db.actions = db.actions.filter((action) => !at.has(action.location_id));
+      db.standingPermissions = db.standingPermissions.filter(
+        (kept) => kept.organization_id !== organizationId,
+      );
       db.drafts = db.drafts.filter((draft) => !at.has(draft.location_id));
       db.listings = db.listings.filter((listing) => !at.has(listing.location_id));
       db.promptPages = db.promptPages.filter((page) => !at.has(page.location_id));
@@ -1239,6 +1352,9 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
           (other.done_at ?? "") > (done.done_at ?? ""),
       );
       if (since) throw new StoreError("limit", "Something done since has changed this.");
+      // Asking to take back what standing permission did ends that permission, at the ask.
+      const under = db.standingPermissions.find((kept) => kept.id === done.approved_under);
+      if (under) endPermission(under, "taken_back", userId, done.id);
       const now = db.now ?? new Date().toISOString();
       const back = {
         ...newAction(done, now),
@@ -1305,9 +1421,110 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
       ) {
         throw new StoreError("unexpected", "A task belongs to the location its action is for.");
       }
-      const made = newAction(action, db.now ?? new Date().toISOString());
+      const now = db.now ?? new Date().toISOString();
+      const made = newAction(action, now);
+      // Approved as it is made where standing permission for its kind stands.
+      endOffPlan();
+      const organizationId = organizationOf(action.location_id)?.id ?? "";
+      const permission = currentPermission(organizationId, action.kind);
+      if (permission && !made.always_asks) {
+        Object.assign(made, {
+          status: "approved",
+          approved_at: now,
+          approved_under: permission.id,
+          approved_under_by_email: permission.given_by_email,
+          approved_under_at: permission.given_at,
+        });
+      }
       db.actions.push(made);
       return sentAction(made);
+    },
+
+    // Mirrors give_standing_permission().
+    async giveStandingPermission(organizationId, kind) {
+      if (!ownsOrAdmins(organizationId)) return null;
+      endOffPlan();
+      const organization = db.organizations.find((o) => o.id === organizationId);
+      if (organization?.allowances[STANDING_PERMISSION_ALLOWANCE] === undefined) {
+        throw new StoreError("limit", "Your plan does not include standing permission.");
+      }
+      if (permissionCount(organizationId, kind) < STANDING_PERMISSION_AFTER) {
+        throw new StoreError(
+          "limit",
+          "Standing permission is offered once three of these were approved as proposed and done.",
+        );
+      }
+      if (currentPermission(organizationId, kind)) {
+        throw new StoreError("limit", "Standing permission is already given for these.");
+      }
+      const given = {
+        id: crypto.randomUUID(),
+        organization_id: organizationId,
+        kind,
+        given_by_email: db.emails.get(userId ?? "") ?? null,
+        given_at: db.now ?? new Date().toISOString(),
+        ended_at: null,
+        ended_by_email: null,
+        end_reason: null,
+        ended_by_action: null,
+        given_told_at: null,
+        ended_told_at: null,
+      };
+      db.standingPermissions.push(given);
+      return sentPermission(given);
+    },
+
+    // Mirrors end_standing_permission().
+    async endStandingPermission(organizationId, kind) {
+      if (!ownsOrAdmins(organizationId)) return null;
+      const permission = currentPermission(organizationId, kind);
+      if (!permission) {
+        throw new StoreError("limit", "There is no standing permission for these to end.");
+      }
+      endPermission(permission, "switched_off", userId);
+      return sentPermission(permission);
+    },
+
+    // Mirrors standing_permission_state() and the policies on standing_permissions.
+    async getPermissionState(locationId) {
+      const location = readableLocation(locationId);
+      if (!location) return null;
+      endOffPlan();
+      const organizationId = location.organization_id;
+      const organization = db.organizations.find((o) => o.id === organizationId);
+      return {
+        permissions: ACTION_KINDS.flatMap((kind) => {
+          const counted = permissionCount(organizationId, kind);
+          const standing = currentPermission(organizationId, kind);
+          return counted > 0 || standing
+            ? [{ kind, counted, standing: standing ? sentPermission(standing) : null }]
+            : [];
+        }),
+        permission_included: organization?.allowances[STANDING_PERMISSION_ALLOWANCE] !== undefined,
+        may_change_permission: ownsOrAdmins(organizationId),
+      };
+    },
+
+    async listPermissionsToTell() {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      endOffPlan();
+      return db.standingPermissions
+        .filter((kept) => kept.given_told_at === null || (kept.ended_at && !kept.ended_told_at))
+        .map((kept) => ({
+          permission: sentPermission(kept),
+          organization_id: kept.organization_id,
+          given_untold: kept.given_told_at === null,
+          ended_untold: kept.ended_at !== null && kept.ended_told_at === null,
+        }));
+    },
+
+    async markPermissionsTold(ids, which, at) {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      for (const kept of db.standingPermissions) {
+        if (!ids.includes(kept.id)) continue;
+        if (which === "given") kept.given_told_at = at;
+        else kept.ended_told_at = at;
+      }
     },
 
     async getAction(id) {
@@ -1320,6 +1537,8 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
     // kind takes one from the month as it is taken, and is failed here when there is no room.
     async claimAction(id) {
       if (userId !== null) throw new StoreError("forbidden", "worker only");
+      // What standing permission approved waits again where that permission no longer stands.
+      endOffPlan();
       const now = db.now ?? new Date().toISOString();
       const stale = new Date(Date.parse(now) - 10 * 60_000).toISOString();
       const action = db.actions.find(
@@ -1332,6 +1551,11 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         (l) => l.id === action?.location_id,
       )?.organization_id;
       if (!action || (organizationId && organizationHeld(organizationId))) return 0;
+      const under = db.standingPermissions.find((kept) => kept.id === action.approved_under);
+      if (action.approved_under !== null && (action.always_asks || !under || under.ended_at)) {
+        returnToWaiting(action);
+        return 0;
+      }
       const needed = db.actionKindTerms.get(action.kind)?.allowance;
       if (needed && action.allowance_month === null) {
         const claim = organizationId ? takeAllowance(organizationId, needed, 1) : null;

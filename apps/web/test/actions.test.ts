@@ -9,6 +9,7 @@ import {
   isMarkup,
   isPage,
   pageAddress,
+  permissionShown,
   whatItReplaced,
   writtenBy,
 } from "../src/lib/actions";
@@ -39,6 +40,10 @@ const action = (extra: Partial<Action> = {}): Action => ({
   lapse_reason: null,
   retry_of: null,
   takes_back: null,
+  approved_under: null,
+  approved_under_by_email: null,
+  approved_under_at: null,
+  always_asks: false,
   ...extra,
 });
 const day = (iso: string) => iso.slice(0, 10);
@@ -46,6 +51,9 @@ const found = (extra: Partial<LocationActions> = {}): LocationActions => ({
   waiting: [],
   record: [],
   held: false,
+  permissions: [],
+  permission_included: false,
+  may_change_permission: false,
   ...extra,
 });
 
@@ -96,6 +104,30 @@ describe("actionState", () => {
 
   it("says how long one waits", () => {
     expect(actionState(action(), day)).toBe("Waiting for a yes until 2026-10-26.");
+  });
+
+  it("says when one always waits for a yes", () => {
+    expect(actionState(action({ always_asks: true }), day)).toBe(
+      "Waiting for a yes until 2026-10-26. This kind always waits for a yes, whatever permission is standing.",
+    );
+  });
+
+  it("says what was done under standing permission, and who gave it when", () => {
+    expect(
+      actionState(
+        action({
+          status: "done",
+          done_at: "2026-10-20T09:01:00.000Z",
+          approved_at: "2026-10-20T09:00:00.000Z",
+          approved_under: "5e000000-0000-4000-8000-000000000001",
+          approved_under_by_email: "owner@example.com",
+          approved_under_at: "2026-10-18T09:00:00.000Z",
+        }),
+        day,
+      ),
+    ).toBe(
+      "Done on 2026-10-20. Approved under the standing permission owner@example.com gave on 2026-10-18, without waiting for a yes.",
+    );
   });
 
   it("says who approved it, whether they changed it, and what became of it", () => {
@@ -265,5 +297,45 @@ describe("a page's copy in an action", () => {
     expect(pageAddress(page, "Late-night pizza in Raleigh, NC\n\nWe bake.")).toBe(
       "/late-night-pizza-in-raleigh-nc on your answer subdomain",
     );
+  });
+});
+
+describe("permissionShown", () => {
+  const standing = {
+    id: "5e000000-0000-4000-8000-000000000001",
+    kind: "sample" as const,
+    given_by_email: "owner@example.com",
+    given_at: "2026-10-18T09:00:00.000Z",
+    ended_at: null,
+    ended_by_email: null,
+    end_reason: null,
+    ended_by_action: null,
+  };
+  const owner = { permission_included: true, may_change_permission: true };
+
+  it("offers it to an owner or admin once three count, where the plan includes it", () => {
+    expect(permissionShown({ kind: "sample", counted: 2, standing: null }, owner)).toBeNull();
+    expect(permissionShown({ kind: "sample", counted: 3, standing: null }, owner)).toBe("offered");
+    expect(
+      permissionShown(
+        { kind: "sample", counted: 3, standing: null },
+        { ...owner, permission_included: false },
+      ),
+    ).toBeNull();
+    expect(
+      permissionShown(
+        { kind: "sample", counted: 3, standing: null },
+        { ...owner, may_change_permission: false },
+      ),
+    ).toBeNull();
+  });
+
+  it("shows one that stands to everybody", () => {
+    expect(
+      permissionShown(
+        { kind: "sample", counted: 3, standing },
+        { permission_included: true, may_change_permission: false },
+      ),
+    ).toBe("standing");
   });
 });

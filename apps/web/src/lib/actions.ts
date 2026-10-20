@@ -1,9 +1,14 @@
 import {
+  ACTION_KIND_DOING,
   type Action,
+  type ActionKind,
   EDITABLE_ACTION_KINDS,
+  type KindPermission,
   type LocationActions,
   pageParts,
   pageSlug,
+  STANDING_PERMISSION_AFTER,
+  type StandingPermission,
 } from "@nearcited/shared";
 import { api } from "./api";
 
@@ -41,12 +46,20 @@ export const writtenBy = (action: Action): string =>
  */
 export function actionState(action: Action, day: (iso: string) => string): string {
   const approver = action.approved_by_email ?? "someone who has left";
-  const approved = action.takes_back
-    ? `Asked for by ${approver}.`
-    : `Approved by ${approver}${action.approved_text ? ", who changed the text" : ""}.`;
+  const approved = action.approved_under
+    ? `Approved under the standing permission ${
+        action.approved_under_by_email ?? "someone who has left"
+      } gave${action.approved_under_at ? ` on ${day(action.approved_under_at)}` : ""}, without waiting for a yes.`
+    : action.takes_back
+      ? `Asked for by ${approver}.`
+      : `Approved by ${approver}${action.approved_text ? ", who changed the text" : ""}.`;
   switch (action.status) {
     case "proposed":
-      return `Waiting for a yes until ${day(action.lapses_at)}.`;
+      return `Waiting for a yes until ${day(action.lapses_at)}.${
+        action.always_asks
+          ? " This kind always waits for a yes, whatever permission is standing."
+          : ""
+      }`;
     case "approved":
       return `${approved} Being carried out.`;
     case "done":
@@ -108,3 +121,37 @@ export function pageAddress(action: Pick<Action, "kind">, copy: string): string 
     ? `/${slug} on your answer subdomain`
     : `/${slug}/ on your site`;
 }
+
+/** What a kind of action does, as a sentence about standing permission names it. */
+export const kindDoing = (kind: ActionKind): string => ACTION_KIND_DOING[kind];
+
+/**
+ * Standing permission for one kind, as the Actions tab shows it: offered, standing, or nothing
+ * to show yet. Offered once three were approved as proposed and done, where the plan includes it
+ * and the reader may give it.
+ */
+export function permissionShown(
+  permission: KindPermission,
+  found: Pick<LocationActions, "permission_included" | "may_change_permission">,
+): "standing" | "offered" | null {
+  if (permission.standing) return "standing";
+  return permission.counted >= STANDING_PERMISSION_AFTER &&
+    found.permission_included &&
+    found.may_change_permission
+    ? "offered"
+    : null;
+}
+
+/** What a standing permission lets Nearcited do, and who gave it when. */
+export const standingLine = (permission: StandingPermission, day: (iso: string) => string) =>
+  `Nearcited may ${kindDoing(permission.kind)} at every location of your organization without waiting for a yes. Given by ${
+    permission.given_by_email ?? "someone who has left"
+  } on ${day(permission.given_at)}. Your organization's owners are told of each one afterwards.`;
+
+/** What the page asks before giving standing permission. */
+export const giveQuestion = (kind: ActionKind) =>
+  `Let Nearcited ${kindDoing(kind)} without waiting for a yes, at every location of your organization? Your organization's owners are told of each one afterwards, and an owner or admin can switch this off at any time.`;
+
+/** What the page asks before ending it. */
+export const END_QUESTION =
+  "Switch this off? Anything of this kind not yet carried out waits for a yes again.";

@@ -122,8 +122,12 @@ system works; this file only settles vocabulary.
 - **Taking back**: undoing what an action did, asked for by a member after it was done. It is a
   new action that removes only what the first one put there, and is not proposed again. See
   `docs/adr/0018-on-a-business-site-the-product-changes-only-what-it-made.md`.
-- **Standing permission**: an owner's or admin's yes in advance to every action of one kind, so
-  the product acts first and tells the owners afterwards. It can be taken back.
+- **Standing permission**: an owner's or admin's yes in advance to every action of one kind, for
+  every location of the organization, so the product acts first and tells the owners afterwards.
+  Offered once three of the kind were approved as proposed, carried out and not taken back. It
+  ends when an owner or admin switches it off, when a member asks to take back something done
+  under it, or when the plan stops including it. An action that always asks is never done under
+  it. See `docs/adr/0025-standing-permission-is-checked-where-an-action-is-approved-and-carried-out.md`.
 - **Action notice**: the message that tells an organization's owners what an action changed, sent
   within 48 hours of it.
 - **Hold**: the stop on carrying anything more out for an organization while its owners have not

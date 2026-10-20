@@ -1,13 +1,23 @@
-import { type Action, type LocationActions, NOTICE_HOLD_HOURS } from "@nearcited/shared";
+import {
+  type Action,
+  type KindPermission,
+  type LocationActions,
+  NOTICE_HOLD_HOURS,
+} from "@nearcited/shared";
 import { useMutation } from "@tanstack/react-query";
 import { useState } from "react";
 import {
   actionState,
   actionText,
+  END_QUESTION,
   editable,
+  giveQuestion,
   isMarkup,
   isPage,
+  kindDoing,
   pageAddress,
+  permissionShown,
+  standingLine,
   TAKE_BACK_QUESTION,
   whatItReplaced,
   writtenBy,
@@ -18,6 +28,8 @@ import { ErrorNote } from "./ErrorNote";
 
 interface ActionsProps {
   actions: LocationActions;
+  /** The location's organization, whose standing permission this is. */
+  organizationId: string;
   onChanged: () => void;
   /** True while the operator is reading a customer's account: they answer nothing. */
   readOnly?: boolean;
@@ -27,7 +39,10 @@ interface ActionsProps {
  * What Nearcited would do for this location and is waiting for a yes, and the record of what
  * became of everything it proposed before. Nothing here is done until a member says so.
  */
-export function Actions({ actions, onChanged, readOnly }: ActionsProps) {
+export function Actions({ actions, organizationId, onChanged, readOnly }: ActionsProps) {
+  const shown = actions.permissions.filter(
+    (permission) => permissionShown(permission, actions) !== null,
+  );
   return (
     <div className="stack">
       {actions.held && (
@@ -36,6 +51,23 @@ export function Actions({ actions, onChanged, readOnly }: ActionsProps) {
           than {NOTICE_HOLD_HOURS} hours ago and its owners have not been told of it yet. What you
           have approved is kept, and is carried out once they have been.
         </p>
+      )}
+      {shown.length > 0 && (
+        <section className="stack" aria-label="Standing permission">
+          <div className="section-head">
+            <h2>Standing permission</h2>
+            <span className="small">An owner's or admin's yes in advance, for every location.</span>
+          </div>
+          {shown.map((permission) => (
+            <Permission
+              key={permission.kind}
+              permission={permission}
+              organizationId={organizationId}
+              mayChange={actions.may_change_permission && !readOnly}
+              onChanged={onChanged}
+            />
+          ))}
+        </section>
       )}
       <section className="stack" aria-label="Waiting for your yes">
         <div className="section-head">
@@ -70,6 +102,78 @@ export function Actions({ actions, onChanged, readOnly }: ActionsProps) {
         </section>
       )}
     </div>
+  );
+}
+
+/**
+ * Standing permission for one kind of action: offered to an owner or admin once three were
+ * approved as proposed and done, or standing, with who gave it and a switch to end it.
+ */
+function Permission({
+  permission,
+  organizationId,
+  mayChange,
+  onChanged,
+}: {
+  permission: KindPermission;
+  organizationId: string;
+  /** Whether the reader may give or end it: an owner or admin, not the operator reading. */
+  mayChange: boolean;
+  onChanged: () => void;
+}) {
+  const give = useMutation({
+    mutationFn: () => api.giveStandingPermission(organizationId, permission.kind),
+    onSuccess: onChanged,
+  });
+  const end = useMutation({
+    mutationFn: () => api.endStandingPermission(organizationId, permission.kind),
+    onSuccess: onChanged,
+  });
+  const doing = kindDoing(permission.kind);
+  return (
+    <article className="card action" aria-label={`Standing permission to ${doing}`}>
+      {permission.standing ? (
+        <>
+          <h3 className="action-name">Done without asking: {doing}</h3>
+          <p className="small muted">{standingLine(permission.standing, formatDay)}</p>
+          {mayChange && (
+            <div className="button-row">
+              <button
+                type="button"
+                className="secondary"
+                disabled={end.isPending}
+                onClick={() => {
+                  if (window.confirm(END_QUESTION)) end.mutate();
+                }}
+              >
+                {end.isPending ? "Switching off" : "Switch it off"}
+              </button>
+            </div>
+          )}
+        </>
+      ) : (
+        <>
+          <h3 className="action-name">Stop asking: {doing}?</h3>
+          <p className="small muted">
+            Three of these were approved as proposed and carried out. Nearcited can do the next ones
+            without waiting for a yes, at every location of your organization, and tell your owners
+            afterwards. You can switch it off at any time.
+          </p>
+          <div className="button-row">
+            <button
+              type="button"
+              disabled={give.isPending}
+              onClick={() => {
+                if (window.confirm(giveQuestion(permission.kind))) give.mutate();
+              }}
+            >
+              {give.isPending ? "Giving permission" : "Do these without asking"}
+            </button>
+          </div>
+        </>
+      )}
+      <ErrorNote error={give.error ?? end.error} />
+    </article>
   );
 }
 
