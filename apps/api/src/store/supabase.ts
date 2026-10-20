@@ -1,4 +1,5 @@
 import {
+  ACTION_KINDS,
   AccountExportSchema,
   ActionSchema,
   AlertSchema,
@@ -28,7 +29,9 @@ import {
   ScanResultSchema,
   ScanSchema,
   SiteCheckSchema,
+  STANDING_PERMISSION_AFTER,
   STRONGER_MODELS_ALLOWANCE,
+  StandingPermissionSchema,
   StoredAuditSchema,
   TrackedQuerySchema,
   UsageByMonthSchema,
@@ -286,7 +289,10 @@ const ORGANIZATION_COLUMNS =
 
 // What a member is sent of an action. `subject` and `basis` are the worker's own bookkeeping.
 const ACTION_COLUMNS =
-  "id, location_id, kind, connection_id, summary, seen, seen_dropped_at, proposed_text, written_by, status, proposed_at, lapses_at, approved_by_email, approved_at, approved_text, declined_by_email, declined_at, decline_reason, done_at, failed_at, failure, lapsed_at, lapse_reason, retry_of, takes_back";
+  "id, location_id, kind, connection_id, summary, seen, seen_dropped_at, proposed_text, written_by, status, proposed_at, lapses_at, approved_by_email, approved_at, approved_text, declined_by_email, declined_at, decline_reason, done_at, failed_at, failure, lapsed_at, lapse_reason, retry_of, takes_back, approved_under, approved_under_by_email, approved_under_at, always_asks";
+
+const STANDING_PERMISSION_COLUMNS =
+  "id, kind, given_by_email, given_at, ended_at, ended_by_email, end_reason, ended_by_action";
 
 const DRAFT_COLUMNS =
   "id, location_id, recommendation_id, status, asked_by_email, asked_at, failure, kind, text, written_at, sample_data";
@@ -469,6 +475,60 @@ export function createSupabaseStore(
         .maybeSingle();
       if (error) fail("Take an action back", error);
       return data ? ActionSchema.parse(data) : null;
+    },
+
+    async giveStandingPermission(organizationId, kind) {
+      const { data, error } = await db
+        .rpc("give_standing_permission", { org: organizationId, of_kind: kind })
+        .select(STANDING_PERMISSION_COLUMNS)
+        .maybeSingle();
+      if (error) fail("Give standing permission", error);
+      return data ? StandingPermissionSchema.parse(data) : null;
+    },
+
+    async endStandingPermission(organizationId, kind) {
+      const { data, error } = await db
+        .rpc("end_standing_permission", { org: organizationId, of_kind: kind })
+        .select(STANDING_PERMISSION_COLUMNS)
+        .maybeSingle();
+      if (error) fail("End standing permission", error);
+      return data ? StandingPermissionSchema.parse(data) : null;
+    },
+
+    async getPermissionState(locationId) {
+      const { data, error } = await db.rpc("standing_permission_state", { location: locationId });
+      if (error) fail("Read standing permission", error);
+      if (!data) return null;
+      const state = z
+        .object({
+          included: z.boolean(),
+          may_change: z.boolean(),
+          counted: z.record(z.string(), z.number().int()),
+        })
+        .parse(data);
+      const { data: location, error: locationError } = await db
+        .from("locations")
+        .select("organization_id")
+        .eq("id", locationId)
+        .maybeSingle();
+      if (locationError) fail("Read standing permission", locationError);
+      // By the organization named, not by what the caller can read: the operator reads them all.
+      const { data: current, error: currentError } = await db
+        .from("standing_permissions")
+        .select(STANDING_PERMISSION_COLUMNS)
+        .eq("organization_id", location?.organization_id ?? "")
+        .is("ended_at", null);
+      if (currentError) fail("Read standing permission", currentError);
+      const standing = z.array(StandingPermissionSchema).parse(current ?? []);
+      return {
+        permissions: ACTION_KINDS.flatMap((kind) => {
+          const counted = Math.min(state.counted[kind] ?? 0, STANDING_PERMISSION_AFTER);
+          const permission = standing.find((kept) => kept.kind === kind) ?? null;
+          return counted > 0 || permission ? [{ kind, counted, standing: permission }] : [];
+        }),
+        permission_included: state.included,
+        may_change_permission: state.may_change,
+      };
     },
 
     async retryAction(id) {
@@ -1088,6 +1148,7 @@ export function createSupabaseStore(
           new_text: action.proposed_text,
           author: action.written_by,
           for_task: action.recommendation_id ?? null,
+          asks_always: action.always_asks ?? false,
         })
         .select(ACTION_COLUMNS)
         .maybeSingle();
@@ -1157,6 +1218,45 @@ export function createSupabaseStore(
         .update(which === "done" ? { told_at: at } : { waiting_told_at: at })
         .in("id", ids);
       if (error) fail("Keep that owners were told of actions", error);
+    },
+
+    async listPermissionsToTell() {
+      const data = await every("List standing permissions to tell owners of", (from, to, first) =>
+        db
+          .from("standing_permissions")
+          .select(
+            `${STANDING_PERMISSION_COLUMNS}, organization_id, given_told_at, ended_told_at`,
+            counted(first),
+          )
+          .or("given_told_at.is.null,and(ended_at.not.is.null,ended_told_at.is.null)")
+          .order("given_at")
+          .order("id")
+          .range(from, to),
+      );
+      const told = z.object({
+        organization_id: z.uuid(),
+        given_told_at: z.string().nullable(),
+        ended_told_at: z.string().nullable(),
+      });
+      return data.map((row) => {
+        const permission = StandingPermissionSchema.parse(row);
+        const kept = told.parse(row);
+        return {
+          permission,
+          organization_id: kept.organization_id,
+          given_untold: kept.given_told_at === null,
+          ended_untold: permission.ended_at !== null && kept.ended_told_at === null,
+        };
+      });
+    },
+
+    async markPermissionsTold(ids, which, at) {
+      if (ids.length === 0) return;
+      const { error } = await db
+        .from("standing_permissions")
+        .update(which === "given" ? { given_told_at: at } : { ended_told_at: at })
+        .in("id", ids);
+      if (error) fail("Keep that owners were told of standing permission", error);
     },
 
     async isOrganizationHeld(organizationId) {

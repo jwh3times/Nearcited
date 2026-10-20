@@ -385,6 +385,7 @@ export function LocationDetail() {
         {tab === "actions" && actions.data && (
           <Actions
             actions={actions.data}
+            organizationId={location.organization_id}
             readOnly={readOnly}
             onChanged={() => {
               queryClient.invalidateQueries({ queryKey: ["actions", id] });

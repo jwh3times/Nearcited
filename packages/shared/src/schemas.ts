@@ -2,6 +2,7 @@ import { z } from "zod";
 import { allowanceErrors } from "./allowances";
 import { PAGE_FETCHER_KEYS, type PageFetcher } from "./hosted-pages";
 import { isCountry, normalizePhone, normalizePostalCode, normalizeWebsite } from "./inputs";
+import { STANDING_PERMISSION_AFTER } from "./standing-permission";
 
 /**
  * Wire types shared by the API and the web app. Field names stay snake_case end to end so
@@ -1434,6 +1435,15 @@ export const ActionSchema = z.object({
   approved_at: Timestamp.nullable(),
   /** What was approved, when a member changed the text first. Null when it went as proposed. */
   approved_text: z.string().nullable(),
+  /**
+   * The standing permission that approved it as it was proposed, with who gave that permission and
+   * when. Null when a member approved it, or nobody has yet.
+   */
+  approved_under: Id.nullable(),
+  approved_under_by_email: z.string().nullable(),
+  approved_under_at: Timestamp.nullable(),
+  /** Always waits for a member's yes, whatever permission is standing. */
+  always_asks: z.boolean(),
   declined_by_email: z.string().nullable(),
   declined_at: Timestamp.nullable(),
   decline_reason: z.string().nullable(),
@@ -1456,6 +1466,42 @@ export type Action = z.infer<typeof ActionSchema>;
  */
 export const NOTICE_HOLD_HOURS = 36;
 
+/**
+ * Why a standing permission ended: an owner or admin switched it off, a member asked to take back
+ * an action done under it, or the organization's plan stopped including it.
+ */
+export const STANDING_PERMISSION_ENDS = ["switched_off", "taken_back", "plan"] as const;
+export const StandingPermissionEndSchema = z.enum(STANDING_PERMISSION_ENDS);
+export type StandingPermissionEnd = z.infer<typeof StandingPermissionEndSchema>;
+
+/**
+ * An owner's or admin's yes in advance to every action of one kind, for the organization. See the
+ * glossary's "Standing permission".
+ */
+export const StandingPermissionSchema = z.object({
+  id: Id,
+  kind: ActionKindSchema,
+  given_by_email: z.string().nullable(),
+  given_at: Timestamp,
+  ended_at: Timestamp.nullable(),
+  /** Who switched it off or asked for the take-back. Null when the plan ended it. */
+  ended_by_email: z.string().nullable(),
+  end_reason: StandingPermissionEndSchema.nullable(),
+  /** The action whose take-back ended it. */
+  ended_by_action: Id.nullable(),
+});
+export type StandingPermission = z.infer<typeof StandingPermissionSchema>;
+
+/** Where standing permission stands for one kind of action, as a location's Actions tab shows it. */
+export const KindPermissionSchema = z.object({
+  kind: ActionKindSchema,
+  /** How many of the kind count toward it, up to the three it is offered after. */
+  counted: z.number().int().min(0).max(STANDING_PERMISSION_AFTER),
+  /** The permission standing for the kind, or null. */
+  standing: StandingPermissionSchema.nullable(),
+});
+export type KindPermission = z.infer<typeof KindPermissionSchema>;
+
 /** A location's actions: what is waiting for a yes, and the record of the rest, newest first. */
 export const LocationActionsSchema = z.object({
   waiting: z.array(ActionSchema),
@@ -1465,6 +1511,15 @@ export const LocationActionsSchema = z.object({
    * 36 hours ago and its owners have not been told yet.
    */
   held: z.boolean(),
+  /**
+   * Standing permission, for each kind with any counting toward it or a permission standing. It
+   * is the organization's, so it covers every location.
+   */
+  permissions: z.array(KindPermissionSchema),
+  /** Whether the organization's plan includes standing permission. */
+  permission_included: z.boolean(),
+  /** Whether the caller may give or end standing permission: an owner or admin. */
+  may_change_permission: z.boolean(),
 });
 export type LocationActions = z.infer<typeof LocationActionsSchema>;
 
@@ -1478,6 +1533,10 @@ export const ActionApprovalSchema = z.object({
     .optional(),
 });
 export type ActionApproval = z.infer<typeof ActionApprovalSchema>;
+
+/** An owner's or admin's ask to give standing permission for one kind of action. */
+export const StandingPermissionAskSchema = z.object({ kind: ActionKindSchema });
+export type StandingPermissionAsk = z.infer<typeof StandingPermissionAskSchema>;
 
 /** A member's no, with a reason or without. */
 export const ActionDeclineSchema = z.object({
@@ -2127,6 +2186,7 @@ export const AccountExportSchema = z.object({
   alerts: z.array(AlertSchema),
   drafts: z.array(DraftSchema),
   actions: z.array(ActionSchema),
+  standing_permissions: z.array(StandingPermissionSchema),
   connections: z.array(ConnectionSchema),
   listings: z.array(ListingSchema),
   page_addresses: z.array(PromptPageSchema.extend({ location_id: Id })),

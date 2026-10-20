@@ -1438,6 +1438,30 @@ A decision about what the product may change on a business's site is in
   a `text` for any other, and `carryOutAction` fails one that has `approved_text` anyway. Who answered is kept as
   the address they had then. Approving and asking again queue `{ action_id, step: "carry_out" }`; if
   the send fails, the request still succeeds and logs it.
+- **Standing permission approves a proposal as it is made.** An owner or admin may give it for a
+  kind of action, for the whole organization, once three of that kind were approved as proposed,
+  carried out and not taken back (`standing_permission_count()`; `STANDING_PERMISSION_AFTER`,
+  `packages/shared/src/standing-permission.ts`). The decision is
+  `docs/adr/0025-standing-permission-is-checked-where-an-action-is-approved-and-carried-out.md`.
+  `give_standing_permission()` and `end_standing_permission()` answer an owner or admin and no one
+  else, the operator included; the routes are `POST /api/organizations/:organizationId/standing-permissions`
+  (`requireNoticeFor`, since a yes in advance needs the same notice, 201) and the `DELETE` on a kind.
+  Each giving is a row of `standing_permissions`; one stands at a time for a kind. The plan must
+  include the `standing_permission` allowance, which is included or not and counts nothing.
+  `propose_action()` approves a new proposal of the kind at once, with no approver and
+  `approved_under`, `approved_under_by_email` and `approved_under_at` naming the permission, and
+  `proposeAfterSync` queues a carry-out for each action that comes back approved (`ActionDeps.queue`).
+  A proposal made `always_asks` is never approved this way. `claim_action()` checks again: where the
+  permission that approved the action has ended, the plan no longer includes it or the action
+  always asks, `return_to_waiting()` puts it back to `proposed` with a fresh fourteen days and
+  `claim_action()` answers zero, which `carryOutAction` returns as `waiting`. It ends when it is
+  switched off, when a member asks to take back an action done under it (`take_back_action()`,
+  recording the member and the action) and when a trigger on `organizations`
+  (`end_permissions_off_plan`) sees the allowance go; `end_permission()` puts back to waiting what
+  the permission approved and nobody is carrying out. A failure does not end it. What was waiting
+  when it was given goes on waiting. The daily notice names each action done under it, with who gave
+  the permission and when, and says once when one was given or ended; those lines never hold the
+  organization.
 - **Asking again is a new action.** `retry_action()` takes a `failed` action and makes another,
   already `approved` by whoever asked, with `retry_of` pointing at the one that failed, so the
   record keeps who approved each try. It refuses an action that did not fail, and one that has
@@ -1509,7 +1533,8 @@ A decision about what the product may change on a business's site is in
   organization with something to tell, one email to its owners only (`listOwnerEmails`; the wording
   is `apps/api/src/email/action-notice.ts`) saying what was carried out since the last, with who
   approved each (an owner's own approvals included, and whether they changed the text first), and
-  what is newly waiting for a yes. `told_at` is when an action counted as told of, and
+  what is newly waiting for a yes, and which standing permission was given or ended
+  (`listPermissionsToTell`, `markPermissionsTold`). `told_at` is when an action counted as told of, and
   `waiting_told_at` when a message said it was waiting; only the worker's secret key writes them
   (`markActionsTold`), and only once the email went. Where `RESEND_API_KEY` is not set on live
   data, nobody is an owner with an address, or the send fails (logged, and the other organizations
@@ -1579,7 +1604,7 @@ block is shown as code, with no text box),
 (at most 100 actions in all), with "Try again" on a failed one and "Take it back", behind a confirmation, on a done one. The record shows what an action replaced ("What it replaced", or
 "What was there" for one that was not done), or "No longer kept" once it was dropped. While an action is approved the
 page asks again every couple of seconds. When the organization is held, a notice above the lists says
-so. The sidebar says how many are waiting at each location
+so. A "Standing permission" section, from the `permissions`, `permission_included` and `may_change_permission` the list route returns, says for each kind how many of the three needed count, offers the switch to an owner or admin once they do, and shows who gave a permission standing and when; a plan that does not include it is told so. The sidebar says how many are waiting at each location
 (`GET /api/organizations/:organizationId/actions/waiting`, asked every 30 seconds). The operator
 reading through an account sees the tab and has no buttons.
 
@@ -1756,6 +1781,9 @@ who is not signed in reaches a live page only through `hosted_page()`, which ans
 subdomain alone and is, with `record_page_fetch()`, the only thing the Pages Worker calls (see "Hosted pages").
 `hosted_page_fetches` is read by the location's members and the operator, with no policy or grant for
 a caller who is not signed in, and written by no API role, only by `record_page_fetch()`.
+`standing_permissions` is read by the organization's members and the operator and written by no API
+role, only by `give_standing_permission()` and `end_standing_permission()`, which answer an owner or
+admin alone, and by the database's own functions when a take-back or the plan ends one (see "Actions").
 
 A location's point (`latitude`, `longitude`, `point_source`, `geocoded_from`) is read like the rest
 of the location and written by the worker alone: the `guard_location_point` trigger keeps those
@@ -2167,17 +2195,20 @@ drop it.
   A signed-in user cannot update a scan, so the request that hit the failure cannot clear it.
 - On a Supabase project that still signs tokens with a legacy shared secret, `getClaims` asks the
   Auth server on every request. Use asymmetric signing keys.
-- Allowances limit little yet. Four kinds of allowance exist (`ALLOWANCE_KINDS` and
-  `allowance_kinds`): `drafts`, counted, and `visits`, `wordpress` and `hosted_pages`, included or not.
-  Every paid plan includes `drafts` and `visits`, Pro and Enterprise include `wordpress` and
-  `hosted_pages`, and the free plan includes none. A test organization is given every kind, so its
-  drafts are counted and its visits and WordPress connection are included, but it is refused an
-  answer subdomain, whose pages would go out under a real domain. Only the `wordpress` and
-  `hosted_pages` kinds of connection name an allowance, and no kind of action does, so a number for another kind would be stored, shown and
-  lowered by announcement, but no work would stop at it or be counted against it. What an allowance can stop is
-  a kind of connection that needs it (see "Connections"), a kind of action that takes from it (see
-  "Actions"), a draft (see "Drafts") and counting a visit (see "Visits from assistants"), and only
-  the last two exist ([#133](https://github.com/jwh3times/Nearcited/issues/133)).
+- Allowances limit little yet. Seven kinds of allowance exist (`ALLOWANCE_KINDS` and
+  `allowance_kinds`): `drafts`, counted, and `visits`, `wordpress`, `hosted_pages`, `stronger_models`,
+  `google_results` and `standing_permission`, included or not.
+  Every paid plan includes `drafts` and `visits`, Pro and Enterprise include `wordpress`,
+  `hosted_pages` and `standing_permission`, and the free plan includes none. A test organization is
+  given every kind, so its drafts are counted and its visits and WordPress connection are included,
+  but it is refused an answer subdomain, whose pages would go out under a real domain. The
+  `wordpress` and `hosted_pages` kinds of connection name an allowance, and the kinds of action
+  that go through them take from the same two, which are included without a number; so a number
+  for any kind but `drafts` would be stored, shown and lowered by announcement, but no work would
+  stop at it or be counted against it. What an allowance can stop is a kind of connection that
+  needs it (see "Connections"), a kind of action that takes from it (see "Actions"), standing
+  permission (see "Actions"), a draft (see "Drafts") and counting a visit (see "Visits from
+  assistants") ([#133](https://github.com/jwh3times/Nearcited/issues/133)).
 - A real draft is written only where the private tuning has instructions for its kind, and it
   needs them before a deployment writes one, or offers a task one (see "Tuning" and "Drafts"). What a real draft costs has
   been measured only in a trial, whose readings are kept privately: a draft's use is recorded, so

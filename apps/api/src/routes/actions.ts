@@ -2,8 +2,11 @@ import {
   type Action,
   ActionApprovalSchema,
   ActionDeclineSchema,
+  ActionKindSchema,
   EDITABLE_ACTION_KINDS,
   type LocationActions,
+  type Organization,
+  StandingPermissionAskSchema,
 } from "@nearcited/shared";
 import type { Context } from "hono";
 import { Hono } from "hono";
@@ -24,6 +27,9 @@ async function queueCarryOut(queue: AppEnv["Bindings"]["SCAN_QUEUE"], action: Ac
   }
 }
 
+/** Whether this deployment can tell owners what was done: it sends email, or nothing is real. */
+const noticeCanGo = (c: Context<AppEnv>) => Boolean(c.env.RESEND_API_KEY) || usesSampleData(c.env);
+
 /**
  * Refuses a yes where the notice it would need cannot be sent. An organization's owners are told
  * of every action within 48 hours, so where this deployment has no outgoing email a real action
@@ -31,12 +37,17 @@ async function queueCarryOut(queue: AppEnv["Bindings"]["SCAN_QUEUE"], action: Ac
  * the page is the notice. An action the caller cannot read is left for the store to refuse.
  */
 async function requireNotice(c: Context<AppEnv>, actionId: string) {
-  if (c.env.RESEND_API_KEY || usesSampleData(c.env)) return;
+  if (noticeCanGo(c)) return;
   const store = c.get("store");
   const action = await store.getAction(actionId);
   const location = action && (await store.getLocation(action.location_id));
   const organization = location && (await store.getOrganization(location.organization_id));
-  if (!organization || organization.is_test) return;
+  requireNoticeFor(c, organization);
+}
+
+/** The same refusal, for an organization: standing permission is a yes to every action of a kind. */
+function requireNoticeFor(c: Context<AppEnv>, organization: Organization | null | undefined) {
+  if (noticeCanGo(c) || !organization || organization.is_test) return;
   throw new ApiError(
     503,
     "actions_unavailable",
@@ -52,15 +63,49 @@ actionRoutes.get("/locations/:locationId/actions", async (c) => {
   const locationId = uuidParam(c, "locationId", "Location");
   const store = c.get("store");
   if (!(await store.getLocation(locationId))) throw notFound("Location");
-  const [actions, held] = await Promise.all([
+  const [actions, held, permission] = await Promise.all([
     store.listLocationActions(locationId),
     store.isLocationHeld(locationId),
+    store.getPermissionState(locationId),
   ]);
+  if (!permission) throw notFound("Location");
   return c.json({
     waiting: actions.filter((action) => action.status === "proposed"),
     record: actions.filter((action) => action.status !== "proposed"),
     held,
+    ...permission,
   } satisfies LocationActions);
+});
+
+/**
+ * Gives standing permission for one kind of action, for the whole organization. Owner or admin
+ * only: to anyone else, the operator included, the organization is not found. Refused where the
+ * plan does not include it, fewer than three of the kind were approved as proposed and done, or
+ * no notice of what is done under it could be sent.
+ */
+actionRoutes.post("/organizations/:organizationId/standing-permissions", async (c) => {
+  const organizationId = uuidParam(c, "organizationId", "Organization");
+  const { kind } = await parseJson(c, StandingPermissionAskSchema);
+  const store = c.get("store");
+  const organization = await store.getOrganization(organizationId);
+  if (!organization) throw notFound("Organization");
+  requireNoticeFor(c, organization);
+  const given = await store.giveStandingPermission(organizationId, kind);
+  if (!given) throw notFound("Organization");
+  return c.json(given, 201);
+});
+
+/**
+ * Ends standing permission for one kind of action. Owner or admin only. What it approved and is
+ * not under way waits for a yes again, at once.
+ */
+actionRoutes.delete("/organizations/:organizationId/standing-permissions/:kind", async (c) => {
+  const organizationId = uuidParam(c, "organizationId", "Organization");
+  const kind = ActionKindSchema.safeParse(c.req.param("kind"));
+  if (!kind.success) throw notFound("Kind of action");
+  const ended = await c.get("store").endStandingPermission(organizationId, kind.data);
+  if (!ended) throw notFound("Organization");
+  return c.json(ended);
 });
 
 /** How many actions wait for a yes at each of an organization's locations. */

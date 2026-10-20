@@ -51,6 +51,27 @@ export interface ActionDeps {
   outside?: WordPressDeps;
   /** Where answer subdomains are served from, and how IndexNow is reached. */
   hosting?: Hosting;
+  /**
+   * Where a proposal that standing permission approved as it was made is queued to be carried
+   * out. Without one the schedule finds it, a quarter of an hour later.
+   */
+  queue?: Pick<Queue<ActionMessage>, "send">;
+}
+
+/**
+ * Proposes one action, and queues it to be carried out where standing permission approved it as
+ * it was made. True when it was proposed.
+ */
+async function propose({ store, queue }: ActionDeps, action: NewAction): Promise<boolean> {
+  const made = await store.proposeAction(action);
+  if (made?.status === "approved" && queue) {
+    try {
+      await queue.send({ action_id: made.id, step: "carry_out" });
+    } catch (error) {
+      console.error(`Action ${made.id}: could not queue it, the schedule will`, error);
+    }
+  }
+  return made !== null;
 }
 
 /** What a kind of action is given to work with: the account, and what of it is the location's. */
@@ -276,7 +297,7 @@ export async function proposeAfterSync(connectionId: string, deps: ActionDeps): 
     const text = sampleOpeningLine(location);
     const now = await store.getSampleLine(connection.id, match.external_id);
     if (now === text) continue;
-    const made = await store.proposeAction({
+    const made = await propose(deps, {
       location_id: location.id,
       kind: "sample",
       connection_id: connection.id,
@@ -302,8 +323,9 @@ export async function proposeAfterSync(connectionId: string, deps: ActionDeps): 
 async function proposeDetails(
   connection: Connection,
   signIn: string,
-  { store, outside = {} }: ActionDeps,
+  deps: ActionDeps,
 ): Promise<number> {
+  const { store, outside = {} } = deps;
   const site = readWordPressSignIn(signIn);
   let proposed = 0;
   for (const match of connection.matches) {
@@ -326,7 +348,7 @@ async function proposeDetails(
     );
     // A page with no block of the product's is offered one only where the check found it lacking.
     if (now === null && !task) continue;
-    const made = await store.proposeAction({
+    const made = await propose(deps, {
       location_id: location.id,
       kind: "wordpress_details",
       connection_id: connection.id,
@@ -418,8 +440,9 @@ const pageProposal = (
 async function proposePages(
   connection: Connection,
   signIn: string,
-  { store, outside = {} }: ActionDeps,
+  deps: ActionDeps,
 ): Promise<number> {
+  const { store, outside = {} } = deps;
   const site = readWordPressSignIn(signIn);
   let proposed = 0;
   for (const match of connection.matches) {
@@ -431,7 +454,8 @@ async function proposePages(
         console.error(`Connection ${connection.id}: its pages could not be read`, error);
         return proposed;
       }
-      const made = await store.proposeAction(
+      const made = await propose(
+        deps,
         pageProposal(page, match.location_id, connection.id, "wordpress_page", "on your site"),
       );
       if (made) proposed++;
@@ -445,7 +469,8 @@ async function proposePages(
  * while it still sits under the location's website, where no page is served at the address its
  * title makes.
  */
-async function proposeHostedPages(connection: Connection, { store }: ActionDeps): Promise<number> {
+async function proposeHostedPages(connection: Connection, deps: ActionDeps): Promise<number> {
+  const { store } = deps;
   const kept = await store.getAnswerSubdomain(connection.id);
   if (!kept?.live_at || !kept.location_id) return 0;
   const location = await store.getLocation(kept.location_id);
@@ -453,7 +478,8 @@ async function proposeHostedPages(connection: Connection, { store }: ActionDeps)
   let proposed = 0;
   for (const page of await pagesToOffer(store, location.id)) {
     if (await store.getHostedPage(connection.id, page.slug)) continue;
-    const made = await store.proposeAction(
+    const made = await propose(
+      deps,
       pageProposal(page, location.id, connection.id, "hosted_page", `at ${kept.hostname}`),
     );
     if (made) proposed++;
@@ -491,7 +517,8 @@ export type CarriedOut =
   | "again"
   | "not_approved"
   | "busy"
-  | "held";
+  | "held"
+  | "waiting";
 
 /** The text an action puts there: what was approved, which is the proposal unless it was changed. */
 export const actionText = (action: Pick<Action, "approved_text" | "proposed_text">) =>
@@ -508,6 +535,8 @@ export const actionText = (action: Pick<Action, "approved_text" | "proposed_text
  * A try that does not work is tried again, up to three times, and then the action is failed
  * with the reason. `again` asks whoever called to have it delivered again later. `held` is an
  * action left approved because its organization's owners are still to be told of an earlier one.
+ * `waiting` is one that standing permission approved, put back to wait for a member's yes because
+ * that permission no longer stands: the database checks as the action is taken.
  *
  * Taking the action also takes one from the month's allowance, where its kind is counted, and
  * an ending that left the thing undone gives it back. Being done marks the task the action does
@@ -525,8 +554,10 @@ export async function carryOutAction(
   if (location && (await store.isOrganizationHeld(location.organization_id))) return "held";
   const attempt = await store.claimAction(actionId);
   if (attempt === 0) {
-    // Nobody else is on it if the month had no room for it: it was failed as it was taken.
-    return (await store.getAction(actionId))?.status === "failed" ? "failed" : "busy";
+    // Nobody else is on it if the month had no room for it: it was failed as it was taken. Nor
+    // if the permission that approved it had ended: it waits for a yes again.
+    const now = (await store.getAction(actionId))?.status;
+    return now === "failed" ? "failed" : now === "proposed" ? "waiting" : "busy";
   }
 
   const fail = async (why: string): Promise<CarriedOut> => {

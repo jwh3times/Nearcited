@@ -301,6 +301,7 @@ export default {
             appUrl: env.APP_URL,
             outside: { localOrigin: env.WORDPRESS_LOCAL_ORIGIN ?? null },
             hosting: hostingOf(env),
+            queue: env.SCAN_QUEUE,
           };
           const outcome =
             step === "remove"

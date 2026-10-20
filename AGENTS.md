@@ -156,7 +156,15 @@ pass `pnpm check` and run in mock mode without it.
   writes (`docs/adr/0018-on-a-business-site-the-product-changes-only-what-it-made.md`): never
   edit the owner's text, menus, themes or plugins. A change composed by rule is approved as it
   is (`EDITABLE_ACTION_KINDS`). Taking back is a new action made only by `take_back_action()`,
-  which a member asks for, and it removes only what the action put there.
+  which a member asks for, and it removes only what the action put there. Standing permission is
+  a yes given in advance, and only `propose_action()` applies it, as an action is made;
+  `claim_action()` checks it again and puts back to waiting what it no longer covers
+  (`docs/adr/0025-standing-permission-is-checked-where-an-action-is-approved-and-carried-out.md`).
+  It is given and ended only through `give_standing_permission()` and
+  `end_standing_permission()`, which answer an owner or admin and no one else, the operator
+  included, and it ends at a take-back of something done under it and when the plan stops
+  including it. Keep both checks, never apply it to an action that `always_asks`, and add no
+  other path that approves an action without a member.
 - **Only the worker raises or clears an alert, and an alert is kept, not worked out again.**
   `complete_scan()` writes the alerts a scan raises and clears (`deriveAlerts`,
   `packages/shared/src/alerts.ts`). A request only dismisses one, through `dismiss_alert()`, which
