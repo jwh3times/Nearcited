@@ -68,7 +68,11 @@ async function errorCode(response: Response): Promise<string> {
 }
 
 /** What the worker has: every row, and the key. */
-const worker = async () => ({ store: memoryStore(db, null), key: await sealingKey(SECRET) });
+const worker = async () => ({
+  store: memoryStore(db, null),
+  key: await sealingKey(SECRET),
+  queue: env.SCAN_QUEUE,
+});
 
 /**
  * Alice's organization, with Bob in it as a member, a location, and a synced sample account the
@@ -988,5 +992,333 @@ describe("an action of a kind that is counted", () => {
     expect(await carryOutAction(id, await worker())).toBe("done");
     expect(await store.getAllowanceUse(organization.id)).toEqual({});
     expect(db.actions[0]?.allowance_month).toBeNull();
+  });
+});
+
+describe("standing permission", () => {
+  const dave = "d0000000-0000-4000-8000-000000000004";
+  let sent: { to: string[]; email: Email }[];
+  const give = (user: string, organizationId: string, kind = "sample") =>
+    call(user, "POST", `/organizations/${organizationId}/standing-permissions`, { kind });
+  const end = (user: string, organizationId: string, kind = "sample") =>
+    call(user, "DELETE", `/organizations/${organizationId}/standing-permissions/${kind}`);
+  const notices = () =>
+    sendActionNotices({
+      store: memoryStore(db, null),
+      send: async (to, email) => {
+        sent.push({ to, email });
+      },
+      appUrl: "https://app.example/",
+    });
+  const waitingNow = () => db.actions.find((action) => action.status === "proposed")?.id ?? "";
+  const status = (id: string) => db.actions.find((action) => action.id === id)?.status;
+
+  /** Bob approves what is waiting, as proposed or changed, and the worker carries it out. */
+  async function approvedAndDone(body: unknown = {}) {
+    const id = waitingNow();
+    await approve(bob, id, body);
+    expect(await carryOutAction(id, await worker())).toBe("done");
+    return id;
+  }
+  /** The location's details change, so the sync proposes its opening line again. */
+  async function proposedAgain(locationId: string, connectionId: string, name: string) {
+    const kept = db.locations.find((candidate) => candidate.id === locationId);
+    if (kept) kept.name = name;
+    return proposeAfterSync(connectionId, await worker());
+  }
+  /**
+   * Alice's organization on a plan with standing permission, Dave its admin, and three sample
+   * actions approved as proposed and carried out. A fourth waits.
+   */
+  async function earned() {
+    const made = await matched();
+    const organization = db.organizations.find((o) => o.id === made.organization.id);
+    if (organization) organization.allowances = { standing_permission: true };
+    db.memberships.push({ organization_id: made.organization.id, user_id: dave, role: "admin" });
+    db.emails.set(dave, "dave@example.com");
+    for (const name of ["Joe's Pizza Two", "Joe's Pizza Three", "Joe's Pizza Four"]) {
+      await approvedAndDone();
+      await proposedAgain(made.location.id, made.connection.id, name);
+    }
+    return made;
+  }
+
+  beforeEach(() => {
+    sent = [];
+  });
+
+  it("is offered after three were approved as proposed and done, and not before", async () => {
+    const { organization, location, connection } = await matched();
+    const kept = db.organizations.find((o) => o.id === organization.id);
+    if (kept) kept.allowances = { standing_permission: true };
+    expect(await actionsOf(alice, location.id)).toMatchObject({
+      permissions: [],
+      permission_included: true,
+      may_change_permission: true,
+    });
+    expect((await actionsOf(bob, location.id)).may_change_permission).toBe(false);
+
+    await approvedAndDone();
+    await proposedAgain(location.id, connection.id, "Joe's Pizza Two");
+    // Changed before the yes: it does not count.
+    await approvedAndDone({ text: "Open late on Fridays." });
+    await proposedAgain(location.id, connection.id, "Joe's Pizza Three");
+    await approvedAndDone();
+    expect((await actionsOf(alice, location.id)).permissions).toEqual([
+      { kind: "sample", counted: 2, standing: null },
+    ]);
+    const early = await give(alice, organization.id);
+    expect(early.status).toBe(409);
+    expect(await errorCode(early)).toBe("limit_reached");
+
+    await proposedAgain(location.id, connection.id, "Joe's Pizza Four");
+    await approvedAndDone();
+    expect((await actionsOf(alice, location.id)).permissions).toEqual([
+      { kind: "sample", counted: 3, standing: null },
+    ]);
+  });
+
+  it("does not count one taken back, one that lapsed or one that failed", async () => {
+    const { organization, location, connection } = await matched();
+    const kept = db.organizations.find((o) => o.id === organization.id);
+    if (kept) kept.allowances = { standing_permission: true };
+    const counted = async () => (await actionsOf(alice, location.id)).permissions[0]?.counted ?? 0;
+    const done = await approvedAndDone();
+    expect(await counted()).toBe(1);
+    const back = ActionSchema.parse(
+      await (await call(bob, "POST", `/actions/${done}/take-back`)).json(),
+    );
+    await carryOutAction(back.id, await worker());
+    expect(await counted()).toBe(0);
+
+    await proposedAgain(location.id, connection.id, "Joe's Pizza Two");
+    db.now = new Date(Date.now() + 15 * DAY).toISOString();
+    expect(await memoryStore(db, null).lapseActions()).toBe(1);
+    await proposedAgain(location.id, connection.id, "Joe's Pizza Three");
+    await approve(bob, waitingNow());
+    // Told, so that the fifteen days gone by hold nothing.
+    await memoryStore(db, null).markActionsTold(
+      db.actions.map((action) => action.id),
+      "done",
+      db.now,
+    );
+    await call(alice, "DELETE", `/connections/${connection.id}`);
+    expect(await carryOutAction(db.actions.at(-1)?.id ?? "", await worker())).toBe("failed");
+    expect(await counted()).toBe(0);
+  });
+
+  it("holds what it approved while the organization is held, and is not itself held for", async () => {
+    const { organization, location, connection } = await earned();
+    // Everything so far told, and the permission given and never told.
+    await memoryStore(db, null).markActionsTold(
+      db.actions.map((action) => action.id),
+      "done",
+      new Date().toISOString(),
+    );
+    await give(alice, organization.id);
+    db.now = new Date(Date.now() + 40 * 3_600_000).toISOString();
+    expect(await memoryStore(db, null).isOrganizationHeld(organization.id)).toBe(false);
+
+    // Something done and untold for 36 hours holds what the permission approved, as anything.
+    const last = db.actions.find((action) => action.status === "done");
+    if (last) Object.assign(last, { told_at: null, done_at: new Date(Date.now()).toISOString() });
+    await decline(bob, waitingNow());
+    await proposedAgain(location.id, connection.id, "Joe's Pizza Five");
+    const next = db.actions.at(-1)?.id ?? "";
+    expect(status(next)).toBe("approved");
+    expect(await carryOutAction(next, await worker())).toBe("held");
+    expect(status(next)).toBe("approved");
+  });
+
+  it("is given and ended by an owner or admin, and by nobody else", async () => {
+    const { organization, location } = await earned();
+    // A stranger is told nothing, about the organization or what stands for it.
+    expect((await give(carol, organization.id)).status).toBe(404);
+    expect((await end(carol, organization.id)).status).toBe(404);
+    expect((await call(carol, "GET", `/locations/${location.id}/actions`)).status).toBe(404);
+    db.operators.add(carol);
+    for (const user of [bob, carol]) {
+      expect((await give(user, organization.id)).status, user).toBe(404);
+    }
+    const given = await give(dave, organization.id);
+    expect(given.status).toBe(201);
+    expect(await given.json()).toMatchObject({
+      kind: "sample",
+      given_by_email: "dave@example.com",
+      ended_at: null,
+    });
+    expect((await give(alice, organization.id)).status).toBe(409);
+    expect((await actionsOf(bob, location.id)).permissions).toEqual([
+      expect.objectContaining({
+        kind: "sample",
+        standing: expect.objectContaining({ given_by_email: "dave@example.com" }),
+      }),
+    ]);
+    for (const user of [bob, carol]) {
+      expect((await end(user, organization.id)).status, user).toBe(404);
+    }
+    const ended = await end(alice, organization.id);
+    expect(ended.status).toBe(200);
+    expect(await ended.json()).toMatchObject({
+      end_reason: "switched_off",
+      ended_by_email: "alice@example.com",
+    });
+    expect((await end(alice, organization.id)).status).toBe(409);
+    expect((await give(alice, organization.id, "no_such_kind")).status).toBe(422);
+  });
+
+  it("is not given where the plan does not include it, or where no notice could be sent", async () => {
+    const { organization } = await earned();
+    const kept = db.organizations.find((o) => o.id === organization.id);
+    if (kept) kept.allowances = {};
+    expect((await give(alice, organization.id)).status).toBe(409);
+    if (kept) kept.allowances = { standing_permission: true };
+    env = { ...env, PROVIDER_MODE: "live" } as Env;
+    const refused = await give(alice, organization.id);
+    expect(refused.status).toBe(503);
+    expect(await errorCode(refused)).toBe("actions_unavailable");
+  });
+
+  it("approves the next one as it is proposed, and it is done and reported without a yes", async () => {
+    const { organization, location, connection } = await earned();
+    // What was waiting when it was given goes on waiting.
+    const before = waitingNow();
+    expect((await give(alice, organization.id)).status).toBe(201);
+    expect(status(before)).toBe("proposed");
+    await decline(bob, before);
+
+    queued = [];
+    expect(await proposedAgain(location.id, connection.id, "Joe's Pizza Five")).toBe(1);
+    const next = db.actions.at(-1);
+    expect(next).toMatchObject({
+      status: "approved",
+      approved_by_email: null,
+      approved_under_by_email: "alice@example.com",
+      always_asks: false,
+    });
+    expect(queued).toEqual([{ action_id: next?.id, step: "carry_out" }]);
+    expect(await carryOutAction(next?.id ?? "", await worker())).toBe("done");
+    expect(line()).toBe(
+      "Joe's Pizza Five in Raleigh: open every day. Call ahead for large orders.",
+    );
+    // Done under it, it does not count toward another three.
+    expect((await actionsOf(alice, location.id)).permissions[0]?.counted).toBe(3);
+
+    expect(await notices()).toBe(1);
+    const text = sent[0]?.email.text ?? "";
+    expect(text).toContain(
+      "without waiting for a yes, under the standing permission alice@example.com gave on",
+    );
+    expect(text).toContain("alice@example.com gave standing permission on");
+    expect(text).toContain("An owner or admin can end a standing permission on the Actions tab");
+  });
+
+  it("never approves one that always asks", async () => {
+    const { organization, location, connection } = await earned();
+    await give(alice, organization.id);
+    await decline(bob, waitingNow());
+    const made = await memoryStore(db, null).proposeAction({
+      location_id: location.id,
+      kind: "sample",
+      connection_id: connection.id,
+      subject: "opening-line:sample-listing-2",
+      basis: "a reply to a low-rated review",
+      summary: "Reply to a review",
+      seen: { text: null },
+      proposed_text: "Thank you for telling us.",
+      written_by: "model",
+      always_asks: true,
+    });
+    expect(made).toMatchObject({ status: "proposed", always_asks: true, approved_under: null });
+  });
+
+  it("puts back to waiting at once what it approved, when it is switched off", async () => {
+    const { organization, location, connection } = await earned();
+    await give(alice, organization.id);
+    await decline(bob, waitingNow());
+    await proposedAgain(location.id, connection.id, "Joe's Pizza Five");
+    const next = db.actions.at(-1)?.id ?? "";
+    expect(status(next)).toBe("approved");
+
+    db.now = new Date(Date.now() + DAY).toISOString();
+    await end(dave, organization.id);
+    const { waiting } = await actionsOf(bob, location.id);
+    expect(waiting.map((action) => action.id)).toEqual([next]);
+    expect(waiting[0]).toMatchObject({ approved_at: null, approved_under: null });
+    expect(Date.parse(waiting[0]?.lapses_at ?? "") - Date.parse(db.now)).toBe(14 * DAY);
+    expect(await carryOutAction(next, await worker())).toBe("not_approved");
+    expect(line()).not.toContain("Five");
+  });
+
+  it("puts one back to waiting when it is taken to be carried out, if its permission is gone", async () => {
+    const { organization, location, connection } = await earned();
+    await give(alice, organization.id);
+    await decline(bob, waitingNow());
+    await proposedAgain(location.id, connection.id, "Joe's Pizza Five");
+    const next = db.actions.at(-1)?.id ?? "";
+    // The plan stops including it after the action was approved and before it is carried out.
+    const kept = db.organizations.find((o) => o.id === organization.id);
+    if (kept) kept.allowances = {};
+    expect(await carryOutAction(next, await worker())).toBe("waiting");
+    expect(status(next)).toBe("proposed");
+    expect(line()).not.toContain("Five");
+    expect((await actionsOf(alice, location.id)).permissions).toEqual([
+      { kind: "sample", counted: 3, standing: null },
+    ]);
+    expect(await notices()).toBe(1);
+    expect(sent[0]?.email.text).toContain("your plan no longer includes standing permission");
+  });
+
+  it("ends when a member asks to take back something done under it", async () => {
+    const { organization, location, connection } = await earned();
+    await give(alice, organization.id);
+    await decline(bob, waitingNow());
+    await proposedAgain(location.id, connection.id, "Joe's Pizza Five");
+    const done = db.actions.at(-1)?.id ?? "";
+    await carryOutAction(done, await worker());
+    const asked = await call(bob, "POST", `/actions/${done}/take-back`);
+    expect(asked.status).toBe(201);
+    const back = ActionSchema.parse(await asked.json());
+    expect(back.approved_under).toBeNull();
+    expect(await carryOutAction(back.id, await worker())).toBe("done");
+
+    expect((await actionsOf(alice, location.id)).permissions[0]?.standing).toBeNull();
+    expect(await notices()).toBe(1);
+    expect(sent[0]?.email.text).toContain(
+      "when bob@example.com asked to take back something done under it: Set the opening line of Sample listing: Riverside.",
+    );
+    // The next one waits for a yes.
+    expect(await proposedAgain(location.id, connection.id, "Joe's Pizza Six")).toBe(1);
+    expect(db.actions.at(-1)?.status).toBe("proposed");
+  });
+
+  it("is told to the owners once when it is given and once when it ends", async () => {
+    const { organization } = await earned();
+    await notices();
+    sent = [];
+    await give(dave, organization.id);
+    expect(await notices()).toBe(1);
+    expect(sent[0]?.to).toEqual(["alice@example.com"]);
+    expect(sent[0]?.email.subject).toBe("Standing permission at Raleigh Pizza Group");
+    expect(sent[0]?.email.text).toContain("dave@example.com gave standing permission on");
+    expect(sent[0]?.email.text).toContain(
+      "Nearcited may set the opening line of a sample listing at every location without waiting for a yes.",
+    );
+    expect(await notices()).toBe(1 - 1);
+    await end(alice, organization.id);
+    expect(await notices()).toBe(1);
+    expect(sent[1]?.email.text).toContain(
+      "alice@example.com ended the standing permission to set the opening line of a sample listing on",
+    );
+    expect(await notices()).toBe(0);
+  });
+
+  it("is marked told for a test organization, which is never written to", async () => {
+    db.testAccounts.add(alice);
+    const { organization } = await earned();
+    await give(alice, organization.id);
+    expect(await notices()).toBe(0);
+    expect(sent).toEqual([]);
+    expect(await memoryStore(db, null).listPermissionsToTell()).toEqual([]);
   });
 });

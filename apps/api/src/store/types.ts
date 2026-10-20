@@ -23,6 +23,7 @@ import type {
   LimitChangeNotice,
   Listing,
   Location,
+  LocationActions,
   LocationConnection,
   LocationInput,
   LocationVisits,
@@ -45,6 +46,7 @@ import type {
   ScanTrigger,
   SeenBefore,
   SiteCheck,
+  StandingPermission,
   StoredAudit,
   SubscriptionFact,
   Surface,
@@ -148,6 +150,27 @@ export interface NewAction {
   written_by: "rule" | "model";
   /** The task this does the work of, which is marked done when the action is carried out. */
   recommendation_id?: string | null;
+  /**
+   * Always waits for a member's yes, whatever permission is standing. A reply to a review of three
+   * stars or fewer is proposed so.
+   */
+  always_asks?: boolean;
+}
+
+/** Standing permission as a location's Actions tab shows it. */
+export type PermissionState = Pick<
+  LocationActions,
+  "permissions" | "permission_included" | "may_change_permission"
+>;
+
+/** A standing permission its organization's owners are still to be told was given, or ended. */
+export interface PermissionToTell {
+  permission: StandingPermission;
+  organization_id: string;
+  /** Not yet told it was given. */
+  given_untold: boolean;
+  /** Ended, and not yet told it ended. */
+  ended_untold: boolean;
 }
 
 /** A connection to make: its sign-in is already sealed, to the ID given here. */
@@ -395,6 +418,25 @@ export interface Store {
    * one that failed. Null for anyone who is not a member.
    */
   retryAction(id: string): Promise<Action | null>;
+  /**
+   * An owner or admin gives standing permission for a kind of action, for the organization. Null
+   * for anyone else, the operator included. Refused, as a limit, where the plan does not include
+   * it, fewer than three count toward it, or one already stands.
+   */
+  giveStandingPermission(
+    organizationId: string,
+    kind: ActionKind,
+  ): Promise<StandingPermission | null>;
+  /**
+   * An owner or admin switches standing permission for a kind off, and what it approved and is
+   * not under way waits for a yes again. Null for anyone else. Refused where none stands.
+   */
+  endStandingPermission(
+    organizationId: string,
+    kind: ActionKind,
+  ): Promise<StandingPermission | null>;
+  /** Standing permission for a location's organization, for whoever can read the location. */
+  getPermissionState(locationId: string): Promise<PermissionState | null>;
   /**
    * A member asks to have an action that was done taken back: a new action, already approved by
    * them, that puts back what was there before. Null for anyone who is not a member of the
@@ -786,6 +828,13 @@ export interface Store {
    * Keeps that the owners were told: of what was done, or of what is waiting. Worker only.
    */
   markActionsTold(ids: string[], which: "done" | "waiting", at: string): Promise<void>;
+  /**
+   * The standing permissions whose organization's owners have not been told they were given, or
+   * that they ended. Worker only.
+   */
+  listPermissionsToTell(): Promise<PermissionToTell[]>;
+  /** Keeps that the owners were told a permission was given, or that it ended. Worker only. */
+  markPermissionsTold(ids: string[], which: "given" | "ended", at: string): Promise<void>;
   /**
    * Whether nothing more may be carried out for an organization: one of its actions has gone
    * 36 hours without its owners being told. Worker only.

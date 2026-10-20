@@ -579,6 +579,96 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
     expect(await worker.claimAction(back?.id ?? "")).toBe(1);
     expect(await worker.finishAction(back?.id ?? "", "done")).toBe(true);
     await worker.markActionsTold([back?.id ?? ""], "done", new Date().toISOString());
+    // Standing permission: shown to a member, given and ended by an owner or admin through the
+    // functions that refuse it until three were approved as proposed, and told by the worker.
+    expect(await aliceStore.getPermissionState(location.id)).toEqual({
+      permissions: [],
+      permission_included: false,
+      may_change_permission: true,
+    });
+    expect(await bobStore.getPermissionState(location.id)).toBeNull();
+    expect(await bobStore.giveStandingPermission(organization.id, "sample")).toBeNull();
+    await expect(
+      aliceStore.giveStandingPermission(organization.id, "sample"),
+    ).rejects.toMatchObject({ kind: "limit" });
+    expect(await bobStore.endStandingPermission(organization.id, "sample")).toBeNull();
+    await expect(aliceStore.endStandingPermission(organization.id, "sample")).rejects.toMatchObject(
+      { kind: "limit" },
+    );
+    expect(await bobStore.listPermissionsToTell()).toEqual([]);
+    await expect(
+      aliceStore.markPermissionsTold([organization.id], "given", new Date().toISOString()),
+    ).rejects.toMatchObject({ kind: "forbidden" });
+    expect(
+      (await worker.listPermissionsToTell()).filter(
+        (row) => row.organization_id === organization.id,
+      ),
+    ).toEqual([]);
+    // Three approved as proposed and done, on a plan that includes it.
+    await client(await token({ role: "service_role" }))
+      .from("organizations")
+      .update({ allowances: { standing_permission: true } })
+      .eq("id", organization.id)
+      .throwOnError();
+    const earned: string[] = [];
+    for (const n of [1, 2, 3]) {
+      const one = await worker.proposeAction({ ...proposal, subject: `standing:${n}` });
+      await aliceStore.approveAction(one?.id ?? "");
+      await worker.claimAction(one?.id ?? "");
+      await worker.finishAction(one?.id ?? "", "done");
+      earned.push(one?.id ?? "");
+    }
+    await worker.markActionsTold(earned, "done", new Date().toISOString());
+    const given = await aliceStore.giveStandingPermission(organization.id, "sample");
+    expect(given).toMatchObject({ kind: "sample", given_by_email: "alice@example.com" });
+    expect(await bobStore.getPermissionState(location.id)).toBeNull();
+    expect(await aliceStore.getPermissionState(location.id)).toEqual({
+      permissions: [{ kind: "sample", counted: 3, standing: given }],
+      permission_included: true,
+      may_change_permission: true,
+    });
+    const underIt = await worker.proposeAction({ ...proposal, subject: "standing:4" });
+    expect(underIt).toMatchObject({
+      status: "approved",
+      approved_under: given?.id,
+      approved_under_by_email: "alice@example.com",
+    });
+    expect(
+      (await worker.listPermissionsToTell()).filter(
+        (row) => row.organization_id === organization.id,
+      ),
+    ).toEqual([
+      {
+        permission: given,
+        organization_id: organization.id,
+        given_untold: true,
+        ended_untold: false,
+      },
+    ]);
+    await worker.markPermissionsTold([given?.id ?? ""], "given", new Date().toISOString());
+    expect(await aliceStore.endStandingPermission(organization.id, "sample")).toMatchObject({
+      end_reason: "switched_off",
+      ended_by_email: "alice@example.com",
+    });
+    expect(await aliceStore.getAction(underIt?.id ?? "")).toMatchObject({
+      status: "proposed",
+      approved_under: null,
+    });
+    await aliceStore.declineAction(underIt?.id ?? "");
+    expect(
+      (await worker.listPermissionsToTell()).filter(
+        (row) => row.organization_id === organization.id,
+      ),
+    ).toMatchObject([{ given_untold: false, ended_untold: true }]);
+    await worker.markPermissionsTold([given?.id ?? ""], "ended", new Date().toISOString());
+    // One that always asks is proposed so, and waits.
+    const asks = await worker.proposeAction({
+      ...proposal,
+      subject: "opening-line:asks",
+      always_asks: true,
+    });
+    expect(asks).toMatchObject({ status: "proposed", always_asks: true, approved_under: null });
+    await aliceStore.declineAction(asks?.id ?? "");
     await aliceStore.requestConnectionRemoval(account.id);
     expect(await worker.finishConnectionRemoval(account.id)).toBe(true);
     expect(await aliceStore.listLocationConnections(location.id)).toEqual([]);
@@ -1814,6 +1904,7 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
       ["a plan's subscribers", "worker", (store) => store.listPlanSubscribers(plan?.key ?? "")],
       ["a plan's organizations", "worker", (store) => store.listPlanOrganizations("starter")],
       ["actions to tell of", "worker", (store) => store.listActionsToTell()],
+      ["standing permissions to tell of", "worker", (store) => store.listPermissionsToTell()],
     ];
     for (const [what, who, read] of reads) {
       requests = 0;

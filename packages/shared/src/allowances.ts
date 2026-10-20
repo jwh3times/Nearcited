@@ -40,6 +40,12 @@ export const ALLOWANCE_KINDS: Record<string, AllowanceKind> = {
     counted: false,
     name: "Google results: map pack, organic, AI Overview and AI Mode",
   },
+  // An owner's yes in advance to every action of one kind (`standing-permission.ts`).
+  // `STANDING_PERMISSION_ALLOWANCE` there is this key.
+  standing_permission: {
+    counted: false,
+    name: "Standing permission: actions of a kind done without asking",
+  },
 };
 
 /** The most a plan may give of a counted kind, for each location, in a month. */

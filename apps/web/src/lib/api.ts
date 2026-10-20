@@ -1,4 +1,5 @@
 import {
+  type ActionKind,
   ActionSchema,
   AlertSchema,
   AnswerSubdomainSchema,
@@ -42,6 +43,7 @@ import {
   RecommendationSchema,
   type RecommendationStatus,
   ScanSchema,
+  StandingPermissionSchema,
   SubscriptionChangeSchema,
   type TrackedQueryInput,
   TrackedQuerySchema,
@@ -180,6 +182,23 @@ export const api = {
   retryAction: (id: string) => json(ActionSchema, "POST", `/actions/${id}/retry`),
   /** Asks for what an action did to be taken back: a new action, approved by whoever asked. */
   takeBackAction: (id: string) => json(ActionSchema, "POST", `/actions/${id}/take-back`),
+  /** Standing permission for one kind of action, for the organization. Owner or admin only. */
+  giveStandingPermission: (organizationId: string, kind: ActionKind) =>
+    json(
+      StandingPermissionSchema,
+      "POST",
+      `/organizations/${organizationId}/standing-permissions`,
+      {
+        kind,
+      },
+    ),
+  /** Ends standing permission for one kind of action. Owner or admin only. */
+  endStandingPermission: (organizationId: string, kind: ActionKind) =>
+    json(
+      StandingPermissionSchema,
+      "DELETE",
+      `/organizations/${organizationId}/standing-permissions/${kind}`,
+    ),
   /** Takes an alert off the page. It is raised again only once it has ended and begun afresh. */
   dismissAlert: (id: string) => json(AlertSchema, "POST", `/alerts/${id}/dismiss`),
   /** What an organization has connected, what it could connect, and whether the reader may. */

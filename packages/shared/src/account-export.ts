@@ -13,6 +13,7 @@ export const EXPORT_SHEETS = {
   alerts: "alerts.csv",
   drafts: "drafts.csv",
   actions: "actions.csv",
+  standing_permissions: "standing-permissions.csv",
   connections: "connections.csv",
   listings: "listings.csv",
   page_addresses: "page-addresses.csv",

@@ -4835,6 +4835,292 @@ describe("the operator", () => {
     });
   });
 
+  describe("standing permissions", () => {
+    const member = "ab000000-0000-4000-8000-00000000ab0b";
+    const admin = "ab000000-0000-4000-8000-00000000ab0c";
+    const give =
+      "select kind, given_by_email, ended_at from public.give_standing_permission($1, $2)";
+    const end =
+      "select kind, end_reason, ended_by_email from public.end_standing_permission($1, $2)";
+    const read = "select kind from public.standing_permissions where organization_id = $1";
+    let main: string;
+
+    /** The worker proposes one, through the call the Worker before this change makes, or with
+     * `always_asks`. */
+    const propose = (about: string, asksAlways?: boolean) =>
+      as("service_role", null, () =>
+        rows<{
+          id: string;
+          status: string;
+          approved_under_by_email: string | null;
+          always_asks: boolean;
+        }>(
+          asksAlways === undefined
+            ? "select id, status, approved_under_by_email, always_asks from public.propose_action($1, 'sample', null, $2, 'basis', 'Set the line', null, 'Line', 'rule', null)"
+            : "select id, status, approved_under_by_email, always_asks from public.propose_action($1, 'sample', null, $2, 'basis', 'Set the line', null, 'Line', 'rule', asks_always => $3)",
+          asksAlways === undefined ? [main, about] : [main, about, asksAlways],
+        ),
+      ).then((made) => made[0]);
+    const claim = (id: string) =>
+      as("service_role", null, () =>
+        rows<{ try: number }>("select public.claim_action($1) as try", [id]),
+      ).then((answer) => answer[0]?.try);
+    const finish = (id: string, outcome = "done") =>
+      as("service_role", null, () =>
+        db.query("select public.finish_action($1, $2)", [id, outcome]),
+      );
+    const stands = (id: string) =>
+      rows<{ status: string; approved_under: string | null; waits: string | null }>(
+        "select status, approved_under, (lapses_at - now() > interval '13 days')::text as waits from public.actions where id = $1",
+        [id],
+      ).then((found) => found[0]);
+    /** A member approves one, with its text as proposed or changed, and it is carried out. */
+    const approvedAndDone = async (about: string, text: string | null = null) => {
+      const made = await propose(about);
+      await as("authenticated", member, () =>
+        db.query("select public.approve_action($1, $2)", [made?.id, text]),
+      );
+      await claim(made?.id ?? "");
+      await finish(made?.id ?? "");
+      return made?.id ?? "";
+    };
+    const state = (user: string) =>
+      as("authenticated", user, () =>
+        rows<{ state: unknown }>("select public.standing_permission_state($1) as state", [main]),
+      ).then((answer) => answer[0]?.state ?? null);
+
+    beforeAll(async () => {
+      const [location] = await rows<{ id: string }>(
+        "select id from public.locations where organization_id = $1 limit 1",
+        [theirs],
+      );
+      main = location?.id ?? "";
+      await db.query(
+        "insert into auth.users (id, email) values ($1, 'plain@example.com'), ($2, 'admin@example.com')",
+        [member, admin],
+      );
+      await db.query(
+        "insert into public.memberships (organization_id, user_id, role) values ($1, $2, 'member'), ($1, $3, 'admin')",
+        [theirs, member, admin],
+      );
+      // So that a page can be proposed, to show another kind still waits.
+      await db.query(
+        "update public.organizations set allowances = allowances || '{\"hosted_pages\": true}' where id = $1",
+        [theirs],
+      );
+    });
+    afterAll(async () => {
+      await db.query("delete from public.actions");
+      await db.query("delete from public.standing_permissions");
+      await db.query("delete from public.memberships where user_id in ($1, $2)", [member, admin]);
+    });
+
+    it("are given only where the plan includes them and three were approved as proposed and done", async () => {
+      await db.query(
+        "update public.organizations set allowances = allowances - 'standing_permission' where id = $1",
+        [theirs],
+      );
+      await expect(
+        as("authenticated", alice, () => db.query(give, [theirs, "sample"])),
+      ).rejects.toThrow(/does not include standing permission/);
+      await db.query(
+        "update public.organizations set allowances = allowances || '{\"standing_permission\": true}' where id = $1",
+        [theirs],
+      );
+
+      await approvedAndDone("line:1");
+      await approvedAndDone("line:2");
+      // Changed before the yes, taken back, or not carried out: none of these count.
+      await approvedAndDone("line:3", "Changed first");
+      const back = await approvedAndDone("line:4");
+      await as("authenticated", member, () =>
+        db.query("select public.take_back_action($1)", [back]),
+      );
+      const failed = await propose("line:5");
+      await as("authenticated", member, () =>
+        db.query("select public.approve_action($1)", [failed?.id]),
+      );
+      await claim(failed?.id ?? "");
+      await finish(failed?.id ?? "", "failed");
+      expect(await state(alice)).toEqual({
+        included: true,
+        may_change: true,
+        counted: { sample: 2 },
+      });
+      await expect(
+        as("authenticated", alice, () => db.query(give, [theirs, "sample"])),
+      ).rejects.toThrow(/once three of these were approved/);
+
+      await approvedAndDone("line:6");
+      expect(await state(alice)).toMatchObject({ counted: { sample: 3 } });
+    });
+
+    it("are given and ended by an owner or admin, and by nobody else", async () => {
+      for (const user of [member, operator, bob]) {
+        expect(await as("authenticated", user, () => rows(give, [theirs, "sample"])), user).toEqual(
+          [],
+        );
+      }
+      await expect(as("anon", null, () => db.query(give, [theirs, "sample"]))).rejects.toThrow(
+        /permission denied/,
+      );
+      expect(await as("authenticated", admin, () => rows(give, [theirs, "sample"]))).toEqual([
+        { kind: "sample", given_by_email: "admin@example.com", ended_at: null },
+      ]);
+      await expect(
+        as("authenticated", alice, () => db.query(give, [theirs, "sample"])),
+      ).rejects.toThrow(/already given/);
+      for (const user of [member, operator, bob]) {
+        expect(await as("authenticated", user, () => rows(end, [theirs, "sample"])), user).toEqual(
+          [],
+        );
+      }
+      expect(await state(member)).toMatchObject({ may_change: false });
+      expect(await state(operator)).toMatchObject({ may_change: false });
+      expect(await state(bob)).toBeNull();
+    });
+
+    it("are read by the organization's members and the operator, and written by no one directly", async () => {
+      for (const user of [alice, member, operator]) {
+        expect(await as("authenticated", user, () => rows(read, [theirs])), user).toHaveLength(1);
+      }
+      expect(await as("authenticated", bob, () => rows(read, [theirs]))).toEqual([]);
+      await expect(as("anon", null, () => db.query(read, [theirs]))).rejects.toThrow(
+        /permission denied/,
+      );
+      for (const sql of [
+        `insert into public.standing_permissions (organization_id, kind) values ('${theirs}', 'hosted_page')`,
+        "update public.standing_permissions set ended_at = now(), end_reason = 'plan'",
+        "delete from public.standing_permissions",
+        `select public.standing_permission_count('${theirs}', 'sample')`,
+        `select public.end_permission(gen_random_uuid(), 'plan')`,
+        `select public.return_to_waiting(gen_random_uuid())`,
+      ]) {
+        for (const user of [alice, operator]) {
+          await expect(
+            as("authenticated", user, () => db.query(sql)),
+            sql,
+          ).rejects.toThrow(/permission denied/);
+        }
+      }
+    });
+
+    it("approve a proposal of the kind as it is made, but never one that always asks", async () => {
+      const approved = await propose("line:7");
+      expect(approved).toMatchObject({
+        status: "approved",
+        approved_under_by_email: "admin@example.com",
+        always_asks: false,
+      });
+      expect(await propose("line:8", true)).toMatchObject({
+        status: "proposed",
+        approved_under_by_email: null,
+        always_asks: true,
+      });
+      // Another kind still waits.
+      const [page] = await as("service_role", null, () =>
+        rows<{ status: string }>(
+          "select status from public.propose_action($1, 'hosted_page', null, 'page:x', 'basis', 'Publish', null, 'Copy', 'model')",
+          [main],
+        ),
+      );
+      expect(page).toMatchObject({ status: "proposed" });
+      expect(await claim(approved?.id ?? "")).toBe(1);
+      await finish(approved?.id ?? "");
+      // What it did does not count toward another three.
+      expect(await state(alice)).toMatchObject({ counted: { sample: 3 } });
+    });
+
+    it("end when switched off, and what they approved and is not under way waits again at once", async () => {
+      const waiting = await propose("line:9");
+      const underWay = await propose("line:10");
+      expect(await claim(underWay?.id ?? "")).toBe(1);
+      expect(await as("authenticated", alice, () => rows(end, [theirs, "sample"]))).toEqual([
+        { kind: "sample", end_reason: "switched_off", ended_by_email: "alice@example.com" },
+      ]);
+      expect(await stands(waiting?.id ?? "")).toEqual({
+        status: "proposed",
+        approved_under: null,
+        waits: "true",
+      });
+      // The one under way finishes this try; when it is taken again, it waits instead.
+      expect(await stands(underWay?.id ?? "")).toMatchObject({ status: "approved" });
+      await finish(underWay?.id ?? "", "again");
+      expect(await claim(underWay?.id ?? "")).toBe(0);
+      expect(await stands(underWay?.id ?? "")).toMatchObject({ status: "proposed" });
+      await expect(
+        as("authenticated", alice, () => db.query(end, [theirs, "sample"])),
+      ).rejects.toThrow(/no standing permission/);
+      // Three still count, so it can be given again.
+      expect(await as("authenticated", alice, () => rows(give, [theirs, "sample"]))).toHaveLength(
+        1,
+      );
+    });
+
+    it("end when a member asks to take back something done under them", async () => {
+      const done = await propose("line:11");
+      await claim(done?.id ?? "");
+      await finish(done?.id ?? "");
+      const pending = await propose("line:12");
+      await as("authenticated", member, () =>
+        db.query("select public.take_back_action($1)", [done?.id]),
+      );
+      expect(
+        await rows(
+          "select end_reason, ended_by_email, ended_by_action from public.standing_permissions where organization_id = $1 and ended_at is not null order by ended_at desc limit 1",
+          [theirs],
+        ),
+      ).toEqual([
+        {
+          end_reason: "taken_back",
+          ended_by_email: "plain@example.com",
+          ended_by_action: done?.id,
+        },
+      ]);
+      expect(await stands(pending?.id ?? "")).toMatchObject({ status: "proposed" });
+      expect(await propose("line:13")).toMatchObject({ status: "proposed" });
+    });
+
+    it("end on the day the plan stops including them, and do not come back with it", async () => {
+      await as("authenticated", alice, () => db.query(give, [theirs, "sample"]));
+      const pending = await propose("line:14");
+      await db.query(
+        "update public.organizations set allowances = allowances - 'standing_permission' where id = $1",
+        [theirs],
+      );
+      expect(
+        await rows(
+          "select end_reason, ended_by_email from public.standing_permissions where organization_id = $1 and ended_at is not null order by ended_at desc limit 1",
+          [theirs],
+        ),
+      ).toEqual([{ end_reason: "plan", ended_by_email: null }]);
+      expect(await stands(pending?.id ?? "")).toMatchObject({ status: "proposed" });
+      await db.query(
+        "update public.organizations set allowances = allowances || '{\"standing_permission\": true}' where id = $1",
+        [theirs],
+      );
+      expect(await as("authenticated", alice, () => rows(read, [theirs]))).toHaveLength(3);
+      expect(await propose("line:15")).toMatchObject({ status: "proposed" });
+    });
+
+    it("are in the organization's export, with which one approved each action", async () => {
+      const [{ export: exported } = { export: null }] = await as("authenticated", alice, () =>
+        rows<{ export: { standing_permissions: unknown[]; actions: Record<string, unknown>[] } }>(
+          "select public.export_organization($1) as export",
+          [theirs],
+        ),
+      );
+      expect(exported?.standing_permissions).toHaveLength(3);
+      expect(exported?.standing_permissions[0]).toMatchObject({
+        kind: "sample",
+        given_by_email: "admin@example.com",
+        end_reason: "switched_off",
+      });
+      expect(exported?.actions.some((action) => action.always_asks === true)).toBe(true);
+      expect(exported?.actions[0]).toHaveProperty("approved_under");
+    });
+  });
+
   describe("alerts", () => {
     const facts = { prompt: "x", missed: 3, checks_before: 4, named_before: 4 };
     let main: string;
