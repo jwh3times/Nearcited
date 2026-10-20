@@ -17,13 +17,16 @@ export interface ActionNoticeEmail {
   waiting: NoticedAction[];
   /** Standing permission given since the last notice. */
   given?: StandingPermission[];
-  /** Standing permission that ended since the last notice. */
-  ended?: StandingPermission[];
+  /** Standing permission that ended since the last notice, with what a take-back took back. */
+  ended?: EndedPermission[];
   appUrl: string;
 }
 
+/** A standing permission that ended, with the summary of the action whose take-back ended it. */
+export type EndedPermission = StandingPermission & { taken_back: string | null };
+
 /** What one standing permission's ending says: who or what ended it, and on what day. */
-function endedLine(permission: StandingPermission): string {
+function endedLine(permission: EndedPermission): string {
   const doing = ACTION_KIND_DOING[permission.kind];
   const on = permission.ended_at ? day.format(new Date(permission.ended_at)) : "";
   const who = permission.ended_by_email ?? "someone who has since left";
@@ -31,7 +34,9 @@ function endedLine(permission: StandingPermission): string {
     permission.end_reason === "switched_off"
       ? `- ${who} ended the standing permission to ${doing} on ${on}.`
       : permission.end_reason === "taken_back"
-        ? `- The standing permission to ${doing} ended on ${on}, when ${who} asked to take back something done under it.`
+        ? `- The standing permission to ${doing} ended on ${on}, when ${who} asked to take back something done under it${
+            permission.taken_back ? `: ${permission.taken_back}` : ""
+          }.`
         : `- The standing permission to ${doing} ended on ${on}: your plan no longer includes standing permission.`;
   return `${why} These wait for a yes again.`;
 }

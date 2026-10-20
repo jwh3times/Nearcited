@@ -1,4 +1,5 @@
 import {
+  ACTION_KIND_DOING,
   type Action,
   type KindPermission,
   type LocationActions,
@@ -14,7 +15,6 @@ import {
   giveQuestion,
   isMarkup,
   isPage,
-  kindDoing,
   pageAddress,
   permissionShown,
   standingLine,
@@ -129,7 +129,7 @@ function Permission({
     mutationFn: () => api.endStandingPermission(organizationId, permission.kind),
     onSuccess: onChanged,
   });
-  const doing = kindDoing(permission.kind);
+  const doing = ACTION_KIND_DOING[permission.kind];
   return (
     <article className="card action" aria-label={`Standing permission to ${doing}`}>
       {permission.standing ? (

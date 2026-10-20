@@ -126,7 +126,7 @@ describe("actionState", () => {
         day,
       ),
     ).toBe(
-      "Done on 2026-10-20. Approved under the standing permission owner@example.com gave on 2026-10-18, without waiting for a yes.",
+      "Done on 2026-10-20 without waiting for a yes, under the standing permission owner@example.com gave on 2026-10-18.",
     );
   });
 

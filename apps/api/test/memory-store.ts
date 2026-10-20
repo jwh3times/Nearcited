@@ -1365,6 +1365,7 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         written_by: "rule" as const,
         recommendation_id: null,
         seen_until: null,
+        always_asks: false,
         status: "approved" as const,
         approved_by_email: db.emails.get(userId ?? "") ?? null,
         approved_at: now,
@@ -1391,6 +1392,7 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         approved_by_email: db.emails.get(userId ?? "") ?? null,
         approved_at: now,
         approved_text: failed.approved_text,
+        always_asks: false,
         retry_of: failed.id,
       };
       db.actions.push(again);

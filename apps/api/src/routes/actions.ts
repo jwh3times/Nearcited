@@ -27,6 +27,9 @@ async function queueCarryOut(queue: AppEnv["Bindings"]["SCAN_QUEUE"], action: Ac
   }
 }
 
+/** Whether this deployment can tell owners what was done: it sends email, or nothing is real. */
+const noticeCanGo = (c: Context<AppEnv>) => Boolean(c.env.RESEND_API_KEY) || usesSampleData(c.env);
+
 /**
  * Refuses a yes where the notice it would need cannot be sent. An organization's owners are told
  * of every action within 48 hours, so where this deployment has no outgoing email a real action
@@ -34,7 +37,7 @@ async function queueCarryOut(queue: AppEnv["Bindings"]["SCAN_QUEUE"], action: Ac
  * the page is the notice. An action the caller cannot read is left for the store to refuse.
  */
 async function requireNotice(c: Context<AppEnv>, actionId: string) {
-  if (c.env.RESEND_API_KEY || usesSampleData(c.env)) return;
+  if (noticeCanGo(c)) return;
   const store = c.get("store");
   const action = await store.getAction(actionId);
   const location = action && (await store.getLocation(action.location_id));
@@ -44,8 +47,7 @@ async function requireNotice(c: Context<AppEnv>, actionId: string) {
 
 /** The same refusal, for an organization: standing permission is a yes to every action of a kind. */
 function requireNoticeFor(c: Context<AppEnv>, organization: Organization | null | undefined) {
-  if (c.env.RESEND_API_KEY || usesSampleData(c.env)) return;
-  if (!organization || organization.is_test) return;
+  if (noticeCanGo(c) || !organization || organization.is_test) return;
   throw new ApiError(
     503,
     "actions_unavailable",

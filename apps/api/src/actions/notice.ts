@@ -60,7 +60,17 @@ export async function sendActionNotices({
     const waiting = pick("proposed");
     const permissions = permissionsOf.get(organizationId) ?? [];
     const given = permissions.filter((row) => row.given_untold).map((row) => row.permission);
-    const ended = permissions.filter((row) => row.ended_untold).map((row) => row.permission);
+    // A take-back that ended one is named by what it took back.
+    const ended = await Promise.all(
+      permissions
+        .filter((row) => row.ended_untold)
+        .map(async ({ permission }) => ({
+          ...permission,
+          taken_back: permission.ended_by_action
+            ? ((await store.getAction(permission.ended_by_action))?.summary ?? null)
+            : null,
+        })),
+    );
     const mark = async () => {
       await store.markPermissionsTold(
         given.map((permission) => permission.id),

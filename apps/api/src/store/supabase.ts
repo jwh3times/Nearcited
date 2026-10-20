@@ -29,6 +29,7 @@ import {
   ScanResultSchema,
   ScanSchema,
   SiteCheckSchema,
+  STANDING_PERMISSION_AFTER,
   STRONGER_MODELS_ALLOWANCE,
   StandingPermissionSchema,
   StoredAuditSchema,
@@ -521,7 +522,7 @@ export function createSupabaseStore(
       const standing = z.array(StandingPermissionSchema).parse(current ?? []);
       return {
         permissions: ACTION_KINDS.flatMap((kind) => {
-          const counted = Math.min(state.counted[kind] ?? 0, 3);
+          const counted = Math.min(state.counted[kind] ?? 0, STANDING_PERMISSION_AFTER);
           const permission = standing.find((kept) => kept.kind === kind) ?? null;
           return counted > 0 || permission ? [{ kind, counted, standing: permission }] : [];
         }),

@@ -1078,6 +1078,58 @@ describe("standing permission", () => {
     ]);
   });
 
+  it("does not count one taken back, one that lapsed or one that failed", async () => {
+    const { organization, location, connection } = await matched();
+    const kept = db.organizations.find((o) => o.id === organization.id);
+    if (kept) kept.allowances = { standing_permission: true };
+    const counted = async () => (await actionsOf(alice, location.id)).permissions[0]?.counted ?? 0;
+    const done = await approvedAndDone();
+    expect(await counted()).toBe(1);
+    const back = ActionSchema.parse(
+      await (await call(bob, "POST", `/actions/${done}/take-back`)).json(),
+    );
+    await carryOutAction(back.id, await worker());
+    expect(await counted()).toBe(0);
+
+    await proposedAgain(location.id, connection.id, "Joe's Pizza Two");
+    db.now = new Date(Date.now() + 15 * DAY).toISOString();
+    expect(await memoryStore(db, null).lapseActions()).toBe(1);
+    await proposedAgain(location.id, connection.id, "Joe's Pizza Three");
+    await approve(bob, waitingNow());
+    // Told, so that the fifteen days gone by hold nothing.
+    await memoryStore(db, null).markActionsTold(
+      db.actions.map((action) => action.id),
+      "done",
+      db.now,
+    );
+    await call(alice, "DELETE", `/connections/${connection.id}`);
+    expect(await carryOutAction(db.actions.at(-1)?.id ?? "", await worker())).toBe("failed");
+    expect(await counted()).toBe(0);
+  });
+
+  it("holds what it approved while the organization is held, and is not itself held for", async () => {
+    const { organization, location, connection } = await earned();
+    // Everything so far told, and the permission given and never told.
+    await memoryStore(db, null).markActionsTold(
+      db.actions.map((action) => action.id),
+      "done",
+      new Date().toISOString(),
+    );
+    await give(alice, organization.id);
+    db.now = new Date(Date.now() + 40 * 3_600_000).toISOString();
+    expect(await memoryStore(db, null).isOrganizationHeld(organization.id)).toBe(false);
+
+    // Something done and untold for 36 hours holds what the permission approved, as anything.
+    const last = db.actions.find((action) => action.status === "done");
+    if (last) Object.assign(last, { told_at: null, done_at: new Date(Date.now()).toISOString() });
+    await decline(bob, waitingNow());
+    await proposedAgain(location.id, connection.id, "Joe's Pizza Five");
+    const next = db.actions.at(-1)?.id ?? "";
+    expect(status(next)).toBe("approved");
+    expect(await carryOutAction(next, await worker())).toBe("held");
+    expect(status(next)).toBe("approved");
+  });
+
   it("is given and ended by an owner or admin, and by nobody else", async () => {
     const { organization, location } = await earned();
     db.operators.add(carol);
@@ -1229,7 +1281,7 @@ describe("standing permission", () => {
     expect((await actionsOf(alice, location.id)).permissions[0]?.standing).toBeNull();
     expect(await notices()).toBe(1);
     expect(sent[0]?.email.text).toContain(
-      "when bob@example.com asked to take back something done under it",
+      "when bob@example.com asked to take back something done under it: Set the opening line of Sample listing: Riverside.",
     );
     // The next one waits for a yes.
     expect(await proposedAgain(location.id, connection.id, "Joe's Pizza Six")).toBe(1);

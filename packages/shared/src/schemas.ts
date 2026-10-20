@@ -2,6 +2,7 @@ import { z } from "zod";
 import { allowanceErrors } from "./allowances";
 import { PAGE_FETCHER_KEYS, type PageFetcher } from "./hosted-pages";
 import { isCountry, normalizePhone, normalizePostalCode, normalizeWebsite } from "./inputs";
+import { STANDING_PERMISSION_AFTER } from "./standing-permission";
 
 /**
  * Wire types shared by the API and the web app. Field names stay snake_case end to end so
@@ -1495,7 +1496,7 @@ export type StandingPermission = z.infer<typeof StandingPermissionSchema>;
 export const KindPermissionSchema = z.object({
   kind: ActionKindSchema,
   /** How many of the kind count toward it, up to the three it is offered after. */
-  counted: z.number().int().min(0).max(3),
+  counted: z.number().int().min(0).max(STANDING_PERMISSION_AFTER),
   /** The permission standing for the kind, or null. */
   standing: StandingPermissionSchema.nullable(),
 });

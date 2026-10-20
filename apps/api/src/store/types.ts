@@ -19,11 +19,11 @@ import type {
   DerivedRecommendation,
   Draft,
   DraftKind,
-  KindPermission,
   LimitChange,
   LimitChangeNotice,
   Listing,
   Location,
+  LocationActions,
   LocationConnection,
   LocationInput,
   LocationVisits,
@@ -158,14 +158,10 @@ export interface NewAction {
 }
 
 /** Standing permission as a location's Actions tab shows it. */
-export interface PermissionState {
-  /** Each kind with any counting toward it, or a permission standing. */
-  permissions: KindPermission[];
-  /** Whether the organization's plan includes standing permission. */
-  permission_included: boolean;
-  /** Whether the caller may give or end it: an owner or admin. */
-  may_change_permission: boolean;
-}
+export type PermissionState = Pick<
+  LocationActions,
+  "permissions" | "permission_included" | "may_change_permission"
+>;
 
 /** A standing permission its organization's owners are still to be told was given, or ended. */
 export interface PermissionToTell {

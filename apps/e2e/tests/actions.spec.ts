@@ -244,7 +244,7 @@ test("after three approvals, does the next one without a yes until it is switche
   await page.reload();
   const happened = page.getByRole("region", { name: "What happened" });
   await expect(happened).toContainText(
-    `Approved under the standing permission ${account.email} gave on`,
+    `without waiting for a yes, under the standing permission ${account.email} gave on`,
   );
   await expect(happened).toContainText("Joe's Pizza and Subs in Raleigh");
   await expect(page.getByText("Nothing is waiting.")).toBeVisible();
