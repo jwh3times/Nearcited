@@ -1678,10 +1678,112 @@ export const AlertSchema = z.discriminatedUnion("kind", [
 export type Alert = z.infer<typeof AlertSchema>;
 export type DropAlert = Extract<Alert, { kind: "drop" }>;
 
+/** What someone is in an organization. An owner manages its people, billing and closing. */
+export const MemberRoleSchema = z.enum(["owner", "admin", "member"]);
+export type MemberRole = z.infer<typeof MemberRoleSchema>;
+
+/** What an invitation makes someone. An owner is made only of someone who has joined. */
+export const InvitedRoleSchema = z.enum(["admin", "member"]);
+export type InvitedRole = z.infer<typeof InvitedRoleSchema>;
+
+/** How long an invitation waits after it was last sent. */
+export const INVITATION_DAYS = 14;
+/** How many invitations may wait at once in an organization. */
+export const MOST_INVITATIONS_WAITING = 20;
+/** How many an owner is shown: the waiting ones, and the newest declined and expired. */
+export const MOST_INVITATIONS_LISTED = 100;
+
+/** Someone in an organization, as every member sees them. */
+export const MemberSchema = z.object({
+  user_id: Id,
+  email: z.string().nullable(),
+  role: MemberRoleSchema,
+  joined_at: Timestamp,
+});
+export type Member = z.infer<typeof MemberSchema>;
+
+/** How an invitation ended: accepted or declined by the person, or cancelled by an owner. */
+export const INVITATION_OUTCOMES = ["accepted", "declined", "cancelled"] as const;
+
+/** An owner's invitation of an address into the organization. Owners see these. */
+export const InvitationSchema = z.object({
+  id: Id,
+  organization_id: Id,
+  /** Trimmed and lower-cased. */
+  email: z.string(),
+  role: InvitedRoleSchema,
+  /** Who sent it last. */
+  invited_by_email: z.string().nullable(),
+  created_at: Timestamp,
+  sent_at: Timestamp,
+  /** Fourteen days after it was last sent. */
+  expires_at: Timestamp,
+  ended_at: Timestamp.nullable(),
+  outcome: z.enum(INVITATION_OUTCOMES).nullable(),
+});
+export type Invitation = z.infer<typeof InvitationSchema>;
+
+/** Where an invitation an owner still sees stands. Null for one no longer listed. */
+export function invitationState(
+  invitation: Pick<Invitation, "ended_at" | "outcome" | "expires_at">,
+  now: Date = new Date(),
+): "waiting" | "expired" | "declined" | null {
+  if (invitation.outcome === "declined") return "declined";
+  if (invitation.ended_at !== null) return null;
+  return Date.parse(invitation.expires_at) > now.getTime() ? "waiting" : "expired";
+}
+
+/** Who is in an organization, and for an owner the invitations it has out. */
+export const MembersSchema = z.object({
+  members: z.array(MemberSchema),
+  /** Waiting, declined and expired invitations. Null for anyone but an owner and the operator. */
+  invitations: z.array(InvitationSchema).nullable(),
+});
+export type Members = z.infer<typeof MembersSchema>;
+
+/** An invitation waiting for the signed-in person. */
+export const MyInvitationSchema = z.object({
+  id: Id,
+  organization_id: Id,
+  organization_name: z.string(),
+  role: InvitedRoleSchema,
+  invited_by_email: z.string().nullable(),
+  expires_at: Timestamp,
+});
+export type MyInvitation = z.infer<typeof MyInvitationSchema>;
+
+/** An owner's invitation, as it is asked for. */
+export const InviteInputSchema = z.object({
+  email: z.string().trim().toLowerCase().pipe(z.email().max(320)),
+  role: InvitedRoleSchema,
+});
+export type InviteInput = z.output<typeof InviteInputSchema>;
+
+/** An invitation made or sent again, and whether the email reached the mail service. */
+export const InvitedSchema = z.object({
+  invitation: InvitationSchema,
+  emailed: z.boolean(),
+});
+export type Invited = z.infer<typeof InvitedSchema>;
+
+/** What each role may do, as the product says it wherever it names one. */
+export const ROLE_MEANS: Record<MemberRole, string> = {
+  owner: "do everything an admin can, and also manage people, the plan, billing and closing",
+  admin: "do everything a member can, and also connect accounts and give standing permission",
+  member: "see everything, run scans, and approve or decline actions",
+};
+
+/** An owner's change of someone's role. */
+export const RoleChangeSchema = z.object({ role: MemberRoleSchema });
+
 export const MeSchema = z.object({
   user_id: Id,
   email: z.string().nullable(),
   organizations: z.array(OrganizationSchema),
+  /** The signed-in person's role in each of their organizations, by its ID. */
+  roles: z.record(Id, MemberRoleSchema),
+  /** Invitations waiting for the signed-in person's address. */
+  invitations: z.array(MyInvitationSchema),
   /** True when scans return generated data instead of real measurements. */
   sample_data: z.boolean(),
   /** What the account is to the product itself. Null for nearly everyone. */
@@ -2133,7 +2235,7 @@ export type VisitSent = z.infer<typeof VisitSentSchema>;
 /** A person in an organization, as the export lists them. */
 export const ExportMemberSchema = z.object({
   email: z.string().nullable(),
-  role: z.enum(["owner", "admin", "member"]),
+  role: MemberRoleSchema,
   joined_at: Timestamp,
 });
 
@@ -2187,6 +2289,7 @@ export const AccountExportSchema = z.object({
   drafts: z.array(DraftSchema),
   actions: z.array(ActionSchema),
   standing_permissions: z.array(StandingPermissionSchema),
+  invitations: z.array(InvitationSchema),
   connections: z.array(ConnectionSchema),
   listings: z.array(ListingSchema),
   page_addresses: z.array(PromptPageSchema.extend({ location_id: Id })),

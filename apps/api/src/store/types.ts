@@ -19,6 +19,8 @@ import type {
   DerivedRecommendation,
   Draft,
   DraftKind,
+  Invitation,
+  InvitedRole,
   LimitChange,
   LimitChangeNotice,
   Listing,
@@ -27,6 +29,9 @@ import type {
   LocationConnection,
   LocationInput,
   LocationVisits,
+  Member,
+  MemberRole,
+  MyInvitation,
   OperatorAudit,
   OperatorFacts,
   Organization,
@@ -572,6 +577,43 @@ export interface Store {
    * already closing gives the same closing.
    */
   requestClosing(organizationId: string, name: string): Promise<ClosingAsked>;
+  /** The caller's own role in each of their organizations, by its ID. */
+  listMyRoles(): Promise<Record<string, MemberRole>>;
+  /** Who is in an organization. A member's call and the operator's; null for anyone else. */
+  listMembers(organizationId: string): Promise<Member[] | null>;
+  /**
+   * The organization's waiting, declined and expired invitations, read through the policy that
+   * answers its owners and the operator.
+   */
+  listInvitations(organizationId: string): Promise<Invitation[]>;
+  /** The invitations waiting for the caller's own address. */
+  listMyInvitations(): Promise<MyInvitation[]>;
+  /**
+   * Invites an address as an admin or a member. Only an owner's call is answered: null for anyone
+   * else, the operator included. A limit (already in, already invited, twenty waiting) throws.
+   */
+  inviteMember(
+    organizationId: string,
+    email: string,
+    role: InvitedRole,
+  ): Promise<Invitation | null>;
+  /** Sends an invitation again, for fourteen days from now, at most once an hour. Owner only. */
+  sendInvitationAgain(organizationId: string, invitationId: string): Promise<Invitation | null>;
+  /** Cancels an invitation, or removes a declined or expired one from the list. Owner only. */
+  cancelInvitation(organizationId: string, invitationId: string): Promise<Invitation | null>;
+  /**
+   * Accepts an invitation to the caller's own address, joining with its role. Null where it is
+   * not theirs or no longer waiting; expired, closing and one organization already throw.
+   */
+  acceptInvitation(invitationId: string): Promise<Invitation | null>;
+  /** Declines an invitation to the caller's own address. */
+  declineInvitation(invitationId: string): Promise<Invitation | null>;
+  /** Gives someone another role, owner included. Owner only; never leaves no owner. */
+  changeMemberRole(organizationId: string, userId: string, role: MemberRole): Promise<boolean>;
+  /** Removes someone from the organization. Owner only; never leaves no owner. */
+  removeMember(organizationId: string, userId: string): Promise<boolean>;
+  /** The caller leaves the organization, unless they are its last owner. */
+  leaveOrganization(organizationId: string): Promise<boolean>;
   /** A closing, as the worker reads it. Worker only. */
   getClosing(id: string): Promise<Closing | null>;
   /**

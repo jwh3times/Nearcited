@@ -1830,6 +1830,93 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
     expect(await worker.getClosing(asked.closing_id)).toBeNull();
   });
 
+  it("brings a teammate in by invitation, and keeps an owner", async () => {
+    // Carol's first organization was closed above, so she may make another.
+    const carolStore = await storeFor(carol);
+    const bobStore = await storeFor(bob);
+    const aliceStore = await storeFor(alice);
+    const admin = client(await token({ role: "service_role" }));
+    const organization = await carolStore.createOrganization("Carol's Bakery");
+
+    // Only an owner invites.
+    expect(await bobStore.inviteMember(organization.id, "x@example.com", "member")).toBeNull();
+    const first = await carolStore.inviteMember(organization.id, " Bob@Example.com", "admin");
+    if (!first) throw new Error("not invited");
+    expect(first).toMatchObject({
+      email: "bob@example.com",
+      role: "admin",
+      invited_by_email: "carol@example.com",
+      outcome: null,
+    });
+    await expect(carolStore.sendInvitationAgain(organization.id, first.id)).rejects.toMatchObject({
+      kind: "limit",
+      message: expect.stringContaining("less than an hour ago"),
+    });
+    expect((await carolStore.listInvitations(organization.id)).map((i) => i.id)).toEqual([
+      first.id,
+    ]);
+    expect(await bobStore.listInvitations(organization.id)).toEqual([]);
+    expect(await bobStore.listMyInvitations()).toEqual([
+      expect.objectContaining({ id: first.id, organization_name: "Carol's Bakery", role: "admin" }),
+    ]);
+
+    // Cancelled, it is gone for him; invited again, he accepts and is in with its role.
+    expect(await carolStore.cancelInvitation(organization.id, first.id)).toMatchObject({
+      outcome: "cancelled",
+    });
+    expect(await bobStore.listMyInvitations()).toEqual([]);
+    // An address is written to at most once an hour, whatever became of the last invitation.
+    await expect(
+      carolStore.inviteMember(organization.id, "bob@example.com", "member"),
+    ).rejects.toMatchObject({ kind: "limit", message: expect.stringContaining("an hour ago") });
+    const backdate = () =>
+      admin
+        .from("invitations")
+        .update({ sent_at: new Date(Date.now() - 2 * 3_600_000).toISOString() })
+        .eq("organization_id", organization.id)
+        .throwOnError();
+    await backdate();
+    const second = await carolStore.inviteMember(organization.id, "bob@example.com", "member");
+    if (!second) throw new Error("not invited");
+    expect(await carolStore.acceptInvitation(second.id)).toBeNull();
+    expect(await bobStore.acceptInvitation(second.id)).toMatchObject({ outcome: "accepted" });
+    expect(await bobStore.listMyRoles()).toEqual({ [organization.id]: "member" });
+    expect((await bobStore.listMembers(organization.id))?.map((m) => [m.email, m.role])).toEqual([
+      ["carol@example.com", "owner"],
+      ["bob@example.com", "member"],
+    ]);
+    expect(await aliceStore.listMembers(organization.id)).toBeNull();
+
+    // Roles change only by an owner, and never so that no owner is left.
+    expect(await bobStore.changeMemberRole(organization.id, bob, "owner")).toBe(false);
+    expect(await carolStore.changeMemberRole(organization.id, bob, "owner")).toBe(true);
+    expect(await carolStore.changeMemberRole(organization.id, carol, "admin")).toBe(true);
+    await expect(bobStore.leaveOrganization(organization.id)).rejects.toMatchObject({
+      kind: "limit",
+      message: expect.stringContaining("needs an owner"),
+    });
+    expect(await bobStore.changeMemberRole(organization.id, carol, "owner")).toBe(true);
+    expect(await bobStore.leaveOrganization(organization.id)).toBe(true);
+
+    // A declined invitation stays on the owner's list until it is sent again or removed.
+    await backdate();
+    const third = await carolStore.inviteMember(organization.id, "bob@example.com", "admin");
+    if (!third) throw new Error("not invited");
+    expect(await bobStore.declineInvitation(third.id)).toMatchObject({ outcome: "declined" });
+    expect((await carolStore.listInvitations(organization.id)).map((i) => i.outcome)).toEqual([
+      "declined",
+    ]);
+
+    // An owner removes someone; nobody else can.
+    await backdate();
+    const fourth = await carolStore.inviteMember(organization.id, "bob@example.com", "member");
+    if (!fourth) throw new Error("not invited");
+    await bobStore.acceptInvitation(fourth.id);
+    expect(await bobStore.removeMember(organization.id, carol)).toBe(false);
+    expect(await carolStore.removeMember(organization.id, bob)).toBe(true);
+    expect(await bobStore.listMyRoles()).toEqual({});
+  });
+
   it("reads a list that reaches across organizations a page at a time, and gets the same list", async () => {
     // Bob becomes the operator, so the lists only the operator reads have rows to page through.
     const admin = client(await token({ role: "service_role" }));

@@ -12,6 +12,9 @@ import {
   ConnectionMatchSchema,
   ConnectionSchema,
   DraftSchema,
+  InvitationSchema,
+  type InvitedRole,
+  InvitedSchema,
   LimitChangeSchema,
   ListingSchema,
   LocationActionsSchema,
@@ -22,6 +25,8 @@ import {
   LocationLineSchema,
   LocationSchema,
   LocationVisitsSchema,
+  type MemberRole,
+  MembersSchema,
   MeSchema,
   OperatorAccountsSchema,
   OperatorAuditSchema,
@@ -199,6 +204,29 @@ export const api = {
       "DELETE",
       `/organizations/${organizationId}/standing-permissions/${kind}`,
     ),
+  /** Who is in an organization, and for an owner the invitations it has out. */
+  members: (organizationId: string) =>
+    json(MembersSchema, "GET", `/organizations/${organizationId}/members`),
+  /** Invites an address as an admin or a member. Owner only. */
+  invite: (organizationId: string, email: string, role: InvitedRole) =>
+    json(InvitedSchema, "POST", `/organizations/${organizationId}/invitations`, { email, role }),
+  sendInvitationAgain: (organizationId: string, invitationId: string) =>
+    json(
+      InvitedSchema,
+      "POST",
+      `/organizations/${organizationId}/invitations/${invitationId}/send`,
+    ),
+  /** Cancels an invitation, or removes a declined or expired one from the list. */
+  cancelInvitation: (organizationId: string, invitationId: string) =>
+    send("DELETE", `/organizations/${organizationId}/invitations/${invitationId}`),
+  changeRole: (organizationId: string, userId: string, role: MemberRole) =>
+    send("PATCH", `/organizations/${organizationId}/members/${userId}`, { role }),
+  removeMember: (organizationId: string, userId: string) =>
+    send("DELETE", `/organizations/${organizationId}/members/${userId}`),
+  leaveOrganization: (organizationId: string) =>
+    send("POST", `/organizations/${organizationId}/leave`),
+  acceptInvitation: (id: string) => json(InvitationSchema, "POST", `/invitations/${id}/accept`),
+  declineInvitation: (id: string) => send("POST", `/invitations/${id}/decline`),
   /** Takes an alert off the page. It is raised again only once it has ended and begun afresh. */
   dismissAlert: (id: string) => json(AlertSchema, "POST", `/alerts/${id}/dismiss`),
   /** What an organization has connected, what it could connect, and whether the reader may. */

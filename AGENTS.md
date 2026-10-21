@@ -295,6 +295,18 @@ pass `pnpm check` and run in mock mode without it.
   data?" asks about the organization as well as the deployment.
 - **Platform roles are set only with the secret key.** `platform_roles` and
   `organizations.is_test` have no write path from a request. Do not add one.
+- **A person joins an organization only by accepting an invitation to their own address, and an
+  organization always keeps an owner.** No API role writes `memberships`: `create_organization()`
+  adds its maker, `accept_invitation()` adds the person signed in with the address an owner
+  invited, and `change_member_role()`, `remove_member()` and `leave_organization()` change or
+  remove one, each refusing a change that would leave no owner
+  (`docs/adr/0026-a-person-joins-an-organization-only-by-accepting-an-invitation.md`). Invitations
+  are written only by `invite_member()`, `send_invitation_again()` and `cancel_invitation()`, which
+  answer an owner and no one else, the operator included; at most twenty wait at once, and one is
+  sent at most once an hour. Accepting is refused while the person belongs to another
+  organization, and to the operator and a test account. The invitation's email is sent by the request, and never for a test organization.
+  Do not add a policy or grant that writes `memberships` or `invitations`, a link that joins by
+  itself, or another way into an organization.
 - **The code is AGPL-3.0-only and the repo is public.** A new dependency must be under a license
   that can be combined with it; MIT, ISC, BSD, Apache-2.0 and MPL-2.0 are fine, anything else
   needs checking first. Outside pull requests are not merged (see `CONTRIBUTING.md`).

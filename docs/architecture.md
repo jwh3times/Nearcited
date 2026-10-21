@@ -1790,8 +1790,30 @@ of the location and written by the worker alone: the `guard_location_point` trig
 columns as they were for any write by `anon` or `authenticated`, so nothing a request sends decides
 where a check is made from.
 
+`invitations` is read by the organization's owners and the operator and written by no API role,
+only by the functions below. `memberships` is written by no API role either: the owner write
+policies were dropped and `insert`, `update` and `delete` revoked, because a table policy could not
+keep the last owner from removing or demoting themselves. Who is in an organization changes only
+through `invite_member()`, `send_invitation_again()`, `cancel_invitation()`, `change_member_role()`
+and `remove_member()`, which answer an owner of the organization and no one else (the operator
+included), through `accept_invitation()` and `decline_invitation()`, which answer only the person
+signed in with the address invited, and through `leave_organization()`, which answers any member.
+`keep_an_owner()` refuses a change that would leave the organization no owner, with the
+organization locked so two owners stepping down at once cannot both pass. Signing in with the
+address is the proof: the invitation email carries no link that does anything, and accepting is
+refused once the invitation has expired (14 days after it was last sent), for an organization being
+closed, for an account with a platform role, and while the person belongs to another organization.
+Invitations are bounded: at most 20 waiting, an address written to at most once an hour, and an
+owner's list shows the newest 100 (waiting, declined or expired). These refusals raise `NC016`, a `limit`
+error, so 409 `limit_reached`. `my_invitations()` gives the person their own waiting invitations,
+`my_roles()` the caller's role in each organization and `organization_members()` the members to any
+member and the operator. The request emails the invitation (`apps/api/src/email/invitation.ts`)
+through Resend, never for a test organization, and the route answers `emailed: false` where none
+went; the invitation stands either way. See
+`docs/adr/0026-a-person-joins-an-organization-only-by-accepting-an-invitation.md`.
+
 `export_organization()` answers an owner of the organization and no one else (see "Downloading
-everything").
+everything"). It includes the organization's invitations (`invitations.csv`).
 
 A caller who is not signed in can read an audit by its token and the price list, and can write one
 thing: count a visit to a location's own site, or note a check of the line on it, through two

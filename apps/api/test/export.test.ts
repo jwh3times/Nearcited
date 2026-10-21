@@ -160,6 +160,12 @@ describe("downloading everything", () => {
   it("gives an owner a ZIP of a spreadsheet for each list and the whole of it as JSON", async () => {
     const { organization, location, prompt, scan, connection } = await seed();
 
+    const invited = await call(alice, "POST", `/organizations/${organization.id}/invitations`, {
+      email: "Newcomer@Example.com",
+      role: "member",
+    });
+    expect(invited.status).toBe(201);
+
     const response = await call(alice, "GET", `/organizations/${organization.id}/export`);
     expect(response.status).toBe(200);
     expect(response.headers.get("Content-Type")).toBe("application/zip");
@@ -177,6 +183,7 @@ describe("downloading everything", () => {
       "drafts.csv",
       "everything.json",
       "hosted-pages.csv",
+      "invitations.csv",
       "listings.csv",
       "locations.csv",
       "members.csv",
@@ -204,6 +211,10 @@ describe("downloading everything", () => {
       expect.objectContaining({ email: `${alice}@example.com`, role: "owner" }),
       expect.objectContaining({ email: `${dave}@example.com`, role: "admin" }),
       expect.objectContaining({ email: `${bob}@example.com`, role: "member" }),
+    ]);
+
+    expect(everything.invitations).toEqual([
+      expect.objectContaining({ email: "newcomer@example.com", role: "member", outcome: null }),
     ]);
 
     // Each spreadsheet holds every row of its list, one to a line, below the line of columns.

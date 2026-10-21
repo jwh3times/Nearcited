@@ -2,6 +2,7 @@ import {
   allowanceFacts,
   checkedAssistants,
   describeLowered,
+  type MemberRole,
   type Organization,
   OrganizationInputSchema,
   PLAN_ASSISTANTS,
@@ -19,6 +20,7 @@ import { type FormEvent, useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { ErrorNote } from "../components/ErrorNote";
 import { Field } from "../components/Field";
+import { Members } from "../components/Members";
 import { api } from "../lib/api";
 import {
   billingWarning,
@@ -37,6 +39,9 @@ interface AccountSettingsProps {
   email: string | null;
   /** What the signed-in account is to the product itself. Null for nearly everyone. */
   platformRole: PlatformRole | null;
+  /** The signed-in person's role in the organization. */
+  role: MemberRole | undefined;
+  userId: string;
 }
 
 /**
@@ -44,7 +49,13 @@ interface AccountSettingsProps {
  * that is used, the way to its billing and to everything it holds for its owner, and who is
  * signed in.
  */
-export function AccountSettings({ organization, email, platformRole }: AccountSettingsProps) {
+export function AccountSettings({
+  organization,
+  email,
+  platformRole,
+  role,
+  userId,
+}: AccountSettingsProps) {
   const locations = useQuery({
     queryKey: ["locations", organization.id],
     queryFn: () => api.listLocations(organization.id),
@@ -86,7 +97,10 @@ export function AccountSettings({ organization, email, platformRole }: AccountSe
       </div>
 
       <div className="settings">
-        <RenameOrganization key={organization.id} organization={organization} />
+        <div className="settings-column">
+          <RenameOrganization key={organization.id} organization={organization} />
+          <Members organization={organization} role={role} userId={userId} />
+        </div>
 
         <div className="settings-side">
           <div className="card side-card">

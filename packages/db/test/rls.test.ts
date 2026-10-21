@@ -129,7 +129,7 @@ describe("organizations", () => {
           [orgId, bob],
         ),
       ),
-    ).rejects.toThrow(/row-level security/);
+    ).rejects.toThrow(/permission denied/);
   });
 });
 
@@ -1947,7 +1947,6 @@ describe("the operator", () => {
       "update public.organizations set name = 'Defaced' where id = $1",
       "update public.locations set name = 'Defaced' where organization_id = $1",
       "delete from public.locations where organization_id = $1",
-      "delete from public.memberships where organization_id = $1",
     ]) {
       const result = await as("authenticated", operator, () => db.query(sql, [theirs]));
       expect(result.affectedRows, sql).toBe(0);
@@ -1955,7 +1954,6 @@ describe("the operator", () => {
     // Statements the policies check on the way in are refused.
     for (const sql of [
       "insert into public.locations (organization_id, name, city) values ($1, 'Planted', 'x')",
-      "insert into public.memberships (organization_id, user_id, role) values ($1, 'f0000000-0000-4000-8000-000000000006', 'owner')",
     ]) {
       await expect(
         as("authenticated", operator, () => db.query(sql, [theirs])),
@@ -1964,6 +1962,8 @@ describe("the operator", () => {
     }
     // And the tables no API role may write stay that way.
     for (const sql of [
+      "delete from public.memberships",
+      "insert into public.memberships (organization_id, user_id, role) values ('00000000-0000-4000-8000-000000000000', 'f0000000-0000-4000-8000-000000000006', 'owner')",
       "update public.audits set revoked_at = now()",
       "delete from public.provider_usage",
       "update public.scans set status = 'failed'",
