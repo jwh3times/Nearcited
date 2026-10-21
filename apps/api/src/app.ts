@@ -25,6 +25,7 @@ import { draftRoutes } from "./routes/drafts";
 import { hostedPagesRoutes } from "./routes/hosted-pages";
 import { listingRoutes } from "./routes/listings";
 import { locationRoutes } from "./routes/locations";
+import { memberRoutes } from "./routes/members";
 import { operatorRoutes } from "./routes/operator";
 import { organizationRoutes } from "./routes/organizations";
 import { pageRoutes } from "./routes/pages";
@@ -42,6 +43,8 @@ export type AppEnv = {
     deployment: Deployment;
     /** The payment provider, made when a route asks. Null in a deployment with none set up. */
     payments: () => Payments | null;
+    /** Sends an email from a request: an invitation, the one email a request sends. */
+    send: (to: string[], email: Email) => Promise<void>;
   };
 };
 
@@ -59,7 +62,10 @@ export interface AppDeps {
   workerStore?: (env: Env) => Store;
   /** The payment provider, or null when this deployment has none set up. */
   payments?: (env: Env) => Payments | null;
-  /** Sends an email. The webhook uses it to thank an organization's owners for subscribing. */
+  /**
+   * Sends an email. The webhook uses it to thank an organization's owners for subscribing, and an
+   * owner's invitation uses it to reach the person invited.
+   */
   sendEmail?: (env: Env, to: string[], email: Email) => Promise<void>;
   /**
    * What the operator's view says about this deployment. Passed in by the Worker's entry point,
@@ -215,10 +221,12 @@ export function createApp(deps: AppDeps = { authenticate: authenticateWithSupaba
     c.set("store", identity.store);
     c.set("deployment", deps.deployment ?? { models: {} });
     c.set("payments", () => paymentsFor(c.env));
+    c.set("send", (to, email) => (deps.sendEmail ?? sendEmail)(c.env, to, email));
     await next();
   });
 
   app.route("/", organizationRoutes);
+  app.route("/", memberRoutes);
   app.route("/", operatorRoutes);
   app.route("/", locationRoutes);
   app.route("/", scanRoutes);

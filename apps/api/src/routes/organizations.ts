@@ -20,12 +20,15 @@ export const organizationRoutes = new Hono<AppEnv>();
 
 organizationRoutes.get("/me", async (c) => {
   const user = c.get("user");
+  const store = c.get("store");
   const me: Me = {
     user_id: user.id,
     email: user.email,
-    organizations: await c.get("store").listOrganizations(),
+    organizations: await store.listOrganizations(),
+    roles: await store.listMyRoles(),
+    invitations: await store.listMyInvitations(),
     sample_data: usesSampleData(c.env),
-    platform_role: await c.get("store").getPlatformRole(user.id),
+    platform_role: await store.getPlatformRole(user.id),
   };
   return c.json(me);
 });

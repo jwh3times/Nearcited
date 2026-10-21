@@ -139,6 +139,16 @@ system works; this file only settles vocabulary.
   send a review request and deleted afterwards.
 - **Organization role**: what a person may do inside one organization: owner, admin or member.
   Whoever creates an organization is its owner. It says nothing about the product as a whole.
+  - **Member**: anyone in an organization, and the role of someone who is only that: they see
+    everything, run scans and approve or decline actions.
+  - **Admin**: a member who may also connect accounts, replace the site key and give standing
+    permission.
+  - **Owner**: an admin who may also invite, change roles and remove people, and manage the plan,
+    billing, the export and closing. An organization always keeps at least one.
+- **Invitation**: an owner's offer to an email address to join the organization as an admin or a
+  member. It is accepted by signing in with that address, waits fourteen days from when it was last
+  sent, and is accepted, declined, cancelled or expired. See
+  `docs/adr/0026-a-person-joins-an-organization-only-by-accepting-an-invitation.md`.
 - **Platform role**: what an account is to Nearcited itself, apart from any organization. Most
   accounts have none. Never called "owner", which is an organization role.
 - **Operator**: the platform role of the person who runs Nearcited.

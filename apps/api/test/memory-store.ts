@@ -6,6 +6,7 @@ import type {
   AuditPart,
   Connection,
   Draft,
+  Invitation,
   LimitChange,
   LimitChangeNotice,
   Listing,
@@ -38,7 +39,10 @@ import {
   CONNECTION_KIND_ALLOWANCES,
   DRAFTS_ALLOWANCE,
   hostOf,
+  INVITATION_DAYS,
   LONGEST_PATH,
+  MOST_INVITATIONS_LISTED,
+  MOST_INVITATIONS_WAITING,
   MOST_PAGES_A_DAY,
   MOST_VISITS_A_DAY,
   NOTICE_HOLD_HOURS,
@@ -135,6 +139,10 @@ export interface MemoryDb {
     given_told_at: string | null;
     ended_told_at: string | null;
   })[];
+  /** Every invitation made, accepted and cancelled ones included. */
+  invitations: Invitation[];
+  /** When each person joined each organization, by `organization:user`. Else when it was made. */
+  joinedAt: Map<string, string>;
   /** Every draft, with the worker's own bookkeeping beside what a member is sent. */
   drafts: (Draft & {
     attempts: number;
@@ -270,6 +278,8 @@ export function createMemoryDb(): MemoryDb {
     allowanceUse: new Map(),
     actions: [],
     standingPermissions: [],
+    invitations: [],
+    joinedAt: new Map(),
     drafts: [],
     listings: [],
     promptPages: [],
@@ -428,6 +438,52 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
   /** Whether an owner has asked for the organization to be closed. */
   const closing = (organizationId: string) =>
     db.closings.some((asked) => asked.organization_id === organizationId);
+  const nowIso = () => db.now ?? new Date().toISOString();
+  const inDays = (from: string, days: number) =>
+    new Date(Date.parse(from) + days * 86_400_000).toISOString();
+  /** Mirrors has_org_role(org, owner): an owner, of an organization not being closed. */
+  const ownsOrg = (organizationId: string) =>
+    userId !== null &&
+    !closing(organizationId) &&
+    db.memberships.some(
+      (m) => m.organization_id === organizationId && m.user_id === userId && m.role === "owner",
+    );
+  /** Mirrors my_address(). */
+  const myAddress = () =>
+    userId === null ? null : (db.emails.get(userId)?.trim().toLowerCase() ?? null);
+  const joinedAt = (m: MemoryDb["memberships"][number]) =>
+    db.joinedAt.get(`${m.organization_id}:${m.user_id}`) ??
+    db.organizations.find((o) => o.id === m.organization_id)?.created_at ??
+    nowIso();
+  /** Mirrors keep_an_owner(). */
+  const keepAnOwner = (organizationId: string, losing: string) => {
+    const owners = db.memberships.filter(
+      (m) => m.organization_id === organizationId && m.role === "owner",
+    );
+    if (owners.some((m) => m.user_id === losing) && owners.length === 1) {
+      throw new StoreError(
+        "limit",
+        "An organization needs an owner. Make someone else an owner first.",
+      );
+    }
+  };
+  /** Mirrors room_to_invite(). */
+  const roomToInvite = (organizationId: string) => {
+    const now = nowIso();
+    const waiting = db.invitations.filter(
+      (i) => i.organization_id === organizationId && i.ended_at === null && i.expires_at > now,
+    ).length;
+    if (waiting >= MOST_INVITATIONS_WAITING) {
+      throw new StoreError("limit", "Twenty invitations are waiting already. Cancel one first.");
+    }
+  };
+  const removeMembership = (organizationId: string, member: string) => {
+    const before = db.memberships.length;
+    db.memberships = db.memberships.filter(
+      (m) => !(m.organization_id === organizationId && m.user_id === member),
+    );
+    return db.memberships.length < before;
+  };
   /**
    * Mirrors organization_held(): the organization is being closed, or an action was done 36 hours
    * ago and its owners still not told.
@@ -787,7 +843,7 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
           .map((m) => ({
             email: db.emails.get(m.user_id) ?? null,
             role: m.role,
-            joined_at: organization.created_at,
+            joined_at: joinedAt(m),
           })),
         locations,
         prompts: db.queries.filter((query) => at.has(query.location_id)),
@@ -800,6 +856,7 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         standing_permissions: db.standingPermissions.filter(
           (kept) => kept.organization_id === organizationId,
         ),
+        invitations: db.invitations.filter((i) => i.organization_id === organizationId),
         connections,
         listings: db.listings.filter((listing) => at.has(listing.location_id)),
         page_addresses: db.promptPages.filter((page) => at.has(page.location_id)),
@@ -3477,6 +3534,238 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         )
         .slice(0, limit)
         .map((location) => location.id);
+    },
+
+    async listMyRoles() {
+      return Object.fromEntries(
+        db.memberships
+          .filter((m) => m.user_id === userId && !closing(m.organization_id))
+          .map((m) => [m.organization_id, m.role]),
+      );
+    },
+
+    // Mirrors organization_members().
+    async listMembers(organizationId) {
+      const organization = db.organizations.find((o) => o.id === organizationId);
+      if (!organization || closing(organizationId) || !readsOrg(organizationId)) return null;
+      return db.memberships
+        .filter((m) => m.organization_id === organizationId)
+        .map((m) => ({
+          user_id: m.user_id,
+          email: db.emails.get(m.user_id) ?? null,
+          role: m.role,
+          joined_at: joinedAt(m),
+        }))
+        .sort(
+          (a, b) =>
+            ROLE_ORDER.indexOf(a.role) - ROLE_ORDER.indexOf(b.role) ||
+            a.joined_at.localeCompare(b.joined_at),
+        );
+    },
+
+    async listInvitations(organizationId) {
+      if (!(isOperator || ownsOrg(organizationId))) return [];
+      return db.invitations
+        .filter(
+          (i) =>
+            i.organization_id === organizationId &&
+            (i.outcome === null || i.outcome === "declined"),
+        )
+        .sort((a, b) => b.created_at.localeCompare(a.created_at))
+        .slice(0, MOST_INVITATIONS_LISTED);
+    },
+
+    // Mirrors my_invitations().
+    async listMyInvitations() {
+      const mine = myAddress();
+      return db.invitations
+        .filter((i) => i.email === mine && i.ended_at === null && i.expires_at > nowIso())
+        .filter((i) => !closing(i.organization_id))
+        .map((i) => ({
+          id: i.id,
+          organization_id: i.organization_id,
+          organization_name: db.organizations.find((o) => o.id === i.organization_id)?.name ?? "",
+          role: i.role,
+          invited_by_email: i.invited_by_email,
+          expires_at: i.expires_at,
+        }));
+    },
+
+    // Mirrors invite_member().
+    async inviteMember(organizationId, email, role) {
+      if (!ownsOrg(organizationId) || userId === null) return null;
+      const invited = email.trim().toLowerCase();
+      if (
+        db.memberships.some(
+          (m) =>
+            m.organization_id === organizationId &&
+            db.emails.get(m.user_id)?.trim().toLowerCase() === invited,
+        )
+      ) {
+        throw new StoreError("limit", "They are already in this organization.");
+      }
+      if (
+        db.invitations.some(
+          (i) => i.organization_id === organizationId && i.email === invited && i.ended_at === null,
+        )
+      ) {
+        throw new StoreError(
+          "limit",
+          "That address is already invited. Send the invitation again instead.",
+        );
+      }
+      const now = nowIso();
+      if (
+        db.invitations.some(
+          (i) =>
+            i.organization_id === organizationId &&
+            i.email === invited &&
+            Date.parse(i.sent_at) > Date.parse(now) - 3_600_000,
+        )
+      ) {
+        throw new StoreError(
+          "limit",
+          "An invitation went to that address less than an hour ago. Try again later.",
+        );
+      }
+      roomToInvite(organizationId);
+      for (const declined of db.invitations) {
+        if (
+          declined.organization_id === organizationId &&
+          declined.email === invited &&
+          declined.outcome === "declined"
+        ) {
+          declined.outcome = "cancelled";
+          declined.ended_at = now;
+        }
+      }
+      const invitation: Invitation = {
+        id: crypto.randomUUID(),
+        organization_id: organizationId,
+        email: invited,
+        role,
+        invited_by_email: db.emails.get(userId) ?? null,
+        created_at: now,
+        sent_at: now,
+        expires_at: inDays(now, INVITATION_DAYS),
+        ended_at: null,
+        outcome: null,
+      };
+      db.invitations.push(invitation);
+      return { ...invitation };
+    },
+
+    // Mirrors send_invitation_again().
+    async sendInvitationAgain(organizationId, invitationId) {
+      if (!ownsOrg(organizationId) || userId === null) return null;
+      const kept = db.invitations.find(
+        (i) =>
+          i.id === invitationId &&
+          i.organization_id === organizationId &&
+          (i.ended_at === null || i.outcome === "declined"),
+      );
+      if (!kept) return null;
+      const now = nowIso();
+      if (Date.parse(kept.sent_at) > Date.parse(now) - 3_600_000) {
+        throw new StoreError("limit", "It was sent less than an hour ago. Try again later.");
+      }
+      if (kept.ended_at !== null || kept.expires_at <= now) roomToInvite(organizationId);
+      Object.assign(kept, {
+        sent_at: now,
+        expires_at: inDays(now, INVITATION_DAYS),
+        ended_at: null,
+        outcome: null,
+        invited_by_email: db.emails.get(userId) ?? null,
+      });
+      return { ...kept };
+    },
+
+    // Mirrors cancel_invitation().
+    async cancelInvitation(organizationId, invitationId) {
+      if (!ownsOrg(organizationId)) return null;
+      const kept = db.invitations.find(
+        (i) =>
+          i.id === invitationId &&
+          i.organization_id === organizationId &&
+          (i.ended_at === null || i.outcome === "declined"),
+      );
+      if (!kept) return null;
+      Object.assign(kept, { outcome: "cancelled", ended_at: nowIso() });
+      return { ...kept };
+    },
+
+    // Mirrors accept_invitation().
+    async acceptInvitation(invitationId) {
+      if (userId === null) return null;
+      const kept = db.invitations.find(
+        (i) => i.id === invitationId && i.email === myAddress() && i.ended_at === null,
+      );
+      if (!kept) return null;
+      const now = nowIso();
+      if (kept.expires_at <= now) {
+        throw new StoreError("limit", "This invitation has expired. Ask for it to be sent again.");
+      }
+      if (closing(kept.organization_id)) {
+        throw new StoreError("limit", "That organization is being closed.");
+      }
+      if (db.operators.has(userId) || db.testAccounts.has(userId)) {
+        throw new StoreError("limit", "This account cannot join an organization.");
+      }
+      if (db.memberships.some((m) => m.user_id === userId)) {
+        throw new StoreError(
+          "limit",
+          "You already belong to an organization. Leave it, or close it, before joining another.",
+        );
+      }
+      db.memberships.push({
+        organization_id: kept.organization_id,
+        user_id: userId,
+        role: kept.role,
+      });
+      db.joinedAt.set(`${kept.organization_id}:${userId}`, now);
+      Object.assign(kept, { outcome: "accepted", ended_at: now });
+      return { ...kept };
+    },
+
+    // Mirrors decline_invitation().
+    async declineInvitation(invitationId) {
+      const kept = db.invitations.find(
+        (i) =>
+          i.id === invitationId &&
+          i.email === myAddress() &&
+          i.ended_at === null &&
+          i.expires_at > nowIso() &&
+          !closing(i.organization_id),
+      );
+      if (!kept || userId === null) return null;
+      Object.assign(kept, { outcome: "declined", ended_at: nowIso() });
+      return { ...kept };
+    },
+
+    // Mirrors change_member_role().
+    async changeMemberRole(organizationId, member, role) {
+      if (!ownsOrg(organizationId)) return false;
+      if (role !== "owner") keepAnOwner(organizationId, member);
+      const kept = db.memberships.find(
+        (m) => m.organization_id === organizationId && m.user_id === member,
+      );
+      if (!kept) return false;
+      kept.role = role;
+      return true;
+    },
+
+    // Mirrors remove_member().
+    async removeMember(organizationId, member) {
+      if (!ownsOrg(organizationId)) return false;
+      keepAnOwner(organizationId, member);
+      return removeMembership(organizationId, member);
+    },
+
+    // Mirrors leave_organization().
+    async leaveOrganization(organizationId) {
+      if (userId === null || !seesOrg(organizationId) || closing(organizationId)) return false;
+      keepAnOwner(organizationId, userId);
+      return removeMembership(organizationId, userId);
     },
 
     async listOwnerEmails(organizationId) {

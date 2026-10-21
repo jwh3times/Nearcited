@@ -8,7 +8,7 @@ import {
   type Surface,
 } from "@nearcited/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, type ReactNode, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { ErrorNote } from "../components/ErrorNote";
 import { Field } from "../components/Field";
@@ -27,7 +27,14 @@ const EMPTY: LocationFormValues = { name: "", city: "", region: "", website: "" 
 const USUAL_SURFACES: Surface[] = ["chatgpt", "claude"];
 
 /** Every location in the organization, as one table: how visible, which way it is moving, what next. */
-export function Locations({ organization }: { organization: Organization }) {
+export function Locations({
+  organization,
+  notices,
+}: {
+  organization: Organization;
+  /** What is waiting for the signed-in person themselves, shown above the list. */
+  notices?: ReactNode;
+}) {
   const [params, setParams] = useSearchParams();
   const { base, readOnly } = useViewing();
   const adding = params.has("add") && !readOnly;
@@ -60,6 +67,8 @@ export function Locations({ organization }: { organization: Organization }) {
           </button>
         )}
       </div>
+
+      {notices}
 
       {adding && (
         <AddLocation organization={organization} used={list.length} onClose={() => setParams({})} />

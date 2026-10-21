@@ -12,11 +12,17 @@ import {
   ConnectionMatchSchema,
   ConnectionSchema,
   DraftSchema,
+  type Invitation,
+  InvitationSchema,
   LimitChangeSchema,
   ListingSchema,
   LocationConnectionSchema,
   LocationSchema,
   LocationVisitsSchema,
+  MemberRoleSchema,
+  MemberSchema,
+  MOST_INVITATIONS_LISTED,
+  MyInvitationSchema,
   OperatorAuditSchema,
   OrganizationSchema,
   PageFetchesSchema,
@@ -92,6 +98,7 @@ const ERROR_KINDS: Record<string, StoreErrorKind> = {
   NC013: "limit", // an action that is no longer waiting or cannot be asked for, or a task one did
   NC014: "limit", // a draft asked for when the month has no more
   NC015: "limit", // a listing on one site more than a location may hold
+  NC016: "limit", // who is in an organization: no owner left, already in or invited, too many
 };
 
 function fail(action: string, error: DbError): never {
@@ -100,6 +107,10 @@ function fail(action: string, error: DbError): never {
   const message = kind === "limit" ? error.message : `${action}: ${error.message}`;
   throw new StoreError(kind, message, { cause: error });
 }
+
+/** What an owner reads of an invitation. */
+const INVITATION_COLUMNS =
+  "id, organization_id, email, role, invited_by_email, created_at, sent_at, expires_at, ended_at, outcome";
 
 /** What a member may read of an answer subdomain. */
 const ANSWER_SUBDOMAIN_SHOWN =
@@ -356,6 +367,28 @@ export function createSupabaseStore(
       if (found.user?.email) emails.push(found.user.email);
     }
     return emails;
+  }
+
+  /** An invitation one of the invitation functions answers with, or null where it answered none. */
+  async function invitationFrom(
+    what: string,
+    fn: string,
+    args: Record<string, string>,
+  ): Promise<Invitation | null> {
+    const { data, error } = await db.rpc(fn, args).select(INVITATION_COLUMNS).maybeSingle();
+    if (error) fail(what, error);
+    return data ? InvitationSchema.parse(data) : null;
+  }
+
+  /** Whether one of the membership functions changed someone. */
+  async function membershipChanged(
+    what: string,
+    fn: string,
+    args: Record<string, string>,
+  ): Promise<boolean> {
+    const { data, error } = await db.rpc(fn, args).select("user_id").maybeSingle();
+    if (error) fail(what, error);
+    return data !== null;
   }
 
   return {
@@ -1008,6 +1041,99 @@ export function createSupabaseStore(
       return asked.closing_id
         ? { closing_id: asked.closing_id }
         : { refused: asked.refused ?? "owners_only" };
+    },
+
+    async listMyRoles() {
+      const { data, error } = await db.rpc("my_roles");
+      if (error) fail("List my roles", error);
+      const rows = z
+        .array(z.object({ organization_id: z.uuid(), role: MemberRoleSchema }))
+        .parse(data ?? []);
+      return Object.fromEntries(rows.map((row) => [row.organization_id, row.role]));
+    },
+
+    async listMembers(organizationId) {
+      const { data, error } = await db.rpc("organization_members", { org: organizationId });
+      if (error) fail("List members", error);
+      const members = MemberSchema.array().parse(data ?? []);
+      return members.length > 0 ? members : null;
+    },
+
+    async listInvitations(organizationId) {
+      // Accepted and cancelled ones are history, kept for the export, not listed. Twenty wait at
+      // most, but declined and expired ones gather until an owner removes them: the newest are
+      // listed.
+      const { data, error } = await db
+        .from("invitations")
+        .select(INVITATION_COLUMNS)
+        .eq("organization_id", organizationId)
+        .or("outcome.is.null,outcome.eq.declined")
+        .order("created_at", { ascending: false })
+        .order("id")
+        .limit(MOST_INVITATIONS_LISTED);
+      if (error) fail("List invitations", error);
+      return InvitationSchema.array().parse(data ?? []);
+    },
+
+    async listMyInvitations() {
+      const { data, error } = await db.rpc("my_invitations");
+      if (error) fail("List my invitations", error);
+      return MyInvitationSchema.array().parse(data ?? []);
+    },
+
+    async inviteMember(organizationId, email, role) {
+      return invitationFrom("Invite someone", "invite_member", {
+        org: organizationId,
+        address: email,
+        as_role: role,
+      });
+    },
+
+    async sendInvitationAgain(organizationId, invitationId) {
+      return invitationFrom("Send an invitation again", "send_invitation_again", {
+        org: organizationId,
+        invitation: invitationId,
+      });
+    },
+
+    async cancelInvitation(organizationId, invitationId) {
+      return invitationFrom("Cancel an invitation", "cancel_invitation", {
+        org: organizationId,
+        invitation: invitationId,
+      });
+    },
+
+    async acceptInvitation(invitationId) {
+      return invitationFrom("Accept an invitation", "accept_invitation", {
+        invitation: invitationId,
+      });
+    },
+
+    async declineInvitation(invitationId) {
+      return invitationFrom("Decline an invitation", "decline_invitation", {
+        invitation: invitationId,
+      });
+    },
+
+    async changeMemberRole(organizationId, userId, role) {
+      return membershipChanged("Change a role", "change_member_role", {
+        org: organizationId,
+        member: userId,
+        to_role: role,
+      });
+    },
+
+    async removeMember(organizationId, userId) {
+      return membershipChanged("Remove someone", "remove_member", {
+        org: organizationId,
+        member: userId,
+      });
+    },
+
+    async leaveOrganization(organizationId) {
+      return membershipChanged("Leave an organization", "leave_organization", {
+        org: organizationId,
+      });
     },
 
     async getClosing(id) {

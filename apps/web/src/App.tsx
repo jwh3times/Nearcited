@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { Navigate, Route, Routes, useLocation, useMatch, useNavigate } from "react-router";
 import { ErrorNote } from "./components/ErrorNote";
+import { InvitationNotices, InvitedPage } from "./components/Members";
 import { Shell } from "./components/Shell";
 import { api } from "./lib/api";
 import { takeRememberedPlan } from "./lib/billing";
@@ -74,8 +75,16 @@ function SignedIn() {
 
   // One organization per user for now. A switcher belongs in the sidebar when that changes.
   const organization = me.data.organizations[0];
-  // The first run has nothing to put in a sidebar, so it gets the whole page.
-  if (!organization) return <Onboarding sampleData={me.data.sample_data} />;
+  // The first run has nothing to put in a sidebar, so it gets the whole page. Someone invited
+  // is asked about that first: joining is what they most likely came for.
+  if (!organization) {
+    return me.data.invitations.length > 0 ? (
+      <InvitedPage invitations={me.data.invitations} />
+    ) : (
+      <Onboarding sampleData={me.data.sample_data} />
+    );
+  }
+  const role = me.data.roles[organization.id];
 
   // The operator reading through a customer's account: the same pages, under another address.
   if (me.data.platform_role === "operator" && reading?.params.organizationId) {
@@ -86,7 +95,22 @@ function SignedIn() {
     <Shell me={me.data} organization={organization}>
       <ReturnToPlan />
       <Routes>
-        <Route index element={<Locations organization={organization} />} />
+        <Route
+          index
+          element={
+            <Locations
+              organization={organization}
+              notices={
+                <InvitationNotices
+                  invitations={me.data.invitations}
+                  organization={organization}
+                  role={role}
+                  userId={me.data.user_id}
+                />
+              }
+            />
+          }
+        />
         <Route path="locations/:id" element={<LocationDetail />} />
         <Route path="locations/:id/review-card/:site" element={<ReviewCard />} />
         <Route
@@ -96,6 +120,8 @@ function SignedIn() {
               organization={organization}
               email={me.data.email}
               platformRole={me.data.platform_role}
+              role={role}
+              userId={me.data.user_id}
             />
           }
         />

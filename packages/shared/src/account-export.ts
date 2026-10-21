@@ -14,6 +14,7 @@ export const EXPORT_SHEETS = {
   drafts: "drafts.csv",
   actions: "actions.csv",
   standing_permissions: "standing-permissions.csv",
+  invitations: "invitations.csv",
   connections: "connections.csv",
   listings: "listings.csv",
   page_addresses: "page-addresses.csv",
