@@ -57,6 +57,7 @@ locationRoutes.get("/locations/:id", async (c) => {
     recommendations,
     recent,
     site,
+    citedPages,
     alerts,
     drafts,
     listings,
@@ -69,6 +70,7 @@ locationRoutes.get("/locations/:id", async (c) => {
     store.listRecommendations(location.id),
     store.listRecentResults(location.id, SCAN_WINDOW, sample),
     store.getSiteCheck(location.id),
+    store.getCitedPages(location.id),
     store.listAlerts(location.id, sample),
     store.listDrafts(location.id),
     store.listListings(location.id),
@@ -160,6 +162,7 @@ locationRoutes.get("/locations/:id", async (c) => {
       evidence,
       drafts,
       listings,
+      cited_pages: citedPages,
       writes,
     }),
     page_tasks: buildPageTasks({

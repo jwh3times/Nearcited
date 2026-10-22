@@ -131,29 +131,24 @@ function excerptAround(text: string, name: string): string | null {
   return `${start > 0 ? "…" : ""}${clean.slice(start, end)}${end < clean.length ? "…" : ""}`;
 }
 
+/** A place a name is written in a text, and whether that name is the business's. */
+export interface NameMention {
+  at: number;
+  length: number;
+  ours: boolean;
+}
+
 /**
- * The phone numbers an answer gives for the business, in international form.
- *
- * An answer goes through the businesses it names one after another, each with its details after
- * its name, so a number is taken to be the business's when the name written nearest before it is
- * the business's. A number written before any name is nobody's. This reads where a number
- * stands and not what the sentence says, so it can be wrong about a number that follows the
- * business's name and belongs to something the answer did not name: whoever uses it should want
- * to see the same number more than once.
+ * Every place one of the names, or the business's own, is written in a text, in order. Where two
+ * begin at the same place the longer one is what was written there, so it comes last.
  */
-export function phonesGivenFor(
+export function nameMentions(
   text: string,
   named: readonly string[],
-  business: Pick<BusinessIdentity, "name" | "country_code">,
-): string[] {
-  const country = business.country_code ?? "US";
-  if (!isSupportedCountry(country)) return [];
-  const found = findPhoneNumbersInText(text, country as CountryCode);
-  if (found.length === 0) return [];
-
-  // Every place a name is written, with whether that name is the business's.
+  business: Pick<BusinessIdentity, "name">,
+): NameMention[] {
   const lower = text.toLowerCase();
-  const mentions: { at: number; length: number; ours: boolean }[] = [];
+  const mentions: NameMention[] = [];
   for (const name of new Set([...named, business.name])) {
     const needle = name.trim().toLowerCase();
     if (!needle) continue;
@@ -162,12 +157,36 @@ export function phonesGivenFor(
       mentions.push({ at, length: needle.length, ours });
     }
   }
-  // Where two names begin at the same place the longer one is what was written there.
-  mentions.sort((a, b) => a.at - b.at || a.length - b.length);
+  return mentions.sort((a, b) => a.at - b.at || a.length - b.length);
+}
 
+/**
+ * The phone numbers an answer gives for the business, in international form.
+ *
+ * An answer goes through the businesses it names one after another, each with its details after
+ * its name, so a number is taken to be the business's when the name written nearest before it is
+ * the business's. A number written before any name is nobody's. This reads where a number
+ * stands and not what the sentence says, so it can be wrong about a number that follows the
+ * business's name and belongs to something the answer did not name: whoever uses it should want
+ * to see the same number more than once. `within`, when given, is how many characters after the
+ * name a number may stand and still be the business's.
+ */
+export function phonesGivenFor(
+  text: string,
+  named: readonly string[],
+  business: Pick<BusinessIdentity, "name" | "country_code">,
+  { within = Number.POSITIVE_INFINITY }: { within?: number } = {},
+): string[] {
+  const country = business.country_code ?? "US";
+  if (!isSupportedCountry(country)) return [];
+  const found = findPhoneNumbersInText(text, country as CountryCode);
+  if (found.length === 0) return [];
+
+  const mentions = nameMentions(text, named, business);
   const given = found.filter((number) => {
     const before = mentions.filter((mention) => mention.at <= number.startsAt);
-    return before[before.length - 1]?.ours === true;
+    const nearest = before[before.length - 1];
+    return nearest?.ours === true && number.startsAt - nearest.at <= within;
   });
   return unique(
     given.map((number) => number.number.number),

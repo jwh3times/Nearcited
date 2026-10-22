@@ -7,6 +7,7 @@ import { formatDate } from "../lib/format";
 import { KIND_LABELS, markedDone, proof } from "../lib/tasks";
 import { ErrorNote } from "./ErrorNote";
 import { TaskAsking } from "./TaskAsking";
+import { TaskCitedPage } from "./TaskCitedPage";
 import { TaskDraft } from "./TaskDraft";
 import { TaskListing } from "./TaskListing";
 
@@ -76,6 +77,7 @@ export function Tasks({ tasks, location, drafts, onChanged, readOnly }: TasksPro
                     </a>
                   </p>
                 )}
+                {task.cited_page && <TaskCitedPage page={task.cited_page} location={location} />}
                 <TaskListing
                   task={task}
                   locationId={location.id}

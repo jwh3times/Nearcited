@@ -12,6 +12,7 @@ import type {
   AuditInput,
   AuditJob,
   AuditPart,
+  CitedPage,
   Connection,
   ConnectionChoice,
   ConnectionKind,
@@ -354,6 +355,8 @@ export interface CompletedScan {
   recommendations: DerivedRecommendation[];
   /** The on-page check this scan made, or null when it made none. Kept with the scan. */
   site?: SiteCheck | null;
+  /** What the cited-page check found, a page for each site read, or null when it did not look. */
+  cited_pages?: CitedPage[] | null;
   /** The alerts this scan shows have ended, and the ones its rules raise. */
   alerts?: AlertChanges;
 }
@@ -797,6 +800,12 @@ export interface Store {
 
   /** The on-page check from a location's latest successful scan, or null when it made none. */
   getSiteCheck(locationId: string): Promise<SiteCheck | null>;
+
+  /**
+   * What the cited-page check found on the latest successful scan of a location that looked.
+   * Empty when none did, or the latest that did had no directory task's page to read.
+   */
+  getCitedPages(locationId: string): Promise<CitedPage[]>;
 
   listRecommendations(locationId: string): Promise<Recommendation[]>;
   setRecommendationStatus(id: string, status: RecommendationStatus): Promise<Recommendation | null>;
