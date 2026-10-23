@@ -1,13 +1,20 @@
 import {
   type AlertScan,
   type AlertsToTell,
+  analyzeCitedPage,
   analyzeObservation,
   analyzeSite,
+  type CitedPage,
+  type CitedPageSnapshot,
+  type CitedPageTarget,
+  citedPagesToRead,
   coveredSurfaces,
+  type DerivedRecommendation,
   deriveAlerts,
   deriveRecommendations,
   FIRST_SEEN_SCANS,
   hasNewcomers,
+  isCountedAnswer,
   isGoogle,
   type Location,
   needsPoint,
@@ -20,6 +27,8 @@ import {
   type SiteSnapshot,
   SURFACES_BY_KIND,
   type Surface,
+  sourceOfRule,
+  summarizeSources,
   type Tier,
   tierOf,
   windowScore,
@@ -69,6 +78,11 @@ export interface RunScanDeps {
    * fetched, such as a deployment serving sample data; the scan then makes no claim about the site.
    */
   inspectSite?: (website: string) => Promise<SiteSnapshot>;
+  /**
+   * Fetches the pages answers cited for the directory tasks, for the cited-page check. Left out
+   * where no real page should be fetched, as `inspectSite` is; the scan then reads none.
+   */
+  readCitedPages?: (targets: CitedPageTarget[]) => Promise<CitedPageSnapshot[]>;
   /**
    * Finds the point a location's Google results are checked from. Without it, a location with no
    * point kept is not checked on Google.
@@ -252,11 +266,25 @@ export async function runScan(scanId: string, deps: RunScanDeps): Promise<ScanOu
         : null,
     });
 
+    const recommendations = deriveRecommendations(location, pooled, site, queries);
+    // Like the on-page check, a page that cannot be read never fails the scan.
+    let citedPages: CitedPage[] | null = null;
+    if (deps.readCitedPages && !generated) {
+      citedPages = await checkCitedPages(
+        location,
+        pooled,
+        recommendations,
+        deps.readCitedPages,
+        store,
+      );
+    }
+
     await store.completeScan(scanId, {
       score,
       results,
-      recommendations: deriveRecommendations(location, pooled, site, queries),
+      recommendations,
       site,
+      cited_pages: citedPages,
       alerts,
     });
 
@@ -313,6 +341,43 @@ export async function runScan(scanId: string, deps: RunScanDeps): Promise<ScanOu
     if (error instanceof PermanentScanFailure) return "failed";
     throw error;
   }
+}
+
+/**
+ * The cited-page check (docs/adr/0027): the pages the answers in the window cited most for the
+ * directory tasks this scan leaves open, read and compared with the location's details. A task a
+ * member dismissed is not read. What a page shows is kept; the page is not.
+ */
+async function checkCitedPages(
+  location: Location,
+  pooled: readonly NewScanResult[],
+  recommendations: readonly DerivedRecommendation[],
+  read: NonNullable<RunScanDeps["readCitedPages"]>,
+  store: Store,
+): Promise<CitedPage[]> {
+  const answers = pooled
+    .filter(isCountedAnswer)
+    .map((result) => ({ mentioned: result.mentioned, cited_urls: result.cited_urls ?? [] }));
+  const sources = summarizeSources(answers, location.website, Number.POSITIVE_INFINITY);
+  const dismissed = new Set(
+    (await store.listRecommendations(location.id))
+      .filter((recommendation) => recommendation.status === "dismissed")
+      .flatMap((recommendation) => sourceOfRule(recommendation.rule) ?? []),
+  );
+  const targets = citedPagesToRead(recommendations, sources, dismissed);
+  if (targets.length === 0) return [];
+  const snapshots = await read(targets).catch((error) => {
+    console.error(`Location ${location.id}: the cited pages could not be read`, error);
+    return targets.map(
+      (target): CitedPageSnapshot => ({
+        ...target,
+        status: null,
+        html: null,
+        not_read: "unreachable",
+      }),
+    );
+  });
+  return snapshots.map((snapshot) => analyzeCitedPage(snapshot, location));
 }
 
 /**

@@ -280,6 +280,19 @@ pass `pnpm check` and run in mock mode without it.
   provider, and counts nowhere: whatever counts checks asks `isCounted`, so it raises, counts
   toward and clears nothing
   (`docs/adr/0024-a-search-that-showed-nothing-is-kept-and-not-counted.md`).
+- **NearcitedBot obeys robots.txt, and reads only pages an answer cited.** Every page it reads,
+  through `apps/api/src/site/fetch.ts`, is asked for only after that host's `robots.txt`, read as
+  RFC 9309 says (`robotsAllows`, `packages/shared/src/robots.ts`): the group naming `NearcitedBot`,
+  else `*`, except on a location's own site, where only a group naming it counts (an audit's site is
+  read as anyone else's); a `robots.txt` that faults or does not answer shuts everything
+  (`docs/adr/0027-nearcitedbot-obeys-robots-txt-and-reads-only-pages-an-answer-cited.md`). Besides
+  the business's own home page, it reads only the cited-page check's pages: for up to three open
+  directory tasks no member dismissed, the page the answers cited most for the site
+  (`citedPagesToRead`), once a scan, within `CITED_PAGE_REQUESTS`, never off the task's site, and
+  never on sample data, for a test organization or for an audit. What it found is kept on the scan
+  (`scans.cited_pages`), composed by rule, never the page, and only the phone is ever called
+  different. Do not add another page NearcitedBot reads, a read that skips `robots.txt`, or a
+  retry of a cited page.
 - **Structured details carry only what a location holds.** A detail not on file is left out, never
   filled in, and no model writes any of it (`packages/shared/src/structured-details.ts`).
 - **Tuning is data, and its real values are private.** A new prompt, weight or sampling value

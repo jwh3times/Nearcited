@@ -1,4 +1,6 @@
 import {
+  type CitedPageSnapshot,
+  type CitedPageTarget,
   defaultTuning,
   LocationDetailSchema,
   type Observation,
@@ -18,7 +20,7 @@ import { createDataForSeoProviders } from "../src/providers/dataforseo";
 import { createMapboxGeocoder } from "../src/providers/mapbox";
 import { createMockProviders } from "../src/providers/mock";
 import type { CallUsage } from "../src/providers/types";
-import { runScan, type ScanReport } from "../src/scans/runner";
+import { type RunScanDeps, runScan, type ScanReport } from "../src/scans/runner";
 import { enqueueDueScans, failStaleScans, STALE_AFTER_MS } from "../src/scans/schedule";
 import type { Store } from "../src/store/types";
 import { createMemoryDb, type MemoryDb, memoryStore } from "./memory-store";
@@ -393,6 +395,7 @@ describe("a test organization's scans", () => {
   it("run on generated data in a live deployment, and say so on the scan", async () => {
     const real = vi.fn(providers.chatgpt?.observe);
     const inspectSite = vi.fn();
+    const readCitedPages = vi.fn();
     const notify = vi.fn();
     const scan = await worker.createScan(testLocationId, "scheduled", null);
 
@@ -404,6 +407,7 @@ describe("a test organization's scans", () => {
       // Even a build that cannot run live scans can run these: they ask nobody anything.
       unavailable: "This build cannot run live scans.",
       inspectSite,
+      readCitedPages,
       notify,
     });
 
@@ -412,6 +416,7 @@ describe("a test organization's scans", () => {
     // Nothing real was asked, fetched or emailed.
     expect(real).not.toHaveBeenCalled();
     expect(inspectSite).not.toHaveBeenCalled();
+    expect(readCitedPages).not.toHaveBeenCalled();
     expect(notify).not.toHaveBeenCalled();
     // Generated data covers every surface, which is how these are told from a live scan's.
     const surfaces = new Set((await worker.listScanResults(scan.id)).map((r) => r.surface));
@@ -921,6 +926,116 @@ describe("the on-page check", () => {
   it("says nothing about the site when it is not asked to look", async () => {
     await run();
     expect(await siteRules()).toEqual([]);
+  });
+});
+
+describe("the cited-page check", () => {
+  /** Both assistants leave the business out and cite the pages given. */
+  const citing = (urls: string[]): ProviderRegistry =>
+    Object.fromEntries(
+      (["chatgpt", "gemini"] as const).map((surface) => [
+        surface,
+        {
+          surface,
+          observe: async (): Promise<Observation> => ({
+            kind: "answer",
+            text: "Try Tony's Slice House.",
+            businesses: ["Tony's Slice House"],
+            cited_urls: urls,
+          }),
+        },
+      ]),
+    );
+  const cited = citing([
+    "https://www.yelp.com/biz/tonys",
+    "https://www.yellowpages.com/raleigh/joes",
+    "https://www.manta.com/c/joes",
+  ]);
+  const listing = (target: CitedPageTarget): CitedPageSnapshot => ({
+    ...target,
+    status: 200,
+    html: "<html><title>Joe's Pizza</title><h1>Joe's Pizza</h1><p>Call (919) 555-0199</p></html>",
+    not_read: null,
+  });
+  const run = async (
+    readCitedPages?: RunScanDeps["readCitedPages"],
+    registry: ProviderRegistry = cited,
+  ) => {
+    const scan = await queueScan();
+    return runScan(scan.id, { store: worker, providers: registry, readCitedPages });
+  };
+
+  beforeEach(async () => {
+    await memoryStore(db, owner).updateLocation(locationId, {
+      name: "Joe's Pizza",
+      website: "https://joes.example",
+      phone: "+19195550100",
+      address_line: null,
+      city: "Raleigh",
+      region: "NC",
+      postal_code: null,
+      country_code: "US",
+      google_place_id: "place-joes",
+      primary_category: null,
+    });
+  });
+
+  it("reads the directory tasks' cited pages and keeps what they show, not the pages", async () => {
+    const read = vi.fn(async (targets: CitedPageTarget[]) => targets.map(listing));
+    expect(await run(read)).toBe("succeeded");
+    // Yelp's task asks for reviews, so its page is not read.
+    expect(read).toHaveBeenCalledWith([
+      { host: "manta.com", url: "https://www.manta.com/c/joes" },
+      { host: "yellowpages.com", url: "https://www.yellowpages.com/raleigh/joes" },
+    ]);
+    const kept = await worker.getCitedPages(locationId);
+    expect(kept).toEqual([
+      {
+        host: "manta.com",
+        url: "https://www.manta.com/c/joes",
+        not_read: null,
+        status: 200,
+        names_business: true,
+        phone: { found: "differs", shown: "+19195550199" },
+        address: "none_on_file",
+      },
+      expect.objectContaining({ host: "yellowpages.com" }),
+    ]);
+    expect(JSON.stringify(kept)).not.toContain("<html>");
+  });
+
+  it("never reads the page of a task a member dismissed", async () => {
+    const read = vi.fn(async (targets: CitedPageTarget[]) => targets.map(listing));
+    await run(read);
+    const manta = (await worker.listRecommendations(locationId)).find(
+      (recommendation) => recommendation.rule === "source:manta.com",
+    );
+    await memoryStore(db, owner).setRecommendationStatus(manta?.id ?? "", "dismissed");
+    await run(read);
+    expect(read).toHaveBeenLastCalledWith([
+      { host: "yellowpages.com", url: "https://www.yellowpages.com/raleigh/joes" },
+    ]);
+  });
+
+  it("does not fail the scan when reading fails, and says the pages were not read", async () => {
+    const outcome = await run(async () => {
+      throw new Error("connection reset");
+    });
+    expect(outcome).toBe("succeeded");
+    expect(await worker.getCitedPages(locationId)).toMatchObject([
+      { host: "manta.com", not_read: "unreachable", names_business: null },
+      { host: "yellowpages.com", not_read: "unreachable", names_business: null },
+    ]);
+  });
+
+  it("reads nothing when no directory task is open, or when it is not asked to look", async () => {
+    const read = vi.fn(async (targets: CitedPageTarget[]) => targets.map(listing));
+    await run(read, citing(["https://www.yelp.com/biz/tonys"]));
+    expect(read).not.toHaveBeenCalled();
+    expect(await worker.getCitedPages(locationId)).toEqual([]);
+
+    await run(undefined);
+    expect(await worker.getCitedPages(locationId)).toEqual([]);
   });
 });
 

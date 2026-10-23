@@ -116,6 +116,25 @@ describe("analyzeSite", () => {
     }
   });
 
+  it("reports only robots.txt when it shuts NearcitedBot out of the home page", () => {
+    const robots = "User-agent: NearcitedBot\nDisallow: /\n\nUser-agent: *\nDisallow: /\n";
+    const check = analyzeSite(
+      snapshot({ html: null, status: null, robots_txt: robots, not_read: "shut_out" }),
+      joes,
+    );
+    expect(check.not_read).toBe("shut_out");
+    expect(check.checks).toEqual([{ id: "crawlers_allowed", passed: false }]);
+    expect(check.blocked_crawlers).toContain("OAI-SearchBot");
+  });
+
+  it("makes no claim when robots.txt could not be read", () => {
+    const check = analyzeSite(
+      snapshot({ html: null, status: null, not_read: "robots_unreadable" }),
+      joes,
+    );
+    expect(check).toMatchObject({ not_read: "robots_unreadable", checks: [] });
+  });
+
   it("notices a page that is empty until scripts run", () => {
     const shell = `<html><head><title>Joe's Pizza Raleigh</title></head><body><div id="root"></div><script>render("Joe's Pizza in Raleigh ${filler}")</script></body></html>`;
     expect(failed(analyzeSite(snapshot({ html: shell }), joes))).toEqual([
@@ -238,6 +257,18 @@ describe("recommendations from the site check", () => {
   it("clears when the page passes, and says nothing when the page was not checked", () => {
     expect(rules(analyzeSite(snapshot(), joes))).toEqual([]);
     expect(rules(null)).toEqual([]);
+  });
+
+  it("makes none from the checks that were not made when NearcitedBot was shut out", () => {
+    const check = analyzeSite(
+      snapshot({
+        html: null,
+        robots_txt: "User-agent: NearcitedBot\nDisallow: /\n",
+        not_read: "shut_out",
+      }),
+      joes,
+    );
+    expect(rules(check)).toEqual([]);
   });
 
   it("says only that the site could not be read when it could not", () => {

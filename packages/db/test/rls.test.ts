@@ -1507,6 +1507,47 @@ describe("the website check on a scan", () => {
   });
 });
 
+describe("the cited pages on a scan", () => {
+  const pages = JSON.stringify([
+    { host: "yellowpages.com", url: "https://www.yellowpages.com/joes", not_read: null },
+  ]);
+
+  it("are written by the worker and read by members only", async () => {
+    await as("service_role", null, () =>
+      db.query("update public.scans set cited_pages = $1::jsonb where id = $2", [pages, scanId]),
+    );
+    const mine = await as("authenticated", alice, () =>
+      rows<{ cited_pages: { host: string }[] | null }>(
+        "select cited_pages from public.scans where id = $1",
+        [scanId],
+      ),
+    );
+    expect(mine[0]?.cited_pages?.[0]?.host).toBe("yellowpages.com");
+    expect(
+      await as("authenticated", bob, () =>
+        rows("select cited_pages from public.scans where id = $1", [scanId]),
+      ),
+    ).toEqual([]);
+  });
+
+  it("cannot be attached by a member when queuing a scan, nor changed after", async () => {
+    await expect(
+      as("authenticated", alice, () =>
+        db.query(
+          `insert into public.scans (location_id, trigger, requested_by, cited_pages)
+           values ($1, 'manual', $2, $3::jsonb)`,
+          [locationId, alice, pages],
+        ),
+      ),
+    ).rejects.toThrow(/row-level security/);
+    await expect(
+      as("authenticated", alice, () =>
+        db.query("update public.scans set cited_pages = null where id = $1", [scanId]),
+      ),
+    ).rejects.toThrow(/permission denied/);
+  });
+});
+
 describe("platform roles and test organizations", () => {
   const robot = "e0000000-0000-4000-8000-000000000005";
 

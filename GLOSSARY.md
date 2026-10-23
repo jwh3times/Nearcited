@@ -17,6 +17,10 @@ system works; this file only settles vocabulary.
 - **On-page check**: reading a business's own home page as an assistant's crawler would, without
   running scripts, and reporting a fixed list of pass or fail checks. See "The on-page check" in
   `docs/architecture.md`.
+- **Cited-page check**: reading, in a scan, the page an assistant cited most for each of up to
+  three open directory tasks, obeying the site's `robots.txt`, and saying on the task whether the
+  page names the business and shows its phone and address. Not a listing: the page is whatever the
+  answers cited, often a list. See `docs/adr/0027-nearcitedbot-obeys-robots-txt-and-reads-only-pages-an-answer-cited.md`.
 - **Structured details** (or **the block**): a schema.org block stating who and where a business
   is, composed by rule from what its location holds and nothing else, for the owner to paste into
   the page the on-page check reads. Not a draft: no model writes it.
