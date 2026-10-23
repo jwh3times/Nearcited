@@ -283,8 +283,8 @@ pass `pnpm check` and run in mock mode without it.
 - **NearcitedBot obeys robots.txt, and reads only pages an answer cited.** Every page it reads,
   through `apps/api/src/site/fetch.ts`, is asked for only after that host's `robots.txt`, read as
   RFC 9309 says (`robotsAllows`, `packages/shared/src/robots.ts`): the group naming `NearcitedBot`,
-  else `*`, except on the business's own site, where only a group naming it counts; a `robots.txt`
-  that faults or does not answer shuts everything
+  else `*`, except on a location's own site, where only a group naming it counts (an audit's site is
+  read as anyone else's); a `robots.txt` that faults or does not answer shuts everything
   (`docs/adr/0027-nearcitedbot-obeys-robots-txt-and-reads-only-pages-an-answer-cited.md`). Besides
   the business's own home page, it reads only the cited-page check's pages: for up to three open
   directory tasks no member dismissed, the page the answers cited most for the site

@@ -195,6 +195,20 @@ describe("fetchSite", () => {
     expect(snapshot.not_read).toBeUndefined();
   });
 
+  it("obeys the * group on a site read as anyone else's, as an audit reads one", async () => {
+    const robots = "User-agent: *\nDisallow: /\n";
+    const { impl, calls } = fakeFetch({
+      "https://joes.example/robots.txt": { body: robots },
+      "https://joes.example/": { body: "<html>Joe's</html>" },
+    });
+    expect(await fetchSite("joes.example", impl, { ownSite: false })).toMatchObject({
+      html: null,
+      robots_txt: robots,
+      not_read: "shut_out",
+    });
+    expect(calls).toHaveLength(1);
+  });
+
   it("takes a robots.txt that faults or does not answer as shutting everything", async () => {
     for (const robots of [{ status: 500 }, { status: 503 }, new Error("timeout")]) {
       const { impl, calls } = fakeFetch({

@@ -221,7 +221,16 @@ async function readHome(reader: Reader, start: URL): Promise<PageRead> {
   return reader.read(start);
 }
 
-export async function fetchSite(website: string, fetchImpl: Fetch = fetch): Promise<SiteSnapshot> {
+/**
+ * The business's home page and its robots.txt, for the on-page check. `ownSite` is whether the
+ * site's owner asked to have it checked: then only rules that name NearcitedBot stop it. An audit
+ * reads a site nobody who runs it asked about, so it reads it as anyone else's.
+ */
+export async function fetchSite(
+  website: string,
+  fetchImpl: Fetch = fetch,
+  { ownSite = true }: { ownSite?: boolean } = {},
+): Promise<SiteSnapshot> {
   const start = safeSiteUrl(website);
   const nothing = (url: string, status: number | null = null): SiteSnapshot => ({
     url,
@@ -233,8 +242,7 @@ export async function fetchSite(website: string, fetchImpl: Fetch = fetch): Prom
   if (!start) return nothing(website);
 
   try {
-    // Only rules that name NearcitedBot stop it here: its owner asked to have the site checked.
-    const reader = new Reader({ fetch: fetchImpl, budget: SITE_REQUESTS, ownSite: true });
+    const reader = new Reader({ fetch: fetchImpl, budget: SITE_REQUESTS, ownSite });
     const page = await readHome(reader, start);
     if (page.kind === "not_read") {
       if (page.reason === "shut_out" || page.reason === "robots_unreadable") {

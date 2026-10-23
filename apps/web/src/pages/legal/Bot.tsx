@@ -73,9 +73,10 @@ export function Bot() {
         <code>User-agent: NearcitedBot{"\n"}Disallow: /</code>
       </pre>
       <p>
-        One exception: on a business's own website, which its owner asked to have checked, it
+        One exception: on a business's own website, when its owner asked to have it checked, it
         follows only rules that name <code>NearcitedBot</code>, so that it can tell the owner when
-        the site's <code>*</code> rules shut out the assistants' crawlers. You can also:
+        the site's <code>*</code> rules shut out the assistants' crawlers. A one-off report, which
+        anyone can ask for, follows the <code>*</code> rules as anywhere else. You can also:
       </p>
       <ul>
         <li>

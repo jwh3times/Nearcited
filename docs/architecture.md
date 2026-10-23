@@ -432,8 +432,9 @@ other than 429 is no rules, and a 5xx, a 429, a timeout or no answer takes every
 (RFC 9309). The longest matching rule wins and an Allow wins a tie. On the business's own site,
 which its owner asked to have checked, only groups that name `NearcitedBot` apply; a `*` group does
 not stop it, since `crawlers_allowed` is what reports that the assistants' crawlers are shut out.
-When a group names NearcitedBot and shuts out the page, the `SiteCheck` has `not_read: "shut_out"`
-and only `crawlers_allowed` is reported. When `robots.txt` cannot be read it has
+An audit is asked for by anyone, so it reads the site as anyone else's (`fetchSite`'s `ownSite:
+false`) and a `*` group stops it too. When the rules shut out the page, the `SiteCheck` has
+`not_read: "shut_out"` and only `crawlers_allowed` is reported. When `robots.txt` cannot be read it has
 `not_read: "robots_unreadable"` and no checks. Neither says the site is down.
 
 ## The cited-page check

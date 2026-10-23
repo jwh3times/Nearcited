@@ -21,7 +21,9 @@ does not answer means everything is shut, and nothing is read.
 **On the business's own site only rules naming NearcitedBot count.** Its owner asked to have it
 checked, and a site that shuts out every crawler with `*` is exactly what the on-page check exists
 to report. Shut out by name, the on-page check reads no page, reports what `robots.txt` says to the
-assistants' crawlers, and says the rest was not checked.
+assistants' crawlers, and says the rest was not checked. An audit is different: anyone can ask for
+one, about a site they do not run, so it reads the site as anyone else's and a `*` group shuts it
+out as well.
 
 **It reads only pages an answer cited, and few of them.** The cited-page check reads, for the
 directory tasks a scan leaves open and no member dismissed, the page the answers cited most for

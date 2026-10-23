@@ -201,7 +201,7 @@ export default {
             weights: activeTuning.tuning.score,
             sampleData: usesSampleData(env),
             unavailable: liveScansUnavailable(env, activeTuning.source),
-            inspectSite: fetchSite,
+            inspectSite: (website) => fetchSite(website, fetch, { ownSite: false }),
           });
           console.log(`Audit ${audit_id} prompt ${prompt_index} ${outcome}`);
           message.ack();
