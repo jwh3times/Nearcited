@@ -9,6 +9,7 @@ import {
   ANSWER_RECORDS,
   AuditJobSchema,
   CITING_SURFACES,
+  CitedPageSchema,
   ConnectionMatchSchema,
   ConnectionSchema,
   DraftSchema,
@@ -2441,11 +2442,25 @@ export function createSupabaseStore(
       return data?.site_check ? SiteCheckSchema.parse(data.site_check) : null;
     },
 
+    async getCitedPages(locationId) {
+      const { data, error } = await db
+        .from("scans")
+        .select("cited_pages")
+        .eq("location_id", locationId)
+        .eq("status", "succeeded")
+        .not("cited_pages", "is", null)
+        .order("finished_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) fail("Get cited pages", error);
+      return data?.cited_pages ? z.array(CitedPageSchema).parse(data.cited_pages) : [];
+    },
+
     async completeScan(id, outcome) {
       // Written first: if completing then fails, the scan is retried and this is written again.
       const saved = await db
         .from("scans")
-        .update({ site_check: outcome.site ?? null })
+        .update({ site_check: outcome.site ?? null, cited_pages: outcome.cited_pages ?? null })
         .eq("id", id);
       if (saved.error) fail("Save site check", saved.error);
 

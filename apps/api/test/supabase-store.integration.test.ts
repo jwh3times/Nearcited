@@ -1335,11 +1335,24 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
       blocked_crawlers: [],
       words: 120,
     };
+    // So is what the cited-page check found.
+    const citedPages = [
+      {
+        host: "yellowpages.com",
+        url: "https://www.yellowpages.com/joes",
+        not_read: null,
+        status: 200,
+        names_business: true,
+        phone: { found: "differs" as const, shown: "+19195550199" },
+        address: "not_found" as const,
+      },
+    ];
     await worker.completeScan(scan.id, {
       score: 80,
       results,
       recommendations: [],
       site: check,
+      cited_pages: citedPages,
       // The scan that finishes is also what clears an alert.
       // and what raises the other kinds, which are about no one prompt.
       alerts: {
@@ -1419,6 +1432,7 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
       results,
       recommendations: [],
       site: check,
+      cited_pages: citedPages,
       alerts: {
         clear: sightings.map((sighting) => ({
           id: sighting.id,
@@ -1448,6 +1462,8 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
     expect(await aliceStore.getSiteCheck(location.id)).toEqual(check);
     expect(await worker.getSiteCheck(location.id)).toEqual(check);
     expect(await bobStore.getSiteCheck(location.id)).toBeNull();
+    expect(await aliceStore.getCitedPages(location.id)).toEqual(citedPages);
+    expect(await bobStore.getCitedPages(location.id)).toEqual([]);
 
     // Retiring a prompt keeps its results; a non-member cannot do it.
     expect(await bobStore.setQueryActive(query.id, false)).toBeNull();

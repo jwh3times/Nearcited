@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fetchSite, SITE_USER_AGENT, safeSiteUrl } from "../src/site/fetch";
+import { fetchCitedPages, fetchSite, SITE_USER_AGENT, safeSiteUrl } from "../src/site/fetch";
 
 type Answer = { status?: number; body?: string; headers?: Record<string, string> } | Error;
 
@@ -62,11 +62,18 @@ describe("fetchSite", () => {
       robots_txt: "User-agent: *\nDisallow:\n",
       noindex_header: false,
     });
-    expect(new Headers(calls[0]?.init?.headers).get("User-Agent")).toBe(SITE_USER_AGENT);
-    expect(calls[0]?.init?.redirect).toBe("manual");
+    // robots.txt first: what it says decides whether the page is asked for at all.
+    expect(calls.map((call) => call.url)).toEqual([
+      "https://joes.example/robots.txt",
+      "https://joes.example/",
+    ]);
+    for (const call of calls) {
+      expect(new Headers(call.init?.headers).get("User-Agent")).toBe(SITE_USER_AGENT);
+      expect(call.init?.redirect).toBe("manual");
+    }
   });
 
-  it("follows redirects, and reads robots.txt from where it ended up", async () => {
+  it("follows redirects, reading robots.txt at each host before asking it for a page", async () => {
     const { impl, calls } = fakeFetch({
       "https://joes.example/": { status: 301, headers: { Location: "https://www.joes.example/" } },
       "https://www.joes.example/": { status: 302, headers: { Location: "/home" } },
@@ -82,15 +89,24 @@ describe("fetchSite", () => {
       robots_txt: null,
       noindex_header: true,
     });
-    expect(calls.at(-1)?.url).toBe("https://www.joes.example/robots.txt");
+    expect(calls.map((call) => call.url)).toEqual([
+      "https://joes.example/robots.txt",
+      "https://joes.example/",
+      "https://www.joes.example/robots.txt",
+      "https://www.joes.example/",
+      "https://www.joes.example/home",
+    ]);
   });
 
   it("will not follow a redirect to an address it would refuse", async () => {
     const { impl, calls } = fakeFetch({
       "https://joes.example/": { status: 302, headers: { Location: "http://169.254.169.254/" } },
     });
-    expect(await fetchSite("joes.example", impl)).toMatchObject({ html: null, status: null });
-    expect(calls).toHaveLength(1);
+    expect(await fetchSite("joes.example", impl)).toMatchObject({ html: null });
+    expect(calls.map((call) => call.url)).toEqual([
+      "https://joes.example/robots.txt",
+      "https://joes.example/",
+    ]);
   });
 
   it("gives up on a redirect loop", async () => {
@@ -98,7 +114,8 @@ describe("fetchSite", () => {
       "https://joes.example/": { status: 302, headers: { Location: "https://joes.example/" } },
     });
     expect((await fetchSite("joes.example", impl)).html).toBeNull();
-    expect(calls.length).toBeLessThanOrEqual(5);
+    // robots.txt once, then the first try and four redirects.
+    expect(calls.length).toBeLessThanOrEqual(6);
   });
 
   it("never calls an address it refuses", async () => {
@@ -131,7 +148,7 @@ describe("fetchSite", () => {
     const { impl, calls } = fakeFetch({ "https://shut.example/": { status: 403 } });
     expect(await fetchSite("gone.example", impl)).toMatchObject({ status: 404, html: null });
     expect(await fetchSite("shut.example", impl)).toMatchObject({ status: 403, html: null });
-    expect(calls).toHaveLength(2);
+    expect(calls.filter((call) => !call.url.endsWith("/robots.txt"))).toHaveLength(2);
   });
 
   it("reports a page that is not there, is not HTML, or does not answer", async () => {
@@ -150,14 +167,203 @@ describe("fetchSite", () => {
     expect((await fetchSite("big.example", impl)).html).toHaveLength(600_000);
   });
 
-  it("treats an unreadable robots.txt as no robots.txt", async () => {
-    const { impl } = fakeFetch({
+  it("asks for no page when robots.txt shuts NearcitedBot out by name", async () => {
+    const robots = "User-agent: NearcitedBot\nDisallow: /\n\nUser-agent: *\nDisallow: /\n";
+    const { impl, calls } = fakeFetch({
+      "https://joes.example/robots.txt": {
+        body: robots,
+        headers: { "Content-Type": "text/plain" },
+      },
       "https://joes.example/": { body: "<html></html>" },
-      "https://joes.example/robots.txt": new Error("timeout"),
     });
     expect(await fetchSite("joes.example", impl)).toMatchObject({
-      html: "<html></html>",
-      robots_txt: null,
+      html: null,
+      robots_txt: robots,
+      not_read: "shut_out",
     });
+    expect(calls).toHaveLength(1);
+  });
+
+  it("still reads the business's own site when robots.txt shuts out only the * group", async () => {
+    const robots = "User-agent: *\nDisallow: /\n";
+    const { impl } = fakeFetch({
+      "https://joes.example/robots.txt": { body: robots },
+      "https://joes.example/": { body: "<html>Joe's</html>" },
+    });
+    const snapshot = await fetchSite("joes.example", impl);
+    expect(snapshot).toMatchObject({ html: "<html>Joe's</html>", robots_txt: robots });
+    expect(snapshot.not_read).toBeUndefined();
+  });
+
+  it("obeys the * group on a site read as anyone else's, as an audit reads one", async () => {
+    const robots = "User-agent: *\nDisallow: /\n";
+    const { impl, calls } = fakeFetch({
+      "https://joes.example/robots.txt": { body: robots },
+      "https://joes.example/": { body: "<html>Joe's</html>" },
+    });
+    expect(await fetchSite("joes.example", impl, { ownSite: false })).toMatchObject({
+      html: null,
+      robots_txt: robots,
+      not_read: "shut_out",
+    });
+    expect(calls).toHaveLength(1);
+  });
+
+  it("takes a robots.txt that faults or does not answer as shutting everything", async () => {
+    for (const robots of [{ status: 500 }, { status: 503 }, new Error("timeout")]) {
+      const { impl, calls } = fakeFetch({
+        "https://joes.example/": { body: "<html></html>" },
+        "https://joes.example/robots.txt": robots,
+      });
+      expect(await fetchSite("joes.example", impl)).toMatchObject({
+        html: null,
+        not_read: "robots_unreadable",
+      });
+      expect(calls).toHaveLength(1);
+    }
+  });
+
+  it("takes a robots.txt that is not there as no rules", async () => {
+    for (const status of [404, 403, 410]) {
+      const { impl } = fakeFetch({
+        "https://joes.example/": { body: "<html></html>" },
+        "https://joes.example/robots.txt": { status },
+      });
+      expect(await fetchSite("joes.example", impl)).toMatchObject({
+        html: "<html></html>",
+        robots_txt: null,
+      });
+    }
+  });
+});
+
+describe("fetchCitedPages", () => {
+  const listing = { host: "yellowpages.com", url: "https://www.yellowpages.com/raleigh/joes" };
+
+  it("reads robots.txt before the page, and returns the page", async () => {
+    const { impl, calls } = fakeFetch({
+      "https://www.yellowpages.com/robots.txt": { body: "User-agent: *\nDisallow: /search\n" },
+      "https://www.yellowpages.com/raleigh/joes": { body: "<html>Joe's Pizza</html>" },
+    });
+    expect(await fetchCitedPages([listing], impl)).toEqual([
+      {
+        host: "yellowpages.com",
+        url: "https://www.yellowpages.com/raleigh/joes",
+        status: 200,
+        html: "<html>Joe's Pizza</html>",
+        not_read: null,
+      },
+    ]);
+    expect(calls.map((call) => call.url)).toEqual([
+      "https://www.yellowpages.com/robots.txt",
+      "https://www.yellowpages.com/raleigh/joes",
+    ]);
+    expect(new Headers(calls[1]?.init?.headers).get("User-Agent")).toBe(SITE_USER_AGENT);
+  });
+
+  it("obeys the * group on someone else's site", async () => {
+    const { impl, calls } = fakeFetch({
+      "https://www.yellowpages.com/robots.txt": { body: "User-agent: *\nDisallow: /raleigh/\n" },
+    });
+    expect(await fetchCitedPages([listing], impl)).toMatchObject([
+      { html: null, not_read: "shut_out" },
+    ]);
+    expect(calls).toHaveLength(1);
+  });
+
+  it("stops at a robots.txt that faults", async () => {
+    const { impl, calls } = fakeFetch({
+      "https://www.yellowpages.com/robots.txt": { status: 503 },
+    });
+    expect(await fetchCitedPages([listing], impl)).toMatchObject([
+      { not_read: "robots_unreadable" },
+    ]);
+    expect(calls).toHaveLength(1);
+  });
+
+  it("reads another host's robots.txt before following a redirect to it on the same site", async () => {
+    const { impl, calls } = fakeFetch({
+      "https://www.yellowpages.com/raleigh/joes": {
+        status: 301,
+        headers: { Location: "https://m.yellowpages.com/joes" },
+      },
+      "https://m.yellowpages.com/robots.txt": { body: "User-agent: NearcitedBot\nDisallow: /\n" },
+    });
+    expect(await fetchCitedPages([listing], impl)).toMatchObject([
+      { url: "https://m.yellowpages.com/joes", not_read: "shut_out" },
+    ]);
+    expect(calls.map((call) => call.url)).toEqual([
+      "https://www.yellowpages.com/robots.txt",
+      "https://www.yellowpages.com/raleigh/joes",
+      "https://m.yellowpages.com/robots.txt",
+    ]);
+  });
+
+  it("does not follow a redirect off the site that was cited", async () => {
+    const { impl, calls } = fakeFetch({
+      "https://www.yellowpages.com/raleigh/joes": {
+        status: 302,
+        headers: { Location: "https://tracker.example/joes" },
+      },
+    });
+    expect(await fetchCitedPages([listing], impl)).toMatchObject([
+      { url: "https://tracker.example/joes", not_read: "left_site" },
+    ]);
+    expect(calls.map((call) => call.url)).not.toContain("https://tracker.example/joes");
+    expect(calls.map((call) => call.url)).not.toContain("https://tracker.example/robots.txt");
+
+    // Nor to an address it would refuse, which is off the site too.
+    const inside = fakeFetch({
+      "https://www.yellowpages.com/raleigh/joes": {
+        status: 302,
+        headers: { Location: "http://169.254.169.254/" },
+      },
+    });
+    expect(await fetchCitedPages([listing], inside.impl)).toMatchObject([
+      { not_read: "left_site", status: 302 },
+    ]);
+    expect(inside.calls).toHaveLength(2);
+  });
+
+  it("says why a page that answered was not read, and asks once", async () => {
+    const { impl, calls } = fakeFetch({
+      "https://manta.com/joes": { status: 503 },
+      "https://bing.com/joes": { body: "%PDF", headers: { "Content-Type": "application/pdf" } },
+      "https://nextdoor.com/joes": new Error("connection reset"),
+    });
+    expect(
+      await fetchCitedPages(
+        [
+          { host: "manta.com", url: "https://manta.com/joes" },
+          { host: "bing.com", url: "https://bing.com/joes" },
+          { host: "nextdoor.com", url: "https://nextdoor.com/joes" },
+          { host: "superpages.com", url: "http://127.0.0.1/joes" },
+        ],
+        impl,
+      ),
+    ).toMatchObject([
+      { host: "manta.com", not_read: "unreachable", status: 503 },
+      { host: "bing.com", not_read: "not_html", status: 200 },
+      { host: "nextdoor.com", not_read: "unreachable", status: null },
+      { host: "superpages.com", not_read: "unreachable", status: null },
+    ]);
+    expect(calls.filter((call) => call.url === "https://manta.com/joes")).toHaveLength(1);
+    expect(calls.map((call) => call.url)).not.toContain("http://127.0.0.1/joes");
+  });
+
+  it("makes no more than thirty requests, and says which pages it did not get to", async () => {
+    // Each page costs two requests: robots.txt, then the page.
+    const targets = Array.from({ length: 16 }, (_, index) => ({
+      host: `site${index}.com`,
+      url: `https://site${index}.com/joes`,
+    }));
+    const pages = Object.fromEntries(
+      targets.map((target) => [target.url, { body: "<html>Joe's Pizza</html>" }]),
+    );
+    const { impl, calls } = fakeFetch(pages);
+    const read = await fetchCitedPages(targets, impl);
+    expect(calls).toHaveLength(30);
+    expect(read.slice(0, 15).every((page) => page.not_read === null)).toBe(true);
+    expect(read[15]).toMatchObject({ host: "site15.com", not_read: "over_budget", html: null });
   });
 });

@@ -1,6 +1,7 @@
 import { draftKindFor } from "./drafts";
 import { taskListing } from "./listings";
 import type {
+  CitedPage,
   Draft,
   DraftKind,
   Listing,
@@ -50,6 +51,8 @@ export interface TaskInput {
   drafts: readonly Draft[];
   /** The location's listings, each on one site. */
   listings: readonly Listing[];
+  /** What the latest scan's cited-page check found, a page for each site it read. */
+  cited_pages?: readonly CitedPage[];
   /**
    * Whether a draft of a kind can be written where this is asked. Left out, every kind can. A
    * task is offered no draft that would only be refused.
@@ -154,6 +157,10 @@ export function buildTasks(input: TaskInput): Task[] {
       draft_kind: open ? writable(draftKindFor(kind), input.writes) : null,
       draft: input.drafts.find((draft) => draft.recommendation_id === recommendation.id) ?? null,
       listing: taskListing(host, input.listings),
+      cited_page:
+        kind === "directory"
+          ? (input.cited_pages?.find((page) => page.host === host) ?? null)
+          : null,
     });
   }
 

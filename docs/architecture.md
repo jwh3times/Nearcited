@@ -84,6 +84,11 @@ POST /api/locations/:id/scans          cron
      fetchSite() + analyzeSite() -> SiteCheck  (home page, kept in scans.site_check;
                                                  skipped on sample data)
                        |
+     citedPagesToRead() + fetchCitedPages() + analyzeCitedPage() -> CitedPage[]
+                                               (the pages cited for open directory tasks, kept in
+                                                scans.cited_pages; skipped on sample data, for a
+                                                test organization and in audits)
+                       |
      listRecentResults(): the last six successful scans of the same kind
                        |
      windowScore() + deriveRecommendations(), over this scan and those six
@@ -356,7 +361,7 @@ same as for providers: `fetchSite` (`apps/api/src/site/fetch.ts`) only fetches a
 | Check | Passes when |
 | --- | --- |
 | `reachable` | The home page answers 200 with HTML. When it does not, no other check is reported, and this one fails only if the address leads nowhere (404, 410, or a 200 that is not HTML). No answer, 401, 403, 429, a 5xx or a refused redirect makes no claim at all: the `SiteCheck` has no checks, because one failed fetch does not show the site is down or that an assistant cannot read it. |
-| `crawlers_allowed` | `robots.txt` does not shut the assistants' search crawlers (`ANSWER_CRAWLERS`) out of the whole site. Crawlers that gather training data are not checked, and neither are the fetchers that act for one user and may ignore `robots.txt` (`ChatGPT-User`, `Perplexity-User`). |
+| `crawlers_allowed` | `robots.txt` does not shut the assistants' search crawlers (`ANSWER_CRAWLERS`) out of the whole site. Crawlers that gather training data are not checked, and neither are the fetchers that act for one user and may ignore `robots.txt` (`ChatGPT-User`, `Perplexity-User`). When `robots.txt` shuts NearcitedBot out by name, this is the only check reported (see below). |
 | `indexable` | No `noindex` in a robots meta tag or the `X-Robots-Tag` header. |
 | `text_content` | The page has at least `MIN_PAGE_WORDS` words with scripts, styles and tags removed. Nothing is rendered, because the crawlers mostly do not run scripts. |
 | `names_business` | The title or text contains the business name, matched the way answers are matched. |
@@ -416,8 +421,55 @@ The address is typed by a user, so the fetch treats it as hostile: `http` and `h
 ports only, no IP addresses or internal names, every redirect checked the same way before it is
 followed (at most four), an eight second timeout, and the body cut off at 600 kB. It sends
 `User-Agent: NearcitedBot/1.0 (+https://nearcited.com/bot)`. It asks for the home page a second time when the first try got no
-answer or a 429 or 5xx, so it makes at most fifteen requests (the page twice and `robots.txt`, each
-with up to five including redirects).
+answer or a 429 or 5xx. Every request is counted by one budget in a shared `Reader`
+(`apps/api/src/site/fetch.ts`), so the check makes at most fifteen requests in all, `robots.txt`
+and redirects included.
+
+**NearcitedBot obeys `robots.txt`** (`docs/adr/0027-nearcitedbot-obeys-robots-txt-and-reads-only-pages-an-answer-cited.md`;
+the reading is `packages/shared/src/robots.ts`). The `Reader` asks for a host's `robots.txt` before
+anything else on it, once, and again for each new host a redirect reaches. A 2xx is its rules, a 4xx
+other than 429 is no rules, and a 5xx, a 429, a timeout or no answer takes everything as shut
+(RFC 9309). The longest matching rule wins and an Allow wins a tie. On the business's own site,
+which its owner asked to have checked, only groups that name `NearcitedBot` apply; a `*` group does
+not stop it, since `crawlers_allowed` is what reports that the assistants' crawlers are shut out.
+An audit is asked for by anyone, so it reads the site as anyone else's (`fetchSite`'s `ownSite:
+false`) and a `*` group stops it too. When the rules shut out the page, the `SiteCheck` has
+`not_read: "shut_out"` and only `crawlers_allowed` is reported. When `robots.txt` cannot be read it has
+`not_read: "robots_unreadable"` and no checks. Neither says the site is down.
+
+## The cited-page check
+
+During a live scan, after the recommendations are derived, the worker reads the pages the answers
+cited for the owner's directory tasks and compares what they show with the location's details
+(`docs/adr/0027-nearcitedbot-obeys-robots-txt-and-reads-only-pages-an-answer-cited.md`). It does
+not run on sample data, for a test organization or in an audit. The split is the usual one:
+
+- **Which pages.** `citedPagesToRead` (`packages/shared/src/cited-pages.ts`) takes the open
+  `source:<host>` recommendations of directory sites that no member dismissed, most cited first,
+  at most `CITED_PAGES_READ` (3), each at the page of the site the window cites most, the one its
+  task links to.
+- **Fetching.** `fetchCitedPages` (`apps/api/src/site/fetch.ts`) reads them one after another
+  within one budget of `CITED_PAGE_REQUESTS` (30) requests, `robots.txt` first at each host. On
+  these sites the `*` group is obeyed as well as NearcitedBot's. A redirect is followed only within
+  the task's site (its host or a subdomain), and a page is asked for once, with no retry. A page
+  not read comes back with why: `shut_out`, `robots_unreadable`, `unreachable`, `not_html`,
+  `left_site` or `over_budget`.
+- **Deciding.** `analyzeCitedPage` returns a `CitedPage`: `names_business`, then `phone`
+  (`matches`, `differs` with the page's number quoted, `not_found`, `none_on_file`) and `address`
+  (`matches`, `not_found`, `none_on_file`). Nothing else is compared on a page that does not name
+  the business. Structured details (JSON-LD) are read first. Failing them, text is attributed by
+  nearest name: the names in the page's JSON-LD, the headings at the level of the heading that
+  names the business, and the page's own spellings of the business's name ("Joe’s", "&"), within
+  400 characters. An address is matched on its street number and
+  postal code and is never reported as differing, because it is not read reliably enough to call
+  it wrong.
+- **Keeping it.** The result is kept in `scans.cited_pages` (jsonb, null when the scan did not
+  look), written by the worker as it completes the scan, as `site_check` is. A member's insert of a
+  scan refuses it. The page itself is not kept. A failure to read never fails the scan.
+- **Showing it.** `Store.getCitedPages(locationId)` reads the pages of the latest succeeded scan
+  that looked (an empty list when none did) and `GET /api/locations/:id` attaches each to its directory task as
+  `Task.cited_page`, null for every other task. The task shows it under "What the cited page
+  shows" (`TaskCitedPage`) in sentences from `citedPageLines`, composed by rule.
 
 ## The action plan
 
@@ -2175,10 +2227,9 @@ drop it.
 - **Each provider call is a subrequest**, and a scan makes (queries x surfaces) of them in one
   invocation (a Google keyword is three calls, not four, since the organic results and the AI
   Overview share one, and a scan that has to find a location's point adds one or two lookups), plus
-  up to fifteen site requests (the page twice and `robots.txt`, each with up
-  to four redirects) unless it serves sample data. Workers cap subrequests and CPU time per
-  invocation,
-  and the caps differ by plan. Check the current numbers before raising the queries allowed per
+  up to fifteen site requests for the on-page check and up to thirty for the cited-page check
+  (both counted by a budget, `robots.txt` and redirects included) unless it serves sample data.
+  Workers cap subrequests and CPU time per invocation, and the caps differ by plan. Check the current numbers before raising the queries allowed per
   location. If a scan outgrows one invocation, queue one message per check instead of one per
   scan.
 - **Queue delivery is at-least-once.** `runScan` is written to be safe to repeat.

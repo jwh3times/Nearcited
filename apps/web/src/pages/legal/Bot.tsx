@@ -11,7 +11,9 @@ export function Bot() {
       <p>
         Nearcited shows businesses whether AI assistants name them. As part of that, it reads the
         home page of a business's own website, to tell its owner whether an assistant's crawler
-        could read it. NearcitedBot is the program that does the reading. It identifies itself as:
+        could read it, and a few pages that assistants cited when answering questions about the
+        business, to tell its owner whether those pages show the business's details correctly.
+        NearcitedBot is the program that does the reading. It identifies itself as:
       </p>
       <pre>
         <code>NearcitedBot/1.0 (+https://nearcited.com/bot)</code>
@@ -20,36 +22,61 @@ export function Bot() {
       <h2>What it reads</h2>
       <ul>
         <li>
-          <strong>One page and one file.</strong> The site's home page and its{" "}
-          <code>robots.txt</code>, following a few redirects if there are any. It does not follow
-          links, crawl the rest of the site, submit forms or run the page's scripts.
+          <strong>
+            <code>robots.txt</code> first.
+          </strong>{" "}
+          Before it asks a site for a page, it reads the site's <code>robots.txt</code>, and again
+          for each other host a redirect leads to.
         </li>
         <li>
-          <strong>Rarely.</strong> A site is read when a business tracking it is scanned, which is
+          <strong>On a business's own site, one page.</strong> The home page, following a few
+          redirects if there are any, because that address was entered as the business's own
+          website.
+        </li>
+        <li>
+          <strong>Elsewhere, only a page an assistant cited.</strong> When assistants answering a
+          question about a business keep citing a page on a directory site, it reads that one page,
+          to compare it with the business's details. At most three such pages, one a site, each time
+          a business is scanned. A redirect off the site that was cited is not followed.
+        </li>
+        <li>
+          <strong>Nothing more.</strong> It does not follow links, crawl the rest of a site, submit
+          forms or run a page's scripts, and it does not discover sites by itself.
+        </li>
+        <li>
+          <strong>Rarely.</strong> A page is read when a business it concerns is scanned, which is
           usually once a day or less and never more than a handful of times, or once when a one-off
-          report is prepared about it.
-        </li>
-        <li>
-          <strong>Only sites someone named.</strong> It visits a site because that address was
-          entered as a business's own website. It does not discover sites by itself.
+          report is prepared about a business's own site.
         </li>
       </ul>
 
       <h2>What it keeps</h2>
       <p>
-        Not the page. It keeps the result of a short list of checks: whether the page loaded,
-        whether <code>robots.txt</code> shuts out the assistants' crawlers, whether the page asks
-        not to be indexed, how many words it has before scripts run, and whether it states the
-        business's name and city and carries structured business details. The page's content is not
-        stored, is not used to train anything, and is not shown to anyone else.
+        Not the page. From a business's own home page it keeps the result of a short list of checks:
+        whether the page loaded, whether <code>robots.txt</code> shuts out the assistants' crawlers,
+        whether the page asks not to be indexed, how many words it has before scripts run, and
+        whether it states the business's name and city and carries structured business details. From
+        a cited page it keeps whether the page names the business, and whether it shows the
+        business's phone number and address, with the number it shows if that differs. No page's
+        content is stored, used to train anything, or shown to anyone else.
       </p>
 
       <h2>How to stop it</h2>
       <p>
-        NearcitedBot reads <code>robots.txt</code> to report what it says to the assistants'
-        crawlers. It reads a single page at a business owner's request and does not yet act on rules
-        addressed to itself, so a <code>robots.txt</code> rule will not stop it today. To have your
-        site left alone, either:
+        NearcitedBot obeys <code>robots.txt</code>, read the standard way (RFC 9309). It follows the
+        rules in a group for <code>NearcitedBot</code>, or the rules for <code>*</code> where no
+        group names it. If your <code>robots.txt</code> answers with a server error or does not
+        answer at all, it reads nothing from your site until it does. To keep it out of your whole
+        site:
+      </p>
+      <pre>
+        <code>User-agent: NearcitedBot{"\n"}Disallow: /</code>
+      </pre>
+      <p>
+        One exception: on a business's own website, when its owner asked to have it checked, it
+        follows only rules that name <code>NearcitedBot</code>, so that it can tell the owner when
+        the site's <code>*</code> rules shut out the assistants' crawlers. A one-off report, which
+        anyone can ask for, follows the <code>*</code> rules as anywhere else. You can also:
       </p>
       <ul>
         <li>
