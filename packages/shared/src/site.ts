@@ -1,5 +1,6 @@
 import { containsTokenRun, namesMatch, normalizeName } from "./analysis";
-import type { SiteCheck, SiteCheckId } from "./schemas";
+import { type RobotsRule, robotsGroups, rulesFor } from "./robots";
+import type { RobotsNotRead, SiteCheck, SiteCheckId } from "./schemas";
 
 /**
  * The on-page check: can an assistant read the business's own website, and does the page say
@@ -22,6 +23,8 @@ export interface SiteSnapshot {
   robots_txt: string | null;
   /** True when the response carried an `X-Robots-Tag` with `noindex`. */
   noindex_header: boolean;
+  /** Set when robots.txt kept NearcitedBot from the page, which was then not asked for. */
+  not_read?: RobotsNotRead;
 }
 
 export interface SiteBusiness {
@@ -111,7 +114,7 @@ const ENTITIES: Record<string, string> = {
   nbsp: " ",
 };
 
-function decodeEntities(text: string): string {
+export function decodeEntities(text: string): string {
   return text.replace(/&(#x?[0-9a-f]+|[a-z]+);/gi, (whole, code: string) => {
     if (code[0] !== "#") return ENTITIES[code.toLowerCase()] ?? whole;
     const point =
@@ -122,13 +125,20 @@ function decodeEntities(text: string): string {
   });
 }
 
+/** How many headings are kept, and how long one may be, for telling a page's businesses apart. */
+const MAX_HEADINGS = 200;
+const MAX_HEADING_LENGTH = 300;
+
 /** Elements whose content is not page text. Their bodies are skipped, or kept aside. */
 const RAW_ELEMENTS = new Set(["script", "style", "template", "svg", "title"]);
 
-interface ParsedPage {
+export interface ParsedPage {
   /** The words a reader would see with scripts off. */
   text: string;
+  /** As written in the page, entities and all. */
   title: string;
+  /** Each short heading's words, with its level: 1 for `<h1>`. */
+  headings: { level: number; text: string }[];
   /** Each `<meta>` tag, whole. */
   metas: string[];
   /** The body of each JSON-LD script block. */
@@ -144,10 +154,10 @@ function attribute(tag: string, name: string): string | null {
  * Reads the page in one pass, by position. The page comes from a site nobody here controls, so
  * nothing in this function backtracks: a page built to be slow to parse costs only its length.
  */
-function parsePage(html: string): ParsedPage {
+export function parsePage(html: string): ParsedPage {
   const lower = html.toLowerCase();
   const text: string[] = [];
-  const page: ParsedPage = { text: "", title: "", metas: [], jsonLd: [] };
+  const page: ParsedPage = { text: "", title: "", headings: [], metas: [], jsonLd: [] };
 
   let at = 0;
   while (at < html.length) {
@@ -173,6 +183,17 @@ function parsePage(html: string): ParsedPage {
     const name = lower.slice(open + 1, nameEnd);
 
     if (name === "meta") page.metas.push(tag);
+    if (/^h[1-6]$/.test(name) && page.headings.length < MAX_HEADINGS) {
+      // Only a short heading that closes: one left open would be read to the next one, again
+      // and again. Its words are read here and again as page text, so it costs twice its length.
+      const end = lower.indexOf(`</${name}`, at);
+      if (end !== -1 && end - at <= MAX_HEADING_LENGTH) {
+        const words = decodeEntities(html.slice(at, end).replace(/<[^>]*>/g, " "))
+          .replace(/\s+/g, " ")
+          .trim();
+        if (words) page.headings.push({ level: Number(name[1]), text: words });
+      }
+    }
     if (!RAW_ELEMENTS.has(name)) continue;
 
     const end = lower.indexOf(`</${name}`, at);
@@ -214,23 +235,34 @@ function hasNoindexMeta(metas: readonly string[]): boolean {
  * with what is on file.
  */
 function hasBusinessData(blocks: readonly string[], name: string): boolean {
-  const describesBusiness = (node: unknown, depth = 0): boolean => {
-    if (depth > 6 || node === null || typeof node !== "object") return false;
-    if (Array.isArray(node)) return node.some((item) => describesBusiness(item, depth + 1));
+  return namedNodes(blocks).some((node) => namesMatch(node.name, name) && !!node.address);
+}
+
+/** A JSON-LD node that gives a name, such as a business, a person or a place. */
+export type NamedNode = Record<string, unknown> & { name: string };
+
+/**
+ * Every node with a name in a page's JSON-LD blocks, nested ones included. A block that is not
+ * valid JSON tells a crawler nothing, so it counts as absent.
+ */
+export function namedNodes(blocks: readonly string[]): NamedNode[] {
+  const found: NamedNode[] = [];
+  const walk = (node: unknown, depth: number) => {
+    if (depth > 6 || node === null || typeof node !== "object") return;
+    if (Array.isArray(node)) {
+      for (const item of node) walk(item, depth + 1);
+      return;
+    }
     const record = node as Record<string, unknown>;
-    if (typeof record.name === "string" && namesMatch(record.name, name) && record.address) {
-      return true;
-    }
-    return Object.values(record).some((value) => describesBusiness(value, depth + 1));
+    if (typeof record.name === "string") found.push(record as NamedNode);
+    for (const value of Object.values(record)) walk(value, depth + 1);
   };
-  return blocks.some((body) => {
+  for (const body of blocks) {
     try {
-      return describesBusiness(JSON.parse(body));
-    } catch {
-      // A block that is not valid JSON tells a crawler nothing, so it counts as absent.
-      return false;
-    }
-  });
+      walk(JSON.parse(body), 0);
+    } catch {}
+  }
+  return found;
 }
 
 /**
@@ -241,37 +273,13 @@ export function blockedCrawlers(
   robotsTxt: string,
   crawlers: readonly string[] = ANSWER_CRAWLERS,
 ): string[] {
-  const groups: { agents: string[]; rules: { allow: boolean; path: string }[] }[] = [];
-  let current: (typeof groups)[number] | null = null;
-  for (const raw of robotsTxt.split(/\r?\n/)) {
-    const hash = raw.indexOf("#");
-    const line = (hash === -1 ? raw : raw.slice(0, hash)).trim();
-    const colon = line.indexOf(":");
-    if (colon === -1) continue;
-    const field = line.slice(0, colon).trim().toLowerCase();
-    const value = line.slice(colon + 1).trim();
-    if (field === "user-agent") {
-      // Agent lines in a row share one group; an agent line after a rule starts the next.
-      if (!current || current.rules.length > 0) {
-        current = { agents: [], rules: [] };
-        groups.push(current);
-      }
-      current.agents.push(value.toLowerCase());
-    } else if ((field === "allow" || field === "disallow") && current) {
-      current.rules.push({ allow: field === "allow", path: value });
-    }
-  }
-
-  const shutOut = (agent: string) => {
-    const rules = groups.filter((group) => group.agents.includes(agent)).flatMap((g) => g.rules);
-    const root = (rule: { path: string }) => rule.path === "/" || rule.path === "/*";
+  const groups = robotsGroups(robotsTxt);
+  const root = (rule: RobotsRule) => rule.path === "/" || rule.path === "/*";
+  return crawlers.filter((crawler) => {
+    const rules = rulesFor(groups, crawler) ?? rulesFor(groups, "*") ?? [];
     return (
       rules.some((rule) => !rule.allow && root(rule)) && !rules.some((r) => r.allow && root(r))
     );
-  };
-  return crawlers.filter((crawler) => {
-    const named = groups.some((group) => group.agents.includes(crawler.toLowerCase()));
-    return shutOut(named ? crawler.toLowerCase() : "*");
   });
 }
 
@@ -288,6 +296,19 @@ function leadsNowhere(status: number | null): boolean {
 /** Decides what a fetched page means for one business. */
 export function analyzeSite(snapshot: SiteSnapshot, business: SiteBusiness): SiteCheck {
   const base = { url: snapshot.url, status: snapshot.status, blocked_crawlers: [], words: 0 };
+  if (snapshot.not_read === "shut_out") {
+    // The page was not read, so only what robots.txt itself says can be reported.
+    const blocked = snapshot.robots_txt ? blockedCrawlers(snapshot.robots_txt) : [];
+    return {
+      ...base,
+      blocked_crawlers: blocked,
+      checks: [{ id: "crawlers_allowed", passed: blocked.length === 0 }],
+      not_read: "shut_out",
+    };
+  }
+  if (snapshot.not_read === "robots_unreadable") {
+    return { ...base, checks: [], not_read: "robots_unreadable" };
+  }
   if (snapshot.html === null) {
     // Nothing else can be said about a page that did not load, and only some failures say even
     // that much. One fetch that got no answer, was turned away or hit a server fault does not show

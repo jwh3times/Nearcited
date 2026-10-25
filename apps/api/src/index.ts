@@ -62,7 +62,7 @@ import {
 import { createMockProviders } from "./providers/mock";
 import { runScan } from "./scans/runner";
 import { enqueueDueScans, failStaleAudits, failStaleScans } from "./scans/schedule";
-import { fetchSite } from "./site/fetch";
+import { fetchCitedPages, fetchSite } from "./site/fetch";
 import { createAdminClient, createSupabaseStore } from "./store/supabase";
 import { activeTuning } from "./tuning";
 
@@ -201,7 +201,7 @@ export default {
             weights: activeTuning.tuning.score,
             sampleData: usesSampleData(env),
             unavailable: liveScansUnavailable(env, activeTuning.source),
-            inspectSite: fetchSite,
+            inspectSite: (website) => fetchSite(website, fetch, { ownSite: false }),
           });
           console.log(`Audit ${audit_id} prompt ${prompt_index} ${outcome}`);
           message.ack();
@@ -423,6 +423,7 @@ export default {
           sampleData: usesSampleData(env),
           // A deployment on sample data makes no real requests, so it does not fetch sites either.
           inspectSite: usesSampleData(env) ? undefined : fetchSite,
+          readCitedPages: usesSampleData(env) ? undefined : fetchCitedPages,
           geocode: createGeocoder(env),
           // Without a Resend key there is nobody to tell, so skip the owner lookup too.
           notify: env.RESEND_API_KEY

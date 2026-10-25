@@ -1124,6 +1124,16 @@ button.go {
   color: var(--ink);
 }
 
+/* What the cited page shows, under a directory task. */
+.cited-page ul {
+  margin: 0.25rem 0;
+  padding-left: 1.25rem;
+}
+
+.cited-page a {
+  overflow-wrap: anywhere;
+}
+
 .also .row-actions {
   display: flex;
   align-items: center;

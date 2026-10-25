@@ -4,6 +4,7 @@ import type {
   Allowances,
   AuditJob,
   AuditPart,
+  CitedPage,
   Connection,
   Draft,
   Invitation,
@@ -105,6 +106,8 @@ export interface MemoryDb {
   testAccounts: Set<string>;
   /** The on-page check each scan made, by scan ID. */
   siteChecks: Map<string, SiteCheck | null>;
+  /** What each scan's cited-page check found, by scan, as the `cited_pages` column holds it. */
+  citedPages: Map<string, CitedPage[] | null>;
   /** The payment provider's names for each plan's prices, by plan key. */
   planPrices: Map<
     string,
@@ -271,6 +274,7 @@ export function createMemoryDb(): MemoryDb {
     audits: [],
     plans: [],
     siteChecks: new Map(),
+    citedPages: new Map(),
     planPrices: new Map(),
     pastPrices: [],
     priceChanges: [],
@@ -3404,9 +3408,23 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
       return (latest && db.siteChecks.get(latest.id)) ?? null;
     },
 
+    async getCitedPages(locationId) {
+      if (!readsLocation(locationId)) return [];
+      const latest = db.scans
+        .filter(
+          (scan) =>
+            scan.location_id === locationId &&
+            scan.status === "succeeded" &&
+            (db.citedPages.get(scan.id) ?? null) !== null,
+        )
+        .sort((a, b) => (b.finished_at ?? "").localeCompare(a.finished_at ?? ""))[0];
+      return (latest && db.citedPages.get(latest.id)) ?? [];
+    },
+
     async completeScan(id, outcome) {
       const scan = requireScan(id);
       db.siteChecks.set(id, outcome.site ?? null);
+      db.citedPages.set(id, outcome.cited_pages ?? null);
       Object.assign(scan, {
         status: "succeeded",
         visibility_score: outcome.score,

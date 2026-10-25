@@ -34,6 +34,15 @@ export function SiteChecklist({
   onMarked,
 }: SiteChecklistProps) {
   const host = sourceLabel(site.url);
+  if (site.not_read === "robots_unreadable") {
+    return (
+      <p className="card notice">
+        We did not read {host ?? "the website"}: its robots.txt could not be read. A crawler takes
+        that as being asked to stay out until it can be, and NearcitedBot does too, so nothing is
+        claimed here. If the site is up, check that /robots.txt answers.
+      </p>
+    );
+  }
   // No checks means the page could not be loaded in a way that proves nothing about the site.
   if (site.checks.length === 0) {
     return (
@@ -48,10 +57,18 @@ export function SiteChecklist({
   }
   return (
     <>
-      <p className="intro">
-        We read {host ?? "the website"} the way an assistant's crawler would: the home page, without
-        running its scripts, and the site's robots.txt.
-      </p>
+      {site.not_read === "shut_out" ? (
+        <p className="intro">
+          NearcitedBot is shut out by your robots.txt, so we read only robots.txt from{" "}
+          {host ?? "the website"}. The checks that need the home page are not made. To have them
+          made, allow NearcitedBot in robots.txt.
+        </p>
+      ) : (
+        <p className="intro">
+          We read {host ?? "the website"} the way an assistant's crawler would: the home page,
+          without running its scripts, and the site's robots.txt.
+        </p>
+      )}
       <ul className="checks">
         {site.checks.map((check) => (
           <li key={check.id}>

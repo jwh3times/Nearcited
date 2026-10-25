@@ -1821,6 +1821,13 @@ export const SITE_CHECK_IDS = [
 ] as const;
 export type SiteCheckId = (typeof SITE_CHECK_IDS)[number];
 
+/**
+ * Why NearcitedBot read no page of a site: robots.txt shut it out, or robots.txt could not be read,
+ * which RFC 9309 says to take as everything shut (docs/adr/0027).
+ */
+export const ROBOTS_NOT_READ = ["shut_out", "robots_unreadable"] as const;
+export type RobotsNotRead = (typeof ROBOTS_NOT_READ)[number];
+
 /** What the on-page check found on a business's own home page. */
 export const SiteCheckSchema = z.object({
   /** The address that was read, after redirects. */
@@ -1835,8 +1842,58 @@ export const SiteCheckSchema = z.object({
   blocked_crawlers: z.array(z.string()),
   /** How many words the page has before any script runs. */
   words: z.number().int().nonnegative(),
+  /**
+   * Set when robots.txt kept NearcitedBot from the page. Shut out, only `crawlers_allowed` is
+   * checked; with robots.txt unreadable, nothing is. Absent from checks kept before it was.
+   */
+  not_read: z.enum(ROBOTS_NOT_READ).optional(),
 });
 export type SiteCheck = z.infer<typeof SiteCheckSchema>;
+
+/**
+ * Why the cited-page check read no page: robots.txt kept NearcitedBot out, the page did not answer
+ * 200, answered with something that is not a web page, redirected off the site that was cited, or
+ * came after the scan's requests for the check were spent.
+ */
+export const CITED_PAGE_NOT_READ = [
+  ...ROBOTS_NOT_READ,
+  "unreachable",
+  "not_html",
+  "left_site",
+  "over_budget",
+] as const;
+export type CitedPageNotRead = (typeof CITED_PAGE_NOT_READ)[number];
+
+/**
+ * What a cited page shows for the business's phone. `shown` is the page's number, in international
+ * form, kept only where it is news: when it differs, or when there is no phone on file.
+ */
+export const CitedPhoneSchema = z.object({
+  found: z.enum(["matches", "differs", "not_found", "none_on_file"]),
+  shown: z.string().nullable(),
+});
+export type CitedPhone = z.infer<typeof CitedPhoneSchema>;
+
+/**
+ * What the cited-page check found on the page an answer cited most for a directory task's site.
+ * Kept with the scan that read it, and never the page itself (docs/adr/0027).
+ */
+export const CitedPageSchema = z.object({
+  /** The site, as its task names it. */
+  host: z.string(),
+  /** The address read, after redirects, or the one asked for when nothing was read. */
+  url: z.string(),
+  /** Null when the page was read. */
+  not_read: z.enum(CITED_PAGE_NOT_READ).nullable(),
+  /** The page's HTTP status, or null when nothing answered or nothing was asked. */
+  status: z.number().int().nullable(),
+  /** Null when the page was not read. Nothing else is compared on a page that does not. */
+  names_business: z.boolean().nullable(),
+  phone: CitedPhoneSchema.nullable(),
+  /** Never "differs": an address is not read reliably enough to call it wrong. */
+  address: z.enum(["matches", "not_found", "none_on_file"]).nullable(),
+});
+export type CitedPage = z.infer<typeof CitedPageSchema>;
 
 /** How often the business was named, counted over a location's most recent successful scans. */
 export const ScanWindowSchema = z.object({
@@ -2027,6 +2084,11 @@ export const TaskSchema = z.object({
    * business ask its customers for reviews. Null for every other task.
    */
   listing: TaskListingSchema.nullable(),
+  /**
+   * What the latest scan's cited-page check found on this site, for a directory task. Null for
+   * every other task, and until a scan has read it.
+   */
+  cited_page: CitedPageSchema.nullable(),
 });
 export type Task = z.infer<typeof TaskSchema>;
 

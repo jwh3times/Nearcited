@@ -1,4 +1,5 @@
 import {
+  type CitedPage,
   LocationDetailSchema,
   LocationSchema,
   MeSchema,
@@ -1458,6 +1459,62 @@ describe("tasks", () => {
     expect(await tasksOf(location.id)).toMatchObject([
       { acted_at: null, before: null, since: null },
     ]);
+  });
+
+  it("carries what the latest scan's cited-page check found, on a directory task only", async () => {
+    const { location, query } = await seed();
+    const shown: CitedPage = {
+      host: "yellowpages.com",
+      url: "https://www.yellowpages.com/raleigh/joes",
+      not_read: null,
+      status: 200,
+      names_business: true,
+      phone: { found: "differs", shown: "+19195550199" },
+      address: "matches",
+    };
+    const scanWith = async (cited_pages: CitedPage[] | null) => {
+      const worker = memoryStore(db, null);
+      const scan = await worker.createScan(location.id, "scheduled", null);
+      await worker.markScanRunning(scan.id, false);
+      await worker.completeScan(scan.id, {
+        score: 0,
+        results: [
+          {
+            tracked_query_id: query.id,
+            surface: "chatgpt",
+            mentioned: false,
+            position: null,
+            competitors: [],
+            cited_urls: [
+              "https://www.yelp.com/biz/somewhere",
+              "https://www.yellowpages.com/raleigh/joes",
+            ],
+            answer_excerpt: null,
+            phones: [],
+          },
+        ],
+        recommendations: [
+          yelp,
+          { rule: "source:yellowpages.com", title: "Check your listing", detail: "Detail" },
+        ],
+        cited_pages,
+      });
+    };
+
+    await scanWith([shown]);
+    const tasks = await tasksOf(location.id);
+    expect(tasks.find((task) => task.host === "yellowpages.com")?.cited_page).toEqual(shown);
+    expect(tasks.find((task) => task.host === "yelp.com")?.cited_page).toBeNull();
+    expect((await call(bob, "GET", `/locations/${location.id}`)).status).toBe(404);
+
+    // A later scan that did not look leaves the latest that did.
+    await scanWith(null);
+    const later = await tasksOf(location.id);
+    expect(later.find((task) => task.host === "yellowpages.com")?.cited_page).toEqual(shown);
+    // One that looked and had nothing to read leaves nothing to show.
+    await scanWith([]);
+    const after = await tasksOf(location.id);
+    expect(after.find((task) => task.host === "yellowpages.com")?.cited_page).toBeNull();
   });
 
   it("has none for a dismissed recommendation", async () => {
