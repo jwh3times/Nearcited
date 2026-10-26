@@ -90,6 +90,13 @@ type PageRead =
       robots: string | null;
     };
 
+/** Where a walk of redirects ended: an answer, a hop it was stopped at, or one it would not take. */
+type Walk =
+  | { kind: "answered"; url: URL; response: Response }
+  | { kind: "stopped"; url: URL; reason: CitedPageNotRead }
+  | { kind: "refused"; url: URL; status: number }
+  | { kind: "too_long"; url: URL };
+
 interface ReaderOptions {
   fetch: Fetch;
   /** How many requests it may make in all, robots.txt and redirects included. */
@@ -121,19 +128,30 @@ class Reader {
     });
   }
 
-  /** Follows redirects by hand so each hop is checked before it is called. */
-  private async follow(start: URL, accept: string) {
+  /**
+   * Follows redirects by hand so each hop is checked before it is called: it must be an address
+   * this Worker would call, and `check`, when given, may stop the walk there with a reason.
+   */
+  private async follow(
+    start: URL,
+    accept: string,
+    check?: (url: URL) => Promise<CitedPageNotRead | null>,
+  ): Promise<Walk> {
     let url = start;
     for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+      const reason = await check?.(url);
+      if (reason) return { kind: "stopped", url, reason };
       const response = await this.request(url, accept);
       const location = response.headers.get("Location");
-      if (response.status < 300 || response.status >= 400 || !location) return { url, response };
+      if (response.status < 300 || response.status >= 400 || !location) {
+        return { kind: "answered", url, response };
+      }
       await response.body?.cancel().catch(() => {});
       const next = safeSiteUrl(location, url);
-      if (!next) return null;
+      if (!next) return { kind: "refused", url, status: response.status };
       url = next;
     }
-    return null;
+    return { kind: "too_long", url };
   }
 
   /**
@@ -146,7 +164,7 @@ class Reader {
     const found = (async (): Promise<Robots> => {
       try {
         const answer = await this.follow(new URL("/robots.txt", url), "text/plain,*/*;q=0.5");
-        if (!answer) return { kind: "unreadable" };
+        if (answer.kind !== "answered") return { kind: "unreadable" };
         const { status } = answer.response;
         if (status >= 200 && status < 300) {
           return { kind: "rules", text: await readCapped(answer.response) };
@@ -169,35 +187,31 @@ class Reader {
    * what a hop must stay on; a redirect anywhere else is not followed.
    */
   async read(start: URL, onSite?: (url: URL) => boolean): Promise<PageRead> {
-    let url = start;
-    for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
-      const notRead = (
-        reason: CitedPageNotRead,
-        status: number | null = null,
-        robots: string | null = null,
-      ): PageRead => ({ kind: "not_read", url, reason, status, robots });
-      if (onSite && !onSite(url)) return notRead("left_site");
+    // The robots.txt of the last hop checked, which is the one a page that answered came from.
+    let text: string | null = null;
+    const walk = await this.follow(start, "text/html,*/*;q=0.5", async (url) => {
+      if (onSite && !onSite(url)) return "left_site";
       const robots = await this.rulesOf(url);
-      if (robots.kind === "unreadable") return notRead("robots_unreadable");
-      const text = robots.kind === "rules" ? robots.text : null;
-      if (
-        text &&
-        !robotsAllows(text, url.pathname + url.search, { ownSite: this.options.ownSite })
-      ) {
-        return notRead("shut_out", null, text);
+      if (robots.kind === "unreadable") return "robots_unreadable";
+      text = robots.kind === "rules" ? robots.text : null;
+      const path = url.pathname + url.search;
+      if (text && !robotsAllows(text, path, { ownSite: this.options.ownSite })) return "shut_out";
+      return null;
+    });
+    const { url } = walk;
+    switch (walk.kind) {
+      case "answered":
+        return { kind: "answered", url, response: walk.response, robots: text };
+      case "stopped": {
+        const robots = walk.reason === "shut_out" ? text : null;
+        return { kind: "not_read", url, reason: walk.reason, status: null, robots };
       }
-      const response = await this.request(url, "text/html,*/*;q=0.5");
-      const location = response.headers.get("Location");
-      if (response.status < 300 || response.status >= 400 || !location) {
-        return { kind: "answered", url, response, robots: text };
-      }
-      await response.body?.cancel().catch(() => {});
-      // A redirect to an address it would refuse leads off the site as surely as one elsewhere.
-      const next = safeSiteUrl(location, url);
-      if (!next) return notRead("left_site", response.status);
-      url = next;
+      case "refused":
+        // A redirect to an address it would refuse leads off the site as surely as one elsewhere.
+        return { kind: "not_read", url, reason: "left_site", status: walk.status, robots: null };
+      case "too_long":
+        return { kind: "not_read", url, reason: "unreachable", status: null, robots: null };
     }
-    return { kind: "not_read", url, reason: "unreachable", status: null, robots: null };
   }
 }
 
