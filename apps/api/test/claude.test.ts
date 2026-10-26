@@ -204,7 +204,8 @@ describe("createClaudeProvider", () => {
     const [url, init] = fetchStub.mock.calls[0] ?? [];
     expect(String(url)).toBe("https://api.anthropic.com/v1/messages?beta=true");
     const headers = new Headers(init?.headers);
-    expect(headers.get("x-api-key")).toBe("test-key");
+    expect(headers.get("authorization")).toBe("Bearer test-key");
+    expect(headers.get("x-api-key")).toBeNull();
     expect(headers.get("anthropic-beta")).toContain("server-side-fallback-2026-07-01");
 
     const body = sentBody(fetchStub);
