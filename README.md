@@ -860,7 +860,8 @@ The repository is set up for Claude Code and Codex.
 - `docs-updater` (`.claude/agents/docs-updater.md`, generated for Codex in `.codex/agents/`) keeps
   these documents true to the code. `/ship` and `/end-session` both run it.
 - `docs/agents/` tells the skills where issues live (GitHub Issues and a project board), which
-  triage labels to use, and where the glossary and decision records go.
+  triage labels to use, where the glossary and decision records go, and how work reaches a
+  change through the skills (`docs/agents/dev-flow.md`).
 
 To add or update a skill:
 

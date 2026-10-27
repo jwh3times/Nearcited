@@ -22,7 +22,8 @@ change.
 ### 1. Preconditions: stop if any fail
 
 - **On a branch.** If on `main`, stop and offer to create one
-  (`git switch -c <topic>`).
+  (`git switch -c <type>/<issue#>-<slug>`, per
+  [`docs/agents/dev-flow.md`](../../../docs/agents/dev-flow.md)).
 - **Clean working tree.** `git status --porcelain`. If anything is uncommitted,
   stop and ask the user whether to commit it.
 - **`gh` authenticated.** `gh auth status` succeeds.
@@ -147,10 +148,13 @@ gh pr list --head "$(git branch --show-current)" --state open --json number -q '
   Before merging checklist ticked from what steps 2 and 4 actually established.
 - **PR exists**: `gh pr edit <number>` to refresh the body.
 
-Write `Closes #N` in the body for each issue the branch finishes, so the merge
-closes it and the [project board](https://github.com/users/jwh3times/projects/10) moves it to Done. A branch that closes
-no issue is worth one line in the report: either the work was untracked, or an
-issue should exist.
+The body's first line names the branch's issue: `Closes #N` for each issue it
+finishes, so the merge closes it and the [project board](https://github.com/users/jwh3times/projects/10) moves it to Done,
+or `Part of #N` for a slice of a spec that stays open
+([`docs/agents/dev-flow.md`](../../../docs/agents/dev-flow.md)). A waived change
+opens with `Flow waived by the user: <reason>` instead. A code change with none
+of these, and no exemption, is worth one line in the report: it skipped the
+development flow in `AGENTS.md`.
 
 ### 7. Report
 
