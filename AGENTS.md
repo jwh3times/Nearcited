@@ -26,6 +26,27 @@ hosted pages on businesses' answer subdomains, and Supabase for Postgres and aut
 - `pnpm sync:agents`: regenerate `.claude/skills` and `.codex/agents` after changing anything in
   `.agents/skills` or `.claude/agents`.
 
+## Development flow
+
+The [mattpocock/skills](https://github.com/mattpocock/skills) flow is how work becomes a change
+here. [`docs/agents/dev-flow.md`](docs/agents/dev-flow.md) holds where to route the user, which
+paths count as code, and how a branch and a pull request name their issue: read it before the
+first edit of a change.
+
+- **Every code change starts from a ready issue**: a `ready-for-agent` issue whose body is a
+  `/to-spec` spec or a `/to-tickets` ticket or that carries a `/triage` brief, or a bug issue
+  worked through `/diagnosing-bugs`, which needs the number and no spec. With none in hand, stop
+  before the first edit and route the user. Reading code, running tests and answering questions
+  need no issue.
+- **The human starts every phase.** `/wayfinder`, `/grill-with-docs`, `/to-spec`, `/to-tickets`,
+  `/implement` and `/triage` keep `disable-model-invocation: true`. At a phase boundary, name the
+  next command, say in one line why, and wait. Inside a phase, start `/tdd`, `/code-review`,
+  `/diagnosing-bugs`, `/domain-modeling`, `/codebase-design`, `/prototype` and `/research`
+  whenever they fit.
+- **Exempt from the gate:** dependency bumps, a change to docs and agent config only, release
+  prep, and the user's explicit waiver, which the pull request body records as
+  `Flow waived by the user: <reason>`.
+
 ## Private companion
 
 `private/` is gitignored here and is a separate, confidential repository for authorized
@@ -362,6 +383,10 @@ Nearcited project board (project 10), whose `Stage` and `Gate` fields carry the 
 
 The five default labels (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`,
 `wontfix`), all of which exist in the tracker. See `docs/agents/triage-labels.md`.
+
+### Development flow
+
+Routing to a flow skill, the exemptions and issue linking. See `docs/agents/dev-flow.md`.
 
 ### Domain docs
 

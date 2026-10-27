@@ -60,7 +60,8 @@ replace the repeat with a pointer to the owner.
 | `docs/agents/issue-tracker.md` | Skills                  | Where issues live, the project board and its fields                                                                                               |
 | `docs/agents/triage-labels.md` | Skills                  | The triage label vocabulary                                                                                                                       |
 | `docs/agents/domain.md`        | Skills                  | Where the glossary and decision records live                                                                                                      |
-| `.github/pull_request_template.md` | Pull request authors | The before-merging checklist: a short subset of the rules in `AGENTS.md`. A line changes only when the rule it names changes.                     |
+| `docs/agents/dev-flow.md`      | Coding agents           | Routing to a flow skill, which paths count as code, the exemptions, and branch and pull request linking. The gate itself is in `AGENTS.md`.       |
+| `.github/pull_request_template.md` | Pull request authors | The issue line it opens with, and the before-merging checklist: a short subset of the rules in `AGENTS.md`. A line changes only when the rule it names changes. |
 
 `GLOSSARY.md` and `docs/adr/` belong to the `domain-modeling` skill. When a
 change settles a term or a durable decision, say so in the report and leave the
@@ -149,6 +150,12 @@ the queue or cron settings in `wrangler.jsonc`)
 - `.github/pull_request_template.md`: the checklist line for that rule.
 - `.agents/skills/ship/SKILL.md`: the rules table in its step 2, which walks a
   diff against the same rules.
+
+**The development flow changed** (`AGENTS.md` "Development flow", `docs/agents/dev-flow.md`)
+
+- `.agents/skills/ship/SKILL.md`: the branch name in its step 1 and the pull request body's first
+  line in its step 6.
+- `.github/pull_request_template.md`: the issue line it opens with.
 
 **CI, Dependabot, the ruleset or a workflow changed** (`.github/`)
 

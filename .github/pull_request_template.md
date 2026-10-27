@@ -1,3 +1,6 @@
+Closes #
+<!-- Or Part of #N for one slice of a spec that stays open, or Flow waived by the user: <reason>. One keyword per issue. See docs/agents/dev-flow.md. -->
+
 ## What changed
 
 ## How it was checked
