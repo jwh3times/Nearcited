@@ -8,6 +8,7 @@
       "!**/.wrangler",
       "!pnpm-lock.yaml",
       "!scripts/sync-agents*.mjs",
+      "!scripts/lint-agent-neutrality*.mjs",
       "!.agents",
       "!.claude/skills"
     ]

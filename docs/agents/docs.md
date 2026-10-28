@@ -1,0 +1,126 @@
+# Docs
+
+## Doc map
+
+- `README.md` — anyone arriving: what the product is and its status, stack, layout, local setup,
+  configuration, commands, API table, data model, tests, deploy, repository automation, private
+  companion, working with coding agents, what is not built. **When:**
+  - a route is added, removed or changed (`apps/api/src/routes/`, `apps/api/src/app.ts`): the API
+    table;
+  - a migration is added (`supabase/migrations/`), or a usage limit or plan setting changes: Data
+    model, and the sentence naming the migration files;
+  - a wire type adds or removes a surface, query kind, status or frequency value it names
+    (`packages/shared/src/schemas.ts`);
+  - an environment variable or binding changes (`apps/api/src/env.ts`, `apps/api/wrangler.jsonc`,
+    the Pages Worker's `Env` in `apps/pages/src/index.ts`, `apps/pages/wrangler.jsonc`, the
+    `.example` files): Configuration, and Deploy when a deploy step changed;
+  - the user-visible scan flow or scoring changes (`apps/api/src/scans/`,
+    `packages/shared/src/scoring.ts`): "How it works";
+  - the tuning schema or its bundling changes: "Private companion";
+  - a provider is added or changed (`apps/api/src/providers/`): the status line, "What is not
+    built", the `PROVIDER_MODE` notes under Deploy;
+  - a known gap closes or opens: "What is not built" — what exists today; planned work lives in
+    issues;
+  - a command, script or package is added (`package.json` files, `scripts/`): Commands and Layout,
+    and "Private companion" for a script that manages `private/`;
+  - CI, Dependabot, the ruleset or a workflow changes (`.github/`): "Repository automation";
+  - a skill or agent is added, removed or replaced (`.agents/skills/`, `.claude/agents/`,
+    `skills-lock.json`): "Working with coding agents" and Layout.
+- `docs/architecture.md` — developers: how a scan flows, failure handling, tenancy, Worker limits,
+  known gaps, open product questions, and how each provider bills a check (a vendor's published
+  rate may be quoted; never what a check was measured to use or cost). **When:**
+  - who can read or write a row, or a usage cap, changes (`supabase/migrations/`): Tenancy;
+  - scan behaviour changes (`apps/api/src/scans/`, `apps/api/src/index.ts`, the queue or cron
+    settings in `apps/api/wrangler.jsonc`): "How a scan runs", its failure handling, "Limits to
+    design around";
+  - the tuning schema or bundling changes (`packages/shared/src/tuning.ts`,
+    `scripts/prepare-tuning.mjs`, `apps/api/src/tuning.ts`, "build" or "alias" in
+    `wrangler.jsonc`): "Tuning";
+  - counting or scoring changes (`packages/shared/src/scoring.ts`, the window in
+    `apps/api/src/scans/runner.ts`): "Rates over a window of scans";
+  - a provider is added or changed: "Live providers", how it bills a check and which tuning values
+    move the cost;
+  - a known gap closes (only once the code confirms it) or opens: "Known gaps".
+  "Open product questions" is the owner's: report a change that appears to answer one and leave the
+  text as it is.
+- `AGENTS.md` — coding agents: the rules every change follows, the commands agents run, the
+  development-flow gate, the private-companion rules, the skill and agent setup. **When:** a project
+  rule is added or changed: Rules (and `docs/agents/ship.md`'s `## Rule triggers`, and the PR
+  template's checklist line); a command agents run: Commands; a skill or agent is added, removed or
+  replaced: Agent skills.
+- `CLAUDE.md` — the `@AGENTS.md` import and Claude Code-only mechanics; never project rules.
+  **When:** the skills mirror or subagent mechanics change.
+- `SECURITY.md` — security reporters: how to report, and which reports matter most. **When:** a
+  route becomes reachable without sign-in or uses the admin client, or a function, table or
+  secret is added whose misuse would be a report.
+- `CONTRIBUTING.md` — how to raise a bug or idea, the outside pull request policy, the pre-push
+  command. **When:** that policy or `pnpm check` changes.
+- `GLOSSARY.md` — settled terms. `owner-only`: written through `/domain-modeling`; report a term a
+  change settles.
+- `docs/adr/*.md` — accepted decisions. `frozen`: a changed decision is a new record, made through
+  `/domain-modeling`; report a contradiction between an ADR and the code.
+- `docs/agents/dev-flow.md` — routing to a flow skill, which paths count as code, the exemptions,
+  branch and pull request linking (the gate itself is in `AGENTS.md`). **When:** the development
+  flow changes; `docs/agents/ship.md`'s `Issue link` and the PR template's first line follow it.
+- `docs/agents/issue-tracker.md`, `docs/agents/triage-labels.md`, `docs/agents/domain.md` — where
+  issues live, the board and its fields, the label vocabulary, where the glossary and decision
+  records live. **When:** a tracker, a board field or option, or a label changes.
+- `docs/agents/workspace.md`, `human-follow-up.md`, `docs.md`, `releases.md`, `ship.md`,
+  `handoffs.md` — the settings the shared skills read. **When:** a required check or CI job changes
+  (`.github/workflows/ci.yml`, the ruleset): `ship.md` `Fast checks`; a project rule changes:
+  `ship.md` `## Rule triggers`; a build or test output path, an ignored local file or a dev-stack
+  command changes: `workspace.md`; a document is added, renamed or retired: this `Doc map`.
+- `.github/pull_request_template.md` — the issue line it opens with and the before-merging
+  checklist, a short subset of the rules in `AGENTS.md`. **When:** the linking rule changes, or the
+  rule a checklist line names changes.
+- `apps/api/.dev.vars.example`, `apps/pages/.dev.vars.example`, `apps/web/.env.example` — every
+  string variable each app reads. **When:** an `Env` interface or an `import.meta.env.VITE_` read
+  changes. `.dev.vars.example` lists every string variable in `Env`, defaults included, and leaves
+  out the bindings (`ASSETS`, `SCAN_QUEUE`).
+- `.agents/skills/*/**` — skills, mirrored to `.claude/skills/`. The `mattpocock/skills` set in
+  `skills-lock.json`, and `end-session`, `handoff`, `lets-go`, `ship` and `docs-updater` from
+  `jwh3times/skills`: `frozen` here, fixed upstream and reinstalled. **When:** a skill is added,
+  removed or replaced: `AGENTS.md` "Agent skills", README "Working with coding agents", and report
+  the change to the owner-only `THIRD_PARTY_NOTICES.md` when a skill's source changes.
+- `LICENSE`, `THIRD_PARTY_NOTICES.md`, the copyright line — `owner-only`.
+- `private/README.md` — the companion's index: what belongs there, each file's class (living,
+  reference snapshot, historical evidence) and what it owns, and its rules. **When:** a private file
+  is added, moved, finished or retired, or a living file's review state changes.
+- `private/pricing/*.md` — dated reference snapshots of measured costs and pricing decisions.
+  `amend-only`.
+- `private/ops/audits.md` — every shareable audit created. `append-only`: a row per `audit:create`.
+- `private/ops/hand-test.md` — the hand test's protocol and one record per business. **When:** the
+  hand test advances.
+
+**Never in public docs:** provider prompt text, sampling and score weights; pricing, plan design,
+vendor quotes and comparisons; what any check, draft or other work was measured to use or to cost,
+or how models compared on cost (a provider's published rate is public; a recorded response in a
+test carries made-up usage numbers); any real customer's or prospect's name, audit output or
+outreach; security review findings and exploit-level detail; deployment runbooks and resource
+names; the companion's name or locator, and any reference to a private issue; key values.
+
+## Drift probes
+
+- Routes: `Routes\.(get|post|patch|put|delete)\(` in `apps/api/src/routes/` and `app\.get\(` in
+  `apps/api/src/app.ts` — one README API-table row per match and one match per row (`app.route(`
+  lines mount files and are not rows)
+- Environment: the `Env` interface in `apps/api/src/env.ts` against README Configuration and
+  `apps/api/.dev.vars.example`; the Pages Worker's `Env` in `apps/pages/src/index.ts` against the
+  same table and `apps/pages/.dev.vars.example`; `import.meta.env.VITE_` in `apps/web/src` against
+  `apps/web/.env.example`
+- Tables: `create table` in `supabase/migrations/*.sql` against the README Data model
+- Commands: `scripts` in the root `package.json` against the README Commands table
+- Surfaces and enums: `SURFACES`, `QUERY_KINDS` and the `z.enum` lists in
+  `packages/shared/src/schemas.ts`
+- Required checks: the `name:` of each job under `jobs:` in `.github/workflows/ci.yml`, and
+  `gh api repos/jwh3times/Nearcited/rules/branches/main` (required checks, pull request, code
+  scanning, Copilot review), against README "Repository automation" and `docs/agents/ship.md`
+- Schedules and limits: `crons`, `max_retries` and `max_batch_size` in `apps/api/wrangler.jsonc`;
+  `HISTORY_LIMIT` in `apps/api/src/routes/scans.ts`
+- Generated copies: `pnpm sync:agents:check`
+- Internal links: every relative link and `#anchor` in the documents touched resolves
+
+## Docs validation
+
+none — Biome leaves Markdown unformatted (`biome.json`: `markdown.formatter.enabled: false`) and
+there is no docs test; the generated mirrors are the `Generated-config check`.

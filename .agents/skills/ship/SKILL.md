@@ -1,170 +1,295 @@
 ---
 name: ship
-description: Ship the current branch — check it against the project rules, refresh the docs it made stale, run pnpm check, push, and open or update the PR. Use when a feature branch is ready for review, or when the user says "ship it", "open a PR", or "push this".
+description: Ship the current branch — evaluate its SemVer release impact, refresh the docs, write the changelog entry for the version this merge will mint, file its human follow-ups, run the fast checks, push, and open or update the PR. Use when a feature branch is ready for review, or when the user says "ship it", "open a PR", or "push this".
+metadata:
+  settings: workspace issue-tracker human-follow-up releases ship
 ---
 
 # Ship
 
-Take the current branch from "code is done" to "PR is open with every required
-check able to pass".
+Take the current branch from "code is done" to "PR is open and green-able", with a changelog that
+names the version this merge will actually create.
 
 **Announce at start:** "I'm using the ship skill to open a PR for this branch."
 
-`main` accepts changes only by pull request, on a branch that is up to date with
-it, with four checks green: `Lint, typecheck, test, build`,
-`Store against Postgres and PostgREST`, `Verify generated agent config`, and
-`End-to-end in a browser`. This
-repository has no version file and no changelog; the PR body is the record of the
-change.
+Run shell snippets in bash (Git Bash on Windows). Where `gh` is unavailable, use the equivalent
+GitHub MCP operation: a missing CLI changes the interface, not the step or its completion
+criterion.
 
-## Steps
+`ship` stops at "PR open". It never merges, never pushes to `main`, never force-pushes, and never
+runs the full test suites: CI owns them, and running them here makes the skill slow.
 
-### 1. Preconditions: stop if any fail
+## 0. Settings
 
-- **On a branch.** If on `main`, stop and offer to create one
-  (`git switch -c <type>/<issue#>-<slug>`, per
-  [`docs/agents/dev-flow.md`](../../../docs/agents/dev-flow.md)).
-- **Clean working tree.** `git status --porcelain`. If anything is uncommitted,
-  stop and ask the user whether to commit it.
-- **`gh` authenticated.** `gh auth status` succeeds.
-- **Up to date with `main`.** `git fetch origin`, then
-  `git merge-base --is-ancestor origin/main HEAD`. If it fails, merge or rebase
-  `origin/main` now: the ruleset refuses to merge a branch that is behind, and
-  conflicts are cheaper before the docs pass than after.
+This skill reads `docs/agents/workspace.md`, `docs/agents/issue-tracker.md`,
+`docs/agents/human-follow-up.md`, `docs/agents/releases.md` and `docs/agents/ship.md`. Follow
+`.agents/skills/ship/settings/README.md` to read them and complete any that are missing; the
+definitions sit beside it. Resolve each `discover:` value once, here, and
+reuse it below.
 
-### 2. Review the diff against the rules
+With `Scheme: none`, skip every step marked **(release)**.
 
-Read the whole branch diff, since commit messages leave things out:
+## 1. Preconditions — stop if any fail
+
+- **Not on `main`.** Work happens on a branch. On `main`, stop and offer to create one named by the
+  `Issue link` branch pattern (`<type>/<slug>` when it is `none`).
+- **Clean tree.** `git status --porcelain` prints nothing but the settings files step 0 just wrote,
+  which go into this run's commit. Otherwise stop and ask whether to commit what is there; never
+  commit it silently. Once answered, restart from this step. Every change staged later was then
+  made by this run.
+- **GitHub reachable.** `gh auth status` succeeds, or GitHub MCP can reach this repository.
+- **Companion in step.** When the `Private companion` is set and its checkout exists, run the
+  `Workspace status command`: the companion must be clean and neither ahead of nor behind its
+  upstream. An absent checkout is a valid state; report it.
+- **Up to date with `main`.**
+
+  ```bash
+  git fetch -q --tags origin
+  git merge-base --is-ancestor origin/main HEAD && echo current || echo behind
+  ```
+
+  When behind, offer to `git merge origin/main` now, and resolve conflicts with the user. Never
+  rebase a pushed branch.
+
+Use `origin/main` throughout, never local `main`: a stale local `main` silently widens the diff to
+work already merged, and a clone that fetched only this branch has none.
+
+## 2. Evaluate the release impact (release)
+
+Read the whole branch, not its latest commit:
 
 ```bash
-base=$(git merge-base origin/main HEAD)
+base="$(git merge-base origin/main HEAD)"
 git diff --stat "$base"..HEAD
+git log --format='%s%n%b' "$base"..HEAD
 git diff "$base"..HEAD
 ```
 
-`AGENTS.md` holds the rules. Walk the diff once for each trigger below and fix
-what is missing, or stop and tell the user when the fix is a design decision.
+The stat and the log are an index. Read the diff, and the tests and docs it touches, before
+deciding. Classify the impact to **this project**, highest level present:
 
-| The diff…                               | Must also contain                                                                                                                                                                                      |
-| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| touches `supabase/migrations/`          | Only **new** files; an edit to a migration already on `main` is a stop. A new table has policies, a `revoke`, explicit grants, and a non-member test in `packages/db/test/rls.test.ts`. The Worker deployed before the migration still works after it. Where the migration drops or renames something that Worker uses, the PR body says to deploy first and migrate second.                |
-| writes a limit, `allowances`, `plan_key`, `paused_by_plan` or `set_aside_by_plan` | Only through `apply_plan()` (worker only) or the operator's function. No request path writes them, and nothing gives an account a second organization. |
-| touches connections, `connection_secrets` or `apps/api/src/connections/` | A sign-in sealed before it is stored, and read only by the worker: no policy or grant on `connection_secrets`, no read of it but `getConnectionSecret`, and no route, wire type or log line that carries a sign-in, sealed or not. Whatever needs the sign-in runs from the queue, not on a request. Only an owner or admin connects or removes, and a non-member test covers both tables. A WordPress site's application password is still sent only over https to that site's own host and never on through a redirect (`signedIn`), and `WORDPRESS_LOCAL_ORIGIN` is not set on a deployment. An answer subdomain is still registered to be served only once its record points at that connection's own target (`checkAnswerSubdomain`), and a name is still held by one connection at a time. |
-| touches actions, standing permission or `apps/api/src/actions/` | Proposing and carrying out only in the worker: no request path proposes, writes through a connection, or reads a sign-in. A request records a yes or a no through `approve_action()`, `decline_action()`, `retry_action()` or `take_back_action()`, which answer only a member of the location's organization, never the operator. Carrying out still reads what is there before it writes, and writes nothing when it is already so or has changed. Owners are still told of every action: `claim_action()` still refuses an organization held for an untold action, a yes is still refused where no notice could be sent, and an action is marked told only when the email went, the organization is a test one, or the deployment is on sample data with no email to send with. An action is counted against its allowance only in `claim_action()` and given back only in `finish_action()`, which is also the only thing that marks a task done by an action; no member path clears that mark. On a business's own site an action changes only the block the product marked as its own, compares only that block before it writes, and is approved as it is proposed unless its kind is in `EDITABLE_ACTION_KINDS`; a take-back is made only by `take_back_action()`. What an action read from outside is kept only in `seen`, which `drop_expired_seen()` drops on its day. Standing permission is applied only by `propose_action()`, checked again by `claim_action()`, given and ended only through `give_standing_permission()` and `end_standing_permission()` (an owner or admin, never the operator), ended at the ask of a take-back of something done under it and when the plan stops including it, and never applied to an action that `always_asks`; ending it puts back to waiting what it approved and is not under way, and the daily notice says what was done under it and when one was given or ended. A new kind of action has a handler in `HANDLERS`, a row in `action_kind_terms`, a sentence in `ACTION_KIND_DOING` and a non-member test. |
-| touches alerts, `alerts` or `apps/api/src/routes/alerts.ts` | Raised and cleared only by the worker, through `complete_scan()`; a request only dismisses, through `dismiss_alert()`, which answers only a member of the location's organization, never the operator. What raises an alert and what clears it stay separate conditions: nothing clears a drop because its rule stopped firing over the window, or by age; a first sighting is cleared only as `old_news`, when the scan that raised it leaves the window; and a dismissed alert stays current until the worker clears it. "For the first time" is still said of the whole record, read through `listSeenBefore` (`seen_before()`, worker only), never of the window alone, and only written answers count. A phone number is read in `analyzeObservation`, never by a provider, kept on the result (`scan_results.phones`) and counted over the window, and a dismissed phone alert is never cleared. Its sentences are composed by rule from the facts on the row and say what was seen, never what to do; no model writes one. Owners are told once, in the scan report, and an alert is marked told (`markAlertsTold`) only when `notify` answered that the report went to someone; no request path writes `told_at` or `cleared_told_at`. |
-| adds a kind of work a plan includes     | A row in `allowance_kinds` and an entry in `ALLOWANCE_KINDS`, in the same change, and no new column on `plans`. Taking it away from a paid plan, or lowering its number, goes through the announced reduction. The forms still send only the kinds they know, and the API still puts back the rest. A kind of connection that needs an allowance names it in `connection_kind_allowances` and `CONNECTION_KIND_ALLOWANCES`, in the same change. |
-| adds or changes a payload               | The schema in `packages/shared/src/schemas.ts`, changed first, with snake_case field names, and both the API and the web client parsing through it.                                                    |
-| adds a `Store` method                   | The Supabase implementation, the in-memory one in `apps/api/test/memory-store.ts`, and a line in `apps/api/test/supabase-store.integration.test.ts`. A read that reaches across organizations goes through `every` in the Supabase store (`apps/api/src/store/paging.ts`), ordered by a key no two rows share: the API answers with at most 1,000 rows and no error.                                                   |
-| adds a route                            | `c.get("store")` for data access. `createAdminClient` appears only in `apps/api/src/index.ts` and in the payment provider's webhook in `apps/api/src/app.ts` (`docs/adr/0007-the-payment-webhook-acts-as-the-worker.md`); anywhere else it bypasses row-level security, so stop. A non-member request is tested and returns 404.  |
-| adds or changes a provider              | A provider that returns an `Observation` and nothing else, registered only when its key is present, with recorded-response tests and no network. Matching stays in `analyzeObservation`.               |
-| touches Google results, `latitude`, `longitude`, `geocoded_from`, `google_results`, `scan_results.shown`, `isCounted` or `apps/api/src/providers/dataforseo.ts` | A location's point is written only by the worker, through `setLocationPoint`; the `guard_location_point` trigger keeps it as it was for any other writer, and no request path writes it. The Google surfaces are checked only where the organization's allowances include `google_results` (`coveredSurfaces`), never because `surfaces` names them, and only when all three of `DATAFORSEO_LOGIN`, `DATAFORSEO_PASSWORD` and `MAPBOX_TOKEN` are set. The provider only fetches, and a location with no point is not checked on Google. A search that showed nothing is decided in `analyzeObservation`, kept as `shown = false`, and counted nowhere: every new count of checks (score, rate, email, recommendation, alert) goes through `isCounted`, and `complete_scan()` still takes a result that does not say as shown. |
-| touches drafts, `drafts`, `apps/api/src/drafts/` or `packages/shared/src/drafts.ts` | Written only by the worker: a request records the ask through `ask_draft()`, which answers only a member of the location's organization, never the operator, and queues it. No request path writes `drafts`, takes from the month or calls a writer, and reading a page writes nothing. The worker still reads the task, the page and the location off what is on file. A writer is given the kind of draft and `DraftGiven`, and nothing else: nothing from the answers, and nothing about the business a location does not hold. Every draft still passes `factsNobodyGave` before it is kept, is written at most twice for one ask, and is not kept when it fails twice. The month is taken from only in `claim_draft()`, once for an ask, and given back only in `finish_draft()` when nothing was written. Sample text is `sample_data`, names no model, and is labelled as nobody's writing. A real draft is written only with instructions from the private tuning: `liveDraftKinds` is empty on the default tuning, the writer has no tools, and the route still refuses real data where there is no key or no instructions for the kind. What the writing used is recorded after every write, kept or not, for the organization and no surface. A new kind of draft is in `DRAFT_KINDS`, in the check on `drafts.kind`, and has sample text; its instructions are a field in `DraftsTuningSchema` with a placeholder default, and the real ones go in `private/tuning.json`. |
-| touches visits, `visits`, `visit_lines`, `apps/web/public/line.js` or `packages/shared/src/visits.ts` | Counted only by `record_visit()`, which answers anyone holding the site's key and trusts nothing it is told: the day is its own, the page is on the location's own website, the plan includes visits, and the day's ceilings on visits and on pages are inside the function. The route works out the assistant with `assistantOf`, takes the site from where the browser says the post came from and never from the body, and answers the same whatever became of the visit. No row is a visit: only a count for a day, a location, an assistant and a page, with no time of day and nothing about the visitor. The line sends nothing for a visit that did not come from an assistant, never the address a visitor came from or what follows a question mark, sets no cookie and keeps nothing in the browser. Its list of assistants is the same as `ASSISTANT_REFERRERS`, and the check on `visits.assistant` names the same ones. No score, alert, task or bill is worked out from the count. `visits` and `visit_lines` have no policy or grant for a caller who is not signed in, and nothing else counts a visit. A key is replaced only by `replace_site_key()`, which answers an owner or an admin of the location's organization and no one else (the operator, a plain member and the worker get no row); the old key then counts nothing and what was counted stays. The key is shown only through `GET /api/locations/:locationId/line`, to whoever can read the location. The counts are read only added up, through `location_visits()`, which runs as the caller and is not granted to `anon`; nothing generated is shown as a count, on sample data or for a test organization. What the line collects is in the privacy policy. |
-| touches members, invitations, `memberships`, `invitations` or `apps/api/src/routes/members.ts` | No API role writes `memberships` or `invitations`: no policy or grant that writes either. A person comes in only through `create_organization()` (its maker) or `accept_invitation()`, which answers only the person signed in with the invited address, never joins by itself, and is refused while they belong to another organization and to any account with a platform role. `invite_member()`, `send_invitation_again()`, `cancel_invitation()`, `change_member_role()` and `remove_member()` answer only an owner, never the operator; `leave_organization()` anyone in it. Every path that removes or demotes an owner refuses to leave none, with the organization locked. An invitation's role is admin or member, at most twenty wait, one is sent at most once an hour, and it waits fourteen days. The invitation email is sent by the request, never for a test organization, and where none went the owner is told. Every member reads the members through `organization_members()`; only owners and the operator read invitations; the export holds them. A non-member test covers each function. |
-| touches NearcitedBot, `robots.txt` handling, the cited-page check, `scans.cited_pages`, `apps/api/src/site/fetch.ts`, `packages/shared/src/robots.ts` or `packages/shared/src/cited-pages.ts` | Every page is asked for only after its host's `robots.txt`, read once a scan per host and again for each host a redirect leads to, through `robotsAllows`: the `NearcitedBot` group, else `*`, except on a location's own site where only a group naming it counts (an audit reads its site as anyone else's, `ownSite: false`); a 4xx is no rules, and a fault, a 429, a timeout or no answer shuts everything. Besides the business's own home page, only the cited-page check reads: for up to three open directory tasks no member dismissed (`citedPagesToRead`), the page the answers cited most, once a scan with no retry, within `CITED_PAGE_REQUESTS` with every request counted, through `safeSiteUrl`, never following a hop off the task's site, and never on sample data, for a test organization or for an audit. A page that cannot be read never fails the scan. `scans.cited_pages` is written only by the worker, holds no page text and only a number that differs or has none on file to compare, and the members' insert policy refuses it. Its sentences are composed by rule (`citedPageLines`); only the phone is ever called different. `/bot` still says truthfully what NearcitedBot reads and obeys. |
-| touches closing or exporting an account, `closings`, `request_closing()`, `export_organization()` or `apps/api/src/closing.ts` | Closed only by the worker: a request records the ask through `request_closing()`, which answers only an owner of the organization and refuses the operator, a test account, a test organization and a name that is not the organization's, and queues it. No request path deletes an organization or a sign-in. The worker still cancels the subscription, removes each connection the way an owner's removal does (waiting for Cloudflare to let a subdomain go, not for a WordPress site), deletes the organization, then the sign-in, then sends one email, writing each step on the closing's record so a retry carries on. An organization being closed is still out of its members' reach (`is_org_member()`, `has_org_role()`, `can_access_location()`, `can_access_scan()`), unscanned, and held. `closings` has no policy or grant for an API role, keeps the addresses only until the email has gone and the fingerprint only thirty days, and the fingerprint is still checked in `create_organization()`. `export_organization()` answers only an owner, never the operator, as one value, and never holds a sign-in, the operator's record of changes or what providers were paid. |
-| touches stronger models, tiers, `stronger_surfaces`, a price version's stronger price, `cellKey` or the tuning's `stronger` blocks | A request still only changes the subscription at the provider: `stronger_surfaces` is written by `apply_plan()` alone, from the lines the webhook read back, and none is kept on a plan without the `stronger_models` allowance. The stronger price is still part of the price version, an amount for each location paid for with a provider price for each assistant, and a dearer one or one no longer sold still counts as going up when announced. Each stronger line still counts the locations paid for, the included ones as well, and moves in the same change as they do. Stronger is still refused on an assistant the organization is not checked on, one the tuning has no `stronger` block for, and a test organization. Each result and drop still keeps its tier, and the score and the alerts still share `cellKey`, so a change of tier starts the cell again in both. |
-| touches `apps/pages`, `hosted_pages`, `hosted_page_fetches`, `hosted_page()` or `record_page_fetch()` | The Pages Worker holds no secret, reads only through `hosted_page()` and writes only a count through `record_page_fetch()`, with the publishable key; no other table, no other write, nothing of the app, and no hosted page served from the main Worker. `hosted_page()` answers only for a live answer subdomain and gives only what the page shows anyway; `hosted_pages` and `hosted_page_fetches` have no policy or grant for a caller who is not signed in and no write from an API role. `record_page_fetch()` trusts nothing it is told: its own day, a live page, a known fetcher, a ceiling a day. Nothing is kept about a fetch but the count, nothing is worked out from it, and `PAGE_FETCHERS` and the check on `hosted_page_fetches.fetcher` name the same fetchers. It hands on any request for `nearcited.com` or a subdomain of it. A page is plain HTML: no script but the structured details, no cookie, image or tracking, every word written as text, and nothing of Nearcited's but a generator tag. |
-| adds or changes the structured details  | A block composed by rule from the location's own details (`packages/shared/src/structured-details.ts`): a detail not on file is left out and named in `missing`, never filled in, and no model writes any of it. |
-| adds a prompt, weight or sampling value | A field and placeholder default in `TuningSchema`, passed to the code as an argument. The real value goes in `private/tuning.json`, never in this diff. No web file imports a value from the tuning module.          |
-| touches `PROVIDER_MODE` or the banner   | Mock mode still requires exactly `"mock"`, the sample-data banner still shows while it is on, and live scans still refuse the default tuning.                                                                                                      |
-| touches sample data, `is_test` or `platform_roles` | A test organization's scans are still generated, recorded as `sample_data`, shown under the banner, and never reach a real provider, a site or an inbox. Nothing a request can do writes `platform_roles` or `organizations.is_test`. |
-| touches billing, `subscriptions` or the webhook | The webhook still verifies the signature before reading the body, acts only on the subscription read back from the provider, and is the only caller of `applyPlan` on a request. No request path writes `subscriptions`. Checkout, the account pages and the subscription change routes answer only an organization's owner, and decide upgrade or downgrade on the server. A price is never edited in place: a change makes new prices and keeps the old ones in `plan_prices`, so a subscription still matches its plan. Nothing but `runPriceChangeStep` changes what a running subscription is billed at, and the thirty-day notice check stays per organization. Nothing lowers a paid plan's limits or allowances but an announced reduction made by `apply_limit_change()`; `operator_set_plan()` refuses to on a plan with subscribers. |
-| changes any `package.json` dependencies | A licence that combines with AGPL-3.0-only (MIT, ISC, BSD, Apache-2.0, MPL-2.0 pass; anything else is a stop until checked), and an updated `pnpm-lock.yaml`.                                          |
-| touches `.agents/skills/` or `.claude/agents/` | Regenerated `.claude/skills/` and `.codex/agents/` (step 4 runs the sync).                                                                                                                      |
-| mentions prompts, weights, pricing, a vendor quote, what something was measured to use or cost, or a real business | None of it. That content lives in `private/` (see "Private companion" in `AGENTS.md`); move it there and leave at most a note that it exists. A provider's published rate is public and may stay; a recorded response in a test carries made-up usage numbers. The private repository's name appears nowhere in the diff. |
-| adds any file                           | No secrets and no real customer or prospect data: the repository is public. `.dev.vars` and `.env.local` stay untracked.                                                                               |
+- **Major** — an existing public behavior, API, URL, persisted-data shape, configuration,
+  deployment contract or established user workflow becomes incompatible, and its users must
+  migrate. On a `0.y` line, an incompatible change is minor unless the branch deliberately cuts
+  `1.0.0`.
+- **Minor** — a backwards-compatible capability or a material expansion of behavior, or a
+  deliberate platform or toolchain generation change that raises the supported baseline.
+- **Build** — fixes (security fixes included), dependency maintenance, refactors, tests, docs,
+  tooling: nothing that adds capability or raises a baseline.
 
-**Done when:** every row whose trigger matches the diff has been checked, and each
-gap is fixed or reported.
+Judge this project's contracts, not a dependency's version number. Release metadata and generated
+mirrors are not evidence. With `Scheme: per-merge`, the cumulative content of `Unreleased` counts
+too. A level the user asked for is still evaluated; when the evaluation differs, show both and ask.
 
-### 3. Refresh the docs the diff made stale
+Record `Release level: <major|minor|build> — <one-sentence rationale>`. Steps 9 and 10 use that
+exact line.
 
-Dispatch the `docs-updater` agent in **fix** mode, scoped to this branch's diff
-(`"$base"..HEAD`), and tell it what step 2 changed. It owns the table of which
-document holds which fact. Where the harness cannot dispatch an agent, read
-[`.claude/agents/docs-updater.md`](../../../.claude/agents/docs-updater.md) and
-follow it yourself.
+**Apply it.** The baseline is the higher of the newest `v*` tag (ignoring the `Skipped tags`
+**Ignore** patterns) and the `Version file` on `origin/main` (`git show "origin/main:<file>"`).
 
-A pure refactor or test change usually owes no doc edit; the agent's report
-saying so is a complete result.
+- **Build** — the `Version file` stays at its `origin/main` value. Restore it if the branch moved it
+  without release intent.
+- **Minor** — the target line is `<major>.<minor + 1>.0` of the baseline.
+- **Major** — the target line is `<major + 1>.0.0`.
 
-**Done when:** the agent's report is in hand, and each drift it could not
-resolve from code is fixed or carried into step 7.
+For major or minor, follow `Ask before bumping` first, then run `Bump command` with the exact
+target, so a re-run lands on the same value instead of advancing twice. Check that the version file
+and any lockfile beside it agree. A branch that already carries the target keeps it; a branch that
+carries a different line was bumped on purpose: ask before replacing it.
 
-### 4. Checks: refuse to push if any fail
+## 3. Compute the target version (release)
 
-```bash
-pnpm sync:agents      # regenerate .claude/skills, so the agent config check passes
-pnpm format           # Biome fixes, including the files the steps above edited
-pnpm check            # lint, typecheck, every unit test, build
-```
+- **`per-merge`** — first confirm the newest merge on `origin/main` is tagged:
 
-`pnpm check` is the first required CI job, minus the Worker bundle check, and takes
-well under a minute. Add the bundle check when the diff touches `apps/api`:
+  ```bash
+  git tag --points-at origin/main -l 'v*'
+  ```
 
-```bash
-pnpm --filter @nearcited/api exec wrangler deploy --dry-run --outdir dist
-```
+  Empty output means the tag workflow has not finished for a merge that just landed, and the next
+  version would repeat a taken number. Wait for the workflow, fetch tags again, and re-check; if it
+  stays untagged after the workflow finished, ask the user. Then run `Next-version command`. It
+  prints a bare SemVer and is the single source of truth: never compute the build number yourself.
 
-The store integration test needs Postgres and PostgREST and runs in CI. When the
-diff touches `apps/api/src/store/` or a migration, say in the report that this
-test is the one that covers it and that it has not run locally, unless
-`POSTGREST_URL` is set and you ran it.
+  Check whether another open PR already claims that version:
 
-The end-to-end tests drive the app in a browser and are a required check. They need
-the local Supabase stack, so `pnpm check` does not run them. When the diff touches
-`apps/web`, a route the web app calls, or `apps/e2e`, run them before pushing, which
-is quicker than waiting for CI to say no:
+  ```bash
+  gh pr list --state open --json number,headRefName --jq '.[] | "\(.number) \(.headRefName)"'
+  gh pr diff <number> -- CHANGELOG.md | grep '^+## \['
+  ```
+
+  If one does, name it in the report: whichever merges second renumbers on its next `ship`.
+- **`cut-on-line`** — a build has no exact target: the next tag assigns it, whether a workflow tags
+  each merge or a maintainer tags a release, and another merge can land first. A confirmed major or
+  minor's target is the new line from step 2.
+
+## 4. Backfill skipped tags (release)
+
+Only with `Scheme: per-merge` and `Skipped tags: backfill`. List released versions with no section.
+Run it exactly; tags print as `v1.1.5` and sections as `1.1.5`, so comparing raw lists by eye
+reports every tag as missing:
 
 ```bash
-pnpm e2e              # needs `supabase start`, and `pnpm local:env` once
+comm -23 \
+  <(git tag -l 'v*' | sed -nE 's/^v([0-9]+\.[0-9]+\.[0-9]+)$/\1/p' | sort) \
+  <(sed -nE 's/^## \[([0-9]+\.[0-9]+\.[0-9]+)\].*/\1/p' CHANGELOG.md | sort)
 ```
 
-Where the stack is not running, say in the report that CI is what will run them.
+Drop versions matching the **Ignore** patterns. Each one left is a merge that wrote no section — a
+dependency bot's PR, or one opened in the web UI. Add a dated section for it in place, newest
+first. With `version` set to each, read the tag; it is the merge commit, so the merged branch is its
+second parent:
 
-If any command is red, stop and report.
+```bash
+git log -1 --format='%cs' "v$version"                  # the section's date
+git log --format='%s%n%b' "v$version^1..v$version^2"   # what landed
+git diff "v$version^1" "v$version" --stat              # manifests and lockfiles it changed
+git log -1 --format=%an "v$version^2"                  # dependabot[bot] for a bot PR
+```
 
-### 5. Commit what the steps above changed
+Keep it factual: name the packages and versions, and call a lockfile-only change transitive.
+Attribute to a bot only when the second parent's author is the bot: the merge commit's author is
+whoever clicked Merge. When `^2` does not exist (a squash or fast-forward), read the tag's own
+commit.
+
+With `Skipped tags: roll up`, invent no section per skipped tag; their changes join the next section
+written.
+
+## 5. Refresh the docs
+
+Run the `docs-updater` skill in `fix` mode, scoped to this branch's diff, not a full audit — in a
+subagent where the harness has one, told to follow `.agents/skills/docs-updater/SKILL.md`;
+otherwise follow it yourself. A subagent cannot ask the user, so complete its settings first, here,
+by following its step 0.
+
+```bash
+range="$(git merge-base origin/main HEAD)..HEAD"
+```
+
+Tell it what changed and why, that it was invoked by `ship` on an unmerged branch, and that this
+skill writes the changelog and the `Version file`. It leaves its edits uncommitted and returns the
+human actions it found for step 6, and any wiki search it owes after the merge (the `Follow-up
+wiki`, or a `Doc map` item in a wiki).
+Companion edits are committed there as its own repository, never in this one: with `Companion
+commit policy` `commit` or `ship`, commit and push them; with `ask`, show the diff and ask first.
+Run its **Before committing** checks either way.
+
+## 6. Human follow-ups
+
+Run the `## Procedure` in `.agents/skills/ship/settings/human-follow-up.md` for every required human
+action this branch leaves, before the PR opens, including those `docs-updater` returned. Reconcile
+rather than duplicate; on a re-ship, reuse the records already made. A follow-up never lives only
+in the changelog or the PR body. Its links go in the report and private records, never in the
+public PR.
+
+## 7. Write the changelog (release)
+
+Write user-visible behavior and its consequences, derived from the diff — not a commit log. Use the
+headings the file already uses (Keep a Changelog: `Added`, `Changed`, `Deprecated`, `Removed`,
+`Fixed`, `Security`, plus any the file adds), one of each per section, and match its voice. Dates
+are today's, `YYYY-MM-DD`.
+
+**Idempotent.** List the sections this branch added:
+
+```bash
+git diff origin/main...HEAD -- CHANGELOG.md | grep '^+## \['
+```
+
+A section listed there is this branch's from an earlier `ship`: rewrite it in place, never stack a
+second. Entries this branch added to `Unreleased` are rewritten the same way.
+
+- **`per-merge`** — insert `## [<target>] - <date>` directly below `## [Unreleased]`, holding this
+  branch's entries plus anything accumulated in `Unreleased`; reset `Unreleased` to the `Unreleased
+  placeholder`. When the branch's section names an older version because another PR merged first,
+  **renumber that section** to the target. Then merge `origin/main`: their section sits in the same
+  place, so resolve `CHANGELOG.md` keeping both, newest version first, and go back to step 3 — their
+  merge minted a tag, so the target moved again.
+- **`cut-on-line`, build** — add the entries under `Unreleased`, replacing its placeholder. No dated
+  section, no `Version file` edit.
+- **`cut-on-line`, confirmed major or minor** — add the entries under `Unreleased`, move its whole
+  content into `## [<target>] - <date>`, and restore the placeholder. When the cut is already there
+  from an earlier `ship`, rewrite this branch's entries inside it; never leave them both above and
+  below the cut.
+
+**Reference links.** When the file ends in a link footer, keep it consistent in the pattern its
+entries follow: `[Unreleased]` compares from the newest version to `HEAD`, and each new or
+renumbered section — backfilled ones too — gets its own link, newest first.
+
+Run `Changelog check`. A mismatch names the version the merge will really mint: redo this step with
+it.
+
+## 8. Fast checks — refuse to push if any fail
+
+Run every `Fast checks` entry, in order, from its folder; skip a conditional entry only when none of
+its paths changed (`git diff --name-only origin/main...HEAD`). They run after the doc and changelog
+edits, because formatters and linters cover those files too.
+
+If any is red, stop and report; do not push. Offer the entry's fix command. After a fix that writes
+files, run the list again from the top: a generated mirror built from unformatted sources is stale
+again once they are formatted. A check that cannot run here (a missing service, a missing secret) is
+named in the report as left to CI.
+
+Then run `Hook: before PR` from `docs/agents/ship.md`. Its findings go in the report and, where it
+says, the PR body.
+
+## 9. Commit, push, and open or update the PR
+
+Commit only when `git status --porcelain` shows changes; a re-ship with nothing new makes no empty
+commit. Staging everything is safe because step 1 proved the tree was clean, and the companion is
+ignored, never staged:
 
 ```bash
 git add -A
-git commit -m "<what the docs or generated files now say>"
+git commit -m "<Release commit message, with the real version>"
+git push -u origin "$(git branch --show-current)"
 ```
 
-Commit subjects here are plain sentences in the imperative ("Add the location
-edit form"), with no type prefix. Skip the commit when steps 2 to 4 changed
-nothing.
-
-### 6. Push and open or update the PR
+A rejected push means the remote has commits this checkout lacks: stop and report. Never force-push.
 
 ```bash
-git push -u origin "$(git branch --show-current)"
-gh pr list --head "$(git branch --show-current)" --state open --json number -q '.[0].number'
+gh pr list --head "$(git branch --show-current)" --state open --json number,url
 ```
 
-- **No PR**: `gh pr create --base main`, with the body following
-  `.github/pull_request_template.md`: What changed, How it was checked, and the
-  Before merging checklist ticked from what steps 2 and 4 actually established.
-- **PR exists**: `gh pr edit <number>` to refresh the body.
+- **No PR** → `gh pr create --base main`.
+- **A PR exists** → `gh pr edit <number>` to refresh its body. Never open a second PR.
 
-The body's first line names the branch's issue: `Closes #N` for each issue it
-finishes, so the merge closes it and the [project board](https://github.com/users/jwh3times/projects/10) moves it to Done,
-or `Part of #N` for a slice of a spec that stays open
-([`docs/agents/dev-flow.md`](../../../docs/agents/dev-flow.md)). A waived change
-opens with `Flow waived by the user: <reason>` instead. A code change with none
-of these, and no exemption, is worth one line in the report: it skipped the
-development flow in `AGENTS.md`.
+Write the body to a temporary file and pass `--body-file`. Fill the repository's PR template
+(`.github/pull_request_template.md` or `PULL_REQUEST_TEMPLATE.md`) when there is one, from the
+changelog entries and the diff. Include the `Release level:` line from step 2 and, with `per-merge`,
+the version this merge will mint.
 
-### 7. Report
+**Issue link**, when the setting is not `none`. The body opens with the link line, in the slot the
+template leaves for it:
 
-Give the user: the PR URL; the issues it closes; what step 2 found and fixed or
-left for them; which docs changed; and the state of the checks, saying which ran
-locally and which only CI covers. CodeQL and the Copilot review also report on
-the PR and can block the merge.
+- Take `N` from the branch per its **Branch pattern**, and read the issue:
+  `gh issue view <N> --json title,state,labels,body`.
+- The finishing line (`Closes #N`) when this PR finishes the issue; the slice line (`Part of #N`)
+  when it is one slice of a spec that stays open. Each finished issue gets its own keyword:
+  GitHub links only the first issue in `Closes #1 and #2`.
+- A branch with no number: the **Waiver line** when the user waived the flow; no link line for an
+  **Exempt** kind.
+- When the branch's number and the issue disagree, or finishing versus slice is unclear, ask before
+  creating the PR. A refreshed body keeps its link line. A number in the title alone links nothing.
 
-`/ship` covers this repository only. When the same work changed `private/`,
-commit and push there separately (`git -C private status`), and say in the
-report whether that is done. The PR body does not mention it.
+Warn, never block, when the PR opens with no link line and is not exempt, or when the `Board` is set
+and the linked issue is not on it. An issue in the `Private issue repository` is never named in a
+public PR body, commit message or public issue; it is closed by hand after the merge.
 
-Merging is the user's call. `/ship` stops at "PR open".
+Nothing this step writes in public carries a private repository name, link, board number or
+companion detail.
+
+## 10. Report
+
+- The PR URL and branch.
+- The `Release level:` line and its evidence; the version this merge will mint (`per-merge`), the
+  new line (a `cut-on-line` cut), or that the next tag assigns the build. Name a competing PR
+  claiming the same version, and say the section is renumbered on a re-ship.
+- What the docs refresh changed, the changelog entries written, and any sections backfilled. When
+  docs-updater owes a wiki search after the merge, say so: the next `end-session` performs it.
+- Human follow-ups: verified issue and wiki links, what is unpublished and why, or that none remain.
+- Fast-check results, checks left to CI, `Hook: before PR` findings, and issue-link warnings.
+- The companion: absent, or clean and in step, and any companion commit made. Never describe the
+  unmerged PR as shipped there.
+- Settings files written in step 0.
+
+Say plainly that the full suites run in CI, not here: the branch is verified only as far as the fast
+checks go.
