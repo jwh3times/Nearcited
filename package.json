@@ -29,6 +29,7 @@
     "sync:main": "node scripts/sync-main.mjs",
     "sync:agents": "node scripts/sync-agents.mjs",
     "sync:agents:check": "node scripts/sync-agents.mjs --check",
+    "lint:agents": "node scripts/lint-agent-neutrality.mjs",
     "db:types": "supabase gen types typescript --local > packages/shared/src/database.types.ts"
   },
   "devDependencies": {

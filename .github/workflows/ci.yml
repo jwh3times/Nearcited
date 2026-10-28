@@ -49,6 +49,12 @@ jobs:
       # .claude/skills is generated from .agents/skills. Fails when the committed copy is stale.
       - name: Check the generated copies match their sources
         run: node scripts/sync-agents.mjs --check
+      # Sources are read from their mirrored copies too: a bare $0-$9 in a SKILL.md or a
+      # relative link that breaks there fails here.
+      - name: Test the tool-neutrality lint
+        run: node --test scripts/lint-agent-neutrality.test.mjs
+      - name: Check agent sources are tool-neutral
+        run: node scripts/lint-agent-neutrality.mjs
 
   integration:
     name: Store against Postgres and PostgREST

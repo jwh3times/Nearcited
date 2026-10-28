@@ -99,3 +99,45 @@ Used by `/wayfinder`. The **map** is a single issue with **child** issues as tic
 - **Frontier query**: list the map's open children (`gh issue list --state open`, scoped to the map's sub-issues / task list), drop any with an open blocker (`issue_dependencies_summary.blocked_by > 0`, or an open issue in the `Blocked by` line) or an assignee; first in map order wins.
 - **Claim**: `gh issue edit <n> --add-assignee @me`, the session's first write.
 - **Resolve**: `gh issue comment <n> --body "<answer>"`, then `gh issue close <n>`, then append a context pointer (gist + link) to the map's Decisions-so-far.
+
+## Public repository
+
+jwh3times/Nearcited
+
+## Private issue repository
+
+`discover: git -C private remote get-url origin` — the companion's issues, for work whose
+description needs prompts, weights, pricing, vendor terms or a real business's name ("Which
+tracker" above). Select it with `-R` (or run `gh` from inside `private/`); never reference a private
+issue from a public issue, pull request or commit.
+
+## Board
+
+jwh3times 10
+
+## Board fields
+
+- `Status`: `Todo` / `In Progress` / `Done`. Closing an issue sets `Done`; set `In Progress` by hand
+  for work started and left open. There is no blocked option: what blocks what is a native issue
+  dependency (`blocked_by`), never a board field.
+- `Stage`: `1 - Make it real` / `2 - Find out whether anyone wants it` /
+  `3 - Safe for someone else to use` / `4 - Does the work for the owner` / `5 - Sellable` /
+  `6 - Rounding out` / `Decisions and upkeep` — the order to build in. When an issue's `Stage`
+  changes, move it in the task list of the public Build order issue (#15) too.
+- `Gate`: `None` / `Owner decision` / `Owner action` / `External` — what must happen outside the
+  code before the item can finish.
+
+Every new issue, public or private, gets all three in the session that opens it.
+
+## New work
+
+issue — in the shape the existing ones use (Why, Scope, Done when, Depends on), labelled `bug` or
+`enhancement` (`documentation` for doc drift) plus one triage label, and added to the board with
+`Status`, `Stage` and `Gate` set. A blocker is a native dependency.
+
+## Security findings
+
+A draft repository security advisory on `jwh3times/Nearcited` (private vulnerability reporting is
+on; `SECURITY.md`), never a public issue. The review's detail and exploit-level analysis are kept in
+the companion, indexed in `private/README.md` (`AGENTS.md`, "What lives there"). A board item or
+private issue carries at most a sanitized coordination action and the advisory reference.
