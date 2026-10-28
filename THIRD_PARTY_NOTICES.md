@@ -14,6 +14,9 @@ to `third-party-licenses.md`, which the Worker serves beside the app at
 
 The skills in `.agents/skills/`, and the generated copies in `.claude/skills/`, come from
 [mattpocock/skills](https://github.com/mattpocock/skills). `skills-lock.json` records which ones.
+`end-session`, `handoff`, `lets-go`, `ship` and `docs-updater` come from
+[jwh3times/skills](https://github.com/jwh3times/skills) (MIT), with `handoff` carrying Matt Pocock's
+notice in its folder (`.agents/skills/handoff/LICENSE`).
 
 ```
 MIT License

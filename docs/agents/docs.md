@@ -80,7 +80,8 @@
 - `.agents/skills/*/**` — skills, mirrored to `.claude/skills/`. The `mattpocock/skills` set in
   `skills-lock.json`, and `end-session`, `handoff`, `lets-go`, `ship` and `docs-updater` from
   `jwh3times/skills`: `frozen` here, fixed upstream and reinstalled. **When:** a skill is added,
-  removed or replaced: `AGENTS.md` "Agent skills", README "Working with coding agents".
+  removed or replaced: `AGENTS.md` "Agent skills", README "Working with coding agents", and report
+  the change to the owner-only `THIRD_PARTY_NOTICES.md` when a skill's source changes.
 - `LICENSE`, `THIRD_PARTY_NOTICES.md`, the copyright line — `owner-only`.
 - `private/README.md` — the companion's index: what belongs there, each file's class (living,
   reference snapshot, historical evidence) and what it owns, and its rules. **When:** a private file

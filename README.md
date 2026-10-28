@@ -393,13 +393,15 @@ scripts/        integration-db.sh prepares a plain Postgres for the store integr
                 hosted-pages-setup.sh walks the owner through the Cloudflare setup for hosted pages, once.
                 local-env.mjs writes the two local env files from `supabase status`, and makes
                 the key connections are sealed with.
+                sync-agents.mjs generates the agent mirrors; lint-agent-neutrality.mjs checks
+                that the agent sources read correctly from them.
 private/        The private companion, when checked out. Ignored here; its own repository.
 docs/           architecture.md: how a scan flows, the tenancy model, and known gaps.
                 adr/: decisions that are hard to reverse, and why they were made.
-                agents/: where the agent skills find the issue tracker, labels and domain docs.
+                agents/: the settings the agent skills read: the issue tracker and board, labels,
+                domain docs, development flow, and the shared skills' settings.
 .agents/skills/ Agent skills, as installed. Codex reads these.
 .claude/skills/ The same skills, generated for Claude Code. Do not edit.
-.claude/agents/ Specialist agents. .codex/agents/ is the generated copy for Codex.
 .github/        CI and deploy workflows, Dependabot config, pull request template.
 AGENTS.md       The rules a change has to follow. CLAUDE.md imports it.
 ```
@@ -504,6 +506,7 @@ None of these files is committed. `apps/api/.dev.vars.example`, `apps/web/.env.e
 | `pnpm test:scripts` | Tests for the scripts in `scripts/` |
 | `pnpm sync:agents` | Regenerate `.claude/skills` and `.codex/agents` from their sources |
 | `pnpm sync:agents:check` | Fail if a generated copy is stale |
+| `pnpm lint:agents` | Fail if an agent or skill source reads wrongly from its generated copy |
 
 `audit:create` takes `--name` and `--city` (required), `--region`, `--country` (default `US`),
 `--website`, `--samples` (1 to 5, default 5) and `--prompt` once for each of 1 to 5 prompts. It
@@ -799,8 +802,9 @@ answers 503 `drafts_unavailable`, except for a test organization, whose drafts a
 
 - **CI** (`.github/workflows/ci.yml`) runs on every pull request and on `main`. Its four jobs are
   the required checks: `Lint, typecheck, test, build`, `Store against Postgres and PostgREST`,
-  `Verify generated agent config`, and `End-to-end in a browser`, which runs `pnpm e2e` against a
-  local Supabase stack.
+  `Verify generated agent config`, which also checks that the agent sources read correctly from
+  their generated copies (`pnpm lint:agents`), and `End-to-end in a browser`, which runs `pnpm e2e`
+  against a local Supabase stack.
 - **`main` is protected by a ruleset.** Changes arrive by pull request with the required checks
   passing on an up-to-date branch and review threads resolved. Force pushes and deleting the
   branch are blocked. CodeQL alerts block the merge, and Copilot reviews each push.
@@ -848,25 +852,31 @@ The repository is set up for Claude Code and Codex.
 
 - [`AGENTS.md`](AGENTS.md) holds the rules a change has to follow. Codex reads it directly, and
   [`CLAUDE.md`](CLAUDE.md) imports it for Claude Code.
-- The agent skills are from [mattpocock/skills](https://github.com/mattpocock/skills) (MIT; see
+- The flow skills are from [mattpocock/skills](https://github.com/mattpocock/skills) (MIT; see
   [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)) and are pinned in `skills-lock.json`. Among
   them: `/triage`, `/to-spec`, `/to-tickets`, `/implement`, `/tdd`, `/diagnosing-bugs`,
   `/code-review`, `/grill-me` and `/improve-codebase-architecture`. `/ask-matt` picks one for you.
-- Four more skills are written for this repository: `/ship` checks a branch against the rules in
+- Five more are from [jwh3times/skills](https://github.com/jwh3times/skills) (MIT), shared with
+  other repositories and pinned the same way: `/ship` checks a branch against the rules in
   `AGENTS.md`, refreshes the docs and opens the pull request; `/end-session` records what a
-  session learned and cleans up; `/handoff` and `/lets-go` pass a session between machines.
+  session learned, files new work and human follow-ups as issues, and cleans up; `/handoff` and
+  `/lets-go` pass a session between machines; `docs-updater`, which `/ship` and `/end-session` run,
+  keeps these documents true to the code. They are never edited here: reinstalling overwrites a
+  local edit, so a fix goes upstream.
 - `.agents/skills/` is the installed source. `.claude/skills/` is generated from it by
   `pnpm sync:agents`, and CI fails if the two differ.
-- `docs-updater` (`.claude/agents/docs-updater.md`, generated for Codex in `.codex/agents/`) keeps
-  these documents true to the code. `/ship` and `/end-session` both run it.
 - `docs/agents/` tells the skills where issues live (GitHub Issues and a project board), which
   triage labels to use, where the glossary and decision records go, and how work reaches a
-  change through the skills (`docs/agents/dev-flow.md`).
+  change through the skills (`docs/agents/dev-flow.md`). It also holds the settings the five
+  shared skills read: `workspace.md`, `issue-tracker.md`, `human-follow-up.md`, `docs.md`
+  (which document owns which fact), `releases.md`, `ship.md` and `handoffs.md`.
 
-To add or update a skill:
+To add or update skills, run the installer for one source at a time, then regenerate the copy.
+The `mattpocock/skills` set updates the same way, with its own skills' names after `-s`. Never run
+`npx skills update`, which leaves `.claude/skills/` linked to the sources instead of copied:
 
 ```sh
-npx skills add mattpocock/skills -a codex -s <name> --copy -y   # or: npx skills update -p -y
+npx skills add jwh3times/skills -s end-session -s handoff -s lets-go -s ship -s docs-updater -a codex --copy -y
 pnpm sync:agents
 ```
 

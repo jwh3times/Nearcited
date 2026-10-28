@@ -10,5 +10,5 @@ before starting. Where this file and `AGENTS.md` disagree, `AGENTS.md` wins.
 
 - Skills load from `.claude/skills/`, which is generated from `.agents/skills/`. Edit the source
   and run `pnpm sync:agents`.
-- `docs-updater` (`.claude/agents/docs-updater.md`) is a subagent here. Dispatch it instead of only
-  reading its file.
+- `/ship` and `/end-session` run the `docs-updater` skill in a subagent, told to follow
+  `.agents/skills/docs-updater/SKILL.md`.

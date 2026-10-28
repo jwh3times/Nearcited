@@ -6,8 +6,9 @@ the human starts every phase, are in `AGENTS.md` under "Development flow".
 
 `/ask-matt` (`.agents/skills/ask-matt/SKILL.md`) is the map of the whole flow and of the phase
 boundaries; read it rather than this file when the question is "what comes after this?". It also
-names `/implement-spec`, `/pr` and `/retro`, which this repository has not installed: route around
-them.
+names `/implement-spec`, `/pr` and `/retro`, which this repository has not installed, and
+`/handoff` as a portable handoff file, which here is a different skill (it passes the session to
+another machine and ends it): route around all four.
 
 ## Routing
 
@@ -67,7 +68,8 @@ The other exemptions:
 commits to the current branch. The type is one of `feat`, `fix`, `refactor`, `docs` or `chore`:
 `feat/149-standing-permission`, `fix/6-stuck-scans`. An exempt change with no issue drops
 the number: `docs/dev-flow`, `chore/bump-wrangler`. Dependabot's branches keep their own names.
-The type is for the branch only; commit subjects stay plain sentences (see `/ship`).
+The type is for the branch only; commit subjects stay plain sentences in the imperative, with no
+type prefix.
 
 **Pull request body:** its first line names the issue.
 
