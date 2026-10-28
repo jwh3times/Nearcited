@@ -32,6 +32,6 @@ none
 
 ## Release commit message
 
-`Bring the docs up to date for <summary>` — overrides the default (`docs: update docs for
-<summary>`) because commit subjects here are plain imperative sentences with no type prefix
-(`docs/agents/dev-flow.md`, "Linking work to its issue").
+`Bring the docs up to date for <summary>` — overrides the default,
+`docs: update docs for <summary>`, because commit subjects here are plain imperative sentences
+with no type prefix (`docs/agents/dev-flow.md`, "Linking work to its issue").

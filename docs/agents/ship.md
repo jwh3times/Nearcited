@@ -59,8 +59,8 @@ The report names the CI-only suite that covers the change.
 1. Walk the branch's whole diff (`git diff "$(git merge-base origin/main HEAD)"..HEAD`) once for
    each row of `## Rule triggers` below whose trigger it matches, and check it contains what that
    row requires. Fix what is missing; stop and tell the user when the fix is a design decision. A
-   fix made here: run `docs-updater` again when it changed a documented fact, then the `Fast
-   checks` from the top.
+   fix made here: run `docs-updater` again when it changed a documented fact, then the
+   `Fast checks` from the top.
 2. A migration that drops or renames something the deployed Worker uses: the body says it is
    deployed first and migrated second.
 3. Fill the template: **What changed**; **How it was checked** with the fast checks actually run and
