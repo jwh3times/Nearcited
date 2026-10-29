@@ -20,6 +20,7 @@ import type {
   DerivedRecommendation,
   Draft,
   DraftKind,
+  FetchCount,
   Invitation,
   InvitedRole,
   LimitChange,
@@ -28,6 +29,7 @@ import type {
   Location,
   LocationActions,
   LocationConnection,
+  LocationFetches,
   LocationInput,
   LocationVisits,
   Member,
@@ -192,6 +194,28 @@ export interface NewConnection {
    */
   for_location?: string | null;
 }
+
+/** A Cloudflare zone matched to a location, as a read of the location's fetches needs it. */
+export interface ZoneMatch {
+  location_id: string;
+  zone_id: string;
+  /** The zone's domain. */
+  zone: string;
+  website: string | null;
+  /** The last day (UTC) read through for this location. Null until its first read. */
+  read_through: string | null;
+}
+
+/**
+ * The days a write of a location's fetches covers, and where the counts came from: a zone's read
+ * through a connection, or made up for sample data.
+ */
+export type SiteFetchesRead =
+  | { from: string; to: string; connection_id: string }
+  | { from: string; to: string; sample: true };
+
+/** A location's fetches as the database adds them up, before the page is told where from. */
+export type AddedFetches = Pick<LocationFetches, "days" | "pages" | "other_pages" | "read_through">;
 
 /** An answer subdomain to make for a location: the connection's ID, its name and its target. */
 export interface NewAnswerSubdomain {
@@ -1001,6 +1025,29 @@ export interface Store {
    * the task each page does, for whoever can read the location.
    */
   listLocationPageFetches(locationId: string, since: string): Promise<TaskPageFetches[]>;
+  /**
+   * Keeps the zones a Cloudflare connection's token reaches, and matches each to the location of
+   * the organization whose website it holds, taking away a match that no longer fits. Leaves where
+   * the connection stands to `recordConnectionSync`. Returns every match it has. Empty for a
+   * connection that is not a working or failing Cloudflare one. Worker only.
+   */
+  matchCloudflareZones(connectionId: string, zones: ConnectionChoice[]): Promise<ZoneMatch[]>;
+  /**
+   * Keeps a location's fetches for a run of days, replacing whatever was kept for those days, and
+   * for a zone's read that it was read through the last of them. Only known fetchers, under at
+   * most fifty pages a day. Nothing is written for a zone no longer matched to the location.
+   * Returns how many counts were kept. Worker only.
+   */
+  recordSiteFetches(
+    locationId: string,
+    read: SiteFetchesRead,
+    counts: readonly FetchCount[],
+  ): Promise<number>;
+  /**
+   * A location's fetches of its own site since a day, of sample data or not, added up, for whoever
+   * can read the location. For anyone else there is nothing to add up.
+   */
+  getLocationFetches(locationId: string, since: string, sampleData: boolean): Promise<AddedFetches>;
   /** The paused answer subdomains whose owners have not been told of this pause. Worker only. */
   listPausedAnswerSubdomainsUntold(): Promise<string[]>;
   /** Keeps that an answer subdomain's owners were told it is paused. Worker only. */

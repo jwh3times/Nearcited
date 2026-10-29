@@ -14,7 +14,8 @@ export const connectionRoutes = new Hono<AppEnv>();
 
 /**
  * Refuses to change what an answer subdomain is matched to: it is made for its location, under
- * that location's website, and is that location's until it is removed.
+ * that location's website, and is that location's until it is removed. Nor what a Cloudflare zone
+ * is matched to: the worker matches it to the location whose website it holds.
  */
 async function refuseHandMatch(c: Context<AppEnv>, connectionId: string) {
   const connection = await c.get("store").getConnection(connectionId);
@@ -23,6 +24,13 @@ async function refuseHandMatch(c: Context<AppEnv>, connectionId: string) {
       422,
       "not_matched_by_hand",
       "An answer subdomain belongs to the location it was set up for. Remove it to set up another.",
+    );
+  }
+  if (connection?.kind === "cloudflare") {
+    throw new ApiError(
+      422,
+      "not_matched_by_hand",
+      "A Cloudflare zone is matched to the location whose website it holds, each time it is read.",
     );
   }
 }
@@ -53,7 +61,7 @@ connectionRoutes.get("/organizations/:organizationId/connections", async (c) => 
  */
 connectionRoutes.post("/organizations/:organizationId/connections", async (c) => {
   const organizationId = uuidParam(c, "organizationId", "Organization");
-  const { kind } = await parseJson(c, ConnectionInputSchema);
+  const input = await parseJson(c, ConnectionInputSchema);
   const store = c.get("store");
   const organization = await store.getOrganization(organizationId);
   if (!organization || !(await store.managesConnections(organizationId))) {
@@ -68,15 +76,15 @@ connectionRoutes.post("/organizations/:organizationId/connections", async (c) =>
       "Nothing can be connected here: this deployment has no key to keep a sign-in with.",
     );
   }
-  if (!availableConnectionKinds(c.env, organization).includes(kind)) {
+  if (!availableConnectionKinds(c.env, organization).includes(input.kind)) {
     throw new ApiError(422, "connection_unavailable", "That cannot be connected here.");
   }
   // A site is connected by its owner approving on the site, from its location's Website tab.
-  if (kind === "wordpress" || kind === "hosted_pages") {
+  if (input.kind === "wordpress" || input.kind === "hosted_pages") {
     throw new ApiError(
       422,
       "connect_from_location",
-      kind === "wordpress"
+      input.kind === "wordpress"
         ? "Connect a WordPress site from the Website tab of the location it belongs to."
         : "Set up an answer subdomain from the Website tab of the location it belongs to.",
     );
@@ -84,11 +92,16 @@ connectionRoutes.post("/organizations/:organizationId/connections", async (c) =>
 
   // The ID comes first, because the sign-in is sealed to it.
   const id = crypto.randomUUID();
-  const { label, signIn } = await connect(kind);
+  // A Cloudflare token is checked by the worker's first read, which alone uses a sign-in: one
+  // Cloudflare refuses leaves the connection broken, with the reason, moments after.
+  const { label, signIn } =
+    input.kind === "cloudflare"
+      ? { label: "Cloudflare token", signIn: input.token }
+      : await connect(input.kind);
   const connection = await store.createConnection({
     id,
     organization_id: organizationId,
-    kind,
+    kind: input.kind,
     label,
     sealed: await seal(key, id, signIn),
   });

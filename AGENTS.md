@@ -252,11 +252,27 @@ pass `pnpm check` and run in mock mode without it.
   it the secret key, another table, another write, or anything of the app; do not serve hosted
   pages from the main Worker. Nothing is kept about a fetch but that count, for a day, a page and
   a fetcher, and nothing is worked out from it: anyone can claim to be a fetcher. Its list of
-  fetchers (`PAGE_FETCHERS`), the check on `hosted_page_fetches.fetcher` and the one in
-  `record_page_fetch()` name the same ones: add one in all three. It hands on any request for a
+  fetchers (`PAGE_FETCHERS`) is the one list for hosted pages and a business's own site: the checks
+  on `hosted_page_fetches.fetcher` and `site_fetches.fetcher`, `record_page_fetch()`,
+  `record_site_fetches()` and `SPELLED` (`apps/api/src/connections/cloudflare.ts`) name the same
+  ones, so add one in all six. It hands on any request for a
   name of the zone's own (`nearcited.com` and its subdomains) untouched. A hosted page is plain HTML: no script but the structured details, no
   cookie, image or tracking, every word written as text, and nothing of Nearcited's but a
   generator tag. Keep all of that.
+- **A business's own site's fetches are read by the worker from its Cloudflare zone, and nothing
+  rests on the count.** The owner gives a Cloudflare token that only reads, sealed like any
+  sign-in; the request never tries it, and the worker's sync (`syncZones`,
+  `apps/api/src/connections/index.ts`) lists its zones, has `match_cloudflare_zones()` match each
+  to the location whose website it holds (one zone, one location; never by hand), and reads the
+  counts for that website's host alone
+  (`docs/adr/0028-a-sites-fetches-are-read-from-its-cloudflare-zone.md`). The token goes only to
+  Cloudflare's API, never on through a redirect (`apps/api/src/connections/cloudflare.ts`).
+  `site_fetches` is written only by `record_site_fetches()`, which only the worker calls and which
+  keeps known fetchers and bounds a location's pages a day inside itself, and is read added up, by
+  `location_site_fetches()`, as the caller. Nothing is kept but a count for a day, a location, a
+  fetcher and a page: no time of day, address, query or user agent. Anyone can claim a fetcher's
+  name, so no score, alert, task, report or bill is worked out from it. On sample data the counts
+  are made up (`sampleFetches`), kept as `sample_data`, and Cloudflare is never asked.
 - **Only the worker closes an account.** A request records an owner's ask through
   `request_closing()`, which answers an owner of the organization and no one else, refuses the
   operator, a test account and a name that is not the organization's, and queues the worker

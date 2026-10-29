@@ -37,6 +37,15 @@ export function Privacy() {
           whether they named your business, which other businesses they named, the websites they
           cited, and the result of reading your website's home page.
         </li>
+        <li>
+          <strong>If you connect Cloudflare, how often your site was fetched.</strong> With a token
+          you make that can only read, we read from Cloudflare how many requests the fetchers of AI
+          assistants and search engines, such as GPTBot or Googlebot, made for each page of your
+          website on each day. We keep only those counts, by fetcher, page and day. We do not keep
+          anything about a single request: not its time, the address it came from, what it asked for
+          after a question mark, or anything about whoever made it. The token is kept sealed, and
+          nobody can read it back.
+        </li>
       </ul>
 
       <h3>When a report is made about a business</h3>
@@ -99,6 +108,10 @@ export function Privacy() {
           results, and write the drafts you ask for.
         </li>
         <li>To show a business how many visits to its website arrived from an AI assistant.</li>
+        <li>
+          To show a business how often assistants' and search engines' fetchers read its website,
+          where it has connected Cloudflare.
+        </li>
         <li>To sign you in and send the emails you have asked for.</li>
         <li>To keep the service secure and working, and to fix it when it is not.</li>
       </ul>
@@ -109,7 +122,8 @@ export function Privacy() {
       <ul>
         <li>
           <strong>Cloudflare</strong> hosts the site and the application, and keeps the request
-          logs.
+          logs. If you connect your own Cloudflare account, we also read your site's request counts
+          from it, as described above.
         </li>
         <li>
           <strong>Supabase</strong> stores the database and handles sign-in.
@@ -145,8 +159,8 @@ export function Privacy() {
         Information is processed in the United States and in the other countries where the companies
         above operate. Account information and scan results are kept for as long as the account
         exists. Deleting a location deletes its prompts and every scan of it. Reports on businesses
-        that have not signed up expire after 30 days. Counts of visits from assistants are kept for
-        as long as the location they belong to.
+        that have not signed up expire after 30 days. Counts of visits from assistants, and of
+        fetches of a business's website, are kept for as long as the location they belong to.
       </p>
       <p>
         When an account is closed, everything under it is deleted within minutes, and then the

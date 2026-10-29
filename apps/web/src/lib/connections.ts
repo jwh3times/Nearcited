@@ -54,6 +54,11 @@ export function connectionNote(
   connection: Connection,
   day: (iso: string) => string,
 ): string | null {
+  if (connection.status === "broken" && connection.kind === "cloudflare") {
+    return connection.broken_reason === "refused"
+      ? "Not working: Cloudflare refused the token, or it reaches no zone. Make a new token with both permissions, connect it, and remove this one."
+      : "Not working: reading from Cloudflare has failed three days in a row. Nearcited tries again once a day, and it will start working again by itself if the cause passes.";
+  }
   if (connection.status === "broken") {
     return connection.broken_reason === "refused"
       ? "Not working: the account refused the sign-in. Remove it and connect it again."

@@ -8,7 +8,7 @@ import {
   type AuditFormValues,
   BillingRedirectSchema,
   type CheckoutInput,
-  type ConnectionKind,
+  type ConnectionInput,
   ConnectionMatchSchema,
   ConnectionSchema,
   DraftSchema,
@@ -20,6 +20,7 @@ import {
   LocationActionsSchema,
   type LocationDetail,
   LocationDetailSchema,
+  LocationFetchesSchema,
   type LocationFormValues,
   LocationHostedPagesSchema,
   LocationLineSchema,
@@ -244,8 +245,8 @@ export const api = {
   /** Makes a location's answer subdomain from the one word in front of its domain. */
   makeAnswerSubdomain: (locationId: string, label: string) =>
     json(AnswerSubdomainSchema, "POST", `/locations/${locationId}/hosted-pages`, { label }),
-  connect: (organizationId: string, kind: ConnectionKind) =>
-    json(ConnectionSchema, "POST", `/organizations/${organizationId}/connections`, { kind }),
+  connect: (organizationId: string, input: ConnectionInput) =>
+    json(ConnectionSchema, "POST", `/organizations/${organizationId}/connections`, input),
   /** Asks for a connection to be removed. The worker finishes it shortly after. */
   removeConnection: (id: string) => json(ConnectionSchema, "DELETE", `/connections/${id}`),
   /** Says which of the things a connection reaches is a location's. */
@@ -299,6 +300,9 @@ export const api = {
   /** A location's visits from assistants over the last thirty days, added up. */
   getVisits: (locationId: string) =>
     json(LocationVisitsSchema, "GET", `/locations/${locationId}/visits`),
+  /** A location's fetches by known fetchers over the last thirty days, and where they come from. */
+  getFetches: (locationId: string) =>
+    json(LocationFetchesSchema, "GET", `/locations/${locationId}/fetches`),
   /** Gives a location a new site key. The line on the site counts nothing until pasted again. */
   replaceSiteKey: (locationId: string) =>
     json(LocationLineSchema, "POST", `/locations/${locationId}/line/key`),
