@@ -202,7 +202,7 @@ describe("createClaudeProvider", () => {
     await provider(fetchStub).observe(input);
 
     const [url, init] = fetchStub.mock.calls[0] ?? [];
-    expect(String(url)).toBe("https://api.anthropic.com/v1/messages?beta=true");
+    expect(String(url)).toBe("https://api.anthropic.com/v1/messages");
     const headers = new Headers(init?.headers);
     expect(headers.get("authorization")).toBe("Bearer test-key");
     expect(headers.get("x-api-key")).toBeNull();
