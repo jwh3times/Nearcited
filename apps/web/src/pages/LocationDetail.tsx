@@ -43,8 +43,8 @@ import { cadence, formatDate, listOf } from "../lib/format";
 import { hostedPagesKey, offersPages } from "../lib/hosted-pages";
 import { googlePointLine, startingKind, wantsGoogleKeyword } from "../lib/location";
 import { locationKey, placeOf, scansKey } from "../lib/locations";
-import { nothingShownLine, tallyCompetitors } from "../lib/matrix";
-import { noScoreReason, windowRate } from "../lib/summary";
+import { nothingShownLine } from "../lib/matrix";
+import { namedInsteadCard, noScoreReason, windowRate } from "../lib/summary";
 import { neighbour, TAB_LABELS, type Tab, tabFrom, tabsFor } from "../lib/tabs";
 import { buildTrend } from "../lib/trend";
 import { useViewing } from "../lib/viewing";
@@ -156,8 +156,8 @@ export function LocationDetail() {
   const active = queries.filter((query) => query.is_active);
   const retired = queries.filter((query) => !query.is_active);
   const results = scan?.status === "succeeded" ? scan.results : [];
+  const namedCard = namedInsteadCard(scanWindow);
   // A search where Google showed nothing counts neither way, so it is said apart (ADR 0024).
-  const shownResults = results.filter(isCounted);
   const nothingShown = results.filter((result) => !isCounted(result));
   const excerpts = results.filter((result) => result.answer_excerpt);
   const noScore =
@@ -372,13 +372,7 @@ export function LocationDetail() {
                 ) : (
                   <ScoreCard trend={trend} named={windowRate(scanWindow.cells)} />
                 )}
-                {shownResults.length > 0 && (
-                  <NamedInstead
-                    mentions={shownResults.filter((result) => result.mentioned).length}
-                    checks={shownResults.length}
-                    competitors={tallyCompetitors(shownResults, 6)}
-                  />
-                )}
+                {namedCard && <NamedInstead card={namedCard} />}
               </div>
             </div>
           ))}

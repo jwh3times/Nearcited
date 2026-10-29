@@ -26,6 +26,7 @@ const plan = (change: Partial<ActionPlanInput> = {}) =>
     name: "Joe's Pizza",
     website: "https://www.joes.example",
     answers: 20,
+    checks: 20,
     sources: [],
     site: null,
     competitors: [],
@@ -162,10 +163,27 @@ describe("the listings steps", () => {
     expect(steps.find((step) => step.id === "competitors")?.items).toEqual([
       {
         label: "Tony's Slice House",
-        detail: "Named in 12 of 20 answers",
+        detail: "Named in 12 of 20 checks",
         url: "https://tonysslicehouse.example/page",
       },
     ]);
+  });
+
+  it("counts who is named instead out of every check, Google's included, not the answers", () => {
+    const steps = plan({
+      answers: 20,
+      checks: 26,
+      competitors: [{ name: "Tony's Slice House", count: 12 }],
+    });
+    expect(steps.find((step) => step.id === "competitors")?.items).toEqual([
+      { label: "Tony's Slice House", detail: "Named in 12 of 26 checks", url: null },
+    ]);
+  });
+
+  it("offers no competitor step when no check counted", () => {
+    expect(
+      ids({ answers: 0, checks: 0, competitors: [{ name: "Tony's Slice House", count: 1 }] }),
+    ).not.toContain("competitors");
   });
 
   it("on a tie, lists first the competitors whose own site was read, so there is a link to follow", () => {

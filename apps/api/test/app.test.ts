@@ -308,7 +308,14 @@ describe("organizations and locations", () => {
     expect(detail.location.id).toBe(location.id);
     expect(detail.queries.map((q) => q.id)).toEqual([query.id]);
     expect(detail.latest_scan).toBeNull();
-    expect(detail.window).toEqual({ size: 7, scans: 0, cells: [], answers: 0, sources: [] });
+    expect(detail.window).toEqual({
+      size: 7,
+      scans: 0,
+      cells: [],
+      answers: 0,
+      sources: [],
+      competitors: [],
+    });
     // Sample data covers every surface, Google's only where the allowances include it.
     expect(detail.surfaces).toEqual(["chatgpt", "gemini", "perplexity", "claude"]);
     expect(detail.recommendations).toEqual([]);
@@ -393,6 +400,7 @@ describe("organizations and locations", () => {
           urls: ["https://reviews.example/best-pizza"],
         },
       ],
+      competitors: [],
     });
   });
 
@@ -449,6 +457,64 @@ describe("organizations and locations", () => {
     // A stranger sees neither.
     expect((await call(bob, "GET", `/locations/${location.id}`)).status).toBe(404);
     expect(await memoryStore(db, bob).getSiteCheck(location.id)).toBeNull();
+  });
+
+  it("counts who is named instead once, over the window's checks, for the card and the plan alike", async () => {
+    const { location, query } = await seed();
+    const keyword = TrackedQuerySchema.parse(
+      await (
+        await call(alice, "POST", `/locations/${location.id}/queries`, {
+          kind: "search_keyword",
+          text: "pizza raleigh",
+        })
+      ).json(),
+    );
+    const worker = memoryStore(db, null);
+    const check = (
+      surface: "chatgpt" | "google_organic" | "google_local_pack",
+      competitors: string[],
+      shown = true,
+    ) => ({
+      tracked_query_id: surface === "chatgpt" ? query.id : keyword.id,
+      surface,
+      mentioned: surface === "google_organic",
+      position: surface === "google_organic" ? 2 : null,
+      competitors,
+      cited_urls: [],
+      answer_excerpt: null,
+      phones: [],
+      shown,
+    });
+    for (const spelling of ["Tony's Slice House", "Tony's Slice House, LLC"]) {
+      const scan = await worker.createScan(location.id, "scheduled", null);
+      await worker.markScanRunning(scan.id, true);
+      await worker.completeScan(scan.id, {
+        score: 0,
+        results: [
+          check("chatgpt", [spelling, "Mellow Mushroom"]),
+          check("google_organic", [spelling]),
+          // Google showed nothing: it names nobody and counts neither way.
+          check("google_local_pack", ["Mellow Mushroom"], false),
+        ],
+        recommendations: [],
+      });
+    }
+
+    const detail = LocationDetailSchema.parse(
+      await (await call(alice, "GET", `/locations/${location.id}`)).json(),
+    );
+    // Two scans of a written answer and an organic result: four checks, two of them naming Joe's.
+    const sum = (field: "checks" | "mentions") =>
+      detail.window.cells.reduce((total, cell) => total + cell[field], 0);
+    expect([sum("checks"), sum("mentions")]).toEqual([4, 2]);
+    expect(detail.window.competitors).toEqual([
+      { name: "Tony's Slice House", count: 4 },
+      { name: "Mellow Mushroom", count: 2 },
+    ]);
+    expect(detail.action_plan.find((step) => step.id === "competitors")?.items).toEqual([
+      { label: "Tony's Slice House", detail: "Named in 4 of 4 checks", url: null },
+      { label: "Mellow Mushroom", detail: "Named in 2 of 4 checks", url: null },
+    ]);
   });
 
   it("hides another organization's location as a 404, for reads and writes", async () => {
