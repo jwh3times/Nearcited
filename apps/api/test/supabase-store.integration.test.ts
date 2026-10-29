@@ -1727,6 +1727,86 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
       { recommendation_id: task?.id, fetcher: "claudebot", count: 3, last_on: fetchedOn },
     ]);
     expect(await bobStore.listLocationPageFetches(site.id, "2026-01-01")).toEqual([]);
+
+    // Fetches of the site itself: the worker matches the Cloudflare zone holding its website and
+    // keeps the counts, which members read added up and nobody else reads at all.
+    const withFetches = await aliceStore.getOrganization(organization.id);
+    await admin
+      .from("organizations")
+      .update({ allowances: { ...withFetches?.allowances, fetches: true } })
+      .eq("id", organization.id)
+      .throwOnError();
+    const zoned = await aliceStore.createConnection({
+      id: crypto.randomUUID(),
+      organization_id: organization.id,
+      kind: "cloudflare",
+      label: "Cloudflare token",
+      sealed: "sealed-cloudflare-token",
+    });
+    if (!zoned) throw new Error("no Cloudflare connection");
+    const zones = [
+      { id: "zone-answering", label: "answering-pizza.example" },
+      { id: "zone-elsewhere", label: "elsewhere.example" },
+    ];
+    await expect(aliceStore.matchCloudflareZones(zoned.id, zones)).rejects.toBeInstanceOf(
+      StoreError,
+    );
+    expect(await worker.matchCloudflareZones(zoned.id, zones)).toEqual([
+      {
+        location_id: site.id,
+        zone_id: "zone-answering",
+        zone: "answering-pizza.example",
+        website: answering.website,
+        read_through: null,
+      },
+    ]);
+    const fetchedDay = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+    await expect(
+      aliceStore.recordSiteFetches(
+        site.id,
+        { from: fetchedDay, to: fetchedDay, connection_id: zoned.id },
+        [],
+      ),
+    ).rejects.toBeInstanceOf(StoreError);
+    expect(
+      await worker.recordSiteFetches(
+        site.id,
+        { from: fetchedDay, to: fetchedDay, connection_id: zoned.id },
+        [
+          { day: fetchedDay, fetcher: "gptbot", path: "/menu", count: 3 },
+          { day: fetchedDay, fetcher: "googlebot", path: "/", count: 5 },
+        ],
+      ),
+    ).toBe(2);
+    const sinceDay = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10);
+    expect(await aliceStore.getLocationFetches(site.id, sinceDay, false)).toEqual({
+      days: [
+        { day: fetchedDay, fetcher: "googlebot", count: 5 },
+        { day: fetchedDay, fetcher: "gptbot", count: 3 },
+      ],
+      pages: [
+        { fetcher: "googlebot", path: "/", count: 5 },
+        { fetcher: "gptbot", path: "/menu", count: 3 },
+      ],
+      other_pages: [],
+      read_through: fetchedDay,
+    });
+    expect(await aliceStore.getLocationFetches(site.id, sinceDay, true)).toMatchObject({
+      days: [],
+    });
+    expect(await bobStore.getLocationFetches(site.id, sinceDay, false)).toEqual({
+      days: [],
+      pages: [],
+      other_pages: [],
+      read_through: null,
+    });
+    expect(
+      (
+        await client(await token({ role: "anon" }))
+          .from("site_fetches")
+          .select("day")
+      ).error,
+    ).not.toBeNull();
     expect(await worker.takeBackHostedPage(publishing.id)).toBe(true);
     // A paused one's owners are told once.
     await admin

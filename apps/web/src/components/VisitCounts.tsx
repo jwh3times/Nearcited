@@ -94,7 +94,7 @@ export function VisitCounts({ locationId, kept = false }: VisitCountsProps) {
 }
 
 /** One small table of counts, named for what it counts by. */
-function Counted({
+export function Counted({
   caption,
   head,
   children,

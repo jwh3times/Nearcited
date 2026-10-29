@@ -1058,10 +1058,11 @@ export type RecommendationUpdate = z.output<typeof RecommendationUpdateSchema>;
  * The kinds of outside account that can be connected. `sample` stands in for a real one where
  * the data is generated. `wordpress` is a business's own WordPress site (`wordpress.ts`).
  * `hosted_pages` is an answer subdomain of the business's own domain, which the product serves
- * pages on (`hosted-pages.ts`); it has no sign-in. See
+ * pages on (`hosted-pages.ts`); it has no sign-in. `cloudflare` is a token that reads the
+ * request counts of the zones a business's site is served through (`fetches.ts`). See
  * `docs/adr/0013-a-sign-in-is-sealed-by-the-worker.md`.
  */
-export const CONNECTION_KINDS = ["sample", "wordpress", "hosted_pages"] as const;
+export const CONNECTION_KINDS = ["sample", "wordpress", "hosted_pages", "cloudflare"] as const;
 export const ConnectionKindSchema = z.enum(CONNECTION_KINDS);
 export type ConnectionKind = z.infer<typeof ConnectionKindSchema>;
 
@@ -1069,6 +1070,7 @@ export const CONNECTION_KIND_LABELS: Record<ConnectionKind, string> = {
   sample: "Sample account",
   wordpress: "WordPress site",
   hosted_pages: "Answer subdomain",
+  cloudflare: "Cloudflare account",
 };
 
 /**
@@ -1079,6 +1081,7 @@ export const CONNECTION_KIND_ALLOWANCES: Record<ConnectionKind, string | null> =
   sample: null,
   wordpress: "wordpress",
   hosted_pages: "hosted_pages",
+  cloudflare: "fetches",
 };
 
 /**
@@ -1185,8 +1188,26 @@ export const OrganizationConnectionsSchema = z.object({
 });
 export type OrganizationConnections = z.infer<typeof OrganizationConnectionsSchema>;
 
-/** What is sent to connect an account. */
-export const ConnectionInputSchema = z.object({ kind: ConnectionKindSchema });
+/**
+ * A Cloudflare API token as Cloudflare shows it once, when it is made: letters, digits, `-` and
+ * `_`, forty of them as Cloudflare makes them now.
+ */
+export const CloudflareTokenSchema = z
+  .string()
+  .trim()
+  .regex(
+    /^[A-Za-z0-9_-]{30,200}$/,
+    "That is not a Cloudflare API token. Copy the whole token Cloudflare showed you.",
+  );
+
+/**
+ * What is sent to connect an account. A Cloudflare account is connected with a token its owner
+ * made; the rest with nothing, or not from here at all.
+ */
+export const ConnectionInputSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("cloudflare"), token: CloudflareTokenSchema }),
+  z.object({ kind: ConnectionKindSchema.exclude(["cloudflare"]) }),
+]);
 export type ConnectionInput = z.infer<typeof ConnectionInputSchema>;
 
 /**
@@ -2276,6 +2297,67 @@ export const LocationVisitsSchema = z.object({
 export type LocationVisits = z.infer<typeof LocationVisitsSchema>;
 
 /**
+ * Where a location's fetches come from, as its page says it. `counted`: from the Cloudflare zone
+ * matched to it, which may be `broken`. `elsewhere`: the zone holding its website is matched to
+ * another location, whose page shows them where it has the `same_website`, and which counts them
+ * nowhere where it does not. Otherwise why none are counted: the plan does not include it, there
+ * is no website on file, nothing is connected, the connection is broken, no zone the token reaches
+ * holds the website, or the worker matches one at its next read. `sample` is made up, never read.
+ */
+export const FetchSourceSchema = z.discriminatedUnion("state", [
+  z.object({
+    state: z.literal("counted"),
+    zone: z.string(),
+    connection_id: Id,
+    broken: z.boolean(),
+  }),
+  z.object({
+    state: z.literal("elsewhere"),
+    zone: z.string(),
+    location_id: Id,
+    location_name: z.string(),
+    same_website: z.boolean(),
+  }),
+  z.object({
+    state: z.enum([
+      "sample",
+      "not_on_plan",
+      "no_website",
+      "not_connected",
+      "broken",
+      "not_in_zone",
+      "waiting",
+    ]),
+  }),
+]);
+export type FetchSource = z.infer<typeof FetchSourceSchema>;
+
+/**
+ * A location's fetches by known fetchers over a run of finished days, added up: what Cloudflare
+ * estimated, and nothing about any request. The fetcher is a name this build may not know yet,
+ * so it is not held to the list.
+ */
+export const LocationFetchesSchema = z.object({
+  source: FetchSourceSchema,
+  /** The first day (UTC) added up, and the last, which is yesterday. */
+  since: z.string(),
+  through: z.string(),
+  /** The last day the zone was read through for this location. Null until its first read. */
+  read_through: z.string().nullable(),
+  /** How many requests a fetcher made on a day, for each that made any. */
+  days: z.array(
+    z.object({ day: z.string(), fetcher: z.string(), count: z.number().int().positive() }),
+  ),
+  /** The pages each fetcher fetched most, at most five for each. */
+  pages: z.array(
+    z.object({ fetcher: z.string(), path: z.string(), count: z.number().int().positive() }),
+  ),
+  /** For each fetcher, its fetches of pages past the fiftieth of their day, counted together. */
+  other_pages: z.array(z.object({ fetcher: z.string(), count: z.number().int().positive() })),
+});
+export type LocationFetches = z.infer<typeof LocationFetchesSchema>;
+
+/**
  * What the line on a business's site sends, with no sign-in. One of two things: its owner
  * checking that the line is there, or a visit that arrived from an assistant. Nothing in either
  * is about the visitor, and which assistant it was is worked out from this, never sent.
@@ -2331,6 +2413,16 @@ export const ExportPageFetchSchema = z.object({
   count: z.number().int(),
 });
 
+/** How often a fetcher read a page of a location's own site on a day, in an export. */
+export const ExportSiteFetchSchema = z.object({
+  location_id: Id,
+  day: z.string(),
+  fetcher: PageFetchesSchema.shape.fetcher,
+  path: z.string(),
+  count: z.number().int(),
+  sample_data: z.boolean(),
+});
+
 /**
  * Everything an organization holds, as its owner downloads it. Each list's rows are the same
  * wire types the app is sent. Never a sign-in, the operator's record of changes or what the
@@ -2358,6 +2450,7 @@ export const AccountExportSchema = z.object({
   visits: z.array(ExportVisitSchema),
   hosted_pages: z.array(ExportHostedPageSchema),
   page_fetches: z.array(ExportPageFetchSchema),
+  site_fetches: z.array(ExportSiteFetchSchema),
 });
 export type AccountExport = z.infer<typeof AccountExportSchema>;
 

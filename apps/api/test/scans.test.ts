@@ -2106,3 +2106,38 @@ describe("Google results", () => {
     expect(db.results).toEqual([]);
   });
 });
+
+describe("a sample scan's fetches", () => {
+  const allow = (allowances: Record<string, true>) => {
+    const organization = db.organizations[0];
+    if (organization) organization.allowances = allowances;
+  };
+
+  it("are made up for the last thirty days where the plan counts fetches, and asked of nobody", async () => {
+    allow({ fetches: true });
+    const scan = await queueScan();
+    await runScan(scan.id, { store: worker, providers: createMockProviders(), sampleData: true });
+    expect(db.siteFetches.length).toBeGreaterThan(0);
+    expect(
+      db.siteFetches.every((kept) => kept.sample_data && kept.location_id === locationId),
+    ).toBe(true);
+    expect(new Set(db.siteFetches.map((kept) => kept.day)).size).toBe(30);
+    // Made again by the next scan, they are the same.
+    const first = [...db.siteFetches];
+    await runScan((await queueScan()).id, {
+      store: worker,
+      providers: createMockProviders(),
+      sampleData: true,
+    });
+    expect(db.siteFetches).toEqual(expect.arrayContaining(first));
+    expect(db.siteFetches).toHaveLength(first.length);
+  });
+
+  it("are not made where the plan does not count fetches, or for a real scan", async () => {
+    const scan = await queueScan();
+    await runScan(scan.id, { store: worker, providers: createMockProviders(), sampleData: true });
+    allow({ fetches: true });
+    await runScan((await queueScan()).id, { store: worker, providers });
+    expect(db.siteFetches).toEqual([]);
+  });
+});

@@ -272,6 +272,8 @@ export async function proposeAfterSync(connectionId: string, deps: ActionDeps): 
   const { store, key } = deps;
   const connection = await store.getConnection(connectionId);
   if (connection?.status !== "working") return 0;
+  // A Cloudflare token only reads fetches: there is nothing to do through it.
+  if (connection.kind === "cloudflare") return 0;
   // An answer subdomain has no sign-in to open.
   if (connection.kind === "hosted_pages") return proposeHostedPages(connection, deps);
   if (!key) return 0;

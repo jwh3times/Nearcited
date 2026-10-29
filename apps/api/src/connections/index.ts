@@ -4,6 +4,7 @@ import {
   type ConnectionChoice,
   type ConnectionKind,
   type ConnectionMessage,
+  daysToRead,
   type Organization,
   windingDown,
 } from "@nearcited/shared";
@@ -14,6 +15,7 @@ import type { Env } from "../env";
 import { usesSampleData } from "../providers";
 import { fetchSite } from "../site/fetch";
 import type { Store } from "../store/types";
+import { listZones, readFetches, TokenRefused, zoneLimits } from "./cloudflare";
 import {
   type Cloudflare,
   type HostedDeps,
@@ -45,7 +47,7 @@ export function availableConnectionKinds(
   // A real account is written to, so it is offered only where nothing is generated: a test
   // organization's actions never leave the product, and nor do a sample deployment's.
   const offered: ConnectionKind[] =
-    usesSampleData(env) || organization.is_test ? ["sample"] : ["wordpress"];
+    usesSampleData(env) || organization.is_test ? ["sample"] : ["wordpress", "cloudflare"];
   return offered.filter((kind) => {
     const needed = CONNECTION_KIND_ALLOWANCES[kind];
     return needed === null || organization.allowances[needed] !== undefined;
@@ -137,6 +139,9 @@ async function read(
     case "hosted_pages":
       // Checked, not read: `checkAnswerSubdomain`.
       return { choices: [] };
+    case "cloudflare":
+      // Read with its fetches: `syncZones`.
+      return { choices: [] };
   }
 }
 
@@ -155,6 +160,10 @@ async function withdraw(
     case "wordpress":
       return withdrawPassword(readWordPressSignIn(signIn), outside);
     case "hosted_pages":
+      return true;
+    case "cloudflare":
+      // A token can only read, and cannot delete itself: deleting the copy here is the whole of
+      // what the product can take back. The owner is told to delete it at Cloudflare too.
       return true;
   }
 }
@@ -321,6 +330,10 @@ export async function syncConnection(
     return "unreadable";
   }
 
+  if (connection.kind === "cloudflare") {
+    return syncZones(connection, signIn, deps);
+  }
+
   let reached: Reached;
   try {
     reached = await (deps.read ?? ((kind, kept) => read(kind, kept, deps.outside ?? {})))(
@@ -339,6 +352,60 @@ export async function syncConnection(
   return (await store.recordConnectionSync(connectionId, reached.choices))
     ? "synced"
     : "not_working";
+}
+
+/**
+ * Syncs a Cloudflare connection: lists the zones its token reaches, matches each to the location
+ * whose website it holds, and reads each match's fetches for the days due (`daysToRead`). The
+ * connection is recorded as synced, which mends one that only kept failing, only once every read
+ * has worked, so reads that keep failing break it as a sync would. A refused token breaks it at
+ * once.
+ */
+async function syncZones(
+  connection: Connection,
+  token: string,
+  deps: ConnectionDeps,
+): Promise<"synced" | "not_working" | "refused" | "failed"> {
+  const { store } = deps;
+  const outside = deps.outside ?? {};
+  const failed = async (error: unknown) => {
+    const refused = error instanceof TokenRefused;
+    console.error(
+      `Connection ${connection.id}: its read ${refused ? "was refused" : "failed"}`,
+      error,
+    );
+    await recordFailure(connection.id, refused, deps);
+    return refused ? ("refused" as const) : ("failed" as const);
+  };
+
+  let zones: Reached["choices"];
+  try {
+    zones = await listZones(token, outside);
+  } catch (error) {
+    return failed(error);
+  }
+  const now = deps.now ?? new Date();
+  for (const match of await store.matchCloudflareZones(connection.id, zones)) {
+    let counts: Awaited<ReturnType<typeof readFetches>>;
+    let days: string[];
+    try {
+      const limits = await zoneLimits(token, match.zone_id, outside);
+      days = daysToRead(match.read_through, now, limits.keptForSeconds);
+      if (days.length === 0) continue;
+      counts = await readFetches(token, match, days, limits, outside);
+    } catch (error) {
+      return failed(error);
+    }
+    const [from] = days;
+    const to = days.at(-1);
+    if (!from || !to) continue;
+    await store.recordSiteFetches(
+      match.location_id,
+      { from, to, connection_id: connection.id },
+      counts,
+    );
+  }
+  return (await store.recordConnectionSync(connection.id, zones)) ? "synced" : "not_working";
 }
 
 /**
