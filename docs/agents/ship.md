@@ -2,8 +2,9 @@
 
 ## Fast checks
 
-Together they cover every required check that can run here. All need `pnpm install`; where `pnpm`
-is not on `PATH`, `npx pnpm@10.28.0 <args>` (see `docs/agents/workspace.md`).
+Together they cover the static gates of every required check and its unit suites. All need
+`pnpm install`; where `pnpm` is not on `PATH`, `npx pnpm@10.28.0 <args>` (see
+`docs/agents/workspace.md`).
 
 - repo root: `pnpm check` (**Lint, typecheck, test, build**: Biome `lint`, `typecheck`, every
   package's `test` including the row-level security tests, `test:scripts`, `build`; well under a
@@ -17,18 +18,21 @@ is not on `PATH`, `npx pnpm@10.28.0 <args>` (see `docs/agents/workspace.md`).
   `.claude/skills/` and `.codex/agents/`
 - repo root: `node --test scripts/lint-agent-neutrality.test.mjs` and `pnpm lint:agents` (**Verify
   generated agent config**)
-- repo root, only when `apps/api/src/store/`, `apps/api/test/supabase-store.integration.test.ts`,
-  `supabase/migrations/` or `scripts/integration-db.sh` changed, and only with Postgres and
-  PostgREST running and `POSTGREST_URL` set (README "Integration tests"):
-  `pnpm --filter @nearcited/api exec vitest run test/supabase-store.integration.test.ts`
-  (**Store against Postgres and PostgREST**)
-- repo root, only when `apps/web/`, `apps/e2e/`, `apps/api/src/routes/`, `apps/api/src/app.ts` or
-  `packages/shared/src/schemas.ts` changed, with the local Supabase stack running and the env files
-  written (`pnpm local:env` once): `pnpm e2e` (**End-to-end in a browser**)
 
-Left to CI: CodeQL (medium-or-higher alerts block the merge) and the Copilot review; the store
-integration test and the browser tests whenever their services are not running here — the report
-then names the one that covers the change.
+Left to CI, because each needs more than this checkout:
+
+- **Store against Postgres and PostgREST** — needs Postgres and PostgREST. Covers
+  `apps/api/src/store/`, `apps/api/test/supabase-store.integration.test.ts`, `supabase/migrations/`
+  and `scripts/integration-db.sh`; with the services running and `POSTGREST_URL` set (README
+  "Integration tests") it runs here as
+  `pnpm --filter @nearcited/api exec vitest run test/supabase-store.integration.test.ts`.
+- **End-to-end in a browser** — needs the local Supabase stack and a browser. Covers `apps/web/`,
+  `apps/e2e/`, `apps/api/src/routes/`, `apps/api/src/app.ts` and `packages/shared/src/schemas.ts`;
+  with the stack running and the env files written (`pnpm local:env` once) it runs here as
+  `pnpm e2e`.
+- CodeQL (medium-or-higher alerts block the merge) and the Copilot review.
+
+The report names the CI-only suite that covers the change.
 
 ## Issue link
 
@@ -55,8 +59,8 @@ then names the one that covers the change.
 1. Walk the branch's whole diff (`git diff "$(git merge-base origin/main HEAD)"..HEAD`) once for
    each row of `## Rule triggers` below whose trigger it matches, and check it contains what that
    row requires. Fix what is missing; stop and tell the user when the fix is a design decision. A
-   fix made here: run `docs-updater` again when it changed a documented fact, then the `Fast
-   checks` from the top.
+   fix made here: run `docs-updater` again when it changed a documented fact, then the
+   `Fast checks` from the top.
 2. A migration that drops or renames something the deployed Worker uses: the body says it is
    deployed first and migrated second.
 3. Fill the template: **What changed**; **How it was checked** with the fast checks actually run and

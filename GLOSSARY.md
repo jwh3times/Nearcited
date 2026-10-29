@@ -65,6 +65,10 @@ system works; this file only settles vocabulary.
   that the site reports its visits from assistants. It reports nothing about any other visit.
 - **Line check** (or **check**): an owner opening their own site through a marked link, so that
   the line reports it is there. Noted with its day, and never counted as a visit.
+- **Fetch**: one read of a page by an assistant's fetcher or a search engine's crawler, known by
+  the name it gives. Never a visit, and never a person. Counted, never recorded: how many there
+  were on a day, by a fetcher, of a page. Anyone can claim a fetcher's name, so nothing is worked
+  out from the count.
 - **Site key**: what the line carries to say which location a visit is for. Anyone who opens the
   site's source can read it, so it is no secret, and an owner or admin can replace it.
 - **Alert**: a statement that something measured has changed at a location in a way its owner
