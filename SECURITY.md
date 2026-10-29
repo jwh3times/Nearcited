@@ -169,6 +169,15 @@ Nearcited is multi-tenant, and tenant isolation is enforced by Postgres row-leve
   count for a page, a day and a fetcher (nothing about the visitor), and `hosted_page()` sending a
   visitor anywhere but the location's own website. Posting made-up fetches within those bounds is
   known: anyone can claim to be a fetcher, and nothing is worked out from the count.
+- Fetches of a business's own site, read from its Cloudflare zone: a Cloudflare token appearing in
+  any response, log line or stored place but the sealed sign-in, or sent anywhere but Cloudflare's
+  API or on through a redirect; calling `match_cloudflare_zones()` or `record_site_fetches()` as
+  anyone but the worker, matching a zone to a location by hand, or a zone's counts kept for a
+  location of another organization or a host other than the location's website; writing
+  `site_fetches` other than through `record_site_fetches()`, or a row in it that is anything but a
+  count for a day, a location, a known fetcher and a page; and reading another organization's
+  counts through `location_site_fetches()` or `GET /api/locations/:locationId/fetches`, or any of
+  them as a caller who is not signed in.
 - Reading a shareable audit without its link, or after it was revoked or expired; listing audits;
   or creating one. `/api/audits/:token` is the one route that gives out an organization's data
   with no sign-in, and the token in the link is the only key to it. `/api/plans` needs no sign-in

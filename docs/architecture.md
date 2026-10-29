@@ -1101,11 +1101,11 @@ A connection is an organization's standing sign-in to an outside account (`conne
 is in `GLOSSARY.md`, the decision in `docs/adr/0013-a-sign-in-is-sealed-by-the-worker.md`). What
 exists is making one, listing them, reading what one reaches, saying which of those is each
 location's, breaking one that stops working, pausing one the plan stops including, and removing
-one. There are three kinds, `sample`, `wordpress` (see "A WordPress site" below) and `hosted_pages`
-(see "An answer subdomain" below). Nothing reads
-anything from an account beyond what it reaches, and the only thing done through one is the
-`sample` kind's action (see "Actions"). The `sample` kind never fails and needs no allowance, so
-only a WordPress connection or an answer subdomain can break or pause in practice.
+one. There are four kinds, `sample`, `wordpress` (see "A WordPress site" below), `hosted_pages`
+(see "An answer subdomain" below) and `cloudflare` (see "Fetches of a business's own site").
+Nothing reads anything from an account beyond what it reaches, but for a Cloudflare zone's request
+counts, and nothing is done through a Cloudflare one (see "Actions" for the rest). The `sample`
+kind never fails and needs no allowance, so only the other three can break or pause in practice.
 
 - **Only an owner or admin connects or removes.** `create_connection()` and
   `request_connection_removal()` are security-definer functions that return no row to anyone else,
@@ -1180,8 +1180,9 @@ only a WordPress connection or an answer subdomain can break or pause in practic
   logged and does not undo what was recorded. Mending clears all of it, so a connection that
   breaks again is told again.
 - **A plan that stops including a kind of connection pauses it.** `connection_kind_allowances` says
-  which allowance a kind needs, and a kind not listed needs none: `sample` needs none and
-  `wordpress` needs the `wordpress` allowance. `CONNECTION_KIND_ALLOWANCES` (`packages/shared/src/schemas.ts`) is the same list, and a test
+  which allowance a kind needs, and a kind not listed needs none: `sample` needs none,
+  `wordpress` needs the `wordpress` allowance, `hosted_pages` the `hosted_pages` one and
+  `cloudflare` the `fetches` one. `CONNECTION_KIND_ALLOWANCES` (`packages/shared/src/schemas.ts`) is the same list, and a test
   in `packages/db` holds the two equal. The table has row-level security on, no policy and no grant
   to any API role. `create_connection()` refuses a kind the organization's allowances do not include
   (`NC012`), and `availableConnectionKinds` leaves it out. `fit_connections_to_plan()`, which
@@ -1217,9 +1218,18 @@ only a WordPress connection or an answer subdomain can break or pause in practic
   returns `sample` for a deployment in mock mode, or for a test organization in any deployment,
   and leaves out a kind the organization's allowances do not include. It makes up a sign-in and
   calls the account "Sample account", so the path runs with no outside account. On live data it
-  offers `wordpress` to an organization that is not a test one and whose allowances include it.
-  It never offers `hosted_pages` here, which is set up from a location (below). The page leaves
-  both out of its connect buttons.
+  offers `wordpress` and `cloudflare` to an organization that is not a test one and whose
+  allowances include each. It never offers `hosted_pages` here, which is set up from a location
+  (below). The page leaves `wordpress` and `hosted_pages` out of its connect buttons and gives
+  `cloudflare` a form of its own.
+- **A Cloudflare account is connected with a token, and matched by the worker.** The generic
+  route takes `{ kind: "cloudflare", token }` (`CloudflareTokenSchema`), labels the connection
+  "Cloudflare token", seals the token as the sign-in and queues the first sync; it never tries the
+  token, so one Cloudflare refuses breaks the connection moments later. The match routes, and
+  `match_connection_location()`, refuse a Cloudflare connection (`not_matched_by_hand`): its zones
+  are matched to locations by the worker (see "Fetches of a business's own site"). It proposes no
+  action (`proposeAfterSync`). Removing one deletes the token here and nothing at Cloudflare, since
+  a token cannot delete itself; the remove screen tells the owner to delete it there.
 - **A WordPress site is connected from its location.** The generic
   `POST /api/organizations/:organizationId/connections` refuses the kind with 422
   `connect_from_location`. `apps/api/src/routes/wordpress.ts` has two routes for an owner or an
@@ -1407,7 +1417,8 @@ stays the main Worker's (see "Connections"); the Pages Worker only serves what i
   `ctx.waitUntil`, after the answer is made, so the visitor waits for nothing; a count that fails
   is only logged. The function is granted to `anon` like `hosted_page()` and trusts nothing it is
   told: the day is its own (UTC), the page must be live on a live answer subdomain, the fetcher
-  must be one the table's check names (the same list as `PAGE_FETCHERS`; add one in both), and a
+  must be one the table's check names (the same list as `PAGE_FETCHERS`, which a business's own
+  site's fetches use too; add one in all six places `AGENTS.md` names), and a
   page's count for a day and a fetcher stops at `MOST_FETCHES_A_DAY` (1,000). It tells the caller
   nothing either way. `hosted_page_fetches` keeps only a count for a page, a day and a fetcher.
   `GET /api/locations/:id` reads it through `location_page_fetches()` (as the caller) for the last
@@ -1418,6 +1429,104 @@ stays the main Worker's (see "Connections"); the Pages Worker only serves what i
 - **How it bills.** Every request to every answer subdomain runs the Pages Worker, which Cloudflare
   bills as Worker requests on the account's plan, and Cloudflare for SaaS bills custom hostnames
   past those its plan includes. What a hosted page costs in practice is not recorded here.
+
+## Fetches of a business's own site
+
+An assistant's fetcher reads a page without running its scripts, so the line (see "Visits from
+assistants") never sees it. Where a location's website is served through Cloudflare, the
+organization's owner or an admin connects a Cloudflare account, and the worker reads from the zone
+how often each known fetcher fetched each page (issue #156; the term is in `GLOSSARY.md`, the
+decision in `docs/adr/0028-a-sites-fetches-are-read-from-its-cloudflare-zone.md`).
+
+```
+daily sync, or the first one queued at connecting
+        |
+syncZones (apps/api/src/connections/index.ts)
+        |  listZones: GET /zones with the token        (refused, or no zone: broken as refused)
+        v
+match_cloudflare_zones(connection, zones)   (worker only: one zone, one location)
+        |  for each match:
+        |    zoneLimits: how far back the zone keeps its figures (notOlderThan)
+        |    daysToRead: the days due
+        |    readFetches: one GraphQL query a day, httpRequestsAdaptiveGroups
+        v
+record_site_fetches(location, from, to, counts, connection)   (worker only)
+        |
+site_fetches: a count for a location, a day (UTC), a fetcher and a page
+        |
+record_connection_sync(), once every read has worked
+```
+
+- **The token only reads.** It needs Zone › Zone › Read, to list the zones it reaches, and Zone ›
+  Analytics › Read, for their request counts; the Connections page asks for exactly those two.
+  `apps/api/src/connections/cloudflare.ts` sends it only to `api.cloudflare.com`, with redirects
+  refused and a 15-second timeout. A 401 or 403, a token that reaches no zone, or a GraphQL error
+  saying it may not read the analytics (Cloudflare answers that with a 200) throws `TokenRefused`,
+  which breaks the connection as `refused` at once. Any other failure counts as a failed sync, so
+  reads that keep failing break it as `failing` on the third day (see "Connections"). The
+  connection is recorded as synced only once every match's read has worked.
+- **One zone, one location, matched by the worker.** `match_cloudflare_zones()` keeps the zones as
+  the connection's `choices`, takes away a match whose zone is gone or no longer holds its
+  location's website host (`zone_holds()`; `zoneHolds` in the shared package works out the same),
+  and matches each zone, the longest first, to the organization's location whose website host it
+  holds, the one made first where several do, unless that location already has a zone or another of
+  the organization's connections has that zone matched. So a zone of a location's own subdomain goes
+  to it, and the shorter zone to the next. It answers nothing for a connection that is not a working
+  or failing Cloudflare one. An owner cannot match one by hand.
+- **Only the website's host is read, by fetcher, page and day.** `readFetches` asks
+  `httpRequestsAdaptiveGroups` for one UTC day per query (Cloudflare's Free plan answers for no more
+  than a day at once), filtered to the website's host with and without `www.` (`fetchedHosts`) and
+  to user agents containing a fetcher's name as its maker spells it (`SPELLED`, one for each of
+  `PAGE_FETCHERS`). Which fetcher a request was is still decided by `fetcherOf` from the whole user
+  agent, as for a hosted page. Another host in the zone, an answer subdomain among them, is left
+  out. A path is cut at `?` and at 200 characters. Cloudflare samples a busy zone and scales up, so
+  each count is its estimate, rounded.
+- **Which days.** `daysToRead` (`packages/shared/src/fetches.ts`): the first read takes the last
+  `FETCHES_SHOWN_DAYS` (30) finished days, but never a day the zone no longer keeps (its
+  `notOlderThan`, about a week on Cloudflare's Free and Pro plans); after that, the last finished day
+  and the day before it again, since a day's figures go on arriving for a while, plus any days a
+  missed read left, never more than thirty back. `connection_locations.read_through` is the last
+  day read, and a match made again starts with none.
+- **`record_site_fetches()` keeps them, and trusts nothing it is told.** Only the worker calls it.
+  It replaces whatever was kept for the days it is given (at most a month of them), keeps only a
+  known fetcher (the table's check names the same ten as `PAGE_FETCHERS`), a path from its first
+  slash and a day in the run, and keeps at most fifty pages for a location a day, the most fetched
+  (`MOST_FETCHED_PAGES_A_DAY`; `boundedFetches` works out the same), with the rest counted together
+  under an empty path. For a zone's read it writes nothing unless the zone is still matched to the
+  location through a working or failing connection, and then moves `read_through` on. Nothing about
+  a request is kept: no time of day, address, query or user agent. The counts stay when the
+  connection is removed, and go with the location.
+- **Read added up.** `GET /api/locations/:locationId/fetches` (`apps/api/src/routes/fetches.ts`)
+  reads through `location_site_fetches(location, since, sample)`, which runs as the caller, so
+  row-level security decides what it adds up: by day and fetcher, the five pages each fetcher
+  fetched most, each fetcher's fetches of the pages past the fiftieth of their day, and
+  `read_through`. `fetchSource` works out where they come from: `counted` (with the zone, and
+  whether its connection is broken), `elsewhere` (the zone holding the website is another
+  location's; that location is named and no count is sent, so none is shown twice, and where its
+  website differs the zone counts this one nowhere), or why there are none: `not_on_plan`,
+  `no_website`, `not_connected`, `broken`, `not_in_zone`, or `waiting` (never read yet, or a zone
+  that holds the website, which the next read will match).
+- **The section is `apps/web/src/components/SiteFetches.tsx`**, "Fetches of your website", on the
+  location page's Website tab beside the visits. It shows the zone, then the assistants' fetchers
+  and the search engines' crawlers apart, each fetcher with its total, its days and its pages fetched
+  most, every count said as "about" (`apps/web/src/lib/fetches.ts`, `FETCH_WORDS`). Under them it
+  always says only the website's own address is counted, that each figure is an estimate, that
+  anyone can claim a fetcher's name and that a day is a day in UTC. On a plan that never counted
+  fetches it shows nothing; on one that stopped, what was counted. The Connections page has the
+  token form (`CLOUDFLARE_WORDS`) and, for each Cloudflare connection, its zones and the location
+  each is counted for.
+- **`fetches` is an allowance that is included or not.** It is in `allowance_kinds` and
+  `ALLOWANCE_KINDS` ("Fetches by assistants counted"), `FETCHES_ALLOWANCE` is its key, and a
+  `cloudflare` connection needs it. The migration put it on no plan: which plans include it is the
+  operator's to set. A test organization has every kind.
+- **Sample counts are made up, never read.** A scan on sample data (a deployment in mock mode, or a
+  test organization) whose allowances include `fetches` writes `sampleFetches` for the last thirty
+  days through `record_site_fetches()` with `sample_data` true; a failure is logged and the scan
+  stands. A Cloudflare connection is never offered there, and the route reads only sample rows on
+  sample data and only real ones otherwise.
+- **Nothing rests on the count.** Anyone can claim a fetcher's name, so no score, alert, task,
+  report or bill is worked out from it. The export carries the counts (`site-fetches.csv`), and the
+  privacy policy says what is read and kept.
 
 ## Actions
 
@@ -1833,6 +1942,8 @@ who is not signed in reaches a live page only through `hosted_page()`, which ans
 subdomain alone and is, with `record_page_fetch()`, the only thing the Pages Worker calls (see "Hosted pages").
 `hosted_page_fetches` is read by the location's members and the operator, with no policy or grant for
 a caller who is not signed in, and written by no API role, only by `record_page_fetch()`.
+`site_fetches` is the same, written only by the worker's `record_site_fetches()` and read added up
+through `location_site_fetches()` (see "Fetches of a business's own site").
 `standing_permissions` is read by the organization's members and the operator and written by no API
 role, only by `give_standing_permission()` and `end_standing_permission()`, which answer an owner or
 admin alone, and by the database's own functions when a take-back or the plan ends one (see "Actions").
@@ -2013,7 +2124,9 @@ copy, edit and lower a plan.
   `wordpress` is included or not like `visits`: `20261014110000_wordpress_connections.sql` put it
   on Pro and Enterprise and on each organization already on them except a test organization.
   `hosted_pages` is the same: `20261016110000_answer_subdomains.sql` turned it on for them (the kind
-  itself came in `20261016100000_hosted_pages_kind.sql`).
+  itself came in `20261016100000_hosted_pages_kind.sql`). `fetches` is included or not too, and on
+  no plan: `20261024000000_cloudflare_kind.sql` added the kind and left which plans include it to
+  the operator.
 - **Use of a counted kind is kept in `allowance_use`**, one row for an organization, a kind and a
   calendar month in UTC. Its members read their own organization's rows and the operator reads
   all of them; no API role writes it, since a count a member could write is a count a member could
@@ -2196,7 +2309,8 @@ or grant, so no API role reads it. Until `finishClosing` it holds the addresses 
 needs and whose organization it was; after, those are cleared and it keeps a SHA-256 of the owner's trimmed, lower-cased address
 (`email_fingerprint()`) and the day. For thirty days `create_organization()` starts an organization
 made from that address with its free first scan used. The daily run then forgets the row
-(`dropFinishedClosings`). What the owner added to a WordPress site stays.
+(`dropFinishedClosings`). What the owner added to a WordPress site stays. A Cloudflare token is
+deleted here and stays at Cloudflare, and the closing email does not ask the owner to delete it.
 
 ## Wire types
 
@@ -2231,7 +2345,9 @@ drop it.
   (both counted by a budget, `robots.txt` and redirects included) unless it serves sample data.
   Workers cap subrequests and CPU time per invocation, and the caps differ by plan. Check the current numbers before raising the queries allowed per
   location. If a scan outgrows one invocation, queue one message per check instead of one per
-  scan.
+  scan. A Cloudflare connection's sync is one invocation too: a request for each page of zones (up
+  to twenty), and for each matched location one for the zone's limits and one for each day read,
+  up to thirty on a first read of a zone that keeps that long.
 - **Queue delivery is at-least-once.** `runScan` is written to be safe to repeat.
 - **The cron queues at most 100 locations per run** (one `sendBatch`). They sort oldest-first, so
   none starve, but a daily cron cannot keep up with more than 100 daily locations. Run it more
@@ -2259,7 +2375,8 @@ drop it.
   visits, which can be 255 rows a day and are kept. They are never read row by row. They are added
   up in the database, by `location_visits()`, which answers a day's count for each assistant, ten
   pages and one more number, so what the API returns is short however many rows were added up (see
-  "Visits from assistants").
+  "Visits from assistants"). A location's site fetches are read the same way, added up by
+  `location_site_fetches()` (see "Fetches of a business's own site").
 
 ## Known gaps
 
@@ -2268,14 +2385,16 @@ drop it.
   A signed-in user cannot update a scan, so the request that hit the failure cannot clear it.
 - On a Supabase project that still signs tokens with a legacy shared secret, `getClaims` asks the
   Auth server on every request. Use asymmetric signing keys.
-- Allowances limit little yet. Seven kinds of allowance exist (`ALLOWANCE_KINDS` and
+- Allowances limit little yet. Eight kinds of allowance exist (`ALLOWANCE_KINDS` and
   `allowance_kinds`): `drafts`, counted, and `visits`, `wordpress`, `hosted_pages`, `stronger_models`,
-  `google_results` and `standing_permission`, included or not.
+  `google_results`, `standing_permission` and `fetches`, included or not.
   Every paid plan includes `drafts` and `visits`, Pro and Enterprise include `wordpress`,
-  `hosted_pages` and `standing_permission`, and the free plan includes none. A test organization is
+  `hosted_pages` and `standing_permission`, no plan includes `fetches` until the operator puts it
+  on one, and the free plan includes none. A test organization is
   given every kind, so its drafts are counted and its visits and WordPress connection are included,
-  but it is refused an answer subdomain, whose pages would go out under a real domain. The
-  `wordpress` and `hosted_pages` kinds of connection name an allowance, and the kinds of action
+  but it is refused an answer subdomain, whose pages would go out under a real domain, and is
+  offered no Cloudflare connection, its fetches being made up. The
+  `wordpress`, `hosted_pages` and `cloudflare` kinds of connection name an allowance, and the kinds of action
   that go through them take from the same two, which are included without a number; so a number
   for any kind but `drafts` would be stored, shown and lowered by announcement, but no work would
   stop at it or be counted against it. What an allowance can stop is a kind of connection that
@@ -2332,7 +2451,16 @@ drop it.
   can be padded; the ceiling in `record_page_fetch()` bounds what one page and fetcher can add in
   a day, and nothing is worked out from it. A fetcher that names itself with another word, or none,
   is not counted, and the list was read from the fetchers' published names, so one that is renamed
-  counts nothing until the list is changed. The page task shows the last thirty days only.
+  counts nothing until the list is changed. The page task shows the last thirty days only. The same
+  holds for fetches of a business's own site, which Cloudflare also only estimates on a busy zone.
+- Fetches of a business's own site are read only from a Cloudflare zone, so a site served elsewhere
+  has none counted; there is no plugin, log or builder source. Only the website's host with and
+  without `www.` is read: a page on another host of the zone, or a location whose website is in a
+  zone matched to another location with a different website, is counted nowhere. A zone's first
+  read reaches back only as far as its plan keeps request figures, about a week on Cloudflare's Free
+  and Pro plans, and a token that loses a permission is found only at the next daily read. A
+  refused token is not tried again: the owner removes the connection and connects a new token.
+  Removing it, or closing the account, leaves the token at Cloudflare for its owner to delete.
 - An answer subdomain whose plan stops including `hosted_pages` is paused, then redirected, then
   removed, and its owners are emailed once to delete the record when it is removed. A name whose record is proxied by Cloudflare
   hides where it points, so it is not registered until the owner turns the proxy off. The name is

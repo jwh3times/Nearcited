@@ -23,7 +23,7 @@ insert into public.connection_kind_allowances (kind, allowance) values ('cloudfl
 
 -- The last day (UTC) a zone was read through for the location it is matched to. Only a Cloudflare
 -- match has one, written by record_site_fetches(). A match made again starts with none, so its
--- first read takes the thirty days before.
+-- first read takes the thirty days before, or as many of them as the zone still keeps.
 alter table public.connection_locations add column read_through date;
 
 comment on column public.connection_locations.read_through is
