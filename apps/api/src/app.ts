@@ -22,6 +22,7 @@ import { alertRoutes } from "./routes/alerts";
 import { billingRoutes } from "./routes/billing";
 import { connectionRoutes } from "./routes/connections";
 import { draftRoutes } from "./routes/drafts";
+import { fetchRoutes } from "./routes/fetches";
 import { hostedPagesRoutes } from "./routes/hosted-pages";
 import { listingRoutes } from "./routes/listings";
 import { locationRoutes } from "./routes/locations";
@@ -240,6 +241,7 @@ export function createApp(deps: AppDeps = { authenticate: authenticateWithSupaba
   app.route("/", wordpressRoutes);
   app.route("/", hostedPagesRoutes);
   app.route("/", visitRoutes);
+  app.route("/", fetchRoutes);
 
   app.notFound((c) => c.json({ error: { code: "not_found", message: "No such route" } }, 404));
 

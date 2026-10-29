@@ -30,6 +30,7 @@ import { PromptGrid } from "../components/PromptGrid";
 import { Quote } from "../components/Quote";
 import { ScoreCard } from "../components/ScoreCard";
 import { SiteChecklist } from "../components/SiteChecklist";
+import { SiteFetches } from "../components/SiteFetches";
 import { SourceTable } from "../components/SourceTable";
 import { Tasks } from "../components/Tasks";
 import { VisitLine } from "../components/VisitLine";
@@ -531,6 +532,7 @@ export function LocationDetail() {
               onOpenSettings={openSettings}
               readOnly={readOnly}
             />
+            <SiteFetches location={location} base={base} />
           </>
         )}
 

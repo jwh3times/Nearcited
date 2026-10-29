@@ -10,8 +10,10 @@ import {
   citedPagesToRead,
   coveredSurfaces,
   type DerivedRecommendation,
+  daysToRead,
   deriveAlerts,
   deriveRecommendations,
+  FETCHES_ALLOWANCE,
   FIRST_SEEN_SCANS,
   hasNewcomers,
   isCountedAnswer,
@@ -27,6 +29,7 @@ import {
   type SiteSnapshot,
   SURFACES_BY_KIND,
   type Surface,
+  sampleFetches,
   sourceOfRule,
   summarizeSources,
   type Tier,
@@ -287,6 +290,25 @@ export async function runScan(scanId: string, deps: RunScanDeps): Promise<ScanOu
       cited_pages: citedPages,
       alerts,
     });
+
+    // On sample data the site's fetches are made up too, for the page to show what a Cloudflare
+    // connection would read. Nothing asks Cloudflare, and nothing is worked out from them.
+    if (sampleData && organization?.allowances[FETCHES_ALLOWANCE] !== undefined) {
+      const days = daysToRead(null, now());
+      const [from, to] = [days[0], days.at(-1)];
+      try {
+        if (from && to) {
+          await store.recordSiteFetches(
+            location.id,
+            { from, to, sample: true },
+            sampleFetches(location.id, days),
+          );
+        }
+      } catch (error) {
+        // The scan stands. The next one makes them.
+        console.error(`Scan ${scanId}: could not make its sample fetches`, error);
+      }
+    }
 
     // A test organization's owner is automation: there is nobody to tell.
     // A report is emailed only where the organization's plan includes one.

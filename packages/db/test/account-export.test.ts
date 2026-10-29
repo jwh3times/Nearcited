@@ -107,6 +107,10 @@ async function seeded(name: string, by: string) {
     [location],
   );
   await db.query(
+    "insert into public.site_fetches (location_id, day, fetcher, path, count) values ($1, current_date, 'claudebot', '/menu', 4)",
+    [location],
+  );
+  await db.query(
     `insert into public.provider_usage (organization_id, model, calls, input_tokens, cached_input_tokens, output_tokens, searches)
      values ($1, 'priced-model-never-exported', 1, 1000, 0, 10, 1)`,
     [org],
@@ -171,6 +175,9 @@ describe("downloading everything", () => {
     expect(exported.connections.map((row) => row.label)).toEqual(["joespizza.example"]);
     expect(exported.listings.map((row) => row.site)).toEqual(["yelp"]);
     expect(exported.visits.map((row) => row.count)).toEqual([3]);
+    expect(exported.site_fetches.map((row) => [row.fetcher, row.path, row.count])).toEqual([
+      ["claudebot", "/menu", 4],
+    ]);
     expect(exported.members.map((row) => [row.email, row.role])).toEqual([
       ["owner@example.com", "owner"],
       ["admin@example.com", "admin"],

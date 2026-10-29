@@ -28,6 +28,9 @@ export const ALLOWANCE_KINDS: Record<string, AllowanceKind> = {
   // Pages the product serves on a subdomain of the business's own domain (`hosted-pages.ts`).
   // `HOSTED_PAGES_ALLOWANCE` there is this key.
   hosted_pages: { counted: false, name: "Pages hosted on your own domain" },
+  // How often assistants' fetchers read the business's own site, from its Cloudflare zone
+  // (`fetches.ts`). `FETCHES_ALLOWANCE` there is this key.
+  fetches: { counted: false, name: "Fetches by assistants counted" },
   // A stronger model on an assistant, paid for on top of the plan (`tiers.ts`).
   // `STRONGER_MODELS_ALLOWANCE` there is this key.
   stronger_models: {

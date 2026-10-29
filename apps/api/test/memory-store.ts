@@ -7,6 +7,7 @@ import type {
   CitedPage,
   Connection,
   Draft,
+  FetchCount,
   Invitation,
   LimitChange,
   LimitChangeNotice,
@@ -34,11 +35,14 @@ import {
   ACTION_KINDS,
   AccountExportSchema,
   ALLOWANCE_KINDS,
+  addDays,
   allowanceErrors,
   allowedEachMonth,
+  boundedFetches,
   CITING_SURFACES,
   CONNECTION_KIND_ALLOWANCES,
   DRAFTS_ALLOWANCE,
+  FETCHED_PAGES_SHOWN,
   hostOf,
   INVITATION_DAYS,
   LONGEST_PATH,
@@ -47,6 +51,7 @@ import {
   MOST_PAGES_A_DAY,
   MOST_VISITS_A_DAY,
   NOTICE_HOLD_HOURS,
+  PAGE_FETCHER_KEYS,
   PAGES_SHOWN,
   PLAN_ASSISTANTS,
   reductions,
@@ -55,6 +60,7 @@ import {
   STRONGER_MODELS_ALLOWANCE,
   VISITS_ALLOWANCE,
   websiteDomain,
+  zoneHolds,
 } from "@nearcited/shared";
 import {
   type Closing,
@@ -66,6 +72,7 @@ import {
   StoreError,
   type SubscriptionRecord,
   type UsageSource,
+  type ZoneMatch,
 } from "../src/store/types";
 
 /**
@@ -219,6 +226,10 @@ export interface MemoryDb {
     fetcher: PageFetcher;
     count: number;
   }[];
+  /** The `site_fetches` table: a count for a location, a day, a fetcher and a page. */
+  siteFetches: (FetchCount & { location_id: string; sample_data: boolean })[];
+  /** The last day each Cloudflare match was read through, keyed `connection:location`. */
+  fetchReads: Map<string, string>;
   /** When each answer subdomain's owners were last told it was paused, by connection. */
   pauseTold: Map<string, string>;
   /**
@@ -307,6 +318,8 @@ export function createMemoryDb(): MemoryDb {
     ),
     connectionSecrets: new Map(),
     connectionsFrom: new Map(),
+    siteFetches: [],
+    fetchReads: new Map(),
     answerSubdomains: [],
     hostedPages: [],
     pageFetches: [],
@@ -874,6 +887,7 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
                 ?.hostname ?? null,
           })),
         page_fetches: db.pageFetches.filter((counted) => at.has(counted.location_id)),
+        site_fetches: db.siteFetches.filter((counted) => at.has(counted.location_id)),
       });
     },
 
@@ -2275,6 +2289,180 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         );
       const connection = db.connections.find((c) => c.id === latest?.connection_id);
       return latest && connection ? keptAnswerSubdomain(latest, connection) : null;
+    },
+
+    // Mirrors match_cloudflare_zones(): one zone, one location, the first made whose website the
+    // zone holds, and a match that no longer fits taken away.
+    async matchCloudflareZones(connectionId, zones) {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      const connection = db.connections.find(
+        (candidate) =>
+          candidate.id === connectionId && candidate.kind === "cloudflare" && syncs(candidate),
+      );
+      if (!connection) return [];
+      connection.choices = zones.map((zone) => ({ ...zone }));
+      const hostOfLocation = (locationId: string) =>
+        websiteDomain(db.locations.find((l) => l.id === locationId)?.website ?? null);
+      const fits = (match: Connection["matches"][number]) => {
+        const zone = zones.find((candidate) => candidate.id === match.external_id);
+        const host = hostOfLocation(match.location_id);
+        return zone !== undefined && host !== null && zoneHolds(zone.label, host);
+      };
+      for (const gone of connection.matches.filter((match) => !fits(match))) {
+        db.fetchReads.delete(`${connectionId}:${gone.location_id}`);
+      }
+      connection.matches = connection.matches.filter(fits);
+      for (const match of connection.matches) {
+        match.external_label =
+          zones.find((zone) => zone.id === match.external_id)?.label ?? match.external_label;
+      }
+      const ofOrganization = db.connections.filter(
+        (other) =>
+          other.kind === "cloudflare" && other.organization_id === connection.organization_id,
+      );
+      const byLength = [...zones].sort((a, b) => b.label.length - a.label.length);
+      for (const zone of byLength) {
+        if (ofOrganization.some((other) => other.matches.some((m) => m.external_id === zone.id))) {
+          continue;
+        }
+        const location = db.locations
+          .filter((l) => l.organization_id === connection.organization_id)
+          .sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id))
+          .find((l) => {
+            const host = websiteDomain(l.website);
+            return (
+              host !== null &&
+              zoneHolds(zone.label, host) &&
+              !db.connections.some(
+                (other) =>
+                  other.kind === "cloudflare" && other.matches.some((m) => m.location_id === l.id),
+              )
+            );
+          });
+        if (location) {
+          connection.matches.push({
+            location_id: location.id,
+            external_id: zone.id,
+            external_label: zone.label,
+            matched_at: db.now ?? timestamp(),
+          });
+        }
+      }
+      return connection.matches.map(
+        (match): ZoneMatch => ({
+          location_id: match.location_id,
+          zone_id: match.external_id,
+          zone: match.external_label,
+          website: db.locations.find((l) => l.id === match.location_id)?.website ?? null,
+          read_through: db.fetchReads.get(`${connectionId}:${match.location_id}`) ?? null,
+        }),
+      );
+    },
+
+    // Mirrors record_site_fetches(): the days given replaced, known fetchers and pages only, fifty
+    // pages a day, and nothing for a zone no longer matched to the location.
+    async recordSiteFetches(locationId, read, counts) {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      if (read.from > read.to || read.to > addDays(read.from, 31)) {
+        throw new StoreError(
+          "unexpected",
+          "Fetches are kept for a run of at most a month of days.",
+        );
+      }
+      if (!db.locations.some((l) => l.id === locationId)) return 0;
+      if ("connection_id" in read) {
+        const connection = db.connections.find((c) => c.id === read.connection_id);
+        if (
+          connection?.kind !== "cloudflare" ||
+          !syncs(connection) ||
+          !connection.matches.some((match) => match.location_id === locationId)
+        ) {
+          return 0;
+        }
+      }
+      const inRun = (day: string) => day >= read.from && day <= read.to;
+      db.siteFetches = db.siteFetches.filter(
+        (kept) => kept.location_id !== locationId || !inRun(kept.day),
+      );
+      const valid = counts
+        .map((counted) => ({
+          ...counted,
+          path: counted.path.slice(0, 200),
+          count: Math.round(counted.count),
+        }))
+        .filter(
+          (counted) =>
+            inRun(counted.day) &&
+            PAGE_FETCHER_KEYS.includes(counted.fetcher) &&
+            counted.path.startsWith("/") &&
+            counted.count > 0,
+        );
+      const kept = boundedFetches(valid).map((counted) => ({
+        ...counted,
+        location_id: locationId,
+        sample_data: "sample" in read,
+      }));
+      db.siteFetches.push(...kept);
+      if ("connection_id" in read) {
+        const key = `${read.connection_id}:${locationId}`;
+        const was = db.fetchReads.get(key);
+        db.fetchReads.set(key, was && was > read.to ? was : read.to);
+      }
+      return kept.length;
+    },
+
+    // Mirrors location_site_fetches(): added up as the caller reads, sample data and real apart.
+    async getLocationFetches(locationId, since, sampleData) {
+      const counted = readsLocation(locationId)
+        ? db.siteFetches.filter(
+            (kept) =>
+              kept.location_id === locationId &&
+              kept.day >= since &&
+              kept.sample_data === sampleData,
+          )
+        : [];
+      const add = (into: Map<string, number>, key: string, count: number) =>
+        into.set(key, (into.get(key) ?? 0) + count);
+      const byDay = new Map<string, number>();
+      const byPage = new Map<string, number>();
+      const others = new Map<string, number>();
+      for (const kept of counted) {
+        add(byDay, `${kept.day}|${kept.fetcher}`, kept.count);
+        if (kept.path) add(byPage, `${kept.fetcher}|${kept.path}`, kept.count);
+        else add(others, kept.fetcher, kept.count);
+      }
+      const split = (key: string) => key.split("|") as [string, string];
+      const order = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+      const pages = [...byPage]
+        .map(([key, count]) => {
+          const [fetcher, path] = split(key);
+          return { fetcher, path, count };
+        })
+        .sort((a, b) => order(a.fetcher, b.fetcher) || b.count - a.count || order(a.path, b.path));
+      const match = db.connections
+        .filter((c) => c.kind === "cloudflare")
+        .flatMap((c) => c.matches.map((m) => ({ connection: c.id, ...m })))
+        .find((m) => m.location_id === locationId);
+      return {
+        days: [...byDay]
+          .sort(([a], [b]) => order(a, b))
+          .map(([key, count]) => {
+            const [day, fetcher] = split(key);
+            return { day, fetcher, count };
+          }),
+        pages: pages.filter(
+          (page, at) =>
+            pages.slice(0, at).filter((before) => before.fetcher === page.fetcher).length <
+            FETCHED_PAGES_SHOWN,
+        ),
+        other_pages: [...others]
+          .sort(([a], [b]) => order(a, b))
+          .map(([fetcher, count]) => ({ fetcher, count })),
+        read_through:
+          readsLocation(locationId) && match
+            ? (db.fetchReads.get(`${match.connection}:${locationId}`) ?? null)
+            : null,
+      };
     },
 
     // Mirrors location_page_fetches(): added up for each task and fetcher, as the caller reads.
