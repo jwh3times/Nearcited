@@ -192,6 +192,16 @@ describe("toPublicAudit", () => {
     });
   });
 
+  it("leaves the business itself out of its plan's competitors, however a stored report spelled it", () => {
+    const unnamed = buildAuditCell("chatgpt", [
+      finding(null, { competitors: ["JoesPizza", "Tony's Slice House"] }),
+    ]);
+    const audit = toPublicAudit({ ...stored, parts: { "0": { cells: [unnamed] } } });
+    expect(
+      audit.action_plan.find((step) => step.id === "competitors")?.items.map((item) => item.label),
+    ).toEqual(["Tony's Slice House"]);
+  });
+
   it("links a competitor to its own site even when that site is too rarely cited to be listed", () => {
     const busy = Array.from({ length: 14 }, (_, index) => `https://dir${index}.example/a`);
     const cell = buildAuditCell("chatgpt", [

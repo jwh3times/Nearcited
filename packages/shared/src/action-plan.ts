@@ -1,4 +1,4 @@
-import { competitorKey, hostOf } from "./analysis";
+import { competitorKey, hostOf, namesMatch, othersThan } from "./analysis";
 import type { ActionPlanStep, NameCount, SiteCheck, SiteCheckId, SourceSummary } from "./schemas";
 import { SITE_CHECKS } from "./site";
 import { belongsTo, unnamedSources } from "./sources";
@@ -62,13 +62,18 @@ export function tallyNames(counts: readonly NameCount[], limit?: number): NameCo
 
 /**
  * Who the checks named instead, spellings added up: a check counts once for each competitor, even
- * when it wrote one two ways, so a count is never more than the checks.
+ * when it wrote one two ways, so a count is never more than the checks. A spelling of the
+ * business itself, `name`, is left out: a check kept before it was known as the business's own
+ * may list it.
  */
 export function tallyNamedInstead(
   checks: readonly { competitors: readonly string[] }[],
+  name: string,
 ): NameCount[] {
   const once = (names: readonly string[]) =>
-    tallyNames(names.map((name) => ({ name, count: 1 }))).map(({ name }) => ({ name, count: 1 }));
+    tallyNames(othersThan(name, names).map((other) => ({ name: other, count: 1 }))).map(
+      (other) => ({ name: other.name, count: 1 }),
+    );
   return tallyNames(checks.flatMap((check) => once(check.competitors)));
 }
 
@@ -143,7 +148,10 @@ function websiteStep(input: ActionPlanInput): ActionPlanStep | null {
 /** The plan, most direct action first. Empty when there is nothing to go on. */
 export function buildActionPlan(input: ActionPlanInput): ActionPlanStep[] {
   const steps: ActionPlanStep[] = [];
-  const competitors = tallyNames(input.competitors);
+  const competitors = tallyNames(
+    input.competitors.filter(({ name }) => !namesMatch(name, input.name)),
+  );
+  // Every name, the business's own spellings too: a site that looks like one is no directory.
   const names = input.competitors.map(({ name }) => name);
   const others = input.sources.filter(
     (source) => !source.own && !names.some((name) => belongsTo(source.host, name)),

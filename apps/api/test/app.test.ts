@@ -459,7 +459,7 @@ describe("organizations and locations", () => {
     expect(await memoryStore(db, bob).getSiteCheck(location.id)).toBeNull();
   });
 
-  it("counts who is named instead once, over the window's checks, for the card and the plan alike", async () => {
+  it("counts who is named instead once, over the window's checks, for the card and the plan alike, and never the business", async () => {
     const { location, query } = await seed();
     const keyword = TrackedQuerySchema.parse(
       await (
@@ -491,7 +491,8 @@ describe("organizations and locations", () => {
       await worker.completeScan(scan.id, {
         score: 0,
         results: [
-          check("chatgpt", [spelling, "Mellow Mushroom"]),
+          // A result kept before "JoesPizza" was known as Joe's own spelling.
+          check("chatgpt", [spelling, "Mellow Mushroom", "JoesPizza"]),
           check("google_organic", [spelling]),
           // Google showed nothing: it names nobody and counts neither way.
           check("google_local_pack", ["Mellow Mushroom"], false),

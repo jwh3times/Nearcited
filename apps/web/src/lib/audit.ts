@@ -1,5 +1,6 @@
 import {
   type NameCount,
+  namesMatch,
   type PublicAudit,
   SURFACES,
   type Surface,
@@ -25,10 +26,15 @@ export function auditAnswers(audit: PublicAudit): number {
   );
 }
 
-/** Who else was named across the whole report, most often first, spellings of one counted together. */
+/**
+ * Who else was named across the whole report, most often first, spellings of one counted
+ * together. A spelling of the business itself, which an older report may hold, is left out.
+ */
 export function auditCompetitors(audit: PublicAudit, limit = 8): NameCount[] {
   return tallyNames(
-    audit.prompts.flatMap((prompt) => (prompt.cells ?? []).flatMap((cell) => cell.competitors)),
+    audit.prompts
+      .flatMap((prompt) => (prompt.cells ?? []).flatMap((cell) => cell.competitors))
+      .filter(({ name }) => !namesMatch(name, audit.business_name)),
     limit,
   );
 }

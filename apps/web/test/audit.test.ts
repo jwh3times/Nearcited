@@ -99,18 +99,35 @@ describe("auditCompetitors", () => {
         cells: [
           cell("chatgpt", [
             ["Northstar Realty Co", 3],
-            ["Joes Pizza", 1],
+            ["Tonys Slice House", 1],
           ]),
           cell("claude", [
             ["North Star Realty", 2],
-            ["Joe's Pizza", 1],
+            ["Tony's Slice House", 1],
           ]),
         ],
       },
     ];
     expect(auditCompetitors(audit({ prompts }))).toEqual([
       { name: "North Star Realty", count: 5 },
-      { name: "Joes Pizza", count: 2 },
+      { name: "Tonys Slice House", count: 2 },
+    ]);
+  });
+
+  it("leaves out the business itself, however an answer spelled it", () => {
+    const prompts = [
+      {
+        text: "best pizza",
+        cells: [
+          cell("chatgpt", [
+            ["JoesPizza", 4],
+            ["Tony's Slice House", 1],
+          ]),
+        ],
+      },
+    ];
+    expect(auditCompetitors(audit({ prompts }))).toEqual([
+      { name: "Tony's Slice House", count: 1 },
     ]);
   });
 });

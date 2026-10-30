@@ -1,4 +1,4 @@
-import { hostOf, hostsMatch, namesMatch, normalizeName } from "./analysis";
+import { hostOf, hostsMatch, namesMatch, normalizeName, othersThan } from "./analysis";
 import { formatPhone } from "./inputs";
 import {
   type Alert,
@@ -141,6 +141,8 @@ export interface AlertInput {
   current: readonly CurrentAlert[];
   /** Each prompt's text, which an alert keeps so that it reads the same wherever it is shown. */
   prompts: readonly { id: string; text: string }[];
+  /** The business's own name: however an answer wrote it, it is never a first sighting. */
+  name: string;
   /** The business's own website, which a first sighting of a site tells apart. */
   website: string | null;
   /**
@@ -176,7 +178,7 @@ function subjectOf(alert: CurrentAlert | NewAlert): string {
  * exist, as it does for the rates.
  */
 export function deriveAlerts(input: AlertInput): AlertChanges {
-  const { scans, current, prompts, website, seen, phone } = input;
+  const { scans, current, prompts, seen, phone } = input;
   const changes: AlertChanges = { clear: [], raise: [] };
   const [newest] = scans;
   if (!newest) return changes;
@@ -207,10 +209,14 @@ export function deriveAlerts(input: AlertInput): AlertChanges {
     if (reason) changes.clear.push({ id: alert.id, reason });
     else stillCurrent.add(subjectOf(alert));
   }
+  // The businesses raised and not cleared, dismissed or not.
+  const raisedNames = current.flatMap((alert) =>
+    alert.kind === "competitor" && stillCurrent.has(subjectOf(alert)) ? [alert.facts.name] : [],
+  );
 
   const raised = [
     ...drops(cells, scans, text),
-    ...(seen ? firstSightings(newcomers(scans, website, text), seen) : []),
+    ...(seen ? firstSightings(newcomers(scans, input, text), seen, raisedNames) : []),
     ...otherNumbers(numbers, input, text),
   ];
   changes.raise = raised.filter((alert) => !stillCurrent.has(subjectOf(alert)));
@@ -395,7 +401,7 @@ const often = (answers: number, scans: number) =>
  */
 function newcomers(
   scans: readonly AlertScan[],
-  website: string | null,
+  { name: own, website }: Pick<AlertInput, "name" | "website">,
   text: ReadonlyMap<string, string> = new Map(),
 ): Newcomers {
   if (scans.length < FIRST_SEEN_BASELINE) return { businesses: [], sites: [] };
@@ -419,7 +425,8 @@ function newcomers(
   latest.forEach(({ answers }, scan) => {
     for (const answer of answers) {
       const named = new Set<Gathered>();
-      for (const name of answer.competitors) {
+      // A scan kept before the business was known by a spelling may list it as somebody else.
+      for (const name of othersThan(own, answer.competitors)) {
         const key = normalizeName(name);
         let business = byName.get(key);
         if (!business) {
@@ -521,14 +528,21 @@ function unseen(found: Newcomers, seen: SeenBefore): Newcomers {
  * enough, and nowhere in the rest of the window. Only then does the record before the window
  * have to be read, and that read is the whole record.
  */
-export function hasNewcomers(scans: readonly AlertScan[], website: string | null): boolean {
-  const found = newcomers(scans, website);
+export function hasNewcomers(
+  scans: readonly AlertScan[],
+  business: Pick<AlertInput, "name" | "website">,
+): boolean {
+  const found = newcomers(scans, business);
   return found.businesses.length + found.sites.length > 0;
 }
 
-/** The newcomers that nothing on record before the latest scans named or cited, as alerts. */
-function firstSightings(found: Newcomers, seen: SeenBefore): NewAlert[] {
-  const fresh = unseen(found, seen);
+/**
+ * The newcomers that nothing on record before the latest scans named or cited, as alerts. Nor is
+ * a business `raised` already and not cleared news again under another spelling, though its
+ * subject would be that spelling's.
+ */
+function firstSightings(found: Newcomers, seen: SeenBefore, raised: readonly string[]): NewAlert[] {
+  const fresh = unseen(found, { ...seen, competitors: [...seen.competitors, ...raised] });
   return [
     ...fresh.businesses.map(
       ({ facts, since }): NewAlert => ({

@@ -98,6 +98,19 @@ describe("analyzeCitedPage", () => {
     expect(anded.phone?.found).toBe("matches");
   });
 
+  it("finds the business, and its details, when the page spaces its name another way", () => {
+    const northStar = { ...joes, name: "North Star Realty" };
+    const result = read(
+      "<html><body><p>Northstar Realty, 123 Main St, Raleigh 27601. (919) 555-0100</p></body></html>",
+      northStar,
+    );
+    expect(result).toMatchObject({
+      names_business: true,
+      phone: { found: "matches" },
+      address: "matches",
+    });
+  });
+
   it("does not take a neighbour's number on a list page for the business's", () => {
     const list = `<html><title>Best pizza in Raleigh</title><body>
       <h2>1. Mario's Pizzeria</h2><p>456 Oak Ave, Raleigh 27603. (919) 555-0199</p>
