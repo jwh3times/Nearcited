@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   analyzeObservation,
   type BusinessIdentity,
+  competitorKey,
   hostOf,
   hostsMatch,
   namesMatch,
@@ -24,6 +25,33 @@ describe("normalizeName", () => {
 
   it("keeps a name that is only a legal suffix", () => {
     expect(normalizeName("Co")).toBe("co");
+  });
+});
+
+describe("competitorKey", () => {
+  const same = (a: string, b: string) => competitorKey(a) === competitorKey(b);
+
+  it("makes one competitor of spellings that differ by spaces or a legal ending", () => {
+    expect(same("North Star Realty", "Northstar Realty Co")).toBe(true);
+    expect(same("Smith Plumbing Company", "Smith Plumbing Co")).toBe(true);
+    expect(same("Smith Plumbing Company", "Smith Plumbing, Inc.")).toBe(true);
+    expect(same("Acme Corporation", "Acme Corp")).toBe(true);
+    expect(same("Main Street Limited", "Main Street Ltd")).toBe(true);
+    expect(same("Bright Smiles Incorporated", "Bright Smiles")).toBe(true);
+    expect(same("Oak Realty, L.L.C.", "Oak Realty")).toBe(true);
+  });
+
+  it("keeps apart names that differ by a word that is not a legal ending, or contain another", () => {
+    expect(same("Rowe Group", "Rowe Partners")).toBe(false);
+    expect(same("Oak Realty", "Oak Realty Partners")).toBe(false);
+    expect(same("Joe's Pizza", "Joe's Pizza & Pasta")).toBe(false);
+    expect(same("Ma & Pa", "Ma &")).toBe(false);
+  });
+
+  it("drops an ending only as a whole last word, and keeps a name that is only one", () => {
+    expect(same("Coco", "Co")).toBe(false);
+    expect(same("Fitness Incline", "Fitness")).toBe(false);
+    expect(competitorKey("Company")).toBe("company");
   });
 });
 

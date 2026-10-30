@@ -73,10 +73,38 @@ export function normalizeName(name: string): string {
     .trim()
     .split(" ")
     .filter(Boolean);
-  while (tokens.length > 1 && LEGAL_SUFFIXES.has(tokens[tokens.length - 1] ?? "")) {
+  return withoutEndings(tokens, LEGAL_SUFFIXES).join(" ");
+}
+
+/** The legal endings again, with those written out, dropped only when telling competitors apart. */
+const COMPETITOR_SUFFIXES = new Set([
+  ...LEGAL_SUFFIXES,
+  "company",
+  "incorporated",
+  "limited",
+  "corporation",
+]);
+
+/** The words less any of `endings` at the end, keeping the last word when that is all there is. */
+function withoutEndings(tokens: string[], endings: ReadonlySet<string>): string[] {
+  while (tokens.length > 1 && endings.has(tokens[tokens.length - 1] ?? "")) {
     tokens.pop();
   }
-  return tokens.join(" ");
+  return tokens;
+}
+
+/**
+ * What two spellings of one competitor share: the normalised name with its dots dropped
+ * ("L.L.C." is "LLC"), less any legal ending, written out or not, run together. "North Star
+ * Realty" and "Northstar Realty Co" are one competitor. Used only to group the businesses named
+ * instead; whether an answer named the business itself, and an alert's subject, still go by
+ * `normalizeName`.
+ */
+export function competitorKey(name: string): string {
+  return withoutEndings(
+    normalizeName(name.replaceAll(".", "")).split(" "),
+    COMPETITOR_SUFFIXES,
+  ).join("");
 }
 
 /** Whether `needle` appears in `haystack` as whole words in a row. Both already normalised. */

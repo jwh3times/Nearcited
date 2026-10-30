@@ -27,17 +27,6 @@ export function plainText(text: string): string {
   return text.replace(/\*\*|__/g, "");
 }
 
-/**
- * What two spellings of one business share: the name without a trailing "LLC", "Inc." and the
- * like, in lower case. Assistants add and drop those from one answer to the next.
- */
-export function businessKey(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[\s,]+(?:l\.?l\.?c|inc|corp|co|ltd|pllc|p\.?a)\.?$/, "")
-    .trim();
-}
-
 /** "A", "A and B", "A, B and C". */
 export function listOf(items: readonly string[]): string {
   if (items.length <= 1) return items.join("");

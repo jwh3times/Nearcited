@@ -299,12 +299,21 @@ each successful scan's `visibility_score` from `GET /api/locations/:id/scans`, o
 
 Who else the checks named is counted over the same pool, once, in the API. The location route
 tallies the businesses named in every check of the window that showed something (`isCounted`),
-Google's included: a check counts once for each name, and spellings of one business are added up
-under the shortest (`tallyNamedInstead` and `tallyNames`, `packages/shared/src/action-plan.ts`).
-The six named most go in `window.competitors`, which the location page's "Named instead" card
-shows beside how often the business itself was named, both out of the cells' checks
-(`namedInsteadCard`, `apps/web/src/lib/summary.ts`). The action plan's `competitors` step takes
-its three from the same tally, so the card and the plan give one business one number.
+Google's included: a check counts once for each competitor, however many ways it wrote it, and
+spellings of one competitor are added up under the shortest (`tallyNamedInstead` and `tallyNames`, `packages/shared/src/action-plan.ts`).
+Two names are one competitor when they share a `competitorKey` (`packages/shared/src/analysis.ts`):
+the normalised name with its dots dropped, less a legal ending written out or not, with its spaces
+run together, so "North Star Realty" and "Northstar Realty Co" are one. A name contained in
+another, or one that differs by a word such as Group, stays apart (the term is in `GLOSSARY.md`).
+The key groups only who was named instead: whether an answer named the business itself, and an
+alert's subject, still go by `normalizeName`. The six named most go in `window.competitors`,
+which the location page's "Named instead" card shows beside how often the business itself was
+named, both out of the cells' checks (`namedInsteadCard`, `apps/web/src/lib/summary.ts`). The
+action plan's `competitors` step takes its three from the same tally, so the card and the plan
+give one business one number. The same tally names the businesses in an `absent:<surface>` task's
+"Named instead" (over that surface's checks), and the public audit page's list of who was named
+instead (`auditCompetitors`, `apps/web/src/lib/audit.ts`) and an audit's plan add up their
+cells' counts with `tallyNames`.
 
 **One scan in flight per location.** A partial unique index on `scans (location_id)` for the
 `queued` and `running` statuses makes a second insert fail, whoever makes it: two requests
@@ -743,7 +752,7 @@ and never what to do, and no model writes one.
   did. Written answers are those of `CITING_SURFACES`, the assistants and AI Overview. A results
   list (the map pack, organic lists) names ten businesses every time and its tail changes daily,
   so it is not counted. A site counts once per answer, however many of its pages the answer cited.
-  Names are matched with `namesMatch` and sites with `hostsMatch`, as everywhere else, so a longer
+  Names are matched with `namesMatch` and sites with `hostsMatch`, as a mention is, so a longer
   name that contains a known one is the same business (a new branch of a known business is not
   said) and a subdomain is the same site. A site that looks like a named competitor's own
   (`belongsTo`) is not said as a site: naming the competitor says it. The business's own website

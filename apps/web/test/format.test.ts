@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  businessKey,
   cadence,
   formatDollars,
   formatMonth,
@@ -46,20 +45,6 @@ describe("plainText", () => {
     expect(plainText("1. **Joe's Pizza** is __the__ pick, 2 * 3")).toBe(
       "1. Joe's Pizza is the pick, 2 * 3",
     );
-  });
-});
-
-describe("businessKey", () => {
-  it("treats a name with and without its legal ending as one business", () => {
-    expect(businessKey("Tony's Slice House, LLC")).toBe(businessKey("tony's slice house"));
-    expect(businessKey("Oak Realty Inc.")).toBe("oak realty");
-    expect(businessKey("Oak Realty, L.L.C.")).toBe("oak realty");
-  });
-
-  it("strips only a trailing ending, never a whole or partial word", () => {
-    expect(businessKey("Pizza Co")).toBe("pizza");
-    expect(businessKey("Inc")).toBe("inc");
-    expect(businessKey("Coco")).toBe("coco");
   });
 });
 
