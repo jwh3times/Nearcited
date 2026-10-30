@@ -57,6 +57,24 @@ describe("tallyNames", () => {
       ),
     ).toEqual([{ name: "B", count: 2 }]);
   });
+
+  it("counts a name run together, or with its legal ending written out, as the same business", () => {
+    expect(
+      tallyNames([
+        { name: "Northstar Realty Co", count: 3 },
+        { name: "North Star Realty", count: 2 },
+        { name: "Smith Plumbing Company", count: 1 },
+        { name: "Smith Plumbing, Inc.", count: 1 },
+        { name: "Oak Realty Partners", count: 1 },
+        { name: "Oak Realty", count: 1 },
+      ]),
+    ).toEqual([
+      { name: "North Star Realty", count: 5 },
+      { name: "Smith Plumbing, Inc.", count: 2 },
+      { name: "Oak Realty", count: 1 },
+      { name: "Oak Realty Partners", count: 1 },
+    ]);
+  });
 });
 
 describe("the website step", () => {

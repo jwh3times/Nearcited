@@ -1,4 +1,4 @@
-import { hostOf, normalizeName } from "./analysis";
+import { competitorKey, hostOf } from "./analysis";
 import type { ActionPlanStep, NameCount, SiteCheck, SiteCheckId, SourceSummary } from "./schemas";
 import { SITE_CHECKS } from "./site";
 import { belongsTo, unnamedSources } from "./sources";
@@ -40,13 +40,14 @@ const BLOCKS_READING: ReadonlySet<SiteCheckId> = new Set([
 const MAX_COMPETITORS = 3;
 
 /**
- * Adds up names that are the same business spelled differently ("Tony's" and "Tony's, LLC"),
- * keeping the shortest spelling. Most named first.
+ * Adds up names that are the same competitor spelled differently ("Tony's" and "Tony's, LLC",
+ * "North Star Realty" and "Northstar Realty Co"; see `competitorKey`), keeping the shortest
+ * spelling. Most named first.
  */
 export function tallyNames(counts: readonly NameCount[], limit?: number): NameCount[] {
   const tally = new Map<string, NameCount>();
   for (const { name, count } of counts) {
-    const key = normalizeName(name) || name;
+    const key = competitorKey(name) || name;
     const entry = tally.get(key);
     if (!entry) tally.set(key, { name, count });
     else {
