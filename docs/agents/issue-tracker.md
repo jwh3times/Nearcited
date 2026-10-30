@@ -27,6 +27,8 @@ Route by **whether the text is safe in public history**.
 the `private/` checkout so it infers that one the same way. This tree never names the private
 repository.
 
+Required human follow-ups go to the private tracker too (`human-follow-up.md`).
+
 **Never reference a private issue from a public issue, pull request or commit.** The reference
 leaks that it exists. A private issue may cite public work freely.
 
@@ -104,13 +106,6 @@ Used by `/wayfinder`. The **map** is a single issue with **child** issues as tic
 
 jwh3times/Nearcited
 
-## Private issue repository
-
-`discover: git -C private remote get-url origin` — the companion's issues, for work whose
-description needs prompts, weights, pricing, vendor terms or a real business's name ("Which
-tracker" above). Select it with `-R` (or run `gh` from inside `private/`); never reference a private
-issue from a public issue, pull request or commit.
-
 ## Board
 
 jwh3times 10
@@ -137,7 +132,5 @@ issue — in the shape the existing ones use (Why, Scope, Done when, Depends on)
 
 ## Security findings
 
-A draft repository security advisory on `jwh3times/Nearcited` (private vulnerability reporting is
-on; `SECURITY.md`), never a public issue. The review's detail and exploit-level analysis are kept in
-the companion, indexed in `private/README.md` (`AGENTS.md`, "What lives there"). A board item or
-private issue carries at most a sanitized coordination action and the advisory reference.
+The default. The review's detail and exploit-level analysis are kept in the companion, indexed in
+`private/README.md` (`AGENTS.md`, "What lives there").
