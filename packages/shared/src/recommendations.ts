@@ -38,10 +38,10 @@ interface ResultFacts {
 /** Fewer answers than this say too little to call the business's own site unread. */
 const MIN_ANSWERS_FOR_OWN_SITE = 4;
 
-function mostNamed(results: readonly ResultFacts[], limit: number): string[] {
-  return tallyNamedInstead(results)
+function mostNamed(results: readonly ResultFacts[], name: string, limit: number): string[] {
+  return tallyNamedInstead(results, name)
     .slice(0, limit)
-    .map(({ name }) => name);
+    .map((competitor) => competitor.name);
 }
 
 /**
@@ -103,6 +103,7 @@ export function deriveRecommendations(
     if (summary.mentions > 0) continue;
     const named = mostNamed(
       counted.filter((result) => result.surface === summary.surface),
+      location.name,
       3,
     );
     const label = SURFACE_LABELS[summary.surface];

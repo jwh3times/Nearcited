@@ -110,8 +110,12 @@ POST /api/locations/:id/scans          cron
 
 A provider only fetches. Whether the business was named is decided by `analyzeObservation` in
 `packages/shared`, so every surface is judged by the same rules and those rules are tested without
-network access. The same goes for which phone numbers a written answer gave for the business. A
-result keeps only an excerpt of an answer, 280 characters, so those numbers are read while the
+network access. A results list or a written answer's list of businesses names it when an entry is
+a spelling of its name (`namesMatch`, below), and a written answer also when its text writes the
+name as a run of whole words, however spaced or with whatever legal ending (`textNames`), or when
+it cites the business's own site (the term is in `GLOSSARY.md`). The same goes for which phone
+numbers a written answer gave for the business. A result keeps only an excerpt of an answer, 280
+characters centred where the text names the business, so those numbers are read while the
 whole answer is in hand and kept with the result as `scan_results.phones` (see "Alerts"). A
 provider also reports what each call it is charged for used (`onUsage`); the scan and audit
 runners add those up and store them in `provider_usage`, and so does the worker that writes a
@@ -305,8 +309,20 @@ Two names are one competitor when they share a `competitorKey` (`packages/shared
 the normalised name with its dots dropped, less a legal ending written out or not, with its spaces
 run together, so "North Star Realty" and "Northstar Realty Co" are one. A name contained in
 another, or one that differs by a word such as Group, stays apart (the term is in `GLOSSARY.md`).
-The key groups only who was named instead: whether an answer named the business itself, and an
-alert's subject, still go by `normalizeName`. The six named most go in `window.competitors`,
+
+Whether a name is a spelling of the business itself is `namesMatch`, which is broader: the same
+normalised name, the same `competitorKey`, or one name inside the other as a run of whole words,
+however either is spaced ("North Star Realty" inside "Northstar Realty Group"), but never inside a
+word ("Star Realty" is not in "Northstar Realty") and never a single short word ("Art" is not "Art
+of Shaving"). `textNames` and `placesNamed` find the name in free text by the same key: a run of
+whole words that, written together, is its `competitorKey`, read in time that grows with the text.
+A spelling of the business is never a competitor: `analyzeObservation` leaves every one out of a
+result's `competitors` (`othersThan`), and since a result kept before a spelling was known may
+still list one, every tally of stored competitors drops them as it reads (`tallyNamedInstead`
+takes the location's name, as do the action plan's tally, `mostNamed` and `auditCompetitors`).
+Stored results are not rewritten. An alert's subject still goes by `normalizeName`.
+
+The six named most go in `window.competitors`,
 which the location page's "Named instead" card shows beside how often the business itself was
 named, both out of the cells' checks (`namedInsteadCard`, `apps/web/src/lib/summary.ts`). The
 action plan's `competitors` step takes its three from the same tally, so the card and the plan
@@ -382,8 +398,8 @@ same as for providers: `fetchSite` (`apps/api/src/site/fetch.ts`) only fetches a
 | `crawlers_allowed` | `robots.txt` does not shut the assistants' search crawlers (`ANSWER_CRAWLERS`) out of the whole site. Crawlers that gather training data are not checked, and neither are the fetchers that act for one user and may ignore `robots.txt` (`ChatGPT-User`, `Perplexity-User`). When `robots.txt` shuts NearcitedBot out by name, this is the only check reported (see below). |
 | `indexable` | No `noindex` in a robots meta tag or the `X-Robots-Tag` header. |
 | `text_content` | The page has at least `MIN_PAGE_WORDS` words with scripts, styles and tags removed. Nothing is rendered, because the crawlers mostly do not run scripts. |
-| `names_business` | The title or text contains the business name, matched the way answers are matched. |
-| `names_city` | The same for the city. Left out when the location has none. |
+| `names_business` | The title or text names the business, by the test an answer's text is read with (`textNames`): its words in a row, however spaced or with whatever legal ending. |
+| `names_city` | The title or text contains the city as a run of whole words after normalising. Left out when the location has none. |
 | `structured_data` | A JSON-LD block has a `name` that is this business's, matched the way answers are matched, and an `address`. A block for somebody else on the page, such as the agency that built the site, does not count. What else the block says is not compared with what is on file. The name is the location's, or the audit's business name. |
 
 Each failed check becomes a `site:<check>` recommendation, which clears when a later scan's fetch
@@ -475,10 +491,11 @@ not run on sample data, for a test organization or in an audit. The split is the
 - **Deciding.** `analyzeCitedPage` returns a `CitedPage`: `names_business`, then `phone`
   (`matches`, `differs` with the page's number quoted, `not_found`, `none_on_file`) and `address`
   (`matches`, `not_found`, `none_on_file`). Nothing else is compared on a page that does not name
-  the business. Structured details (JSON-LD) are read first. Failing them, text is attributed by
-  nearest name: the names in the page's JSON-LD, the headings at the level of the heading that
-  names the business, and the page's own spellings of the business's name ("Joe’s", "&"), within
-  400 characters. An address is matched on its street number and
+  the business, by the test an answer's text is read with (`textNames`). Structured details
+  (JSON-LD) are read first. Failing them, text is attributed by nearest name: the names in the
+  page's JSON-LD, the headings at the level of the heading that names the business, and every
+  place the page writes the business's name, however it spells or spaces it ("Joe’s", "&",
+  `placesNamed`), within 400 characters. An address is matched on its street number and
   postal code and is never reported as differing, because it is not read reliably enough to call
   it wrong.
 - **Keeping it.** The result is kept in `scans.cited_pages` (jsonb, null when the scan did not
@@ -753,8 +770,10 @@ and never what to do, and no model writes one.
   list (the map pack, organic lists) names ten businesses every time and its tail changes daily,
   so it is not counted. A site counts once per answer, however many of its pages the answer cited.
   Names are matched with `namesMatch` and sites with `hostsMatch`, as a mention is, so a longer
-  name that contains a known one is the same business (a new branch of a known business is not
-  said) and a subdomain is the same site. A site that looks like a named competitor's own
+  name that contains a known one, or one spaced differently, is the same business (a new branch of
+  a known business is not said) and a subdomain is the same site. A spelling of the business
+  itself is never gathered as a newcomer, and a business already raised and not cleared, dismissed
+  or not, is not raised again under another spelling, though that spelling's subject would differ. A site that looks like a named competitor's own
   (`belongsTo`) is not said as a site: naming the competitor says it. The business's own website
   counts, and is worded apart (`facts.own`). Nothing is raised until the location has
   `FIRST_SEEN_BASELINE` scans, a full `SCAN_WINDOW`, because its first scans name everyone for the
@@ -770,8 +789,10 @@ and never what to do, and no model writes one.
   `packages/shared/src/analysis.ts`), in international form and in the location's country, which
   is how a number written without its country is read. An answer goes through the businesses it
   names one after another with each one's details after its name, so a number is the business's
-  when the name written nearest before it in the answer is the business's (`namesMatch`), and one
-  written before any name is nobody's. That reads where a number stands and not what the sentence
+  when the name written nearest before it in the answer is the business's, and one written before
+  any name is nobody's. The business's own name is found wherever the answer writes it, however
+  spaced (`placesNamed`); the other names the answer listed are looked for as it wrote them, and
+  one that is a spelling of the business's (`namesMatch`) counts as the business's too. That reads where a number stands and not what the sentence
   says, so it can be wrong about a number that follows the business's name and belongs to
   something the answer did not name. That is why one scan is not enough: it takes the same number
   in at least `PHONE_IN_SCANS` (2) scans of the window. A results list gives no numbers, and at

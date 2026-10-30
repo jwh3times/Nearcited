@@ -1,10 +1,4 @@
-import {
-  containsTokenRun,
-  nameMentions,
-  namesMatch,
-  normalizeName,
-  phonesGivenFor,
-} from "./analysis";
+import { nameMentions, namesMatch, phonesGivenFor, textNames } from "./analysis";
 import { formatPhone, normalizePhone } from "./inputs";
 import type { CitedPage, CitedPageNotRead, CitedPhone, Location, SourceSummary } from "./schemas";
 import { decodeEntities, type NamedNode, namedNodes, parsePage } from "./site";
@@ -33,8 +27,6 @@ export const CITED_PAGE_REQUESTS = 30;
  * other businesses ("people also viewed") the page may not name in a way that can be told apart.
  */
 const DETAILS_WITHIN = 400;
-/** How many of the page's own spellings of the business's name are looked for. */
-const MAX_SPELLINGS = 10;
 
 /** A page to read: a directory task's site and the page of it the answers cited most. */
 export interface CitedPageTarget {
@@ -117,23 +109,6 @@ function streetNumber(addressLine: string | null): string | null {
 }
 
 /**
- * How the page writes the business's name, where it does not write it as the location does:
- * "Joe’s" for "Joe's", "&" for "and", in any case. Each spelling is a run of the name's words with
- * anything but letters and digits between them, so that a number after it is found to follow it.
- */
-function spellingsOf(text: string, name: string): string[] {
-  const words = normalizeName(name).split(" ").filter(Boolean);
-  if (words.length === 0) return [];
-  const word = (token: string) =>
-    token === "and" ? "(?:and|&)" : [...token].map(escapeForPattern).join("['\u2019`]?");
-  const pattern = new RegExp(
-    `(?<![a-z0-9])${words.map(word).join("[^a-z0-9&]*")}(?![a-z0-9])`,
-    "gi",
-  );
-  return [...new Set(text.match(pattern) ?? [])].slice(0, MAX_SPELLINGS);
-}
-
-/**
  * What of the address on file is looked for: the street number, and the postal code (a US one
  * by its five digits, so a ZIP+4 on either side still matches). Each is a pattern that must be
  * found whole, the street number followed by a street name.
@@ -180,8 +155,7 @@ export function analyzeCitedPage(snapshot: CitedPageSnapshot, business: CitedBus
   }
 
   const page = parsePage(snapshot.html);
-  const searchable = normalizeName(`${decodeEntities(page.title)} ${page.text}`);
-  if (!containsTokenRun(searchable, normalizeName(business.name))) {
+  if (!textNames(`${decodeEntities(page.title)} ${page.text}`, business.name)) {
     return { ...base, not_read: null, ...nothing, names_business: false };
   }
 
@@ -192,8 +166,6 @@ export function analyzeCitedPage(snapshot: CitedPageSnapshot, business: CitedBus
   const named = [
     ...nodes.map((node) => node.name),
     ...page.headings.filter((heading) => heading.level === level).map((heading) => heading.text),
-    // The business's own name as the page writes it, so that what follows it is found to.
-    ...spellingsOf(page.text, business.name),
   ];
   const country = business.country_code;
   const node = businessNode(nodes, business.name);

@@ -152,6 +152,16 @@ describe("analyzeSite", () => {
     ]);
   });
 
+  it("finds the name however the page spaces it, but not inside a longer word", () => {
+    const page = (name: string) =>
+      `<html><body><p>${name} sells homes. ${filler}</p></body></html>`;
+    const named = (html: string, name: string) =>
+      !failed(analyzeSite(snapshot({ html }), { name, city: null })).includes("names_business");
+    expect(named(page("Northstar Realty"), "North Star Realty")).toBe(true);
+    expect(named(page("North Star Realty Company"), "Northstar Realty")).toBe(true);
+    expect(named(page("Northstar Realty"), "Star Realty")).toBe(false);
+  });
+
   it("matches the name the way answers are matched, and skips the city when none is on file", () => {
     const page = `<html><body><p>JOES PIZZA, LLC welcomes you. ${filler}</p></body></html>`;
     const check = analyzeSite(snapshot({ html: page }), { name: "Joe's Pizza", city: null });

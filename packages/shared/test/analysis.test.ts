@@ -8,6 +8,8 @@ import {
   namesMatch,
   normalizeName,
   phonesGivenFor,
+  placesNamed,
+  textNames,
 } from "../src/analysis";
 
 const business: BusinessIdentity = {
@@ -71,6 +73,55 @@ describe("namesMatch", () => {
   it("does not match empty names", () => {
     expect(namesMatch("", "")).toBe(false);
   });
+
+  it("matches a name however it is spaced, and with its legal ending written out", () => {
+    expect(namesMatch("Northstar Realty", "North Star Realty")).toBe(true);
+    expect(namesMatch("North Star Realty Company", "North Star Realty")).toBe(true);
+    expect(namesMatch("North Star Realty, L.L.C.", "Northstar Realty")).toBe(true);
+  });
+
+  it("finds a name inside a longer one however either is spaced, but only as whole words", () => {
+    expect(namesMatch("North Star Realty", "Northstar Realty Group")).toBe(true);
+    expect(namesMatch("Star Realty", "North Star Realty")).toBe(true);
+    expect(namesMatch("Star Realty", "Northstar Realty")).toBe(false);
+    // A name left too short by its ending is no more distinctive than before.
+    expect(namesMatch("Smith Company", "Smith Plumbing")).toBe(false);
+  });
+});
+
+describe("textNames", () => {
+  it("finds the name written as whole words, however they are spaced", () => {
+    expect(textNames("Try Northstar Realty downtown.", "North Star Realty")).toBe(true);
+    expect(textNames("Try North Star Realty downtown.", "Northstar Realty")).toBe(true);
+    expect(textNames("North Star Realty, L.L.C. sells homes.", "North Star Realty Company")).toBe(
+      true,
+    );
+    expect(textNames("Ask Joe’s PIZZA", "Joe's Pizza")).toBe(true);
+  });
+
+  it("does not find a name inside a longer word", () => {
+    expect(textNames("Try Northstar Realty downtown.", "Star Realty")).toBe(false);
+    expect(textNames("Joe's Pizzaria", "Joe's Pizza")).toBe(false);
+    expect(textNames("", "Joe's Pizza")).toBe(false);
+  });
+
+  it("reads a text in the time it takes to read it, whatever the text is", () => {
+    // Each of these comes near the name at every word and never finishes it. A search that
+    // started over from each word would take the square of the length.
+    for (const run of ["a ", "aa", "a.", "& ", "north star "]) {
+      expect(textNames(run.repeat(100_000), "North Star Realty"), run).toBe(false);
+      expect(textNames(run.repeat(100_000), `${"a".repeat(60)} b`), run).toBe(false);
+    }
+  });
+});
+
+describe("placesNamed", () => {
+  it("gives where the name is written, as it is written", () => {
+    const text = "First, Northstar Realty; then North-Star Realty LLC.";
+    expect(
+      placesNamed(text, "North Star Realty").map(({ at, length }) => text.slice(at, at + length)),
+    ).toEqual(["Northstar Realty", "North-Star Realty"]);
+  });
 });
 
 describe("hosts", () => {
@@ -118,6 +169,22 @@ describe("analyzeObservation: rankings", () => {
     expect(finding.mentioned).toBe(false);
     expect(finding.position).toBeNull();
     expect(finding.competitors).toEqual(["Tony's Slice House", "Crust & Co"]);
+  });
+
+  it("lists none of the business's own spellings among those ranked instead", () => {
+    const finding = analyzeObservation(
+      {
+        kind: "ranking",
+        entries: [
+          { name: "Tony's Slice House" },
+          { name: "JP Raleigh", place_id: "place-joes" },
+          { name: "JoesPizza" },
+        ],
+      },
+      business,
+      "google_local_pack",
+    );
+    expect(finding).toMatchObject({ position: 2, competitors: ["Tony's Slice House"] });
   });
 
   it("does not match a business with no place ID to an entry with no place ID", () => {
@@ -173,6 +240,62 @@ describe("analyzeObservation: answers", () => {
       "chatgpt",
     );
     expect(finding.mentioned).toBe(false);
+  });
+
+  describe("for a business whose name is spaced or ended another way", () => {
+    const northStar = { name: "North Star Realty", website: null, google_place_id: null };
+    const answer = (text: string, businesses: string[] = []) =>
+      analyzeObservation(
+        { kind: "answer", text, businesses, cited_urls: [] },
+        northStar,
+        "chatgpt",
+      );
+
+    it("counts it named, with its place, when the list writes it another way", () => {
+      const finding = answer("Try Ridge Homes or Northstar Realty.", [
+        "Ridge Homes",
+        "Northstar Realty",
+      ]);
+      expect(finding).toMatchObject({ mentioned: true, position: 2, competitors: ["Ridge Homes"] });
+    });
+
+    it("counts it named when the text alone writes it another way", () => {
+      expect(answer("Northstar Realty is well reviewed.").mentioned).toBe(true);
+      expect(answer("North Star Realty Company is well reviewed.").mentioned).toBe(true);
+      expect(answer("North Star Realty, L.L.C. is well reviewed.").mentioned).toBe(true);
+      const spacedOnFile = { ...northStar, name: "Northstar Realty" };
+      expect(
+        analyzeObservation(
+          {
+            kind: "answer",
+            text: "North Star Realty sells homes.",
+            businesses: [],
+            cited_urls: [],
+          },
+          spacedOnFile,
+          "chatgpt",
+        ).mentioned,
+      ).toBe(true);
+    });
+
+    it("does not count a shorter name found inside a longer word", () => {
+      const star = { ...northStar, name: "Star Realty" };
+      expect(
+        analyzeObservation(
+          { kind: "answer", text: "Northstar Realty sells homes.", businesses: [], cited_urls: [] },
+          star,
+          "chatgpt",
+        ).mentioned,
+      ).toBe(false);
+    });
+
+    it("quotes the answer where it wrote the name", () => {
+      const filler = "Lots of agents sell homes in this town. ".repeat(30);
+      const finding = answer(`${filler}Northstar Realty stands out. ${filler}`, [
+        "Northstar Realty",
+      ]);
+      expect(finding.answer_excerpt).toContain("Northstar Realty stands out.");
+    });
   });
 
   it("keeps long answers to a bounded excerpt around the mention", () => {
@@ -239,6 +362,16 @@ describe("phonesGivenFor", () => {
     expect(given(text, ["Joe's Pizza & Pasta - Raleigh", "Tony's"])).toEqual(["+19195550101"]);
     // The answer listed nobody, and still wrote the business's name before the number.
     expect(given("Joe's Pizza can be reached on (919) 555-0101.", [])).toEqual(["+19195550101"]);
+  });
+
+  it("knows the business however the answer spaces its name, listed or not", () => {
+    const northStar = { name: "North Star Realty", country_code: "US" };
+    const text = "Northstar Realty: (919) 555-0101. Ridge Homes: (919) 555-0199.";
+    expect(given(text, ["Northstar Realty", "Ridge Homes"], northStar)).toEqual(["+19195550101"]);
+    expect(given(text, ["Ridge Homes"], northStar)).toEqual(["+19195550101"]);
+    expect(given("Northstar Realty can be reached on (919) 555-0101.", [], northStar)).toEqual([
+      "+19195550101",
+    ]);
   });
 
   it("keeps each number once, however it was written", () => {

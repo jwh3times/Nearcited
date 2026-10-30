@@ -95,7 +95,7 @@ locationRoutes.get("/locations/:id", async (c) => {
   // Who is named instead, counted over every check the score counts, so the card and the plan
   // give one business one number.
   const checked = poolWindow(recent).filter(isCounted);
-  const competitors = tallyNamedInstead(checked);
+  const competitors = tallyNamedInstead(checked, location.name);
 
   // For each recommendation a member marked, the answers either side of the mark. They are
   // read separately from the window: the window moves on, and the mark stays where it was put.

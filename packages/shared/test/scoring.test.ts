@@ -105,6 +105,13 @@ describe("deriveRecommendations", () => {
     ]);
     expect(recommendation?.detail).toContain("Named instead: North Star Realty, Zed.");
   });
+
+  it("does not name the business itself as who appeared instead", () => {
+    const [recommendation] = deriveRecommendations(complete, [
+      { surface: "gemini", mentioned: false, competitors: ["JoesPizza", "Tony's"] },
+    ]);
+    expect(recommendation?.detail).toContain("Named instead: Tony's.");
+  });
 });
 
 describe("LocationInputSchema", () => {
