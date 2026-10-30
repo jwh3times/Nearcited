@@ -14,12 +14,6 @@ repository never names it (`AGENTS.md`, "Private companion"). `private/README.md
 public clone has no companion, and everything here installs, passes `pnpm check` and runs in mock
 mode without it.
 
-## Workspace status command
-
-`git status --short --branch`; then, when `private/.git` exists,
-`git -C private fetch -q --prune origin` and `git -C private status --short --branch` — the fetch
-makes its ahead/behind counts current.
-
 ## Companion commit checks
 
 - A file added, moved or retired has its row in `private/README.md`'s "Document authority" table in
@@ -69,17 +63,6 @@ makes its ahead/behind counts current.
   `supabase db push` — they act on the hosted project (README "Deploy"); `pnpm cf:deploy`,
   `wrangler deploy`, `wrangler secret put` or the Deploy workflow — production;
   `pnpm local:env --force` — it rewrites the env files with a new `CONNECTIONS_KEY`.
-
-## Generated-config check
-
-`pnpm sync:agents:check` (the required **Verify generated agent config**, beside
-`node --test scripts/sync-agents.test.mjs`), regenerated with `pnpm sync:agents`, committing
-`.claude/skills/` and `.codex/agents/` with their sources — always: it is quick, and it also
-catches an orphaned mirror.
-
-## Final portability check
-
-none
 
 ## Hook: after sync
 
