@@ -20,15 +20,10 @@ mode without it.
 `git -C private fetch -q --prune origin` and `git -C private status --short --branch` — the fetch
 makes its ahead/behind counts current.
 
-## Companion commit policy
+## Companion commit checks
 
-commit — commit and push inside `private/` as its own repository, never alongside a public commit
-(`AGENTS.md`: "Commit and push the two repositories independently").
-
-- **Before committing:** review the diff from `private/`'s own root; confirm it holds no credential
-  values (only `op://` references); a file added, moved or retired has its row in
-  `private/README.md`'s "Document authority" table in the same commit; nothing from it is copied
-  into a public file, issue, pull request or commit message.
+- A file added, moved or retired has its row in `private/README.md`'s "Document authority" table in
+  the same commit.
 
 ## Sync with main
 
@@ -88,9 +83,8 @@ none
 
 ## Hook: after sync
 
-1. When the sync changed `pnpm-lock.yaml` or a `package.json`, run `pnpm install --frozen-lockfile`.
-2. When it brought new files under `supabase/migrations/` and the local stack is running, say so and
-   offer `pnpm dlx supabase migration up` (applies only the pending migrations, keeping the data).
-   Never `supabase db reset`.
-3. When `apps/api/.dev.vars`, `apps/pages/.dev.vars` or `apps/web/.env.local` is missing and the
+1. When the sync brought new files under `supabase/migrations/` and the local stack is running, say
+   so and offer `pnpm dlx supabase migration up` (applies only the pending migrations, keeping the
+   data). Never `supabase db reset`.
+2. When `apps/api/.dev.vars`, `apps/pages/.dev.vars` or `apps/web/.env.local` is missing and the
    stack is running, offer `pnpm local:env` (never `--force`).
