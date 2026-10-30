@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { type ActionPlanInput, buildActionPlan, tallyNames } from "../src/action-plan";
+import {
+  type ActionPlanInput,
+  buildActionPlan,
+  tallyNamedInstead,
+  tallyNames,
+} from "../src/action-plan";
 import type { SiteCheck, SourceSummary } from "../src/schemas";
 
 const source = (host: string, answers: number, named: number, own = false): SourceSummary => ({
@@ -73,6 +78,20 @@ describe("tallyNames", () => {
       { name: "Smith Plumbing, Inc.", count: 2 },
       { name: "Oak Realty", count: 1 },
       { name: "Oak Realty Partners", count: 1 },
+    ]);
+  });
+});
+
+describe("tallyNamedInstead", () => {
+  it("counts a competitor once in a check that names it two ways", () => {
+    expect(
+      tallyNamedInstead([
+        { competitors: ["Northstar Realty Co", "North Star Realty", "Zed"] },
+        { competitors: ["North Star Realty"] },
+      ]),
+    ).toEqual([
+      { name: "North Star Realty", count: 2 },
+      { name: "Zed", count: 1 },
     ]);
   });
 });

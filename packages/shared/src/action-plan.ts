@@ -60,13 +60,16 @@ export function tallyNames(counts: readonly NameCount[], limit?: number): NameCo
     .slice(0, limit);
 }
 
-/** Who the checks named instead, each check counted once for each name, spellings added up. */
+/**
+ * Who the checks named instead, spellings added up: a check counts once for each competitor, even
+ * when it wrote one two ways, so a count is never more than the checks.
+ */
 export function tallyNamedInstead(
   checks: readonly { competitors: readonly string[] }[],
 ): NameCount[] {
-  return tallyNames(
-    checks.flatMap((check) => check.competitors.map((name) => ({ name, count: 1 }))),
-  );
+  const once = (names: readonly string[]) =>
+    tallyNames(names.map((name) => ({ name, count: 1 }))).map(({ name }) => ({ name, count: 1 }));
+  return tallyNames(checks.flatMap((check) => once(check.competitors)));
 }
 
 const plural = (count: number, one: string, many: string) => (count === 1 ? one : many);
