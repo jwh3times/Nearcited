@@ -1,5 +1,10 @@
-import { type PublicAudit, SURFACES, type Surface } from "@nearcited/shared";
-import { businessKey } from "./format";
+import {
+  type NameCount,
+  type PublicAudit,
+  SURFACES,
+  type Surface,
+  tallyNames,
+} from "@nearcited/shared";
 
 /** How long a report may sit unfinished before the page stops waiting for the rest of it. */
 export const AUDIT_WAIT_MS = 20 * 60 * 1000;
@@ -20,26 +25,12 @@ export function auditAnswers(audit: PublicAudit): number {
   );
 }
 
-/** Who else was named across the whole report, most often first. */
-export function auditCompetitors(audit: PublicAudit, limit = 8): { name: string; count: number }[] {
-  // "Tony's" and "Tony's, LLC" are one business. Count them together under the shorter name.
-  const counts = new Map<string, { name: string; count: number }>();
-  for (const prompt of audit.prompts) {
-    for (const cell of prompt.cells ?? []) {
-      for (const { name, count } of cell.competitors) {
-        const key = businessKey(name);
-        const entry = counts.get(key);
-        if (!entry) counts.set(key, { name, count });
-        else {
-          entry.count += count;
-          if (name.length < entry.name.length) entry.name = name;
-        }
-      }
-    }
-  }
-  return [...counts.values()]
-    .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
-    .slice(0, limit);
+/** Who else was named across the whole report, most often first, spellings of one counted together. */
+export function auditCompetitors(audit: PublicAudit, limit = 8): NameCount[] {
+  return tallyNames(
+    audit.prompts.flatMap((prompt) => (prompt.cells ?? []).flatMap((cell) => cell.competitors)),
+    limit,
+  );
 }
 
 /**

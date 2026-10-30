@@ -1,3 +1,4 @@
+import { tallyNamedInstead } from "./action-plan";
 import { hostOf } from "./analysis";
 import { pageRule, pageTaskTitle, promptsLeftOut } from "./pages";
 import {
@@ -38,16 +39,9 @@ interface ResultFacts {
 const MIN_ANSWERS_FOR_OWN_SITE = 4;
 
 function mostNamed(results: readonly ResultFacts[], limit: number): string[] {
-  const counts = new Map<string, number>();
-  for (const result of results) {
-    for (const competitor of result.competitors) {
-      counts.set(competitor, (counts.get(competitor) ?? 0) + 1);
-    }
-  }
-  return [...counts.entries()]
-    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+  return tallyNamedInstead(results)
     .slice(0, limit)
-    .map(([name]) => name);
+    .map(({ name }) => name);
 }
 
 /**

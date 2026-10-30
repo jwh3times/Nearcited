@@ -97,6 +97,14 @@ describe("deriveRecommendations", () => {
     expect(recommendation?.detail).toContain("any of 2 checks");
     expect(recommendation?.detail).toContain("Tony's, Crust & Co");
   });
+
+  it("names a competitor once however its spellings differ, under the shortest", () => {
+    const [recommendation] = deriveRecommendations(complete, [
+      { surface: "gemini", mentioned: false, competitors: ["Northstar Realty Co", "Zed"] },
+      { surface: "gemini", mentioned: false, competitors: ["North Star Realty"] },
+    ]);
+    expect(recommendation?.detail).toContain("Named instead: North Star Realty, Zed.");
+  });
 });
 
 describe("LocationInputSchema", () => {
