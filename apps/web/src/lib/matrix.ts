@@ -153,23 +153,6 @@ export function nothingShownLine(
   return `Google ${said}${searched} when it was checked on ${formatDate(result.sampled_at)}. This doesn't count against the business.`;
 }
 
-export interface CompetitorTally {
-  name: string;
-  count: number;
-}
-
-/** Who was named across the scan, most often first. */
-export function tallyCompetitors(results: ScanResult[], limit = 8): CompetitorTally[] {
-  const counts = new Map<string, number>();
-  for (const result of results) {
-    for (const name of result.competitors) counts.set(name, (counts.get(name) ?? 0) + 1);
-  }
-  return [...counts.entries()]
-    .map(([name, count]) => ({ name, count }))
-    .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
-    .slice(0, limit);
-}
-
 export function ordinal(n: number): string {
   const lastTwo = n % 100;
   if (lastTwo >= 11 && lastTwo <= 13) return `${n}th`;

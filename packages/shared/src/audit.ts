@@ -170,6 +170,7 @@ export function toPublicAudit(stored: StoredAudit): PublicAudit {
   );
   const sources = mergeSources([everySource]);
   const site = Object.values(stored.parts).find((part) => part.site)?.site ?? null;
+  const checks = cells.reduce((sum, cell) => sum + cell.checks, 0);
   return {
     business_name: stored.business_name,
     website: stored.website,
@@ -184,7 +185,9 @@ export function toPublicAudit(stored: StoredAudit): PublicAudit {
     action_plan: buildActionPlan({
       name: stored.business_name,
       website: stored.website,
-      answers: cells.reduce((sum, cell) => sum + cell.checks, 0),
+      answers: checks,
+      // An audit asks only the assistants, so every check is an answer.
+      checks,
       sources: everySource,
       site,
       competitors: cells.flatMap((cell) => cell.competitors),

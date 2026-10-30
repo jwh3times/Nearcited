@@ -1831,6 +1831,10 @@ export const SourceSummarySchema = z.object({
 });
 export type SourceSummary = z.infer<typeof SourceSummarySchema>;
 
+/** A business named, and how many checks named it. */
+export const NameCountSchema = z.object({ name: z.string(), count: z.number().int().positive() });
+export type NameCount = z.infer<typeof NameCountSchema>;
+
 export const SITE_CHECK_IDS = [
   "reachable",
   "crawlers_allowed",
@@ -1942,6 +1946,11 @@ export const ScanWindowSchema = z.object({
   answers: z.number().int().nonnegative(),
   /** The sites those answers cited, most cited first. */
   sources: z.array(SourceSummarySchema),
+  /**
+   * Who else the checks that showed something named, with how many named each, spellings added
+   * up and most named first. The cells' checks are what each is out of. The six most named.
+   */
+  competitors: z.array(NameCountSchema),
 });
 export type ScanWindow = z.infer<typeof ScanWindowSchema>;
 

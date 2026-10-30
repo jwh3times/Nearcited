@@ -188,7 +188,7 @@ describe("toPublicAudit", () => {
     ]);
     expect(audit.action_plan[2]?.items[0]).toMatchObject({
       label: "Tony's Slice House",
-      detail: "Named in 4 of 4 answers",
+      detail: "Named in 4 of 4 checks",
     });
   });
 

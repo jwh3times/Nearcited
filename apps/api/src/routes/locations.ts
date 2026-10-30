@@ -9,6 +9,7 @@ import {
   type DraftKind,
   draftsStanding,
   FETCHES_SHOWN_DAYS,
+  isCounted,
   isCountedAnswer,
   type LocationDetail,
   LocationInputSchema,
@@ -24,6 +25,7 @@ import {
   type TaskEvidence,
   TrackedQueryInputSchema,
   TrackedQueryUpdateSchema,
+  tallyNamedInstead,
 } from "@nearcited/shared";
 import { Hono } from "hono";
 import type { AppEnv } from "../app";
@@ -33,6 +35,9 @@ import { checkedSurfaces, planSurfaces, usesSampleData } from "../providers";
 import type { Store } from "../store/types";
 import { citedIn } from "../tasks";
 import { parseJson, uuidParam } from "../validation";
+
+/** How many of the businesses named instead the location page's card lists. */
+const NAMED_INSTEAD_SHOWN = 6;
 
 export const locationRoutes = new Hono<AppEnv>();
 
@@ -87,6 +92,10 @@ locationRoutes.get("/locations/:id", async (c) => {
   const asked = new Set(queries.filter((query) => query.is_active).map((query) => query.id));
 
   const { answers, sources } = citedIn(recent, location.website);
+  // Who is named instead, counted over every check the score counts, so the card and the plan
+  // give one business one number.
+  const checked = poolWindow(recent).filter(isCounted);
+  const competitors = tallyNamedInstead(checked);
 
   // For each recommendation a member marked, the answers either side of the mark. They are
   // read separately from the window: the window moves on, and the mark stays where it was put.
@@ -137,17 +146,17 @@ locationRoutes.get("/locations/:id", async (c) => {
       cells: summarizeWindow(recent),
       answers: answers.length,
       sources: summarizeSources(answers, location.website),
+      competitors: competitors.slice(0, NAMED_INSTEAD_SHOWN),
     },
     site,
     action_plan: buildActionPlan({
       name: location.name,
       website: location.website,
       answers: answers.length,
+      checks: checked.length,
       sources,
       site,
-      competitors: answers.flatMap((answer) =>
-        answer.competitors.map((name) => ({ name, count: 1 })),
-      ),
+      competitors,
     }),
     surfaces: planSurfaces(
       sample ? [...SURFACES] : checkedSurfaces(c.env),

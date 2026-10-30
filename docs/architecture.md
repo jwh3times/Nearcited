@@ -297,6 +297,15 @@ showed nothing. The chart of the score over time on the location page plots
 each successful scan's `visibility_score` from `GET /api/locations/:id/scans`, on a fixed 0 to
 100 axis, and only for scans of the same kind as the latest one.
 
+Who else the checks named is counted over the same pool, once, in the API. The location route
+tallies the businesses named in every check of the window that showed something (`isCounted`),
+Google's included: a check counts once for each name, and spellings of one business are added up
+under the shortest (`tallyNamedInstead` and `tallyNames`, `packages/shared/src/action-plan.ts`).
+The six named most go in `window.competitors`, which the location page's "Named instead" card
+shows beside how often the business itself was named, both out of the cells' checks
+(`namedInsteadCard`, `apps/web/src/lib/summary.ts`). The action plan's `competitors` step takes
+its three from the same tally, so the card and the plan give one business one number.
+
 **One scan in flight per location.** A partial unique index on `scans (location_id)` for the
 `queued` and `running` statuses makes a second insert fail, whoever makes it: two requests
 arriving together, or the scheduler racing a manual scan. The API reports it as
@@ -482,14 +491,14 @@ over an audit's samples, so both pages show the same plan from the same code.
 | `fix_website` | The on-page check failed something, at any answer count; or every check passed (or none was made, or the page could not be loaded) and no answer cited the site, of at least four. | The failed checks, as the reasons, each with its fix. |
 | `get_listed` | A site was cited in at least two answers and none of them named the business. | Up to three such sites, the ones the `source:<host>` rule chooses, with the page that was read. |
 | `keep_listings` | A site was cited in answers that did name the business. | Up to five, most often first. |
-| `competitors` | The answers named other businesses. | The three named most, linked to their own site when it was one of the pages read. Among businesses named equally often, one with such a link comes first. |
+| `competitors` | The checks that showed something named other businesses, Google's results included. | The three named most, each "Named in x of y checks" from the tally in "Rates over a window of scans", linked to their own site when it was one of the pages read. Among businesses named equally often, one with such a link comes first. |
 
 Steps are composed by rule, never by a model, and each states the observation it rests on. For
 `fix_website` on a site no answer cited, the title and summary depend on whether a failed check
 blocks reading (`BLOCKS_READING`: `reachable`, `crawlers_allowed`, `text_content`).
-A site whose address contains a named competitor's name run together is treated as that
-competitor's own, so nobody is told to get listed on a rival's website; that match is a guess and
-is used for nothing else. The same match keeps such a site out of the `source:<host>` rule. A name
+A site whose address contains the name run together of a business any check named (Google's
+results included) is treated as that competitor's own, so nobody is told to get listed on a
+rival's website; that match is a guess and is used for nothing else. The same match keeps such a site out of the `source:<host>` rule. A name
 is also matched with "&" or "and" dropped.
 
 A location's on-page check is kept in `scans.site_check`, written by the worker just before it

@@ -1,6 +1,7 @@
 import type { ScanWindow } from "@nearcited/shared";
 import { describe, expect, it } from "vitest";
 import {
+  namedInsteadCard,
   noScoreReason,
   rateTone,
   scoreChange,
@@ -55,6 +56,7 @@ describe("noScoreReason", () => {
     cells,
     answers: 0,
     sources: [],
+    competitors: [],
   });
   const empty = (surface: "google_ai_overview" | "google_organic", notShown: number) => ({
     tracked_query_id: "k1",
@@ -126,5 +128,33 @@ describe("sparkline", () => {
   it("draws a flat series through the middle, and nothing for a single point", () => {
     expect(sparkline([40, 40], 72, 24)).toBe("M0,12 L72,12");
     expect(sparkline([40], 72, 24)).toBeNull();
+  });
+});
+
+describe("namedInsteadCard", () => {
+  const window = (scans: number): ScanWindow => ({
+    size: 7,
+    scans,
+    cells,
+    answers: 18,
+    sources: [],
+    competitors: [{ name: "Tony's Slice House", count: 9 }],
+  });
+
+  it("counts the business and who is named instead over the same checks of the window", () => {
+    expect(namedInsteadCard(window(3))).toEqual({
+      mentions: 7,
+      checks: 18,
+      competitors: [{ name: "Tony's Slice House", count: 9 }],
+      note: "Out of 18 checks over the last 3 scans.",
+    });
+  });
+
+  it("says it is the latest scan while there is only one", () => {
+    expect(namedInsteadCard(window(1))?.note).toBe("Out of 18 checks in the latest scan.");
+  });
+
+  it("shows nothing when no check counted", () => {
+    expect(namedInsteadCard({ ...window(1), cells: [] })).toBeNull();
   });
 });

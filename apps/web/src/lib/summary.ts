@@ -33,6 +33,31 @@ export function surfaceRates(
   }));
 }
 
+export interface NamedInsteadCard {
+  /** How many of the checks named the business itself. */
+  mentions: number;
+  checks: number;
+  competitors: ScanWindow["competitors"];
+  /** What the counts are out of, said in a sentence. */
+  note: string;
+}
+
+/**
+ * Who the window's checks named beside the business: the same checks as the score, and the same
+ * counts as the plan's competitor step. Null when no check counted.
+ */
+export function namedInsteadCard(window: ScanWindow): NamedInsteadCard | null {
+  const { checks, mentions } = windowRate(window.cells);
+  if (checks === 0) return null;
+  const over = window.scans <= 1 ? "in the latest scan" : `over the last ${window.scans} scans`;
+  return {
+    mentions,
+    checks,
+    competitors: window.competitors,
+    note: `Out of ${checks} ${checks === 1 ? "check" : "checks"} ${over}.`,
+  };
+}
+
 /**
  * Why a location has no score, when the reason is that Google showed nothing: every check in
  * the window was a search with nothing on it, which counts neither way (ADR 0024). Null when

@@ -1,5 +1,5 @@
 import { hostOf, normalizeName } from "./analysis";
-import type { ActionPlanStep, SiteCheck, SiteCheckId, SourceSummary } from "./schemas";
+import type { ActionPlanStep, NameCount, SiteCheck, SiteCheckId, SourceSummary } from "./schemas";
 import { SITE_CHECKS } from "./site";
 import { belongsTo, unnamedSources } from "./sources";
 
@@ -12,22 +12,19 @@ import { belongsTo, unnamedSources } from "./sources";
  * changed.
  */
 
-export interface NameCount {
-  name: string;
-  count: number;
-}
-
 export interface ActionPlanInput {
   /** The business the plan is for. */
   name: string;
   website: string | null;
-  /** How many answers the counts below are out of. */
+  /** How many answers the sources are counted out of. */
   answers: number;
+  /** How many checks the competitors are counted out of: every one that showed something. */
+  checks: number;
   /** Every site those answers cited. The business's own site must be among them if it was cited. */
   sources: readonly SourceSummary[];
   /** The on-page check of the business's home page, or null when it was not made. */
   site: SiteCheck | null;
-  /** Who else the answers named, with how many answers named each. */
+  /** Who else the checks named, with how many checks named each. */
   competitors: readonly NameCount[];
 }
 
@@ -60,6 +57,15 @@ export function tallyNames(counts: readonly NameCount[], limit?: number): NameCo
   return [...tally.values()]
     .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
     .slice(0, limit);
+}
+
+/** Who the checks named instead, each check counted once for each name, spellings added up. */
+export function tallyNamedInstead(
+  checks: readonly { competitors: readonly string[] }[],
+): NameCount[] {
+  return tallyNames(
+    checks.flatMap((check) => check.competitors.map((name) => ({ name, count: 1 }))),
+  );
 }
 
 const plural = (count: number, one: string, many: string) => (count === 1 ? one : many);
@@ -181,15 +187,15 @@ export function buildActionPlan(input: ActionPlanInput): ActionPlanStep[] {
     .map((competitor) => ({ ...competitor, url: ownPage(competitor.name) }))
     .sort((a, b) => b.count - a.count || Number(b.url !== null) - Number(a.url !== null))
     .slice(0, MAX_COMPETITORS);
-  if (named.length > 0 && input.answers > 0) {
+  if (named.length > 0 && input.checks > 0) {
     steps.push({
       id: "competitors",
       title: "See who is recommended instead",
       summary:
-        "The businesses the answers named most. Where their own site was one of the pages read, it is linked: it shows what an assistant found worth quoting.",
+        "The businesses the checks named most, Google's results included. Where their own site was one of the pages read, it is linked: it shows what an assistant found worth quoting.",
       items: named.map(({ name, count, url }) => ({
         label: name,
-        detail: `Named in ${count} of ${input.answers} answers`,
+        detail: `Named in ${count} of ${input.checks} ${plural(input.checks, "check", "checks")}`,
         url,
       })),
     });

@@ -1,14 +1,8 @@
-import type { CompetitorTally } from "../lib/matrix";
+import type { NamedInsteadCard } from "../lib/summary";
 
-interface NamedInsteadProps {
-  /** How many of the latest scan's checks named the business. */
-  mentions: number;
-  checks: number;
-  competitors: CompetitorTally[];
-}
-
-/** Who the latest scan's answers named, beside how often they named the business itself. */
-export function NamedInstead({ mentions, checks, competitors }: NamedInsteadProps) {
+/** Who the window's checks named, beside how often they named the business itself. */
+export function NamedInstead({ card }: { card: NamedInsteadCard }) {
+  const { mentions, checks, competitors } = card;
   const width = (count: number) => ({ width: `${checks === 0 ? 0 : (count / checks) * 100}%` });
   return (
     <div className="card bars-card">
@@ -31,9 +25,7 @@ export function NamedInstead({ mentions, checks, competitors }: NamedInsteadProp
           </li>
         ))}
       </ul>
-      <p className="small muted">
-        Out of {checks} {checks === 1 ? "check" : "checks"} in the latest scan.
-      </p>
+      <p className="small muted">{card.note}</p>
     </div>
   );
 }

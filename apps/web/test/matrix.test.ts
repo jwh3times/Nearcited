@@ -8,7 +8,6 @@ import {
   nothingShownLine,
   ordinal,
   readCell,
-  tallyCompetitors,
 } from "../src/lib/matrix";
 
 const query = (id: string, kind: TrackedQuery["kind"], text: string): TrackedQuery => ({
@@ -78,6 +77,7 @@ describe("buildMatrix", () => {
         ],
         answers: 0,
         sources: [],
+        competitors: [],
       },
     );
     const cells = group?.rows[0]?.cells ?? [];
@@ -190,21 +190,6 @@ describe("nothingShownLine", () => {
     expect(line("google_ai_mode")).toContain("Google gave no AI Mode answer for “pizza near me”");
     expect(line("google_local_pack")).toContain("Google showed no map results for");
     expect(line("google_organic")).toContain("Google showed no organic results for");
-  });
-});
-
-describe("tallyCompetitors", () => {
-  it("counts across results, most named first, ties by name", () => {
-    expect(
-      tallyCompetitors([
-        result("p1", "chatgpt", ["Tony's", "Crust & Co"]),
-        result("p1", "gemini", ["Tony's", "Alfie's"]),
-      ]),
-    ).toEqual([
-      { name: "Tony's", count: 2 },
-      { name: "Alfie's", count: 1 },
-      { name: "Crust & Co", count: 1 },
-    ]);
   });
 });
 
