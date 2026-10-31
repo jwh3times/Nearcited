@@ -2534,8 +2534,6 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         (match): PropertyMatch => ({
           location_id: match.location_id,
           property_id: match.external_id,
-          property: match.external_label,
-          website: db.locations.find((l) => l.id === match.location_id)?.website ?? null,
           read_through: db.fetchReads.get(`${connectionId}:${match.location_id}`) ?? null,
         }),
       );

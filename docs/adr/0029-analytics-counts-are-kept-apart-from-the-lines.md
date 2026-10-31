@@ -61,6 +61,12 @@ and, as with the line, no score, alert, task, report or bill is worked out from 
 - A property that measures more than one website counts them together. The report is not split by
   host: Google's documentation does not say that `hostName` can be asked for beside `sessions`, and a
   report it refused would count nothing at all. The page says so.
+- Google's notes on revoking suggest that taking one sign-in back can take back the same person's
+  others to this project. If so, removing one connection breaks another they made, with the reason, and
+  it is mended by signing in again. Nobody has tried it, and it matters more once the Google profile
+  connection shares the project.
+- A location is refused a property where another with its website holds one, which is stricter than a
+  Cloudflare zone's rule, so that two properties measuring one site never show its sessions twice.
 - A day here is a day in the property's own time zone, not UTC as the line's is, since that is the
   only day a report gives. The page says so.
 - Google's review of the sign-in screen is still owed (#145). Until it passes, people see a warning

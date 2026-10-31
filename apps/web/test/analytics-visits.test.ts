@@ -59,9 +59,11 @@ describe("whether a location's page has a section for Google Analytics", () => {
 });
 
 describe("what the section says of where its numbers come from", () => {
-  it("says so where no property measures the location's website", () => {
+  it("says no property is matched, without saying that none measures the website", () => {
     expect(analyticsNote({ state: "not_matched" })).toBe(ANALYTICS_WORDS.notMatched);
-    expect(ANALYTICS_WORDS.notMatched).toContain("measures this location's website");
+    // A property with two websites' streams is one location's, so the other's website is measured.
+    expect(ANALYTICS_WORDS.notMatched).toContain("is matched to this location");
+    expect(ANALYTICS_WORDS.notMatched).toContain("one location");
   });
 
   it("names the location that holds the property", () => {
@@ -172,8 +174,11 @@ describe("a broken connection's note", () => {
       broken_reason: reason,
     }) as Connection;
 
-  it("says to sign in with Google again where it was refused", () => {
-    expect(connectionNote(broken("refused"), String)).toMatch(/Google refused/);
+  it("says to remove it and then sign in again where it was refused, in that order", () => {
+    // Taking a sign-in back at Google can take back others of the same person's.
+    expect(connectionNote(broken("refused"), String)).toMatch(
+      /Google refused.*Remove it.*then sign in with Google again/,
+    );
     expect(connectionNote(broken("failing"), String)).toMatch(/three days in a row/);
   });
 });

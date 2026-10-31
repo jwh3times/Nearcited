@@ -1834,8 +1834,6 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
       {
         location_id: site.id,
         property_id: "properties/1",
-        property: "Answering",
-        website: answering.website,
         read_through: null,
       },
     ]);

@@ -24,7 +24,7 @@ export const ANALYTICS_WORDS = {
   some: (total: number) =>
     `Google Analytics reported ${sessionsOf(total)} from assistants in the last ${VISITS_SHOWN_DAYS} days`,
   notMatched:
-    "None of the properties your Google Analytics sign-in reaches measures this location's website. Check the website under Settings, and the web stream in Analytics.",
+    "No property your Google Analytics sign-in reaches is matched to this location. A property is counted for one location, and only for a website one of its web streams measures. Check the website under Settings, and the web stream in Analytics.",
   noWebsite:
     "There is no website on file for this location. Sessions are counted only for the website on file, so add it first.",
   waiting: "Reading the last days from Google Analytics now. This fills in once that is done.",

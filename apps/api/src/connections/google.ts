@@ -85,12 +85,16 @@ export function googleSignInAddress(
   return url.toString();
 }
 
+/**
+ * Posts to Google. A redirect is not followed, so a sign-in never goes on to anywhere else, and
+ * comes back as an answer that is not `ok`. The Workers runtime has no `redirect: "error"`.
+ */
 const post = (url: string, form: Record<string, string>, deps: GoogleDeps) =>
   (deps.fetch ?? fetch)(url, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams(form).toString(),
-    redirect: "error",
+    redirect: "manual",
     signal: AbortSignal.timeout(TIMEOUT_MS),
   });
 

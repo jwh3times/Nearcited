@@ -1002,12 +1002,13 @@ visits: one more for that location, day (UTC), assistant and page
   in the browser. It sends the post with `credentials: "omit"` and `referrerPolicy: "origin"`, so
   the request names the site and no page of it. It does nothing for a reload or a step back to the
   page, inside a frame, a second time on a page, or without a key.
-- **The assistants are listed in three places.** `VISIT_ASSISTANTS`
+- **The assistants are listed in several places.** `VISIT_ASSISTANTS`
   (`packages/shared/src/schemas.ts`) names them and `ASSISTANT_REFERRERS`
   (`packages/shared/src/visits.ts`) holds the hosts and tags each carries. `line.js` has its own
   copy, since it is a plain script, and `apps/web/test/line.test.ts` holds it to the shared one.
-  The database names them too, twice: the check on `visits.assistant` and `record_visit()`'s own
-  list, and the test in `packages/db` holds both to `VISIT_ASSISTANTS`. An assistant is listed only
+  The database names them too, four times: the checks on `visits.assistant` and
+  `analytics_visits.assistant`, and `record_visit()`'s and `record_analytics_visits()`'s own lists, and
+  the tests in `packages/db` hold them to `VISIT_ASSISTANTS`. An assistant is listed only
   when its visits can be told from a search: Google's AI Overviews and AI Mode arrive from
   google.com as a search does, and Copilot's answers inside Bing from bing.com, so neither is
   counted.
@@ -1615,6 +1616,12 @@ record_connection_sync(), once every read has worked
   are sealed with, to `google-state:<user>:<organization>`, so it opens only for that caller and
   organization and a changed one does not open at all. `googleStateIsGood` is checked before Google is
   asked anything.
+- **The project is two Worker secrets.** `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are this
+  deployment's project at Google. Without both, or on sample data, `googleAppOf` gives nothing: the kind
+  is not offered, and a sync answers `unreadable`.
+- **Nothing goes on through a redirect.** Every call to Google asks for `redirect: "manual"` with a
+  15-second timeout, and a redirect comes back as an answer that is not `ok`. The Workers runtime throws
+  on `redirect: "error"`, which Node takes, so a test's made-up `fetch` holds the option to "manual".
 - **What a sign-in has to be.** A swap whose `scope` leaves out read-only Analytics answers 422
   `analytics_not_allowed`, since Google lets someone untick a scope, and one with no refresh token 422
   `no_lasting_sign_in`. Neither stores anything. The access token is asked for on each sync and thrown
@@ -1633,8 +1640,8 @@ record_connection_sync(), once every read has worked
   organization's connections has that property. An owner cannot match one by hand. One sync looks at
   the streams of at most a hundred properties, since each is a request of its own.
 - **Only sessions from assistants are asked for.** `readSessions` filters the report to sources that
-  contain a host or tag of `ASSISTANT_REFERRERS` (`ANALYTICS_REPORT_SOURCES`), and `assistantOfSource`
-  decides each row, since a filter can only say a source contains a name. A page is cut at `?` and at
+  are a host or tag of `ASSISTANT_REFERRERS` (`ANALYTICS_REPORT_SOURCES`) or a subdomain of one, and
+  `assistantOfSource` still decides each row. A page is cut at `?` and at
   200 characters, and a session Google names no page for is counted under an empty path. The report is
   not split by host, so a property that measures two websites counts them together, and a day is a
   day in the property's own time zone: the page says both.
@@ -1660,7 +1667,9 @@ record_connection_sync(), once every read has worked
   with only the line looks as it did.
 - **Removal takes the access back.** `removeConnection` posts the refresh token to Google's revoke
   endpoint, then deletes it here. One already gone counts as taken back; one Google could not be asked
-  about is still deleted here, and the outcome says so. A plan that stops including `visits` pauses the
+  about is still deleted here, and the outcome says so. Google's notes on revoking suggest it can take
+  back the same person's other sign-ins to this project, so a broken connection's note says to remove
+  it before signing in again. A plan that stops including `visits` pauses the
   connection like any other kind (`connection_kind_allowances`).
 - **Sample counts are made up, never read.** A scan on sample data whose allowances include `visits`
   writes `sampleAnalyticsVisits` for the last thirty days with `sample_data` true. The kind is never

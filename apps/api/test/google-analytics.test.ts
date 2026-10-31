@@ -10,7 +10,12 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/app";
 import { availableConnectionKinds, removeConnection, syncConnection } from "../src/connections";
-import { GoogleRefused, googleState, withdrawSignIn } from "../src/connections/google";
+import {
+  accessTokenFor,
+  GoogleRefused,
+  googleState,
+  withdrawSignIn,
+} from "../src/connections/google";
 import { listProperties, readSessions } from "../src/connections/google-analytics";
 import { open, sealingKey } from "../src/connections/seal";
 import type { Env } from "../src/env";
@@ -53,6 +58,8 @@ interface FakeGoogle {
   /** Answer the Analytics interfaces with this, as for an outage or a revoked access. */
   apiStatus?: { status: number; body?: unknown };
   revokeStatus?: { status: number; error?: string };
+  /** Answer every request with a redirect somewhere else. */
+  redirects?: boolean;
   asked: { url: string; body: unknown; auth: string | null }[];
 }
 
@@ -65,6 +72,12 @@ const fakeFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   const form = url.includes("oauth2.googleapis.com") && text ? new URLSearchParams(text) : null;
   const body = form ? Object.fromEntries(form) : text ? JSON.parse(text) : null;
   google.asked.push({ url, body, auth: new Headers(init?.headers).get("Authorization") });
+  // The Workers runtime throws on `redirect: "error"`, though Node takes it, so a sign-in is kept
+  // from going on through a redirect by asking for "manual" and not following what comes back.
+  expect(init?.redirect).toBe("manual");
+  if (google.redirects) {
+    return new Response(null, { status: 302, headers: { Location: "https://elsewhere.example/" } });
+  }
   if (url === "https://oauth2.googleapis.com/token") {
     if (google.tokenStatus) {
       return Response.json(
@@ -278,7 +291,7 @@ describe("Google", () => {
       row("2026-10-27", "www.perplexity.ai", "/menu?from=answer", 4),
       // Google names no page for this one. It is counted, under no page.
       row("2026-10-28", "claude.ai", "(not set)", 2),
-      // A source that only looks like one, which the filter would let through.
+      // A source that only looks like one, should Google answer with one all the same.
       row("2026-10-28", "notchatgpt.com", "/", 50),
       row("2026-10-28", "chatgpt.com", `/${"a".repeat(300)}`, 1),
     ];
@@ -310,7 +323,7 @@ describe("Google", () => {
     expect(filter).toContainEqual({
       filter: {
         fieldName: "sessionSource",
-        stringFilter: { matchType: "CONTAINS", value: "chatgpt.com" },
+        stringFilter: { matchType: "FULL_REGEXP", value: "(.+\\.)?chatgpt\\.com" },
       },
     });
   });
@@ -351,6 +364,16 @@ describe("Google", () => {
       google.apiStatus = apiStatus;
       await expect(listProperties(ACCESS, { fetch: fakeFetch })).rejects.not.toThrow(GoogleRefused);
     }
+  });
+
+  it("never sends a sign-in on through a redirect, and does not take one for an answer", async () => {
+    google.redirects = true;
+    await expect(listProperties(ACCESS, { fetch: fakeFetch })).rejects.not.toThrow(GoogleRefused);
+    await expect(accessTokenFor(APP, REFRESH, { fetch: fakeFetch })).rejects.not.toThrow(
+      GoogleRefused,
+    );
+    expect(await withdrawSignIn(REFRESH, { fetch: fakeFetch })).toBe(false);
+    expect(google.asked.map((asked) => asked.url)).not.toContain("https://elsewhere.example/");
   });
 
   it("takes a sign-in back, and a sign-in already gone is taken back", async () => {

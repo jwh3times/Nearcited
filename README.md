@@ -800,7 +800,8 @@ The `integration` job in `.github/workflows/ci.yml` is a working example.
    ```
    Until `SUPABASE_SECRET_KEY` is set, the app serves and sign-in works, but no scan can run.
    Without `CONNECTIONS_KEY` nothing can be connected. Without `CLOUDFLARE_HOSTNAMES_TOKEN`, no
-   answer subdomain is offered on real data. Changing it later makes every sign-in
+   answer subdomain is offered on real data. Without both `GOOGLE_CLIENT_*`, no Google Analytics
+   connection is. Changing it later makes every sign-in
    already kept unreadable, so keep a copy of the value.
 
 Google results need their accounts opened once: `scripts/google-results-setup.sh`, a wizard that

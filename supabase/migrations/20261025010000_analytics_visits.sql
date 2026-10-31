@@ -66,16 +66,10 @@ create policy "The operator reads analytics visits"
 -- location with that website does, so no session is shown twice, nor where another of the
 -- organization's connections has the same property matched. Leaves where the connection stands to
 -- record_connection_sync(), which the worker calls once the counts are read. Returns each match,
--- with the website and the last day read. No row for a connection that is not a working or failing
--- Google Analytics one. Worker only.
+-- with the last day read. No row for a connection that is not a working or failing Google Analytics
+-- one. Worker only.
 create function public.match_analytics_properties(connection uuid, reached jsonb)
-returns table (
-  location_id uuid,
-  property_id text,
-  property text,
-  website text,
-  read_through date
-)
+returns table (location_id uuid, property_id text, read_through date)
 language plpgsql security definer set search_path = ''
 as $$
 #variable_conflict use_column
@@ -147,9 +141,8 @@ begin
   end loop;
 
   return query
-    select m.location_id, m.external_id, m.external_label, l.website, m.read_through
+    select m.location_id, m.external_id, m.read_through
     from public.connection_locations m
-    join public.locations l on l.id = m.location_id
     where m.connection_id = connection
     order by m.matched_at, m.location_id;
 end;

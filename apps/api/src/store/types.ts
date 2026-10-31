@@ -215,7 +215,7 @@ export interface ZoneMatch {
  * The days a write of a location's counts covers, and where they came from: a read through a
  * connection, or made up for sample data.
  */
-export type SiteFetchesRead =
+export type CountsRead =
   | { from: string; to: string; connection_id: string }
   | { from: string; to: string; sample: true };
 
@@ -226,9 +226,6 @@ export type AddedFetches = Pick<LocationFetches, "days" | "pages" | "other_pages
 export interface PropertyMatch {
   location_id: string;
   property_id: string;
-  /** What the property is called. */
-  property: string;
-  website: string | null;
   /** The last day read through for this location. Null until its first read. */
   read_through: string | null;
 }
@@ -1059,7 +1056,7 @@ export interface Store {
    */
   recordSiteFetches(
     locationId: string,
-    read: SiteFetchesRead,
+    read: CountsRead,
     counts: readonly FetchCount[],
   ): Promise<number>;
   /**
@@ -1085,7 +1082,7 @@ export interface Store {
    */
   recordAnalyticsVisits(
     locationId: string,
-    read: SiteFetchesRead,
+    read: CountsRead,
     counts: readonly AnalyticsVisitCount[],
   ): Promise<number>;
   /**

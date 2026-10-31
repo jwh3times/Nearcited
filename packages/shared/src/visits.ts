@@ -36,7 +36,8 @@ export interface AssistantReferrers {
  * link out of each one to see, so a host that is wrong counts nothing and says nothing.
  *
  * The line a site carries has its own copy (`apps/web/public/line.js`), kept the same by a test.
- * The database names the assistants too (`visits.assistant`): add one in all three.
+ * The database names the assistants too (`visits.assistant`, `analytics_visits.assistant` and
+ * `record_analytics_visits()`): add one in all five.
  */
 export const ASSISTANT_REFERRERS: Record<VisitAssistant, AssistantReferrers> = {
   // ChatGPT tags the links in its answers, and its apps often name no site they came from.
@@ -51,10 +52,10 @@ export const ASSISTANT_REFERRERS: Record<VisitAssistant, AssistantReferrers> = {
 export const MOST_VISITS_A_DAY = 1000;
 /**
  * The most pages a location's visits are counted under in a day. The visits to any page past
- * these are counted together. `record_visit()` holds the same number.
+ * these are counted together. `record_visit()` and `record_analytics_visits()` hold the same number.
  */
 export const MOST_PAGES_A_DAY = 50;
-/** How much of a page's path is kept. `record_visit()` holds the same number. */
+/** How much of a page's path is kept. `record_visit()` and `record_analytics_visits()` hold the same number. */
 export const LONGEST_PATH = 200;
 
 /** How many days of visits a location's page adds up, today included. */

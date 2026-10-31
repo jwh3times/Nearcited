@@ -948,8 +948,6 @@ export function createSupabaseStore(
           z.object({
             location_id: z.uuid(),
             property_id: z.string(),
-            property: z.string(),
-            website: z.string().nullable(),
             read_through: z.string().nullable(),
           }),
         )

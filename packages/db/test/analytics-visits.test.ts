@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
-import { MOST_PAGES_A_DAY } from "@nearcited/shared";
+import { MOST_PAGES_A_DAY, VISIT_ASSISTANTS } from "@nearcited/shared";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 /**
@@ -53,7 +53,7 @@ const REACHED = JSON.stringify([
   { id: "properties/3", label: "Nobody's", hosts: ["nobody.example"] },
 ]);
 const match =
-  "select location_id, property_id, property, website, read_through::text from public.match_analytics_properties($1, $2::jsonb)";
+  "select location_id, property_id, read_through::text from public.match_analytics_properties($1, $2::jsonb)";
 const record =
   "select public.record_analytics_visits($1, $2::date, $3::date, $4::jsonb, $5, $6) as kept";
 const kept = (location: string) =>
@@ -190,15 +190,11 @@ describe("sessions from assistants, read from Google Analytics", () => {
           {
             location_id: main,
             property_id: "properties/1",
-            property: "Joe's",
-            website: "https://www.joes.example/",
             read_through: null,
           },
           {
             location_id: shop,
             property_id: "properties/2",
-            property: "Shop",
-            website: "https://shop.other.example",
             read_through: null,
           },
         ]),
@@ -382,6 +378,27 @@ describe("sessions from assistants, read from Google Analytics", () => {
         false,
       ]);
       expect((await kept(main)).map((row) => row.path)).toEqual([`/${"a".repeat(199)}`, "/kept"]);
+    });
+
+    it("are kept for every assistant the shared list names, and for no other", async () => {
+      const counts = VISIT_ASSISTANTS.map((assistant) => visit("2026-10-27", assistant, "/", 1));
+      await worker(record, [
+        main,
+        "2026-10-27",
+        "2026-10-27",
+        JSON.stringify(counts),
+        signIn,
+        false,
+      ]);
+      expect((await kept(main)).map((row) => row.assistant).sort()).toEqual(
+        [...VISIT_ASSISTANTS].sort(),
+      );
+      await expect(
+        db.query(
+          "insert into public.analytics_visits (location_id, day, assistant, path, count) values ($1, current_date, 'google', '/', 1)",
+          [main],
+        ),
+      ).rejects.toThrow(/violates check constraint/);
     });
 
     it("stop at the line's bound of pages a day, counting the least visited together", async () => {

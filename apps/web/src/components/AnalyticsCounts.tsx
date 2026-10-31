@@ -63,12 +63,12 @@ function AnalyticsCounts({ visits }: { visits: LocationAnalyticsVisits }) {
   const shown = analyticsShown(visits);
   const note = analyticsNote(visits.source);
   // Where the sessions are counted on another location's page there is nothing here to read.
-  const counts = visits.source.state !== "elsewhere";
+  const countedHere = visits.source.state !== "elsewhere";
 
   return (
     <div className="visit-counts">
       {note && <p className="small muted">{note}</p>}
-      {counts && <p className="lede">{analyticsLede(visits.source, shown.total)}</p>}
+      {countedHere && <p className="lede">{analyticsLede(visits.source, shown.total)}</p>}
       {shown.total > 0 && (
         <CountTables
           shown={shown}
@@ -79,7 +79,7 @@ function AnalyticsCounts({ visits }: { visits: LocationAnalyticsVisits }) {
           otherPagesAbout={ANALYTICS_WORDS.otherPagesAbout}
         />
       )}
-      {counts && (
+      {countedHere && (
         <>
           <p className="footnote">{ANALYTICS_WORDS.floor}</p>
           <p className="footnote">

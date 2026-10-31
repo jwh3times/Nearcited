@@ -66,6 +66,10 @@ async function refused(response: Response): Promise<boolean> {
   }
 }
 
+/**
+ * Asks Google for something with an access token. A redirect is not followed, so the token never
+ * goes on to anywhere else, and counts as a failure. The Workers runtime has no `redirect: "error"`.
+ */
 async function ask<T>(
   url: string,
   token: string,
@@ -78,7 +82,7 @@ async function ask<T>(
       Authorization: `Bearer ${token}`,
       ...(init.body ? { "Content-Type": "application/json" } : {}),
     },
-    redirect: "error",
+    redirect: "manual",
     signal: AbortSignal.timeout(TIMEOUT_MS),
   });
   if (!response.ok) {
@@ -124,6 +128,11 @@ export async function listProperties(
     if (!answered.nextPageToken) break;
     pageToken = answered.nextPageToken;
   }
+  if (found.length > MOST_PROPERTIES) {
+    console.warn(
+      `A Google sign-in reaches ${found.length} properties. Reading ${MOST_PROPERTIES}.`,
+    );
+  }
   const properties: AnalyticsProperty[] = [];
   for (const { id, label } of found.slice(0, MOST_PROPERTIES)) {
     properties.push({ id, label, hosts: await hostsOf(id, token, deps) });
@@ -145,8 +154,8 @@ function pathFrom(page: string | undefined): string {
 
 /**
  * How many sessions each assistant sent to each page of a property on each of the days given, by the
- * property's own days. The report is asked for assistants' sources alone, and `assistantOfSource`
- * still decides each row, since the filter can only say a source contains a name.
+ * property's own days. The report is asked for assistants' sources alone, a subdomain counting as
+ * its site, and `assistantOfSource` still decides each row.
  */
 export async function readSessions(
   token: string,
@@ -168,10 +177,13 @@ export async function readSessions(
         metrics: [{ name: "sessions" }],
         dimensionFilter: {
           orGroup: {
-            expressions: ANALYTICS_REPORT_SOURCES.map((value) => ({
+            expressions: ANALYTICS_REPORT_SOURCES.map((source) => ({
               filter: {
                 fieldName: "sessionSource",
-                stringFilter: { matchType: "CONTAINS", value },
+                stringFilter: {
+                  matchType: "FULL_REGEXP",
+                  value: `(.+\\.)?${source.replaceAll(".", "\\.")}`,
+                },
               },
             })),
           },

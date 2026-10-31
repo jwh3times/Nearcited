@@ -61,7 +61,7 @@ export function connectionNote(
   }
   if (connection.status === "broken" && connection.kind === "google_analytics") {
     return connection.broken_reason === "refused"
-      ? "Not working: Google refused the sign-in. It may have been taken away in your Google account. Sign in with Google again, and remove this one."
+      ? "Not working: Google refused the sign-in. It may have been taken away in your Google account. Remove it, and then sign in with Google again."
       : "Not working: reading from Google Analytics has failed three days in a row. Nearcited tries again once a day, and it will start working again by itself if the cause passes.";
   }
   if (connection.status === "broken") {

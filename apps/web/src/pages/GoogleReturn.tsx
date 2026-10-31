@@ -1,5 +1,5 @@
 import { useMutation } from "@tanstack/react-query";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { ErrorNote } from "../components/ErrorNote";
 import { api } from "../lib/api";
@@ -18,7 +18,8 @@ import {
 export function GoogleReturn() {
   const navigate = useNavigate();
   const back = googleHandedBack();
-  const from = back.kind === "nothing" ? null : googleStartedFrom(back.state);
+  // Read once: the start is forgotten as the sign-in settles, before an error is drawn.
+  const [from] = useState(() => (back.kind === "nothing" ? null : googleStartedFrom(back.state)));
   const sent = useRef(false);
   const connect = useMutation({
     mutationFn: (organizationId: string) =>
