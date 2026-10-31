@@ -1,4 +1,8 @@
 import {
+  addDays,
+  analyticsSource,
+  dayOf,
+  type LocationAnalyticsVisits,
   type LocationLine,
   type LocationVisits,
   lineToPaste,
@@ -9,6 +13,7 @@ import { Hono } from "hono";
 import type { AppEnv } from "../app";
 import type { Env } from "../env";
 import { notFound } from "../errors";
+import { usesSampleData } from "../providers";
 import { uuidParam } from "../validation";
 import { requireLocation } from "./locations";
 
@@ -52,6 +57,45 @@ visitRoutes.get("/locations/:locationId/visits", async (c) => {
   return c.json(
     (await store.getLocationVisits(location.id, VISITS_SHOWN_DAYS)) satisfies LocationVisits,
   );
+});
+
+/**
+ * A location's sessions from assistants over the last thirty finished days, added up, as its Google
+ * Analytics property reported them and the worker read them, with where they come from. Kept apart
+ * from what the line reported and never added to it. Where the property measuring its website is
+ * another location's, that location is named and no count is sent, so none is shown twice. A test
+ * organization's, and every one in a deployment on sample data, are the made-up ones. For anyone who
+ * can read the location.
+ */
+visitRoutes.get("/locations/:locationId/analytics-visits", async (c) => {
+  const store = c.get("store");
+  const location = await requireLocation(store, uuidParam(c, "locationId", "Location"));
+  const organization = await store.getOrganization(location.organization_id);
+  if (!organization) throw notFound("Location");
+  const sampleData = usesSampleData(c.env) || organization.is_test;
+  const [connections, locations] = await Promise.all([
+    store.listConnections(organization.id),
+    store.listLocations(organization.id),
+  ]);
+  const source = analyticsSource({
+    location,
+    locations,
+    connections,
+    allowances: organization.allowances,
+    sampleData,
+  });
+  const today = dayOf(new Date());
+  const since = addDays(today, -VISITS_SHOWN_DAYS);
+  const added =
+    source.state === "elsewhere"
+      ? { days: [], pages: [], other_pages: 0 }
+      : await store.getLocationAnalyticsVisits(location.id, since, sampleData);
+  return c.json({
+    source,
+    since,
+    through: addDays(today, -1),
+    ...added,
+  } satisfies LocationAnalyticsVisits);
 });
 
 /**

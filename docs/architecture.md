@@ -1567,6 +1567,108 @@ record_connection_sync(), once every read has worked
   report or bill is worked out from it. The export carries the counts (`site-fetches.csv`), and the
   privacy policy says what is read and kept.
 
+## Sessions from assistants, read from Google Analytics
+
+Where a business already has Google Analytics on its site, visits from assistants can be read with
+one sign-in and nothing pasted (issue #144; the decision is in
+`docs/adr/0029-analytics-counts-are-kept-apart-from-the-lines.md`). They are kept apart from what the
+line reported and never added to it.
+
+```
+Connections page: POST /api/organizations/:id/connections/google-analytics/start
+        |  answers Google's sign-in address, with a state sealed to this caller and organization
+        v
+Google's screen (read-only Analytics, offline, consent shown each time)
+        |
+        v
+/google/return, a page of the web app: takes the code off the address, believed only in the tab
+        |  that started it
+        v
+POST /api/organizations/:id/connections/google-analytics  { code, state }   (as the caller)
+        |  state checked, code swapped, refresh token sealed, create_connection(), first sync queued
+        v
+daily sync, or the first one queued
+        |
+syncProperties (apps/api/src/connections/index.ts)
+        |  accessTokenFor: a token for this sync         (invalid_grant: broken as refused)
+        |  listProperties: accountSummaries, then each property's dataStreams
+        v
+match_analytics_properties(connection, properties)   (worker only: one property, one location)
+        |  for each match:
+        |    analyticsDaysToRead: the days due
+        |    readSessions: runReport, by date, sessionSource and landingPage
+        v
+record_analytics_visits(location, from, to, counts, connection)   (worker only)
+        |
+analytics_visits: a count for a location, a day, an assistant and a page
+        |
+record_connection_sync(), once every read has worked
+```
+
+- **The return is to the app.** A redirect from Google carries no sign-in of ours, so
+  `GOOGLE_RETURN_PATH` (`/google/return`) is a page of the web app, and the code is posted by the
+  person it was given to, with their own sign-in. `takeGoogleHandedBack` takes the code off the
+  address before anything is drawn. The route calls no `createAdminClient`: the connection goes through
+  `create_connection()` as the caller, and the `google_analytics` kind reaches it only from here
+  (`ConnectionInputSchema` leaves it out).
+- **The `state` needs no row.** `googleState` seals its expiry, ten minutes out, with the key sign-ins
+  are sealed with, to `google-state:<user>:<organization>`, so it opens only for that caller and
+  organization and a changed one does not open at all. `googleStateIsGood` is checked before Google is
+  asked anything.
+- **What a sign-in has to be.** A swap whose `scope` leaves out read-only Analytics answers 422
+  `analytics_not_allowed`, since Google lets someone untick a scope, and one with no refresh token 422
+  `no_lasting_sign_in`. Neither stores anything. The access token is asked for on each sync and thrown
+  away. `apps/api/src/connections/google.ts` knows nothing of Analytics, so the Google profile
+  connection (#142) can use it with its own scope.
+- **Refused, or failed.** `invalid_grant`, a 401 and a 403 naming `ACCESS_TOKEN_SCOPE_INSUFFICIENT` throw
+  `GoogleRefused`, which breaks the connection as `refused` at once. Any other failure, a 403 for this
+  product's own project among them, counts as a failed sync, so reads that keep failing break it as
+  `failing` on the third day. The connection is recorded as synced only once every match's read has
+  worked. A deployment with no project at Google answers `unreadable` and changes nothing.
+- **One property, one location, matched by the worker.** `match_analytics_properties()` keeps the
+  properties as the connection's `choices`, without their hosts, takes away a match whose property is
+  gone or no longer measures its location's website host (`site_host()`), and matches each property to
+  the organization's location whose host a web stream measures, the one made first where several do,
+  unless that location or another with its website already has a property, or another of the
+  organization's connections has that property. An owner cannot match one by hand. One sync looks at
+  the streams of at most a hundred properties, since each is a request of its own.
+- **Only sessions from assistants are asked for.** `readSessions` filters the report to sources that
+  contain a host or tag of `ASSISTANT_REFERRERS` (`ANALYTICS_REPORT_SOURCES`), and `assistantOfSource`
+  decides each row, since a filter can only say a source contains a name. A page is cut at `?` and at
+  200 characters, and a session Google names no page for is counted under an empty path. The report is
+  not split by host, so a property that measures two websites counts them together, and a day is a
+  day in the property's own time zone: the page says both.
+- **Which days.** `analyticsDaysToRead`: the first read takes the last 30 finished days; each later
+  one the days since the last read, and always the last three finished days again, replacing them,
+  since Google revises recent figures. `connection_locations.read_through` is the last day read, and a
+  match made again starts with none.
+- **`record_analytics_visits()` keeps them, and trusts nothing it is told.** Only the worker calls it.
+  It replaces whatever was kept for the days it is given (at most a month of them), keeps only a known
+  assistant, a page from its first slash or none, and a day in the run, and keeps at most fifty pages
+  for a location a day, the most visited (`MOST_PAGES_A_DAY`, the line's bound), with the rest under an
+  empty path. For a property's read it writes nothing unless the property is still matched to the
+  location through a working or failing connection. It never touches `visits`. The counts stay when the
+  connection is removed, and go with the location.
+- **Read added up, shown apart.** `GET /api/locations/:locationId/analytics-visits`
+  (`apps/api/src/routes/visits.ts`) reads through `location_analytics_visits(location, since, sample)`,
+  which runs as the caller, in the shape of `location_visits()`. `analyticsSource` works out where they
+  come from: `counted`, `elsewhere` (another location with this website holds the property; it is named
+  and no count is sent), or why there are none: `sample`, `not_on_plan`, `no_website`, `not_connected`,
+  `broken`, `not_matched`, `waiting`. `VisitSources` (`apps/web/src/components/AnalyticsCounts.tsx`) gives
+  each source a section with its own total, tables and statement of what it leaves out, with one
+  sentence on why they differ where both have counts (`sourcesDiffer`), and adds nothing up. A location
+  with only the line looks as it did.
+- **Removal takes the access back.** `removeConnection` posts the refresh token to Google's revoke
+  endpoint, then deletes it here. One already gone counts as taken back; one Google could not be asked
+  about is still deleted here, and the outcome says so. A plan that stops including `visits` pauses the
+  connection like any other kind (`connection_kind_allowances`).
+- **Sample counts are made up, never read.** A scan on sample data whose allowances include `visits`
+  writes `sampleAnalyticsVisits` for the last thirty days with `sample_data` true. The kind is never
+  offered there, `googleAppOf` gives the worker no project on sample data, and a test organization's
+  connection is never read.
+- **Nothing rests on the count.** No score, alert, task, report or bill is worked out from it. The
+  export carries the counts (`analytics-visits.csv`), and the privacy policy says what is read and kept.
+
 ## Actions
 
 An action is one thing the product does outside itself for a location, once a member says yes

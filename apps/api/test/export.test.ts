@@ -178,6 +178,7 @@ describe("downloading everything", () => {
       "README.txt",
       "actions.csv",
       "alerts.csv",
+      "analytics-visits.csv",
       "answers.csv",
       "connections.csv",
       "drafts.csv",

@@ -178,6 +178,17 @@ Nearcited is multi-tenant, and tenant isolation is enforced by Postgres row-leve
   count for a day, a location, a known fetcher and a page; and reading another organization's
   counts through `location_site_fetches()` or `GET /api/locations/:locationId/fetches`, or any of
   them as a caller who is not signed in.
+- Sessions from assistants, read from Google Analytics: a Google refresh or access token, or the
+  client secret, appearing in any response, log line or stored place but the sealed sign-in, or sent
+  anywhere but Google or on through a redirect; a sign-in asking for more than read-only Analytics;
+  a return made with a `state` made for another caller or organization, changed or out of time;
+  starting or finishing a sign-in as anyone but an owner or admin of the organization; calling
+  `match_analytics_properties()` or `record_analytics_visits()` as anyone but the worker, matching a
+  property to a location by hand, or a property's counts kept for a location of another organization;
+  writing `analytics_visits` other than through `record_analytics_visits()`, or a row in it that is
+  anything but a count for a day, a location, a known assistant and a page; these counts reaching
+  `visits`; and reading another organization's counts through `location_analytics_visits()` or
+  `GET /api/locations/:locationId/analytics-visits`, or any of them as a caller who is not signed in.
 - Reading a shareable audit without its link, or after it was revoked or expired; listing audits;
   or creating one. `/api/audits/:token` is the one route that gives out an organization's data
   with no sign-in, and the token in the link is the only key to it. `/api/plans` needs no sign-in

@@ -8,6 +8,7 @@ import type {
   AlertsToTell,
   AllowanceClaim,
   AllowanceUse,
+  AnalyticsVisitCount,
   AnswerRecord,
   AuditInput,
   AuditJob,
@@ -28,6 +29,7 @@ import type {
   Listing,
   Location,
   LocationActions,
+  LocationAnalyticsVisits,
   LocationConnection,
   LocationFetches,
   LocationInput,
@@ -195,6 +197,9 @@ export interface NewConnection {
   for_location?: string | null;
 }
 
+/** Something a connection's sign-in reaches, with the hosts it measures. The hosts are not kept. */
+export type ConnectionChoiceWithHosts = ConnectionChoice & { hosts: readonly string[] };
+
 /** A Cloudflare zone matched to a location, as a read of the location's fetches needs it. */
 export interface ZoneMatch {
   location_id: string;
@@ -207,8 +212,8 @@ export interface ZoneMatch {
 }
 
 /**
- * The days a write of a location's fetches covers, and where the counts came from: a zone's read
- * through a connection, or made up for sample data.
+ * The days a write of a location's counts covers, and where they came from: a read through a
+ * connection, or made up for sample data.
  */
 export type SiteFetchesRead =
   | { from: string; to: string; connection_id: string }
@@ -216,6 +221,20 @@ export type SiteFetchesRead =
 
 /** A location's fetches as the database adds them up, before the page is told where from. */
 export type AddedFetches = Pick<LocationFetches, "days" | "pages" | "other_pages" | "read_through">;
+
+/** A Google Analytics property matched to a location, as a read of its sessions needs it. */
+export interface PropertyMatch {
+  location_id: string;
+  property_id: string;
+  /** What the property is called. */
+  property: string;
+  website: string | null;
+  /** The last day read through for this location. Null until its first read. */
+  read_through: string | null;
+}
+
+/** A location's sessions as the database adds them up, before the page is told where from. */
+export type AddedAnalyticsVisits = Pick<LocationAnalyticsVisits, "days" | "pages" | "other_pages">;
 
 /** An answer subdomain to make for a location: the connection's ID, its name and its target. */
 export interface NewAnswerSubdomain {
@@ -1048,6 +1067,36 @@ export interface Store {
    * can read the location. For anyone else there is nothing to add up.
    */
   getLocationFetches(locationId: string, since: string, sampleData: boolean): Promise<AddedFetches>;
+  /**
+   * Keeps the properties a Google Analytics connection's sign-in reaches, and matches each to the
+   * location of the organization whose website it measures, taking away a match that no longer
+   * fits. Leaves where the connection stands to `recordConnectionSync`. Returns every match it has.
+   * Empty for a connection that is not a working or failing Google Analytics one. Worker only.
+   */
+  matchAnalyticsProperties(
+    connectionId: string,
+    properties: readonly ConnectionChoiceWithHosts[],
+  ): Promise<PropertyMatch[]>;
+  /**
+   * Keeps a location's sessions for a run of days, replacing whatever was kept for those days, and
+   * for a property's read that it was read through the last of them. Only known assistants, under
+   * at most fifty pages a day. Nothing is written for a property no longer matched to the location.
+   * Returns how many counts were kept. Worker only.
+   */
+  recordAnalyticsVisits(
+    locationId: string,
+    read: SiteFetchesRead,
+    counts: readonly AnalyticsVisitCount[],
+  ): Promise<number>;
+  /**
+   * A location's sessions from assistants since a day, of sample data or not, added up, for whoever
+   * can read the location. For anyone else there is nothing to add up.
+   */
+  getLocationAnalyticsVisits(
+    locationId: string,
+    since: string,
+    sampleData: boolean,
+  ): Promise<AddedAnalyticsVisits>;
   /** The paused answer subdomains whose owners have not been told of this pause. Worker only. */
   listPausedAnswerSubdomainsUntold(): Promise<string[]>;
   /** Keeps that an answer subdomain's owners were told it is paused. Worker only. */

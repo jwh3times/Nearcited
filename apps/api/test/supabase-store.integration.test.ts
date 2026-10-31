@@ -1807,6 +1807,78 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
           .select("day")
       ).error,
     ).not.toBeNull();
+    // Sessions from assistants: the worker matches the Analytics property measuring the website
+    // and keeps the counts, which members read added up and nobody else reads at all.
+    const withVisits = await aliceStore.getOrganization(organization.id);
+    await admin
+      .from("organizations")
+      .update({ allowances: { ...withVisits?.allowances, visits: true } })
+      .eq("id", organization.id)
+      .throwOnError();
+    const measured = await aliceStore.createConnection({
+      id: crypto.randomUUID(),
+      organization_id: organization.id,
+      kind: "google_analytics",
+      label: "Google Analytics",
+      sealed: "sealed-google-sign-in",
+    });
+    if (!measured) throw new Error("no Google Analytics connection");
+    const properties = [
+      { id: "properties/1", label: "Answering", hosts: ["answering-pizza.example"] },
+      { id: "properties/2", label: "Elsewhere", hosts: ["elsewhere.example"] },
+    ];
+    await expect(
+      aliceStore.matchAnalyticsProperties(measured.id, properties),
+    ).rejects.toBeInstanceOf(StoreError);
+    expect(await worker.matchAnalyticsProperties(measured.id, properties)).toEqual([
+      {
+        location_id: site.id,
+        property_id: "properties/1",
+        property: "Answering",
+        website: answering.website,
+        read_through: null,
+      },
+    ]);
+    await expect(
+      aliceStore.recordAnalyticsVisits(
+        site.id,
+        { from: fetchedDay, to: fetchedDay, connection_id: measured.id },
+        [],
+      ),
+    ).rejects.toBeInstanceOf(StoreError);
+    expect(
+      await worker.recordAnalyticsVisits(
+        site.id,
+        { from: fetchedDay, to: fetchedDay, connection_id: measured.id },
+        [
+          { day: fetchedDay, assistant: "chatgpt", path: "/menu", count: 3 },
+          { day: fetchedDay, assistant: "claude", path: "", count: 5 },
+        ],
+      ),
+    ).toBe(2);
+    expect(await aliceStore.getLocationAnalyticsVisits(site.id, sinceDay, false)).toEqual({
+      days: [
+        { day: fetchedDay, assistant: "chatgpt", count: 3 },
+        { day: fetchedDay, assistant: "claude", count: 5 },
+      ],
+      pages: [{ path: "/menu", count: 3 }],
+      other_pages: 5,
+    });
+    expect(await aliceStore.getLocationAnalyticsVisits(site.id, sinceDay, true)).toMatchObject({
+      days: [],
+    });
+    expect(await bobStore.getLocationAnalyticsVisits(site.id, sinceDay, false)).toEqual({
+      days: [],
+      pages: [],
+      other_pages: 0,
+    });
+    expect(
+      (
+        await client(await token({ role: "anon" }))
+          .from("analytics_visits")
+          .select("day")
+      ).error,
+    ).not.toBeNull();
     expect(await worker.takeBackHostedPage(publishing.id)).toBe(true);
     // A paused one's owners are told once.
     await admin

@@ -93,4 +93,11 @@ export interface Env {
   CLOUDFLARE_HOSTNAMES_TOKEN?: string;
   /** Optional. The Cloudflare zone hosted pages are served from: `nearcited.com`'s. */
   CLOUDFLARE_ZONE_ID?: string;
+  /**
+   * Optional secret, with `GOOGLE_CLIENT_SECRET`. This deployment's project at Google, which owners
+   * sign in through. Without both, no Google Analytics connection is offered or read.
+   */
+  GOOGLE_CLIENT_ID?: string;
+  /** Optional secret, with `GOOGLE_CLIENT_ID`. */
+  GOOGLE_CLIENT_SECRET?: string;
 }

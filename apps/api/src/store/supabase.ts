@@ -17,6 +17,7 @@ import {
   InvitationSchema,
   LimitChangeSchema,
   ListingSchema,
+  LocationAnalyticsVisitsSchema,
   LocationConnectionSchema,
   LocationFetchesSchema,
   LocationSchema,
@@ -933,6 +934,53 @@ export function createSupabaseStore(
         pages: true,
         other_pages: true,
         read_through: true,
+      }).parse(data);
+    },
+
+    async matchAnalyticsProperties(connectionId, properties) {
+      const { data, error } = await db.rpc("match_analytics_properties", {
+        connection: connectionId,
+        reached: properties,
+      });
+      if (error) fail("Match a Google Analytics connection's properties", error);
+      return z
+        .array(
+          z.object({
+            location_id: z.uuid(),
+            property_id: z.string(),
+            property: z.string(),
+            website: z.string().nullable(),
+            read_through: z.string().nullable(),
+          }),
+        )
+        .parse(data ?? []);
+    },
+
+    async recordAnalyticsVisits(locationId, read, counts) {
+      const { data, error } = await db.rpc("record_analytics_visits", {
+        location: locationId,
+        from_day: read.from,
+        to_day: read.to,
+        counted: counts,
+        connection: "connection_id" in read ? read.connection_id : null,
+        sample: "sample" in read,
+      });
+      if (error) fail("Keep a location's sessions from assistants", error);
+      return z.number().int().parse(data);
+    },
+
+    async getLocationAnalyticsVisits(locationId, since, sampleData) {
+      // One value, added up in the database, so no list is cut short at the API's page of rows.
+      const { data, error } = await db.rpc("location_analytics_visits", {
+        location: locationId,
+        since,
+        sample: sampleData,
+      });
+      if (error) fail("Add up a location's sessions from assistants", error);
+      return LocationAnalyticsVisitsSchema.pick({
+        days: true,
+        pages: true,
+        other_pages: true,
       }).parse(data);
     },
 

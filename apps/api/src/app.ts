@@ -23,6 +23,7 @@ import { billingRoutes } from "./routes/billing";
 import { connectionRoutes } from "./routes/connections";
 import { draftRoutes } from "./routes/drafts";
 import { fetchRoutes } from "./routes/fetches";
+import { googleRoutes } from "./routes/google";
 import { hostedPagesRoutes } from "./routes/hosted-pages";
 import { listingRoutes } from "./routes/listings";
 import { locationRoutes } from "./routes/locations";
@@ -233,6 +234,7 @@ export function createApp(deps: AppDeps = { authenticate: authenticateWithSupaba
   app.route("/", scanRoutes);
   app.route("/", billingRoutes);
   app.route("/", connectionRoutes);
+  app.route("/", googleRoutes);
   app.route("/", actionRoutes);
   app.route("/", alertRoutes);
   app.route("/", draftRoutes);

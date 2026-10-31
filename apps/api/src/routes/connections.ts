@@ -15,7 +15,8 @@ export const connectionRoutes = new Hono<AppEnv>();
 /**
  * Refuses to change what an answer subdomain is matched to: it is made for its location, under
  * that location's website, and is that location's until it is removed. Nor what a Cloudflare zone
- * is matched to: the worker matches it to the location whose website it holds.
+ * is matched to: the worker matches it to the location whose website it holds. Nor a Google
+ * Analytics property, which it matches to the location whose website it measures.
  */
 async function refuseHandMatch(c: Context<AppEnv>, connectionId: string) {
   const connection = await c.get("store").getConnection(connectionId);
@@ -31,6 +32,13 @@ async function refuseHandMatch(c: Context<AppEnv>, connectionId: string) {
       422,
       "not_matched_by_hand",
       "A Cloudflare zone is matched to the location whose website it holds, each time it is read.",
+    );
+  }
+  if (connection?.kind === "google_analytics") {
+    throw new ApiError(
+      422,
+      "not_matched_by_hand",
+      "A Google Analytics property is matched to the location whose website it measures, each time it is read.",
     );
   }
 }
