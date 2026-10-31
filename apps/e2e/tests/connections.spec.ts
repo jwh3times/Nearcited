@@ -1,5 +1,74 @@
-import { expect, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 import { api, createAccount, signIn } from "../support/account";
+
+const REFUSAL = "That site would not take the connection.";
+
+/** Notes in this tab that a connection was started, as the page that sends the owner away does. */
+const noteStart = (page: Page, key: string, started: Record<string, string>) =>
+  page.addInitScript(
+    ([name, value]) => window.sessionStorage.setItem(name as string, value as string),
+    [key, JSON.stringify(started)],
+  );
+
+/** The API refuses the connection, whatever was handed back. */
+const refuse = (page: Page, path: string) =>
+  page.route(`**/api${path}`, (route) =>
+    route.fulfill({ status: 422, json: { error: { code: "refused", message: REFUSAL } } }),
+  );
+
+test("says why a WordPress site could not be connected, and goes back to the location", async ({
+  page,
+}) => {
+  const account = await createAccount();
+  const organization = await api<{ id: string }>(account, "POST", "/organizations", {
+    name: "Raleigh Pizza Group",
+  });
+  const location = await api<{ id: string }>(
+    account,
+    "POST",
+    `/organizations/${organization.id}/locations`,
+    { name: "Joe's Pizza", city: "Raleigh" },
+  );
+  await refuse(page, `/locations/${location.id}/wordpress`);
+  await noteStart(page, "nearcited-wordpress", { state: "made-up", location_id: location.id });
+
+  await signIn(
+    page,
+    account,
+    "/wordpress/return?state=made-up&site_url=https%3A%2F%2Fjoes.example&user_login=joe&password=made-up",
+  );
+
+  await expect(page.getByRole("alert")).toContainText(REFUSAL);
+  await expect(page.getByText("not started from this browser tab")).toBeHidden();
+  await expect(page.getByRole("link", { name: "Back to the location" })).toHaveAttribute(
+    "href",
+    `/locations/${location.id}?tab=website`,
+  );
+  // The start is still forgotten, so what was handed back cannot be sent again.
+  expect(
+    await page.evaluate(() => window.sessionStorage.getItem("nearcited-wordpress")),
+  ).toBeNull();
+});
+
+test("says why Google Analytics could not be connected, and goes back to Connections", async ({
+  page,
+}) => {
+  const account = await createAccount();
+  const organization = await api<{ id: string }>(account, "POST", "/organizations", {
+    name: "Raleigh Pizza Group",
+  });
+  await refuse(page, `/organizations/${organization.id}/connections/google-analytics`);
+  await noteStart(page, "nearcited-google", {
+    state: "made-up",
+    organization_id: organization.id,
+  });
+
+  await signIn(page, account, "/google/return?state=made-up&code=made-up");
+
+  await expect(page.getByRole("alert")).toContainText(REFUSAL);
+  await expect(page.getByRole("link", { name: "Back to Connections" })).toBeVisible();
+  expect(await page.evaluate(() => window.sessionStorage.getItem("nearcited-google"))).toBeNull();
+});
 
 test("connects a sample account, matches a location to it, and removes it leaving the record", async ({
   page,
