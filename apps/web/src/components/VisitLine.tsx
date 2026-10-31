@@ -13,8 +13,8 @@ import {
   lineStanding,
   visitsOffer,
 } from "../lib/visits";
+import { VisitSources } from "./AnalyticsCounts";
 import { ErrorNote } from "./ErrorNote";
-import { VisitCounts } from "./VisitCounts";
 
 interface VisitLineProps {
   location: Location;
@@ -54,7 +54,7 @@ export function VisitLine({ location, allowances, onOpenSettings, readOnly }: Vi
       </div>
       {offer === "included" ? (
         <>
-          <VisitCounts locationId={location.id} />
+          <VisitSources locationId={location.id} />
           <TheLine location={location} onOpenSettings={onOpenSettings} readOnly={readOnly} />
         </>
       ) : (
@@ -64,7 +64,7 @@ export function VisitLine({ location, allowances, onOpenSettings, readOnly }: Vi
             {account.data?.billing != null && <Link to="/pricing">See plans</Link>}
           </p>
           {/* Nothing more is counted. What was, while a plan counted it, is still there to read. */}
-          <VisitCounts locationId={location.id} kept />
+          <VisitSources locationId={location.id} kept />
         </>
       )}
     </section>

@@ -139,7 +139,7 @@ const SAMPLE_FETCHERS: readonly PageFetcher[] = [
 ];
 
 /** A number from 0 to 2^32 - 1 that a string always gives, and a similar string seldom does. */
-function hashOf(text: string): number {
+export function hashOf(text: string): number {
   let hash = 0x811c9dc5;
   for (let at = 0; at < text.length; at++) {
     hash ^= text.charCodeAt(at);

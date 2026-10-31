@@ -35,6 +35,7 @@ import {
   ACTION_KINDS,
   AccountExportSchema,
   ALLOWANCE_KINDS,
+  type AnalyticsVisitCount,
   addDays,
   allowanceErrors,
   allowedEachMonth,
@@ -58,6 +59,7 @@ import {
   STANDING_PERMISSION_AFTER,
   STANDING_PERMISSION_ALLOWANCE,
   STRONGER_MODELS_ALLOWANCE,
+  VISIT_ASSISTANTS,
   VISITS_ALLOWANCE,
   websiteDomain,
   zoneHolds,
@@ -68,6 +70,7 @@ import {
   type KeptAnswerSubdomain,
   type NewAction,
   type PriceVersion,
+  type PropertyMatch,
   type Store,
   StoreError,
   type SubscriptionRecord,
@@ -228,7 +231,9 @@ export interface MemoryDb {
   }[];
   /** The `site_fetches` table: a count for a location, a day, a fetcher and a page. */
   siteFetches: (FetchCount & { location_id: string; sample_data: boolean })[];
-  /** The last day each Cloudflare match was read through, keyed `connection:location`. */
+  /** The `analytics_visits` table: a count for a location, a day, an assistant and a page. */
+  analyticsVisits: (AnalyticsVisitCount & { location_id: string; sample_data: boolean })[];
+  /** The last day each Cloudflare or Analytics match was read through, keyed `connection:location`. */
   fetchReads: Map<string, string>;
   /** When each answer subdomain's owners were last told it was paused, by connection. */
   pauseTold: Map<string, string>;
@@ -319,6 +324,7 @@ export function createMemoryDb(): MemoryDb {
     connectionSecrets: new Map(),
     connectionsFrom: new Map(),
     siteFetches: [],
+    analyticsVisits: [],
     fetchReads: new Map(),
     answerSubdomains: [],
     hostedPages: [],
@@ -888,6 +894,7 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
           })),
         page_fetches: db.pageFetches.filter((counted) => at.has(counted.location_id)),
         site_fetches: db.siteFetches.filter((counted) => at.has(counted.location_id)),
+        analytics_visits: db.analyticsVisits.filter((counted) => at.has(counted.location_id)),
       });
     },
 
@@ -2462,6 +2469,174 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
           readsLocation(locationId) && match
             ? (db.fetchReads.get(`${match.connection}:${locationId}`) ?? null)
             : null,
+      };
+    },
+
+    // Mirrors match_analytics_properties(): one property, one location, the first made whose
+    // website it measures, no website held twice, and a match that no longer fits taken away.
+    async matchAnalyticsProperties(connectionId, properties) {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      const connection = db.connections.find(
+        (candidate) =>
+          candidate.id === connectionId &&
+          candidate.kind === "google_analytics" &&
+          syncs(candidate),
+      );
+      if (!connection) return [];
+      connection.choices = properties.map(({ id, label }) => ({ id, label }));
+      const hostOfLocation = (locationId: string) =>
+        websiteDomain(db.locations.find((l) => l.id === locationId)?.website ?? null);
+      const fits = (match: Connection["matches"][number]) => {
+        const property = properties.find((candidate) => candidate.id === match.external_id);
+        const host = hostOfLocation(match.location_id);
+        return property !== undefined && host !== null && property.hosts.includes(host);
+      };
+      for (const gone of connection.matches.filter((match) => !fits(match))) {
+        db.fetchReads.delete(`${connectionId}:${gone.location_id}`);
+      }
+      connection.matches = connection.matches.filter(fits);
+      for (const match of connection.matches) {
+        match.external_label =
+          properties.find((property) => property.id === match.external_id)?.label ??
+          match.external_label;
+      }
+      const held = () =>
+        db.connections
+          .filter(
+            (other) =>
+              other.kind === "google_analytics" &&
+              other.organization_id === connection.organization_id,
+          )
+          .flatMap((other) => other.matches);
+      for (const property of properties) {
+        if (held().some((match) => match.external_id === property.id)) continue;
+        const location = db.locations
+          .filter((l) => l.organization_id === connection.organization_id)
+          .sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id))
+          .find((l) => {
+            const host = websiteDomain(l.website);
+            return (
+              host !== null &&
+              property.hosts.includes(host) &&
+              !held().some((match) => hostOfLocation(match.location_id) === host)
+            );
+          });
+        if (location) {
+          connection.matches.push({
+            location_id: location.id,
+            external_id: property.id,
+            external_label: property.label,
+            matched_at: db.now ?? timestamp(),
+          });
+        }
+      }
+      return connection.matches.map(
+        (match): PropertyMatch => ({
+          location_id: match.location_id,
+          property_id: match.external_id,
+          read_through: db.fetchReads.get(`${connectionId}:${match.location_id}`) ?? null,
+        }),
+      );
+    },
+
+    // Mirrors record_analytics_visits(): the days given replaced, known assistants and pages only,
+    // fifty pages a day, and nothing for a property no longer matched to the location.
+    async recordAnalyticsVisits(locationId, read, counts) {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      if (read.from > read.to || read.to > addDays(read.from, 31)) {
+        throw new StoreError(
+          "unexpected",
+          "Sessions are kept for a run of at most a month of days.",
+        );
+      }
+      if (!db.locations.some((l) => l.id === locationId)) return 0;
+      if ("connection_id" in read) {
+        const connection = db.connections.find((c) => c.id === read.connection_id);
+        if (
+          connection?.kind !== "google_analytics" ||
+          !syncs(connection) ||
+          !connection.matches.some((match) => match.location_id === locationId)
+        ) {
+          return 0;
+        }
+      }
+      const inRun = (day: string) => day >= read.from && day <= read.to;
+      db.analyticsVisits = db.analyticsVisits.filter(
+        (kept) => kept.location_id !== locationId || !inRun(kept.day),
+      );
+      const valid = counts
+        .map((counted) => ({ ...counted, path: counted.path.slice(0, 200) }))
+        .filter(
+          (counted) =>
+            inRun(counted.day) &&
+            VISIT_ASSISTANTS.includes(counted.assistant) &&
+            (counted.path === "" || counted.path.startsWith("/")) &&
+            counted.count > 0,
+        );
+      const added = new Map<string, AnalyticsVisitCount>();
+      for (const day of new Set(valid.map((counted) => counted.day))) {
+        const that = valid.filter((counted) => counted.day === day);
+        const byPage = new Map<string, number>();
+        for (const counted of that) {
+          if (counted.path)
+            byPage.set(counted.path, (byPage.get(counted.path) ?? 0) + counted.count);
+        }
+        const pages = new Set(
+          [...byPage]
+            .sort(([a, x], [b, y]) => y - x || (a < b ? -1 : a > b ? 1 : 0))
+            .slice(0, MOST_PAGES_A_DAY)
+            .map(([path]) => path),
+        );
+        for (const counted of that) {
+          const path = pages.has(counted.path) ? counted.path : "";
+          const key = `${day}|${counted.assistant}|${path}`;
+          const soFar = added.get(key);
+          added.set(key, { ...counted, path, count: (soFar?.count ?? 0) + counted.count });
+        }
+      }
+      const kept = [...added.values()].map((counted) => ({
+        ...counted,
+        location_id: locationId,
+        sample_data: "sample" in read,
+      }));
+      db.analyticsVisits.push(...kept);
+      if ("connection_id" in read) {
+        const key = `${read.connection_id}:${locationId}`;
+        const was = db.fetchReads.get(key);
+        db.fetchReads.set(key, was && was > read.to ? was : read.to);
+      }
+      return kept.length;
+    },
+
+    // Mirrors location_analytics_visits(): added up as the caller reads, sample data and real apart.
+    async getLocationAnalyticsVisits(locationId, since, sampleData) {
+      const counted = readsLocation(locationId)
+        ? db.analyticsVisits.filter(
+            (kept) =>
+              kept.location_id === locationId &&
+              kept.day >= since &&
+              kept.sample_data === sampleData,
+          )
+        : [];
+      const order = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+      const byDay = new Map<string, { day: string; assistant: string; count: number }>();
+      const byPage = new Map<string, number>();
+      let otherPages = 0;
+      for (const { day, assistant, path, count } of counted) {
+        const key = `${day}|${assistant}`;
+        byDay.set(key, { day, assistant, count: (byDay.get(key)?.count ?? 0) + count });
+        if (path) byPage.set(path, (byPage.get(path) ?? 0) + count);
+        else otherPages += count;
+      }
+      return {
+        days: [...byDay.values()].sort(
+          (a, b) => order(a.day, b.day) || order(a.assistant, b.assistant),
+        ),
+        pages: [...byPage]
+          .map(([path, count]) => ({ path, count }))
+          .sort((a, b) => b.count - a.count || order(a.path, b.path))
+          .slice(0, PAGES_SHOWN),
+        other_pages: otherPages,
       };
     },
 

@@ -12,12 +12,15 @@ import {
   ConnectionMatchSchema,
   ConnectionSchema,
   DraftSchema,
+  type GoogleReturn,
+  GoogleStartSchema,
   InvitationSchema,
   type InvitedRole,
   InvitedSchema,
   LimitChangeSchema,
   ListingSchema,
   LocationActionsSchema,
+  LocationAnalyticsVisitsSchema,
   type LocationDetail,
   LocationDetailSchema,
   LocationFetchesSchema,
@@ -233,6 +236,21 @@ export const api = {
   /** What an organization has connected, what it could connect, and whether the reader may. */
   connections: (organizationId: string) =>
     json(OrganizationConnectionsSchema, "GET", `/organizations/${organizationId}/connections`),
+  /** Where to send an owner or admin to sign in with Google. */
+  startGoogleAnalytics: (organizationId: string) =>
+    json(
+      GoogleStartSchema,
+      "POST",
+      `/organizations/${organizationId}/connections/google-analytics/start`,
+    ),
+  /** Connects a Google Analytics account with what Google handed back. */
+  connectGoogleAnalytics: (organizationId: string, back: GoogleReturn) =>
+    json(
+      ConnectionSchema,
+      "POST",
+      `/organizations/${organizationId}/connections/google-analytics`,
+      back,
+    ),
   /** Asks a location's website whether it is a WordPress that can be connected. */
   checkWordPress: (locationId: string) =>
     json(WordPressCheckSchema, "POST", `/locations/${locationId}/wordpress/check`),
@@ -300,6 +318,9 @@ export const api = {
   /** A location's visits from assistants over the last thirty days, added up. */
   getVisits: (locationId: string) =>
     json(LocationVisitsSchema, "GET", `/locations/${locationId}/visits`),
+  /** A location's sessions from assistants, from its Google Analytics property, and where from. */
+  getAnalyticsVisits: (locationId: string) =>
+    json(LocationAnalyticsVisitsSchema, "GET", `/locations/${locationId}/analytics-visits`),
   /** A location's fetches by known fetchers over the last thirty days, and where they come from. */
   getFetches: (locationId: string) =>
     json(LocationFetchesSchema, "GET", `/locations/${locationId}/fetches`),

@@ -2107,6 +2107,51 @@ describe("Google results", () => {
   });
 });
 
+describe("a sample scan's sessions from assistants", () => {
+  const allow = (allowances: Record<string, true>) => {
+    const organization = db.organizations[0];
+    if (organization) organization.allowances = allowances;
+  };
+
+  it("are made up for the last thirty days where the plan counts visits, and the same each time", async () => {
+    allow({ visits: true });
+    await runScan((await queueScan()).id, {
+      store: worker,
+      providers: createMockProviders(),
+      sampleData: true,
+    });
+    expect(db.analyticsVisits.length).toBeGreaterThan(0);
+    expect(
+      db.analyticsVisits.every((kept) => kept.sample_data && kept.location_id === locationId),
+    ).toBe(true);
+    // The last thirty days and no further, though a quiet day has no count to keep.
+    const days = new Set(db.analyticsVisits.map((kept) => kept.day));
+    const oldest = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10);
+    expect(days.size).toBeGreaterThan(20);
+    expect([...days].every((day) => day >= oldest)).toBe(true);
+    const first = [...db.analyticsVisits];
+    await runScan((await queueScan()).id, {
+      store: worker,
+      providers: createMockProviders(),
+      sampleData: true,
+    });
+    expect(db.analyticsVisits).toEqual(expect.arrayContaining(first));
+    expect(db.analyticsVisits).toHaveLength(first.length);
+  });
+
+  it("are not made where the plan does not count visits, or for a real scan", async () => {
+    allow({});
+    await runScan((await queueScan()).id, {
+      store: worker,
+      providers: createMockProviders(),
+      sampleData: true,
+    });
+    allow({ visits: true });
+    await runScan((await queueScan()).id, { store: worker, providers });
+    expect(db.analyticsVisits).toEqual([]);
+  });
+});
+
 describe("a sample scan's fetches", () => {
   const allow = (allowances: Record<string, true>) => {
     const organization = db.organizations[0];

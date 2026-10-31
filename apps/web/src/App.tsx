@@ -14,6 +14,7 @@ import { AccountSettings } from "./pages/AccountSettings";
 import { Audit } from "./pages/Audit";
 import { Closed } from "./pages/Closed";
 import { Connections } from "./pages/Connections";
+import { GoogleReturn } from "./pages/GoogleReturn";
 import { LocationDetail } from "./pages/LocationDetail";
 import { Locations } from "./pages/Locations";
 import { Bot } from "./pages/legal/Bot";
@@ -127,6 +128,7 @@ function SignedIn() {
         />
         <Route path="connections" element={<Connections organization={organization} />} />
         <Route path="wordpress/return" element={<WordPressReturn />} />
+        <Route path="google/return" element={<GoogleReturn />} />
         {/* Only an operator has this page. The server refuses everyone else whatever is shown. */}
         {me.data.platform_role === "operator" && <Route path="operator" element={<Operator />} />}
         <Route path="*" element={<Navigate to="/" replace />} />
