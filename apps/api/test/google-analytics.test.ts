@@ -70,7 +70,8 @@ let google: FakeGoogle;
 const fakeFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   const url = String(input);
   const text = typeof init?.body === "string" ? init.body : null;
-  const form = url.includes("oauth2.googleapis.com") && text ? new URLSearchParams(text) : null;
+  const signingIn = new URL(url).host === "oauth2.googleapis.com";
+  const form = signingIn && text ? new URLSearchParams(text) : null;
   const body = form ? Object.fromEntries(form) : text ? JSON.parse(text) : null;
   google.asked.push({ url, body, auth: new Headers(init?.headers).get("Authorization") });
   // The Workers runtime throws on `redirect: "error"`, though Node takes it, so a sign-in is kept
