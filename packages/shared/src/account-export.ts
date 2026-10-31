@@ -22,6 +22,7 @@ export const EXPORT_SHEETS = {
   hosted_pages: "hosted-pages.csv",
   page_fetches: "page-fetches.csv",
   site_fetches: "site-fetches.csv",
+  analytics_visits: "analytics-visits.csv",
 } as const satisfies Partial<Record<keyof AccountExport, string>>;
 
 export type ExportList = keyof typeof EXPORT_SHEETS;

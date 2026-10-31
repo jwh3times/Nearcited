@@ -38,3 +38,7 @@ WORDPRESS_LOCAL_ORIGIN=
 CLOUDFLARE_HOSTNAMES_TOKEN=
 # The Cloudflare zone answer subdomains are registered on: nearcited.com's. wrangler.jsonc sets it.
 CLOUDFLARE_ZONE_ID=
+# Optional secrets. This deployment's project at Google, which owners sign in through to connect
+# Google Analytics. Left blank, no such connection is offered or read.
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=

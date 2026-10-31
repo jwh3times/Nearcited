@@ -1,4 +1,5 @@
 import {
+  analyticsDaysToRead,
   CONNECTION_KIND_ALLOWANCES,
   type Connection,
   type ConnectionChoice,
@@ -16,6 +17,8 @@ import { usesSampleData } from "../providers";
 import { fetchSite } from "../site/fetch";
 import type { Store } from "../store/types";
 import { listZones, readFetches, TokenRefused, zoneLimits } from "./cloudflare";
+import { accessTokenFor, type GoogleApp, GoogleRefused, withdrawSignIn } from "./google";
+import { listProperties, readSessions } from "./google-analytics";
 import {
   type Cloudflare,
   type HostedDeps,
@@ -35,19 +38,33 @@ import {
 } from "./wordpress";
 
 /**
+ * This deployment's project at Google, where it has both of its secrets and reads real data. On
+ * sample data Google is never asked.
+ */
+export function googleAppOf(
+  env: Pick<Env, "GOOGLE_CLIENT_ID" | "GOOGLE_CLIENT_SECRET" | "PROVIDER_MODE">,
+): GoogleApp | undefined {
+  if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET || usesSampleData(env)) return undefined;
+  return { client_id: env.GOOGLE_CLIENT_ID, client_secret: env.GOOGLE_CLIENT_SECRET };
+}
+
+/**
  * The kinds of account an organization can connect in this deployment. None without a key to
  * seal the sign-in with, and none its allowances do not include. `sample` only where the data is
- * generated: a deployment on sample data, or a test organization in any deployment.
+ * generated: a deployment on sample data, or a test organization in any deployment. Google Analytics
+ * only where this deployment has its project at Google.
  */
 export function availableConnectionKinds(
-  env: Pick<Env, "CONNECTIONS_KEY" | "PROVIDER_MODE">,
+  env: Pick<Env, "CONNECTIONS_KEY" | "PROVIDER_MODE" | "GOOGLE_CLIENT_ID" | "GOOGLE_CLIENT_SECRET">,
   organization: Pick<Organization, "is_test" | "allowances">,
 ): ConnectionKind[] {
   if (!env.CONNECTIONS_KEY) return [];
   // A real account is written to, so it is offered only where nothing is generated: a test
   // organization's actions never leave the product, and nor do a sample deployment's.
   const offered: ConnectionKind[] =
-    usesSampleData(env) || organization.is_test ? ["sample"] : ["wordpress", "cloudflare"];
+    usesSampleData(env) || organization.is_test
+      ? ["sample"]
+      : ["wordpress", "cloudflare", ...(googleAppOf(env) ? (["google_analytics"] as const) : [])];
   return offered.filter((kind) => {
     const needed = CONNECTION_KIND_ALLOWANCES[kind];
     return needed === null || organization.allowances[needed] !== undefined;
@@ -142,6 +159,9 @@ async function read(
     case "cloudflare":
       // Read with its fetches: `syncZones`.
       return { choices: [] };
+    case "google_analytics":
+      // Read with its sessions: `syncProperties`.
+      return { choices: [] };
   }
 }
 
@@ -165,6 +185,8 @@ async function withdraw(
       // A token can only read, and cannot delete itself: deleting the copy here is the whole of
       // what the product can take back. The owner is told to delete it at Cloudflare too.
       return true;
+    case "google_analytics":
+      return withdrawSignIn(signIn, outside);
   }
 }
 
@@ -182,6 +204,8 @@ export interface ConnectionDeps {
   outside?: WordPressDeps;
   /** Where answer subdomains are registered to be served. Absent where nothing is. */
   hosting?: Hosting;
+  /** This deployment's project at Google. Absent where it has none, or is on sample data. */
+  google?: GoogleApp;
   now?: Date;
 }
 
@@ -333,6 +357,9 @@ export async function syncConnection(
   if (connection.kind === "cloudflare") {
     return syncZones(connection, signIn, deps);
   }
+  if (connection.kind === "google_analytics") {
+    return syncProperties(connection, signIn, deps);
+  }
 
   let reached: Reached;
   try {
@@ -406,6 +433,65 @@ async function syncZones(
     );
   }
   return (await store.recordConnectionSync(connection.id, zones)) ? "synced" : "not_working";
+}
+
+/**
+ * Syncs a Google Analytics connection: lists the properties its sign-in reaches, matches each to the
+ * location whose website it measures, and reads each match's sessions for the days due
+ * (`analyticsDaysToRead`). The connection is recorded as synced, which mends one that only kept
+ * failing, only once every read has worked, so reads that keep failing break it as a sync would. A
+ * refused sign-in breaks it at once. A test organization's is never read: its counts are made up.
+ * Nor is one this deployment has no project at Google to read with, and nothing is changed.
+ */
+async function syncProperties(
+  connection: Connection,
+  refreshToken: string,
+  deps: ConnectionDeps,
+): Promise<"synced" | "not_working" | "unreadable" | "refused" | "failed"> {
+  const { store, google } = deps;
+  const outside = deps.outside ?? {};
+  if (!google) return "unreadable";
+  const organization = await store.getOrganization(connection.organization_id);
+  if (!organization || organization.is_test) return "not_working";
+
+  const failed = async (error: unknown) => {
+    const refused = error instanceof GoogleRefused;
+    console.error(
+      `Connection ${connection.id}: its read ${refused ? "was refused" : "failed"}`,
+      error,
+    );
+    await recordFailure(connection.id, refused, deps);
+    return refused ? ("refused" as const) : ("failed" as const);
+  };
+
+  let token: string;
+  let properties: Awaited<ReturnType<typeof listProperties>>;
+  try {
+    token = await accessTokenFor(google, refreshToken, outside);
+    properties = await listProperties(token, outside);
+  } catch (error) {
+    return failed(error);
+  }
+  const now = deps.now ?? new Date();
+  for (const match of await store.matchAnalyticsProperties(connection.id, properties)) {
+    const days = analyticsDaysToRead(match.read_through, now);
+    const [from] = days;
+    const to = days.at(-1);
+    if (!from || !to) continue;
+    let counts: Awaited<ReturnType<typeof readSessions>>;
+    try {
+      counts = await readSessions(token, match.property_id, { from, to }, outside);
+    } catch (error) {
+      return failed(error);
+    }
+    await store.recordAnalyticsVisits(
+      match.location_id,
+      { from, to, connection_id: connection.id },
+      counts,
+    );
+  }
+  const choices = properties.map(({ id, label }) => ({ id, label }));
+  return (await store.recordConnectionSync(connection.id, choices)) ? "synced" : "not_working";
 }
 
 /**

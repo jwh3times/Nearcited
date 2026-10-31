@@ -59,6 +59,11 @@ export function connectionNote(
       ? "Not working: Cloudflare refused the token, or it reaches no zone. Make a new token with both permissions, connect it, and remove this one."
       : "Not working: reading from Cloudflare has failed three days in a row. Nearcited tries again once a day, and it will start working again by itself if the cause passes.";
   }
+  if (connection.status === "broken" && connection.kind === "google_analytics") {
+    return connection.broken_reason === "refused"
+      ? "Not working: Google refused the sign-in. It may have been taken away in your Google account. Remove it, and then sign in with Google again."
+      : "Not working: reading from Google Analytics has failed three days in a row. Nearcited tries again once a day, and it will start working again by itself if the cause passes.";
+  }
   if (connection.status === "broken") {
     return connection.broken_reason === "refused"
       ? "Not working: the account refused the sign-in. Remove it and connect it again."

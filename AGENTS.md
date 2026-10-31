@@ -237,7 +237,8 @@ pass `pnpm check` and run in mock mode without it.
   day or an address. The line (`apps/web/public/line.js`) sends nothing for a visit that did not
   come from an assistant, sets no cookie and keeps nothing in the browser: keep all three. Its
   list of assistants is a copy of the shared one, and the database names them too
-  (`visits.assistant`): add one in all three. The count can be padded by anyone who reads the
+  (`visits.assistant`, `record_visit()`, `analytics_visits.assistant` and
+  `record_analytics_visits()`): add one in all six. The count can be padded by anyone who reads the
   key, so no score, alert, task or bill is worked out from it. Do not open `visits` or
   `visit_lines` to a caller who is not signed in, and do not count a visit on any other path. A
   key is replaced only by `replace_site_key()`, which answers an owner or an admin of the
@@ -273,6 +274,23 @@ pass `pnpm check` and run in mock mode without it.
   fetcher and a page: no time of day, address, query or user agent. Anyone can claim a fetcher's
   name, so no score, alert, task, report or bill is worked out from it. On sample data the counts
   are made up (`sampleFetches`), kept as `sample_data`, and Cloudflare is never asked.
+- **A location's sessions from assistants are read by the worker from its Google Analytics property,
+  kept apart from what the line counted, and nothing rests on the count.** An owner or admin signs in
+  with Google for read-only Analytics and nothing else; Google returns to a page of the web app, which
+  posts the code to a signed-in route with a `state` sealed to that caller and organization, and the
+  refresh token is sealed like any sign-in (`docs/adr/0029-analytics-counts-are-kept-apart-from-the-lines.md`).
+  The worker's sync (`syncProperties`, `apps/api/src/connections/index.ts`) lists what it reaches, has
+  `match_analytics_properties()` match each property to the location whose website a stream measures
+  (one property, one location; never by hand), and asks only for sessions whose source is a host or
+  tag in `ASSISTANT_REFERRERS`. The sign-in goes only to Google, never on through a redirect
+  (`apps/api/src/connections/google.ts`), and removal withdraws it there first. `analytics_visits` is
+  written only by `record_analytics_visits()`, which only the worker calls and which keeps known
+  assistants and the line's bounds inside itself, and is read added up, by
+  `location_analytics_visits()`, as the caller. Never add these counts to `visits` or show their sum,
+  and `record_visit()` stays the only thing that writes `visits`. Nothing is kept but a count for a
+  day, a location, an assistant and a page, and no score, alert, task, report or bill is worked out
+  from it. On sample data and for a test organization the counts are made up
+  (`sampleAnalyticsVisits`), kept as `sample_data`, and Google is never asked for them.
 - **Only the worker closes an account.** A request records an owner's ask through
   `request_closing()`, which answers an owner of the organization and no one else, refuses the
   operator, a test account and a name that is not the organization's, and queues the worker

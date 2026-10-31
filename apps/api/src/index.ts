@@ -37,6 +37,7 @@ import {
   enqueueDueSyncs,
   expirePausedConnections,
   expireUnclaimedAnswerSubdomains,
+  googleAppOf,
   type Hosting,
   remindBrokenConnections,
   removeConnection,
@@ -301,6 +302,7 @@ export default {
             appUrl: env.APP_URL,
             outside: { localOrigin: env.WORDPRESS_LOCAL_ORIGIN ?? null },
             hosting: hostingOf(env),
+            google: googleAppOf(env),
             queue: env.SCAN_QUEUE,
           };
           const outcome =

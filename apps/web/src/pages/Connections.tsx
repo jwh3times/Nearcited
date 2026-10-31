@@ -21,9 +21,10 @@ import {
   splitConnections,
 } from "../lib/connections";
 import { CLOUDFLARE_TOKENS_URL, CLOUDFLARE_WORDS } from "../lib/fetches";
+import { GOOGLE_WORDS, noteGoogleStarted } from "../lib/google";
 
 /** The kinds connected with one press, with nothing to give. */
-type OnePress = Exclude<ConnectionKind, "wordpress" | "cloudflare">;
+type OnePress = Exclude<ConnectionKind, "wordpress" | "cloudflare" | "google_analytics">;
 
 /**
  * The accounts an organization has connected: what is connected, who connected it, and for its
@@ -49,13 +50,16 @@ export function Connections({ organization }: { organization: Organization }) {
   const { current, removed } = splitConnections(found.data?.connections ?? []);
   const canManage = found.data?.can_manage ?? false;
   // A WordPress site is connected by approving on the site, from its location's Website tab. A
-  // Cloudflare account is connected with a token, through its own form.
+  // Cloudflare account is connected with a token, through its own form, and a Google Analytics
+  // account by signing in on Google's screen.
   const here =
     found.data?.available.filter(
-      (kind): kind is OnePress => kind !== "wordpress" && kind !== "cloudflare",
+      (kind): kind is OnePress =>
+        kind !== "wordpress" && kind !== "cloudflare" && kind !== "google_analytics",
     ) ?? [];
   const fromLocation = found.data?.available.includes("wordpress") ?? false;
   const withToken = found.data?.available.includes("cloudflare") ?? false;
+  const withGoogle = found.data?.available.includes("google_analytics") ?? false;
 
   return (
     <main className="page">
@@ -107,6 +111,7 @@ export function Connections({ organization }: { organization: Organization }) {
               onConnect={(token) => connect.mutate({ kind: "cloudflare", token })}
             />
           )}
+          {withGoogle && canManage && <GoogleConnect organizationId={organization.id} />}
           {fromLocation && (
             <p className="small muted">
               A WordPress site is connected from the Website tab of the location it belongs to.
@@ -169,8 +174,10 @@ function ConnectedAccount({
   const note = connectionNote(connection, formatDay);
   // An answer subdomain has no sign-in and no choices: it is its location's from the start.
   const hosted = connection.kind === "hosted_pages";
-  // A Cloudflare zone is matched by the worker, to the location whose website it holds.
+  // A Cloudflare zone is matched by the worker, to the location whose website it holds, and a
+  // Google Analytics property to the one whose website it measures.
   const zones = connection.kind === "cloudflare";
+  const properties = connection.kind === "google_analytics";
 
   return (
     <article className="connection" aria-label={connection.label}>
@@ -220,16 +227,33 @@ function ConnectedAccount({
         </p>
       )}
       {connection.status === "working" && connection.last_synced_at && zones && (
-        <ZoneMatches connection={connection} locations={locations} />
-      )}
-      {connection.status === "working" && connection.last_synced_at && !hosted && !zones && (
-        <Matches
+        <WorkerMatches
           connection={connection}
           locations={locations}
-          canManage={canManage}
-          onChanged={onChanged}
+          title="Zones, and the location each is counted for"
+          unmatched="No location's website is on it"
         />
       )}
+      {connection.status === "working" && connection.last_synced_at && properties && (
+        <WorkerMatches
+          connection={connection}
+          locations={locations}
+          title={GOOGLE_WORDS.matchedTitle}
+          unmatched={GOOGLE_WORDS.noLocation}
+        />
+      )}
+      {connection.status === "working" &&
+        connection.last_synced_at &&
+        !hosted &&
+        !zones &&
+        !properties && (
+          <Matches
+            connection={connection}
+            locations={locations}
+            canManage={canManage}
+            onChanged={onChanged}
+          />
+        )}
       {canManage && !removing && !asking && (
         <div className="button-row">
           <button type="button" className="secondary" onClick={() => setAsking(true)}>
@@ -244,7 +268,9 @@ function ConnectedAccount({
               ? `Removing ${connection.label} stops Nearcited serving pages there at once, and the pages published there go with it. You will then be told to delete its record. It cannot be undone: setting it up again means a new record.`
               : zones
                 ? CLOUDFLARE_WORDS.remove(connection.label)
-                : `Removing ${connection.label} stops Nearcited working from it, takes back the access it was given, and deletes the sign-in and everything read from it. It cannot be undone: connecting again means signing in again.`}
+                : properties
+                  ? GOOGLE_WORDS.remove(connection.label)
+                  : `Removing ${connection.label} stops Nearcited working from it, takes back the access it was given, and deletes the sign-in and everything read from it. It cannot be undone: connecting again means signing in again.`}
           </p>
           <div className="button-row">
             <button type="button" disabled={remove.isPending} onClick={() => remove.mutate()}>
@@ -390,22 +416,69 @@ function CloudflareConnect({
   );
 }
 
-/** Which location each zone a Cloudflare token reaches is counted for. The worker matches them. */
-function ZoneMatches({ connection, locations }: { connection: Connection; locations: Location[] }) {
+/**
+ * Sends an owner or admin to Google's screen to agree. The start is noted in this tab first, so
+ * that coming back is believed only here.
+ */
+function GoogleConnect({ organizationId }: { organizationId: string }) {
+  const [refused, setRefused] = useState(false);
+  const start = useMutation({
+    mutationFn: () => api.startGoogleAnalytics(organizationId),
+    onSuccess: ({ url }) => {
+      if (noteGoogleStarted(organizationId, url)) window.location.assign(url);
+      else setRefused(true);
+    },
+  });
+
   return (
     <div className="stack-tight">
-      <h3 className="side-title">Zones, and the location each is counted for</h3>
+      <h3 className="side-title">{GOOGLE_WORDS.title}</h3>
+      <p className="small muted">{GOOGLE_WORDS.about}</p>
+      <p className="small muted">{GOOGLE_WORDS.matched}</p>
+      <div className="button-row">
+        <button type="button" disabled={start.isPending} onClick={() => start.mutate()}>
+          {start.isPending ? GOOGLE_WORDS.starting : GOOGLE_WORDS.button}
+        </button>
+      </div>
+      {refused && (
+        <p className="error" role="alert">
+          {GOOGLE_WORDS.noStorage}
+        </p>
+      )}
+      <ErrorNote error={start.error} />
+    </div>
+  );
+}
+
+/**
+ * Which location each thing an account reaches is counted for, where the worker matches them: a
+ * Cloudflare token's zones and a Google Analytics sign-in's properties.
+ */
+function WorkerMatches({
+  connection,
+  locations,
+  title,
+  unmatched,
+}: {
+  connection: Connection;
+  locations: Location[];
+  title: string;
+  unmatched: string;
+}) {
+  return (
+    <div className="stack-tight">
+      <h3 className="side-title">{title}</h3>
       <ul className="facts">
-        {connection.choices.map((zone) => {
-          const match = connection.matches.find((kept) => kept.external_id === zone.id);
+        {connection.choices.map((choice) => {
+          const match = connection.matches.find((kept) => kept.external_id === choice.id);
           return (
-            <li key={zone.id}>
-              <span>{zone.label}</span>
+            <li key={choice.id}>
+              <span>{choice.label}</span>
               <span>
                 {match
                   ? (locations.find((location) => location.id === match.location_id)?.name ??
                     "A location")
-                  : "No location's website is on it"}
+                  : unmatched}
               </span>
             </li>
           );

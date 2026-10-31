@@ -46,6 +46,15 @@ export function Privacy() {
           after a question mark, or anything about whoever made it. The token is kept sealed, and
           nobody can read it back.
         </li>
+        <li>
+          <strong>If you connect Google Analytics, how many sessions assistants sent.</strong> You
+          sign in with Google and give us read-only access to your Analytics. We read which
+          properties and websites you can see, and how many sessions arrived from AI assistants on
+          each day, by assistant and by the page landed on. We keep only those counts, and nothing
+          about any visitor or session, and we read nothing about sessions from anywhere else. The
+          sign-in is kept sealed, and nobody can read it back. You can take the access away by
+          removing the connection here, or in your Google account.
+        </li>
       </ul>
 
       <h3>When a report is made about a business</h3>
@@ -112,6 +121,10 @@ export function Privacy() {
           To show a business how often assistants' and search engines' fetchers read its website,
           where it has connected Cloudflare.
         </li>
+        <li>
+          To show a business how many sessions arrived from an AI assistant, where it has connected
+          Google Analytics.
+        </li>
         <li>To sign you in and send the emails you have asked for.</li>
         <li>To keep the service secure and working, and to fix it when it is not.</li>
       </ul>
@@ -123,6 +136,10 @@ export function Privacy() {
         <li>
           <strong>Cloudflare</strong> hosts the site and the application, and keeps the request
           logs. If you connect your own Cloudflare account, we also read your site's request counts
+          from it, as described above.
+        </li>
+        <li>
+          <strong>Google</strong>, if you connect Google Analytics: we read your Analytics counts
           from it, as described above.
         </li>
         <li>

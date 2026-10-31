@@ -1062,7 +1062,13 @@ export type RecommendationUpdate = z.output<typeof RecommendationUpdateSchema>;
  * request counts of the zones a business's site is served through (`fetches.ts`). See
  * `docs/adr/0013-a-sign-in-is-sealed-by-the-worker.md`.
  */
-export const CONNECTION_KINDS = ["sample", "wordpress", "hosted_pages", "cloudflare"] as const;
+export const CONNECTION_KINDS = [
+  "sample",
+  "wordpress",
+  "hosted_pages",
+  "cloudflare",
+  "google_analytics",
+] as const;
 export const ConnectionKindSchema = z.enum(CONNECTION_KINDS);
 export type ConnectionKind = z.infer<typeof ConnectionKindSchema>;
 
@@ -1071,6 +1077,7 @@ export const CONNECTION_KIND_LABELS: Record<ConnectionKind, string> = {
   wordpress: "WordPress site",
   hosted_pages: "Answer subdomain",
   cloudflare: "Cloudflare account",
+  google_analytics: "Google Analytics account",
 };
 
 /**
@@ -1082,6 +1089,7 @@ export const CONNECTION_KIND_ALLOWANCES: Record<ConnectionKind, string | null> =
   wordpress: "wordpress",
   hosted_pages: "hosted_pages",
   cloudflare: "fetches",
+  google_analytics: "visits",
 };
 
 /**
@@ -1202,13 +1210,28 @@ export const CloudflareTokenSchema = z
 
 /**
  * What is sent to connect an account. A Cloudflare account is connected with a token its owner
- * made; the rest with nothing, or not from here at all.
+ * made; the rest with nothing, or not from here at all: a Google Analytics account only through
+ * Google's sign-in (`GoogleReturnSchema`).
  */
 export const ConnectionInputSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("cloudflare"), token: CloudflareTokenSchema }),
-  z.object({ kind: ConnectionKindSchema.exclude(["cloudflare"]) }),
+  z.object({ kind: ConnectionKindSchema.exclude(["cloudflare", "google_analytics"]) }),
 ]);
 export type ConnectionInput = z.infer<typeof ConnectionInputSchema>;
+
+/** Where an owner is sent to sign in with Google. */
+export const GoogleStartSchema = z.object({ url: z.string() });
+export type GoogleStart = z.infer<typeof GoogleStartSchema>;
+
+/**
+ * What Google handed back to the app once its owner agreed: the code to swap for the sign-in, and
+ * the `state` the start of the sign-in made. Sent once, to be sealed, and never returned.
+ */
+export const GoogleReturnSchema = z.object({
+  code: z.string().trim().min(1).max(2000),
+  state: z.string().trim().min(1).max(2000),
+});
+export type GoogleReturn = z.infer<typeof GoogleReturnSchema>;
 
 /**
  * What checking a location's website for WordPress found (`wordpress.ts`): `ready` to send its
@@ -2367,6 +2390,53 @@ export const LocationFetchesSchema = z.object({
 export type LocationFetches = z.infer<typeof LocationFetchesSchema>;
 
 /**
+ * Where a location's sessions from assistants come from, as its page says it. `counted`: from the
+ * Google Analytics property matched to it, which may be `broken`. `elsewhere`: the property
+ * measuring its website is matched to another location with that website, whose page shows them.
+ * Otherwise why none are counted: the plan does not include visits, there is no website on file,
+ * nothing is connected, the connection is broken, no property the sign-in reaches measures the
+ * website, or the worker has not read it yet. `sample` is made up, never read.
+ */
+export const AnalyticsSourceSchema = z.discriminatedUnion("state", [
+  z.object({
+    state: z.literal("counted"),
+    property: z.string(),
+    connection_id: Id,
+    broken: z.boolean(),
+  }),
+  z.object({
+    state: z.literal("elsewhere"),
+    property: z.string(),
+    location_id: Id,
+    location_name: z.string(),
+  }),
+  z.object({
+    state: z.enum([
+      "sample",
+      "not_on_plan",
+      "no_website",
+      "not_connected",
+      "broken",
+      "not_matched",
+      "waiting",
+    ]),
+  }),
+]);
+export type AnalyticsSource = z.infer<typeof AnalyticsSourceSchema>;
+
+/**
+ * A location's sessions from assistants over a run of finished days, as its Google Analytics
+ * property reported them, added up in the shape of `LocationVisitsSchema`. Kept apart from what
+ * the line reported and never added to it.
+ */
+export const LocationAnalyticsVisitsSchema = LocationVisitsSchema.extend({
+  source: AnalyticsSourceSchema,
+  /** The last day added up, which is yesterday. */
+  through: z.string(),
+});
+export type LocationAnalyticsVisits = z.infer<typeof LocationAnalyticsVisitsSchema>;
+
+/**
  * What the line on a business's site sends, with no sign-in. One of two things: its owner
  * checking that the line is there, or a visit that arrived from an assistant. Nothing in either
  * is about the visitor, and which assistant it was is worked out from this, never sent.
@@ -2432,6 +2502,16 @@ export const ExportSiteFetchSchema = z.object({
   sample_data: z.boolean(),
 });
 
+/** How many sessions from an assistant landed on a page on a day, in an export. */
+export const ExportAnalyticsVisitSchema = z.object({
+  location_id: Id,
+  day: z.string(),
+  assistant: VisitAssistantSchema,
+  path: z.string(),
+  count: z.number().int(),
+  sample_data: z.boolean(),
+});
+
 /**
  * Everything an organization holds, as its owner downloads it. Each list's rows are the same
  * wire types the app is sent. Never a sign-in, the operator's record of changes or what the
@@ -2460,6 +2540,7 @@ export const AccountExportSchema = z.object({
   hosted_pages: z.array(ExportHostedPageSchema),
   page_fetches: z.array(ExportPageFetchSchema),
   site_fetches: z.array(ExportSiteFetchSchema),
+  analytics_visits: z.array(ExportAnalyticsVisitSchema),
 });
 export type AccountExport = z.infer<typeof AccountExportSchema>;
 

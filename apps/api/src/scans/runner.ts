@@ -1,6 +1,7 @@
 import {
   type AlertScan,
   type AlertsToTell,
+  analyticsDaysToRead,
   analyzeCitedPage,
   analyzeObservation,
   analyzeSite,
@@ -29,11 +30,13 @@ import {
   type SiteSnapshot,
   SURFACES_BY_KIND,
   type Surface,
+  sampleAnalyticsVisits,
   sampleFetches,
   sourceOfRule,
   summarizeSources,
   type Tier,
   tierOf,
+  VISITS_ALLOWANCE,
   windowScore,
 } from "@nearcited/shared";
 import { type ProviderRegistry, planSurfaces } from "../providers";
@@ -308,6 +311,24 @@ export async function runScan(scanId: string, deps: RunScanDeps): Promise<ScanOu
       } catch (error) {
         // The scan stands. The next one makes them.
         console.error(`Scan ${scanId}: could not make its sample fetches`, error);
+      }
+    }
+
+    // So are the sessions a Google Analytics connection would read, and Google is asked nothing.
+    if (sampleData && organization?.allowances[VISITS_ALLOWANCE] !== undefined) {
+      const days = analyticsDaysToRead(null, now());
+      const [from, to] = [days[0], days.at(-1)];
+      try {
+        if (from && to) {
+          await store.recordAnalyticsVisits(
+            location.id,
+            { from, to, sample: true },
+            sampleAnalyticsVisits(location.id, days),
+          );
+        }
+      } catch (error) {
+        // The scan stands. The next one makes them.
+        console.error(`Scan ${scanId}: could not make its sample sessions`, error);
       }
     }
 
