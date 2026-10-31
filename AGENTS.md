@@ -237,8 +237,8 @@ pass `pnpm check` and run in mock mode without it.
   day or an address. The line (`apps/web/public/line.js`) sends nothing for a visit that did not
   come from an assistant, sets no cookie and keeps nothing in the browser: keep all three. Its
   list of assistants is a copy of the shared one, and the database names them too
-  (`visits.assistant`, `analytics_visits.assistant` and `record_analytics_visits()`): add one in
-  all five. The count can be padded by anyone who reads the
+  (`visits.assistant`, `record_visit()`, `analytics_visits.assistant` and
+  `record_analytics_visits()`): add one in all six. The count can be padded by anyone who reads the
   key, so no score, alert, task or bill is worked out from it. Do not open `visits` or
   `visit_lines` to a caller who is not signed in, and do not count a visit on any other path. A
   key is replaced only by `replace_site_key()`, which answers an owner or an admin of the

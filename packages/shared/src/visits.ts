@@ -36,8 +36,8 @@ export interface AssistantReferrers {
  * link out of each one to see, so a host that is wrong counts nothing and says nothing.
  *
  * The line a site carries has its own copy (`apps/web/public/line.js`), kept the same by a test.
- * The database names the assistants too (`visits.assistant`, `analytics_visits.assistant` and
- * `record_analytics_visits()`): add one in all five.
+ * The database names the assistants too (`visits.assistant`, `record_visit()`,
+ * `analytics_visits.assistant` and `record_analytics_visits()`): add one in all six.
  */
 export const ASSISTANT_REFERRERS: Record<VisitAssistant, AssistantReferrers> = {
   // ChatGPT tags the links in its answers, and its apps often name no site they came from.

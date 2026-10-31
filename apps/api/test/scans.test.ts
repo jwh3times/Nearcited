@@ -2124,7 +2124,11 @@ describe("a sample scan's sessions from assistants", () => {
     expect(
       db.analyticsVisits.every((kept) => kept.sample_data && kept.location_id === locationId),
     ).toBe(true);
-    expect(new Set(db.analyticsVisits.map((kept) => kept.day)).size).toBe(30);
+    // The last thirty days and no further, though a quiet day has no count to keep.
+    const days = new Set(db.analyticsVisits.map((kept) => kept.day));
+    const oldest = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10);
+    expect(days.size).toBeGreaterThan(20);
+    expect([...days].every((day) => day >= oldest)).toBe(true);
     const first = [...db.analyticsVisits];
     await runScan((await queueScan()).id, {
       store: worker,

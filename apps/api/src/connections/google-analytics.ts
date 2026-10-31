@@ -18,6 +18,9 @@ import { type GoogleDeps, GoogleRefused } from "./google";
  * yet.
  */
 
+/** What a Google Analytics connection is called: a sign-in gives no name to call it by. */
+export const ANALYTICS_LABEL = "Google Analytics";
+
 /** The one scope a Google Analytics connection asks for. */
 export const ANALYTICS_SCOPE = "https://www.googleapis.com/auth/analytics.readonly";
 

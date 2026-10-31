@@ -18,6 +18,7 @@ import {
 } from "../src/connections/google";
 import { listProperties, readSessions } from "../src/connections/google-analytics";
 import { open, sealingKey } from "../src/connections/seal";
+import { buildClosingEmail } from "../src/email/closing";
 import type { Env } from "../src/env";
 import { createMemoryDb, type MemoryDb, memoryStore } from "./memory-store";
 
@@ -723,6 +724,21 @@ describe("a Google Analytics connection", () => {
     google.revokeStatus = { status: 503 };
     expect(await removeConnection(connection.id, await worker())).toBe("left_at_site");
     expect(db.connectionSecrets.has(connection.id)).toBe(false);
+  });
+
+  it("is told apart from a WordPress site in the closing email, where Google could not be asked", () => {
+    const told = (leftAtSites: string[]) =>
+      buildClosingEmail({ organization: "Joe's", cancelled: false, leftAtSites, hostnames: [] })
+        .text;
+    const google = told(["Google Analytics"]);
+    expect(google).toContain("Google account");
+    expect(google).not.toContain("WordPress");
+    const both = told(["joes.example", "Google Analytics"]);
+    expect(both).toContain("- joes.example");
+    expect(both).toContain("Application Passwords");
+    expect(both).toContain("Google account");
+    expect(both).not.toContain("- Google Analytics");
+    expect(told(["joes.example"])).not.toContain("Google");
   });
 
   it("keeps what it counted when it is removed", async () => {

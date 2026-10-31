@@ -1,10 +1,14 @@
+import { ANALYTICS_LABEL } from "../connections/google-analytics";
 import type { Email } from "./report";
 
 export interface ClosingEmail {
   organization: string;
   /** Whether a paid subscription was cancelled. */
   cancelled: boolean;
-  /** The WordPress sites still holding an application password the product was given. */
+  /**
+   * What still holds access the product was given: WordPress sites holding an application password,
+   * and Google Analytics, by its label, where Google could not be asked to take a sign-in back.
+   */
   leftAtSites: string[];
   /** The answer subdomains removed, whose DNS records point at nothing now. */
   hostnames: string[];
@@ -21,12 +25,19 @@ export function buildClosingEmail(email: ClosingEmail): Email {
   if (email.cancelled) {
     text.push("", "Your subscription is cancelled, and you will not be charged again.");
   }
-  if (email.leftAtSites.length > 0) {
+  const sites = email.leftAtSites.filter((site) => site !== ANALYTICS_LABEL);
+  if (sites.length > 0) {
     text.push(
       "",
-      `Nearcited could not reach ${email.leftAtSites.length === 1 ? "this WordPress site" : "these WordPress sites"} to take back the application password it was given:`,
-      ...email.leftAtSites.map((site) => `- ${site}`),
+      `Nearcited could not reach ${sites.length === 1 ? "this WordPress site" : "these WordPress sites"} to take back the application password it was given:`,
+      ...sites.map((site) => `- ${site}`),
       "You can delete it yourself in WordPress, under Users → Profile → Application Passwords.",
+    );
+  }
+  if (sites.length < email.leftAtSites.length) {
+    text.push(
+      "",
+      "Nearcited could not reach Google to take back the read-only access to Google Analytics it was given. You can take it back yourself in your Google account, in its list of the apps that have access.",
     );
   }
   if (email.hostnames.length > 0) {

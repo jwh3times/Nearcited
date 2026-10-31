@@ -9,7 +9,7 @@ import {
   googleStateIsGood,
   swapCode,
 } from "../connections/google";
-import { ANALYTICS_SCOPE } from "../connections/google-analytics";
+import { ANALYTICS_LABEL, ANALYTICS_SCOPE } from "../connections/google-analytics";
 import { seal, sealingKey } from "../connections/seal";
 import { ApiError, notFound } from "../errors";
 import { parseJson, uuidParam } from "../validation";
@@ -119,7 +119,7 @@ googleRoutes.post("/organizations/:organizationId/connections/google-analytics",
     id,
     organization_id: organizationId,
     kind: "google_analytics",
-    label: "Google Analytics",
+    label: ANALYTICS_LABEL,
     sealed: await seal(key, id, swapped.refreshToken),
   });
   if (!connection) throw notFound("Organization");

@@ -1124,7 +1124,9 @@ visits: one more for that location, day (UTC), assistant and page
   line on the site stops counting until the new one is pasted. A location with no website on file
   is asked for it first, because a visit counts only on that website, and a location paused by its
   plan is told its visits are not counted. The operator reading a customer's account sees the counts, the line and
-  the check, and no way to replace the key.
+  the check, and no way to replace the key. The counts come through `VisitSources`, which gives
+  Google Analytics a section of its own where there is one to show (see "Sessions from assistants,
+  read from Google Analytics"), and otherwise shows what is described here.
 - **`visits` is an allowance that is included or not.** It is in `allowance_kinds` (not counted)
   and `ALLOWANCE_KINDS`, and `VISITS_ALLOWANCE` is its key. Every paid plan includes it and the
   free plan does not (see "Tenancy"). Counting a visit takes nothing from a month.
@@ -1141,11 +1143,13 @@ A connection is an organization's standing sign-in to an outside account (`conne
 is in `GLOSSARY.md`, the decision in `docs/adr/0013-a-sign-in-is-sealed-by-the-worker.md`). What
 exists is making one, listing them, reading what one reaches, saying which of those is each
 location's, breaking one that stops working, pausing one the plan stops including, and removing
-one. There are four kinds, `sample`, `wordpress` (see "A WordPress site" below), `hosted_pages`
-(see "An answer subdomain" below) and `cloudflare` (see "Fetches of a business's own site").
-Nothing reads anything from an account beyond what it reaches, but for a Cloudflare zone's request
-counts, and nothing is done through a Cloudflare one (see "Actions" for the rest). The `sample`
-kind never fails and needs no allowance, so only the other three can break or pause in practice.
+one. There are five kinds, `sample`, `wordpress` (see "A WordPress site" below), `hosted_pages`
+(see "An answer subdomain" below), `cloudflare` (see "Fetches of a business's own site") and
+`google_analytics` (see "Sessions from assistants, read from Google Analytics"). Nothing reads
+anything from an account beyond what it reaches, but for a Cloudflare zone's request counts and a
+Google Analytics property's sessions from assistants, and nothing is done through either kind (see
+"Actions" for the rest). The `sample` kind never fails and needs no allowance, so only the other
+four can break or pause in practice.
 
 - **Only an owner or admin connects or removes.** `create_connection()` and
   `request_connection_removal()` are security-definer functions that return no row to anyone else,
@@ -1176,7 +1180,7 @@ kind never fails and needs no allowance, so only the other three can break or pa
   none is waiting. A sign-in the Worker cannot
   open (another key, or none) is deleted all the same, without taking the access back. The
   `sample` kind has none to take back. A `wordpress` one deletes its application password at the
-  site (below).
+  site (below), and a `google_analytics` one posts its refresh token to Google's revoke endpoint.
 - **A lost message is asked for again.** If the send fails, the request still succeeds and logs it.
   If a step throws, the queue redelivers it, and after `max_retries` it goes to the dead-letter
   queue. Either way the connection stays `removing`, and every run of the schedule queues again
@@ -1221,8 +1225,8 @@ kind never fails and needs no allowance, so only the other three can break or pa
   breaks again is told again.
 - **A plan that stops including a kind of connection pauses it.** `connection_kind_allowances` says
   which allowance a kind needs, and a kind not listed needs none: `sample` needs none,
-  `wordpress` needs the `wordpress` allowance, `hosted_pages` the `hosted_pages` one and
-  `cloudflare` the `fetches` one. `CONNECTION_KIND_ALLOWANCES` (`packages/shared/src/schemas.ts`) is the same list, and a test
+  `wordpress` needs the `wordpress` allowance, `hosted_pages` the `hosted_pages` one,
+  `cloudflare` the `fetches` one and `google_analytics` the `visits` one. `CONNECTION_KIND_ALLOWANCES` (`packages/shared/src/schemas.ts`) is the same list, and a test
   in `packages/db` holds the two equal. The table has row-level security on, no policy and no grant
   to any API role. `create_connection()` refuses a kind the organization's allowances do not include
   (`NC012`), and `availableConnectionKinds` leaves it out. `fit_connections_to_plan()`, which
@@ -1258,10 +1262,11 @@ kind never fails and needs no allowance, so only the other three can break or pa
   returns `sample` for a deployment in mock mode, or for a test organization in any deployment,
   and leaves out a kind the organization's allowances do not include. It makes up a sign-in and
   calls the account "Sample account", so the path runs with no outside account. On live data it
-  offers `wordpress` and `cloudflare` to an organization that is not a test one and whose
-  allowances include each. It never offers `hosted_pages` here, which is set up from a location
-  (below). The page leaves `wordpress` and `hosted_pages` out of its connect buttons and gives
-  `cloudflare` a form of its own.
+  offers `wordpress` and `cloudflare`, and `google_analytics` where the deployment has its project
+  at Google, to an organization that is not a test one and whose allowances include each. It never
+  offers `hosted_pages` here, which is set up from a location (below). The page leaves `wordpress`
+  and `hosted_pages` out of its connect buttons, gives `cloudflare` a form of its own and
+  `google_analytics` a button that starts Google's sign-in.
 - **A Cloudflare account is connected with a token, and matched by the worker.** The generic
   route takes `{ kind: "cloudflare", token }` (`CloudflareTokenSchema`), labels the connection
   "Cloudflare token", seals the token as the sign-in and queues the first sync; it never tries the
@@ -2093,7 +2098,9 @@ subdomain alone and is, with `record_page_fetch()`, the only thing the Pages Wor
 `hosted_page_fetches` is read by the location's members and the operator, with no policy or grant for
 a caller who is not signed in, and written by no API role, only by `record_page_fetch()`.
 `site_fetches` is the same, written only by the worker's `record_site_fetches()` and read added up
-through `location_site_fetches()` (see "Fetches of a business's own site").
+through `location_site_fetches()` (see "Fetches of a business's own site"), and so is
+`analytics_visits`, written only by the worker's `record_analytics_visits()` and read added up through
+`location_analytics_visits()` (see "Sessions from assistants, read from Google Analytics").
 `standing_permissions` is read by the organization's members and the operator and written by no API
 role, only by `give_standing_permission()` and `end_standing_permission()`, which answer an owner or
 admin alone, and by the database's own functions when a take-back or the plan ends one (see "Actions").
@@ -2446,8 +2453,8 @@ the fifteen-minute sweep of stalled removals leaves its connections to the closi
 (`claim_closing()`), so a retry and the sweep never run it at once, and lets go of it when a try
 fails. It goes in an order where each step is written on the closing and can be run again: cancel the subscription at Stripe at once
 (`Payments.cancelNow`, nothing prorated or refunded); remove each connection through
-`removeConnection`, which a site that cannot be reached leaves with its access standing, named in
-the email, while an answer subdomain holds the closing until Cloudflare has let it go and sends no
+`removeConnection`, which a site that cannot be reached, or Google where it cannot be asked, leaves
+with its access standing, named in the email, while an answer subdomain holds the closing until Cloudflare has let it go and sends no
 email of its own for the reason `closing`; delete the organization (`deleteClosedOrganization`,
 every table under it cascades; `created_by` is set to null); delete the owner's sign-in
 (`deleteAccount`, with the secret key); and send one email to the owner, and a note to the other
@@ -2497,7 +2504,9 @@ drop it.
   location. If a scan outgrows one invocation, queue one message per check instead of one per
   scan. A Cloudflare connection's sync is one invocation too: a request for each page of zones (up
   to twenty), and for each matched location one for the zone's limits and one for each day read,
-  up to thirty on a first read of a zone that keeps that long.
+  up to thirty on a first read of a zone that keeps that long. So is a Google Analytics connection's:
+  one for the access token, one for each page of account summaries (up to five), one for each
+  property's streams (up to a hundred), and for each matched property a report of up to ten pages.
 - **Queue delivery is at-least-once.** `runScan` is written to be safe to repeat.
 - **The cron queues at most 100 locations per run** (one `sendBatch`). They sort oldest-first, so
   none starve, but a daily cron cannot keep up with more than 100 daily locations. Run it more
@@ -2526,7 +2535,8 @@ drop it.
   up in the database, by `location_visits()`, which answers a day's count for each assistant, ten
   pages and one more number, so what the API returns is short however many rows were added up (see
   "Visits from assistants"). A location's site fetches are read the same way, added up by
-  `location_site_fetches()` (see "Fetches of a business's own site").
+  `location_site_fetches()` (see "Fetches of a business's own site"), and its sessions from Google
+  Analytics by `location_analytics_visits()`.
 
 ## Known gaps
 
@@ -2543,9 +2553,9 @@ drop it.
   on one, and the free plan includes none. A test organization is
   given every kind, so its drafts are counted and its visits and WordPress connection are included,
   but it is refused an answer subdomain, whose pages would go out under a real domain, and is
-  offered no Cloudflare connection, its fetches being made up. The
-  `wordpress`, `hosted_pages` and `cloudflare` kinds of connection name an allowance, and the kinds of action
-  that go through them take from the same two, which are included without a number; so a number
+  offered no Cloudflare or Google Analytics connection, its fetches and sessions being made up. The
+  `wordpress`, `hosted_pages`, `cloudflare` and `google_analytics` kinds of connection name an allowance, and the kinds of action
+  that go through the first two take from those two, which are included without a number; so a number
   for any kind but `drafts` would be stored, shown and lowered by announcement, but no work would
   stop at it or be counted against it. What an allowance can stop is a kind of connection that
   needs it (see "Connections"), a kind of action that takes from it (see "Actions"), standing
@@ -2611,6 +2621,17 @@ drop it.
   and Pro plans, and a token that loses a permission is found only at the next daily read. A
   refused token is not tried again: the owner removes the connection and connects a new token.
   Removing it, or closing the account, leaves the token at Cloudflare for its owner to delete.
+- Sessions from Google Analytics have been read only from responses written from Google's
+  documentation: nothing has been read from a real property. The sign-in screen has not been through
+  Google's review ([#145](https://github.com/jwh3times/Nearcited/issues/145)), and until it has,
+  people see a warning and at most 100 can connect.
+- A Google Analytics report is not split by host, so a property that measures two websites counts
+  them together, and a day is a day in the property's own time zone, not UTC as the line's is; the
+  card says both. A sign-in that reaches more than a hundred properties has the rest left out of the
+  sync. A property is matched only by the worker, and a location whose website another location's
+  property measures is shown no counts of its own. A refused sign-in is not tried again: the owner
+  removes the connection and signs in again. Google's notes on revoking suggest that taking back one
+  sign-in may take back the same person's others to this project, which nobody has tried.
 - An answer subdomain whose plan stops including `hosted_pages` is paused, then redirected, then
   removed, and its owners are emailed once to delete the record when it is removed. A name whose record is proxied by Cloudflare
   hides where it points, so it is not registered until the owner turns the proxy off. The name is
@@ -2633,9 +2654,10 @@ drop it.
 - The days in the counts are days in UTC, as the database keeps them, because a location holds no
   time zone. A visit late in a local evening may be counted on the next day, and the card says a
   day is a day in UTC.
-- On sample data the card is empty until a line really reports. Nothing is generated for a
-  deployment in mock mode or for a test organization, so the counts there are only what a line on
-  a real site reports to that deployment.
+- On sample data what the line reported is empty until a line really reports. None of it is
+  generated for a deployment in mock mode or for a test organization, so those counts are only what
+  a line on a real site reports to that deployment. The Google Analytics section beside them is made
+  up, and says so (see "Sessions from assistants, read from Google Analytics").
 - Where the line goes in WordPress, Wix, Squarespace and Shopify is given in each builder's own
   menu names (`BUILDERS`, `apps/web/src/lib/visits.ts`), read from each builder's help pages on
   2026-10-13. A builder that renames a menu makes its line wrong, and nothing notices until
