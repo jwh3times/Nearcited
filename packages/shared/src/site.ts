@@ -1,4 +1,4 @@
-import { containsTokenRun, namesMatch, normalizeName } from "./analysis";
+import { containsTokenRun, namesMatch, normalizeName, textNames } from "./analysis";
 import { type RobotsRule, robotsGroups, rulesFor } from "./robots";
 import type { RobotsNotRead, SiteCheck, SiteCheckId } from "./schemas";
 
@@ -330,7 +330,7 @@ export function analyzeSite(snapshot: SiteSnapshot, business: SiteBusiness): Sit
     { id: "crawlers_allowed", passed: blocked.length === 0 },
     { id: "indexable", passed: !snapshot.noindex_header && !hasNoindexMeta(page.metas) },
     { id: "text_content", passed: words >= MIN_PAGE_WORDS },
-    { id: "names_business", passed: says(business.name) },
+    { id: "names_business", passed: textNames(`${title} ${text}`, business.name) },
     // Without a city on file there is nothing to look for, so the check is left out.
     ...(business.city ? [{ id: "names_city" as const, passed: says(business.city) }] : []),
     { id: "structured_data", passed: hasBusinessData(page.jsonLd, business.name) },

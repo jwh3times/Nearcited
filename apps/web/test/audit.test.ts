@@ -91,6 +91,45 @@ describe("auditCompetitors", () => {
       { name: "Zed", count: 4 },
     ]);
   });
+
+  it("counts a name run together, or without its apostrophe, as the same business", () => {
+    const prompts = [
+      {
+        text: "best realtor",
+        cells: [
+          cell("chatgpt", [
+            ["Northstar Realty Co", 3],
+            ["Tonys Slice House", 1],
+          ]),
+          cell("claude", [
+            ["North Star Realty", 2],
+            ["Tony's Slice House", 1],
+          ]),
+        ],
+      },
+    ];
+    expect(auditCompetitors(audit({ prompts }))).toEqual([
+      { name: "North Star Realty", count: 5 },
+      { name: "Tonys Slice House", count: 2 },
+    ]);
+  });
+
+  it("leaves out the business itself, however an answer spelled it", () => {
+    const prompts = [
+      {
+        text: "best pizza",
+        cells: [
+          cell("chatgpt", [
+            ["JoesPizza", 4],
+            ["Tony's Slice House", 1],
+          ]),
+        ],
+      },
+    ];
+    expect(auditCompetitors(audit({ prompts }))).toEqual([
+      { name: "Tony's Slice House", count: 1 },
+    ]);
+  });
 });
 
 describe("auditPending", () => {

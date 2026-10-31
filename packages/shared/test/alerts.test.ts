@@ -22,7 +22,13 @@ const PROMPTS = [
 const WEBSITE = "https://joes.example";
 const ON_FILE = "+19195550100";
 /** What the rules are told of the location, whatever the test is about. */
-const ABOUT = { prompts: PROMPTS, website: WEBSITE, phone: ON_FILE, country_code: "US" };
+const ABOUT = {
+  name: "Joe's Pizza",
+  prompts: PROMPTS,
+  website: WEBSITE,
+  phone: ON_FILE,
+  country_code: "US",
+};
 
 /**
  * A window from each cell's history, written oldest first: "TTTTFFF" was named four times and
@@ -332,6 +338,24 @@ describe("deriveAlerts: a business named for the first time", () => {
     }
   });
 
+  it("raises nothing for a business on record under another spacing or legal ending", () => {
+    const north: Answer = { names: ["Northstar Realty"] };
+    const scans = answered([[north, north], [north]]);
+    expect(sightings(scans).raise).toHaveLength(1);
+    for (const old of ["North Star Realty", "North Star Realty Company"]) {
+      const seen = { ...SEEN, competitors: [...SEEN.competitors, old] };
+      expect(sightings(scans, { seen }).raise, old).toEqual([]);
+    }
+  });
+
+  it("never raises a spelling of the business itself", () => {
+    // Kept by a scan from before its spellings were all known as its own.
+    const own: Answer = { names: ["JoesPizza"] };
+    const scans = answered([[own, own], [own]]);
+    expect(sightings(scans).raise).toEqual([]);
+    expect(hasNewcomers(scans, ABOUT)).toBe(false);
+  });
+
   it("is not news when a stronger model names one the standard model already had", () => {
     // The latest two scans were asked on Stronger; the record before them on Standard.
     const scans = answered([[OAK, OAK], [OAK]]).map((scan, index) =>
@@ -396,6 +420,18 @@ describe("deriveAlerts: a business named for the first time", () => {
       scan_id: "scan-6",
     } as CurrentAlert;
     expect(sightings(scans, { current: [raised] })).toEqual({ clear: [], raise: [] });
+  });
+
+  it("does not raise again one dismissed under another spelling", () => {
+    const north: Answer = { names: ["North Star Realty"] };
+    const scans = answered([[north, north], [north]]);
+    const dismissed = {
+      id: "alert-north",
+      kind: "competitor",
+      facts: { name: "Northstar Realty" },
+      scan_id: "scan-6",
+    } as CurrentAlert;
+    expect(sightings(scans, { current: [dismissed] })).toEqual({ clear: [], raise: [] });
   });
 });
 
@@ -602,13 +638,13 @@ describe("deriveAlerts: a phone number that is not the location's", () => {
 describe("hasNewcomers", () => {
   it("says whether the record before the latest scans needs reading", () => {
     // Named often enough, and nowhere in the rest of the window. The record may still hold it.
-    expect(hasNewcomers(answered([[OAK, OAK], [OAK]]), WEBSITE)).toBe(true);
+    expect(hasNewcomers(answered([[OAK, OAK], [OAK]]), ABOUT)).toBe(true);
     // The business every scan names: the window alone says it is not new.
-    expect(hasNewcomers(answered([[TONYS, TONYS], [TONYS]]), WEBSITE)).toBe(false);
+    expect(hasNewcomers(answered([[TONYS, TONYS], [TONYS]]), ABOUT)).toBe(false);
     // Not often enough, or too short a record for anything to be new.
-    expect(hasNewcomers(answered([[OAK], [OAK]]).slice(0, 2), WEBSITE)).toBe(false);
-    expect(hasNewcomers(answered([[OAK, OAK], [OAK]], 6), WEBSITE)).toBe(false);
-    expect(hasNewcomers(windowOf({ [PIZZA]: "TTTTFFF" }), WEBSITE)).toBe(false);
+    expect(hasNewcomers(answered([[OAK], [OAK]]).slice(0, 2), ABOUT)).toBe(false);
+    expect(hasNewcomers(answered([[OAK, OAK], [OAK]], 6), ABOUT)).toBe(false);
+    expect(hasNewcomers(windowOf({ [PIZZA]: "TTTTFFF" }), ABOUT)).toBe(false);
   });
 });
 

@@ -1,3 +1,4 @@
+import { tallyNamedInstead } from "./action-plan";
 import { hostOf } from "./analysis";
 import { pageRule, pageTaskTitle, promptsLeftOut } from "./pages";
 import {
@@ -37,17 +38,10 @@ interface ResultFacts {
 /** Fewer answers than this say too little to call the business's own site unread. */
 const MIN_ANSWERS_FOR_OWN_SITE = 4;
 
-function mostNamed(results: readonly ResultFacts[], limit: number): string[] {
-  const counts = new Map<string, number>();
-  for (const result of results) {
-    for (const competitor of result.competitors) {
-      counts.set(competitor, (counts.get(competitor) ?? 0) + 1);
-    }
-  }
-  return [...counts.entries()]
-    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+function mostNamed(results: readonly ResultFacts[], name: string, limit: number): string[] {
+  return tallyNamedInstead(results, name)
     .slice(0, limit)
-    .map(([name]) => name);
+    .map((competitor) => competitor.name);
 }
 
 /**
@@ -109,6 +103,7 @@ export function deriveRecommendations(
     if (summary.mentions > 0) continue;
     const named = mostNamed(
       counted.filter((result) => result.surface === summary.surface),
+      location.name,
       3,
     );
     const label = SURFACE_LABELS[summary.surface];

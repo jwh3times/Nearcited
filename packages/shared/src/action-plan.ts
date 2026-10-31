@@ -1,4 +1,4 @@
-import { hostOf, normalizeName } from "./analysis";
+import { competitorKey, hostOf, namesMatch, othersThan } from "./analysis";
 import type { ActionPlanStep, NameCount, SiteCheck, SiteCheckId, SourceSummary } from "./schemas";
 import { SITE_CHECKS } from "./site";
 import { belongsTo, unnamedSources } from "./sources";
@@ -40,13 +40,14 @@ const BLOCKS_READING: ReadonlySet<SiteCheckId> = new Set([
 const MAX_COMPETITORS = 3;
 
 /**
- * Adds up names that are the same business spelled differently ("Tony's" and "Tony's, LLC"),
- * keeping the shortest spelling. Most named first.
+ * Adds up names that are the same competitor spelled differently ("Tony's" and "Tony's, LLC",
+ * "North Star Realty" and "Northstar Realty Co"; see `competitorKey`), keeping the shortest
+ * spelling. Most named first.
  */
 export function tallyNames(counts: readonly NameCount[], limit?: number): NameCount[] {
   const tally = new Map<string, NameCount>();
   for (const { name, count } of counts) {
-    const key = normalizeName(name) || name;
+    const key = competitorKey(name) || name;
     const entry = tally.get(key);
     if (!entry) tally.set(key, { name, count });
     else {
@@ -59,13 +60,21 @@ export function tallyNames(counts: readonly NameCount[], limit?: number): NameCo
     .slice(0, limit);
 }
 
-/** Who the checks named instead, each check counted once for each name, spellings added up. */
+/**
+ * Who the checks named instead, spellings added up: a check counts once for each competitor, even
+ * when it wrote one two ways, so a count is never more than the checks. A spelling of the
+ * business itself, `name`, is left out: a check kept before it was known as the business's own
+ * may list it.
+ */
 export function tallyNamedInstead(
   checks: readonly { competitors: readonly string[] }[],
+  name: string,
 ): NameCount[] {
-  return tallyNames(
-    checks.flatMap((check) => check.competitors.map((name) => ({ name, count: 1 }))),
-  );
+  const once = (names: readonly string[]) =>
+    tallyNames(othersThan(name, names).map((other) => ({ name: other, count: 1 }))).map(
+      (other) => ({ name: other.name, count: 1 }),
+    );
+  return tallyNames(checks.flatMap((check) => once(check.competitors)));
 }
 
 const plural = (count: number, one: string, many: string) => (count === 1 ? one : many);
@@ -139,7 +148,10 @@ function websiteStep(input: ActionPlanInput): ActionPlanStep | null {
 /** The plan, most direct action first. Empty when there is nothing to go on. */
 export function buildActionPlan(input: ActionPlanInput): ActionPlanStep[] {
   const steps: ActionPlanStep[] = [];
-  const competitors = tallyNames(input.competitors);
+  const competitors = tallyNames(
+    input.competitors.filter(({ name }) => !namesMatch(name, input.name)),
+  );
+  // Every name, the business's own spellings too: a site that looks like one is no directory.
   const names = input.competitors.map(({ name }) => name);
   const others = input.sources.filter(
     (source) => !source.own && !names.some((name) => belongsTo(source.host, name)),

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { type ActionPlanInput, buildActionPlan, tallyNames } from "../src/action-plan";
+import {
+  type ActionPlanInput,
+  buildActionPlan,
+  tallyNamedInstead,
+  tallyNames,
+} from "../src/action-plan";
 import type { SiteCheck, SourceSummary } from "../src/schemas";
 
 const source = (host: string, answers: number, named: number, own = false): SourceSummary => ({
@@ -56,6 +61,50 @@ describe("tallyNames", () => {
         1,
       ),
     ).toEqual([{ name: "B", count: 2 }]);
+  });
+
+  it("counts a name run together, or with its legal ending written out, as the same business", () => {
+    expect(
+      tallyNames([
+        { name: "Northstar Realty Co", count: 3 },
+        { name: "North Star Realty", count: 2 },
+        { name: "Smith Plumbing Company", count: 1 },
+        { name: "Smith Plumbing, Inc.", count: 1 },
+        { name: "Oak Realty Partners", count: 1 },
+        { name: "Oak Realty", count: 1 },
+      ]),
+    ).toEqual([
+      { name: "North Star Realty", count: 5 },
+      { name: "Smith Plumbing, Inc.", count: 2 },
+      { name: "Oak Realty", count: 1 },
+      { name: "Oak Realty Partners", count: 1 },
+    ]);
+  });
+});
+
+describe("tallyNamedInstead", () => {
+  it("counts a competitor once in a check that names it two ways", () => {
+    expect(
+      tallyNamedInstead(
+        [
+          { competitors: ["Northstar Realty Co", "North Star Realty", "Zed"] },
+          { competitors: ["North Star Realty"] },
+        ],
+        "Joe's Pizza",
+      ),
+    ).toEqual([
+      { name: "North Star Realty", count: 2 },
+      { name: "Zed", count: 1 },
+    ]);
+  });
+
+  it("leaves out a spelling of the business itself that a check kept as a competitor", () => {
+    expect(
+      tallyNamedInstead(
+        [{ competitors: ["Northstar Realty", "Zed"] }, { competitors: ["North Star Realty Co"] }],
+        "North Star Realty",
+      ),
+    ).toEqual([{ name: "Zed", count: 1 }]);
   });
 });
 
@@ -178,6 +227,18 @@ describe("the listings steps", () => {
     expect(steps.find((step) => step.id === "competitors")?.items).toEqual([
       { label: "Tony's Slice House", detail: "Named in 12 of 26 checks", url: null },
     ]);
+  });
+
+  it("leaves the business itself out of who is named instead, however it was spelled", () => {
+    const steps = plan({
+      competitors: [
+        { name: "JoesPizza", count: 12 },
+        { name: "Tony's Slice House", count: 4 },
+      ],
+    });
+    expect(
+      steps.find((step) => step.id === "competitors")?.items.map((item) => item.label),
+    ).toEqual(["Tony's Slice House"]);
   });
 
   it("offers no competitor step when no check counted", () => {

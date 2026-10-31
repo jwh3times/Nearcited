@@ -14,21 +14,10 @@ repository never names it (`AGENTS.md`, "Private companion"). `private/README.md
 public clone has no companion, and everything here installs, passes `pnpm check` and runs in mock
 mode without it.
 
-## Workspace status command
+## Companion commit checks
 
-`git status --short --branch`; then, when `private/.git` exists,
-`git -C private fetch -q --prune origin` and `git -C private status --short --branch` — the fetch
-makes its ahead/behind counts current.
-
-## Companion commit policy
-
-commit — commit and push inside `private/` as its own repository, never alongside a public commit
-(`AGENTS.md`: "Commit and push the two repositories independently").
-
-- **Before committing:** review the diff from `private/`'s own root; confirm it holds no credential
-  values (only `op://` references); a file added, moved or retired has its row in
-  `private/README.md`'s "Document authority" table in the same commit; nothing from it is copied
-  into a public file, issue, pull request or commit message.
+- A file added, moved or retired has its row in `private/README.md`'s "Document authority" table in
+  the same commit.
 
 ## Sync with main
 
@@ -45,7 +34,6 @@ commit — commit and push inside `private/` as its own repository, never alongs
   deploy; may hold private values, so removing it is never a loss
 - `apps/e2e/playwright-report/`, `apps/e2e/test-results/` — end-to-end test output
 - `coverage/`, `*.tsbuildinfo`
-- stray scratch files at the repository root or under `private/`, named one by one
 
 ## Never-remove paths
 
@@ -57,7 +45,7 @@ commit — commit and push inside `private/` as its own repository, never alongs
   maintainer's access token and database password
 - `supabase/.branches/`
 - `node_modules/` — every check runs from it
-- `.claude/settings.local.json`, `.claude/worktrees/` — removing a worktree is the user's decision
+- `.claude/settings.local.json`
 - never `git clean -x` or `-X`
 
 ## Dev stack
@@ -75,22 +63,10 @@ commit — commit and push inside `private/` as its own repository, never alongs
   `wrangler deploy`, `wrangler secret put` or the Deploy workflow — production;
   `pnpm local:env --force` — it rewrites the env files with a new `CONNECTIONS_KEY`.
 
-## Generated-config check
-
-`pnpm sync:agents:check` (the required **Verify generated agent config**, beside
-`node --test scripts/sync-agents.test.mjs`), regenerated with `pnpm sync:agents`, committing
-`.claude/skills/` and `.codex/agents/` with their sources — always: it is quick, and it also
-catches an orphaned mirror.
-
-## Final portability check
-
-none
-
 ## Hook: after sync
 
-1. When the sync changed `pnpm-lock.yaml` or a `package.json`, run `pnpm install --frozen-lockfile`.
-2. When it brought new files under `supabase/migrations/` and the local stack is running, say so and
-   offer `pnpm dlx supabase migration up` (applies only the pending migrations, keeping the data).
-   Never `supabase db reset`.
-3. When `apps/api/.dev.vars`, `apps/pages/.dev.vars` or `apps/web/.env.local` is missing and the
+1. When the sync brought new files under `supabase/migrations/` and the local stack is running, say
+   so and offer `pnpm dlx supabase migration up` (applies only the pending migrations, keeping the
+   data). Never `supabase db reset`.
+2. When `apps/api/.dev.vars`, `apps/pages/.dev.vars` or `apps/web/.env.local` is missing and the
    stack is running, offer `pnpm local:env` (never `--force`).

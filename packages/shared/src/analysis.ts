@@ -62,8 +62,9 @@ const MAX_CITED_URLS = 20;
 const MAX_PHONES = 5;
 const EXCERPT_LENGTH = 280;
 
-export function normalizeName(name: string): string {
-  const tokens = name
+/** The words of a text folded to plain letters and digits, as `normalizeName` reads them. */
+function foldedWords(text: string): string[] {
+  return text
     .normalize("NFKD")
     .replace(/[̀-ͯ]/g, "")
     .toLowerCase()
@@ -73,10 +74,41 @@ export function normalizeName(name: string): string {
     .trim()
     .split(" ")
     .filter(Boolean);
-  while (tokens.length > 1 && LEGAL_SUFFIXES.has(tokens[tokens.length - 1] ?? "")) {
+}
+
+export function normalizeName(name: string): string {
+  return withoutEndings(foldedWords(name), LEGAL_SUFFIXES).join(" ");
+}
+
+/** The legal endings again, with those written out, dropped only when telling competitors apart. */
+const COMPETITOR_SUFFIXES = new Set([
+  ...LEGAL_SUFFIXES,
+  "company",
+  "incorporated",
+  "limited",
+  "corporation",
+]);
+
+/** The words less any of `endings` at the end, keeping the last word when that is all there is. */
+function withoutEndings(tokens: string[], endings: ReadonlySet<string>): string[] {
+  while (tokens.length > 1 && endings.has(tokens[tokens.length - 1] ?? "")) {
     tokens.pop();
   }
-  return tokens.join(" ");
+  return tokens;
+}
+
+/** A name's words with its dots dropped ("L.L.C." is "LLC"), less any legal ending, written out or not. */
+function keyWords(name: string): string[] {
+  return withoutEndings(normalizeName(name.replaceAll(".", "")).split(" "), COMPETITOR_SUFFIXES);
+}
+
+/**
+ * What two spellings of one business share: `keyWords` run together. "North Star Realty" and
+ * "Northstar Realty Co" are one business. It groups the businesses named instead, and two names
+ * with one key match (`namesMatch`); an alert's subject still goes by `normalizeName`.
+ */
+export function competitorKey(name: string): string {
+  return keyWords(name).join("");
 }
 
 /** Whether `needle` appears in `haystack` as whole words in a row. Both already normalised. */
@@ -85,19 +117,96 @@ export function containsTokenRun(haystack: string, needle: string): boolean {
   return ` ${haystack} `.includes(` ${needle} `);
 }
 
+/** A word of a text, folded, and where the piece of text it came from begins and ends. */
+interface PlacedWord {
+  word: string;
+  at: number;
+  end: number;
+}
+
+function placedWords(text: string): PlacedWord[] {
+  const words: PlacedWord[] = [];
+  for (const piece of text.matchAll(/[\p{L}\p{M}\p{N}'’`]+|&/gu)) {
+    const at = piece.index;
+    const end = at + piece[0].length;
+    for (const word of foldedWords(piece[0])) words.push({ word, at, end });
+  }
+  return words;
+}
+
 /**
- * Whether two names refer to the same business. Exact after normalising, or one name is a whole
- * run of words inside the other ("Joe's Pizza" inside "Joe's Pizza & Pasta - Raleigh").
- * Single short words never match by containment, so "Art" does not match "Art of Shaving".
+ * Every run of whole words that, written together, is `key`: "Northstar" and "North Star" both
+ * for "northstar", and never the "star" inside "Northstar". As the words of `words` they begin
+ * and end at. It reads the words once and looks for the key once from each place it was found,
+ * so its time grows with the text, not with the text times itself.
+ */
+function runsWritingKey(words: readonly string[], key: string): [number, number][] {
+  if (!key) return [];
+  // Where in the words written together each word begins, and the end of the last.
+  const startOf = new Map<number, number>();
+  let joined = "";
+  words.forEach((word, index) => {
+    startOf.set(joined.length, index);
+    joined += word;
+  });
+  startOf.set(joined.length, words.length);
+  const runs: [number, number][] = [];
+  for (let found = joined.indexOf(key); found !== -1; found = joined.indexOf(key, found + 1)) {
+    const first = startOf.get(found);
+    const after = startOf.get(found + key.length);
+    if (first !== undefined && after !== undefined) runs.push([first, after - 1]);
+  }
+  return runs;
+}
+
+/**
+ * Every place a text writes the name as whole words, however it spaces them, cases or punctuates
+ * them, and with or without its legal ending: "Northstar Realty" and "North Star Realty, LLC"
+ * for "North Star Realty", but not "Star Realty" inside "Northstar Realty".
+ */
+export function placesNamed(text: string, name: string): { at: number; length: number }[] {
+  const words = placedWords(text);
+  const runs = runsWritingKey(
+    words.map(({ word }) => word),
+    competitorKey(name),
+  );
+  return runs.map(([first, last]) => {
+    const at = words[first]?.at ?? 0;
+    return { at, length: (words[last]?.end ?? at) - at };
+  });
+}
+
+/** Whether a text names the business, as `placesNamed` finds it. */
+export function textNames(text: string, name: string): boolean {
+  return placesNamed(text, name).length > 0;
+}
+
+/** Whether a name is distinctive enough to be looked for inside a longer one. */
+const distinctive = (words: readonly string[]) => words.length > 1 || (words[0]?.length ?? 0) >= 6;
+
+/**
+ * Whether two names refer to the same business. Exact after normalising, the same key
+ * (`competitorKey`: "Northstar Realty" and "North Star Realty Co"), or one name is a whole run of
+ * words inside the other, however either is spaced ("Joe's Pizza" inside "Joe's Pizza & Pasta -
+ * Raleigh", "North Star Realty" inside "Northstar Realty Group"). Single short words never match
+ * by containment, so "Art" does not match "Art of Shaving".
  */
 export function namesMatch(a: string, b: string): boolean {
   const left = normalizeName(a);
   const right = normalizeName(b);
   if (!left || !right) return false;
-  if (left === right) return true;
+  if (left === right || competitorKey(a) === competitorKey(b)) return true;
   const [shorter, longer] = left.length <= right.length ? [left, right] : [right, left];
-  const distinctive = shorter.includes(" ") || shorter.length >= 6;
-  return distinctive && containsTokenRun(longer, shorter);
+  if (distinctive(shorter.split(" ")) && containsTokenRun(longer, shorter)) return true;
+  const inside = (inner: string, outer: string) =>
+    distinctive(keyWords(inner)) &&
+    runsWritingKey(foldedWords(outer), competitorKey(inner)).length > 0;
+  return inside(a, b) || inside(b, a);
+}
+
+/** The names that are not a spelling of the business `name` (`namesMatch`). */
+export function othersThan(name: string, names: readonly string[]): string[] {
+  return names.filter((other) => !namesMatch(other, name));
 }
 
 export function hostOf(url: string | null | undefined): string | null {
@@ -122,11 +231,10 @@ function unique(values: string[], limit: number): string[] {
 function excerptAround(text: string, name: string): string | null {
   const clean = text.replace(/\s+/g, " ").trim();
   if (!clean) return null;
-  const at = clean.toLowerCase().indexOf(name.toLowerCase());
-  if (at === -1 || clean.length <= EXCERPT_LENGTH) {
-    return clean.length <= EXCERPT_LENGTH ? clean : `${clean.slice(0, EXCERPT_LENGTH - 1)}…`;
-  }
-  const start = Math.max(0, at - Math.floor((EXCERPT_LENGTH - name.length) / 2));
+  if (clean.length <= EXCERPT_LENGTH) return clean;
+  const [named] = placesNamed(clean, name);
+  if (!named) return `${clean.slice(0, EXCERPT_LENGTH - 1)}…`;
+  const start = Math.max(0, named.at - Math.floor((EXCERPT_LENGTH - named.length) / 2));
   const end = Math.min(clean.length, start + EXCERPT_LENGTH);
   return `${start > 0 ? "…" : ""}${clean.slice(start, end)}${end < clean.length ? "…" : ""}`;
 }
@@ -139,8 +247,9 @@ export interface NameMention {
 }
 
 /**
- * Every place one of the names, or the business's own, is written in a text, in order. Where two
- * begin at the same place the longer one is what was written there, so it comes last.
+ * Every place one of the names is written in a text, and the business's own however it is
+ * written (`placesNamed`), in order. Where two begin at the same place the longer one is what was
+ * written there, so it comes last.
  */
 export function nameMentions(
   text: string,
@@ -148,8 +257,12 @@ export function nameMentions(
   business: Pick<BusinessIdentity, "name">,
 ): NameMention[] {
   const lower = text.toLowerCase();
-  const mentions: NameMention[] = [];
-  for (const name of new Set([...named, business.name])) {
+  const mentions: NameMention[] = placesNamed(text, business.name).map((place) => ({
+    ...place,
+    ours: true,
+  }));
+  // The other names are looked for as the answer or the page wrote them, which is how they came.
+  for (const name of new Set(named)) {
     const needle = name.trim().toLowerCase();
     if (!needle) continue;
     const ours = namesMatch(name, business.name);
@@ -241,7 +354,10 @@ export function analyzeObservation(
       mentioned: index !== -1,
       position: index === -1 ? null : index + 1,
       competitors: unique(
-        observation.entries.filter((_, i) => i !== index).map((entry) => entry.name),
+        othersThan(
+          business.name,
+          observation.entries.filter((_, i) => i !== index).map((entry) => entry.name),
+        ),
         MAX_COMPETITORS,
       ),
       cited_urls: [],
@@ -251,20 +367,14 @@ export function analyzeObservation(
   }
 
   const listedIndex = observation.businesses.findIndex((name) => namesMatch(name, business.name));
-  const namedInText = containsTokenRun(
-    normalizeName(observation.text),
-    normalizeName(business.name),
-  );
+  const namedInText = textNames(observation.text, business.name);
   const cited = observation.cited_urls.some((url) => hostsMatch(hostOf(url), businessHost));
 
   return {
     shown: true,
     mentioned: listedIndex !== -1 || namedInText || cited,
     position: listedIndex === -1 ? null : listedIndex + 1,
-    competitors: unique(
-      observation.businesses.filter((name) => !namesMatch(name, business.name)),
-      MAX_COMPETITORS,
-    ),
+    competitors: unique(othersThan(business.name, observation.businesses), MAX_COMPETITORS),
     cited_urls: unique(observation.cited_urls, MAX_CITED_URLS),
     answer_excerpt: excerptAround(observation.text, business.name),
     phones: phonesGivenFor(observation.text, observation.businesses, business),
