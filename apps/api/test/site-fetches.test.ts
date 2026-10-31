@@ -8,7 +8,7 @@ import {
 import { beforeEach, describe, expect, it } from "vitest";
 import { createApp } from "../src/app";
 import { syncConnection } from "../src/connections";
-import { listZones, readFetches, TokenRefused } from "../src/connections/cloudflare";
+import { listZones, readFetches, TokenRefused, zoneLimits } from "../src/connections/cloudflare";
 import { open, sealingKey } from "../src/connections/seal";
 import type { Env } from "../src/env";
 import { createMemoryDb, type MemoryDb, memoryStore } from "./memory-store";
@@ -82,6 +82,8 @@ interface FakeCloudflare {
   keptFor?: number;
   /** A day's groups, by day. */
   groups: Record<string, unknown[]>;
+  /** Answer every request with a redirect somewhere else. */
+  redirects?: boolean;
   asked: { url: string; body: { query: string; variables: Record<string, unknown> } | null }[];
 }
 
@@ -93,6 +95,12 @@ const fakeFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   const body = init?.body ? JSON.parse(String(init.body)) : null;
   cloudflare.asked.push({ url, body });
   expect(new Headers(init?.headers).get("Authorization")).toBe(`Bearer ${TOKEN}`);
+  // The Workers runtime throws on `redirect: "error"`, though Node takes it, so the token is kept
+  // from going on through a redirect by asking for "manual" and not following what comes back.
+  expect(init?.redirect).toBe("manual");
+  if (cloudflare.redirects) {
+    return new Response(null, { status: 302, headers: { Location: "https://elsewhere.example/" } });
+  }
   if (cloudflare.status) return new Response("{}", { status: cloudflare.status });
   if (url.startsWith("https://api.cloudflare.com/client/v4/zones?")) {
     return Response.json({
@@ -248,6 +256,20 @@ describe("Cloudflare", () => {
     await expect(listZones(TOKEN, { fetch: fakeFetch })).rejects.toThrow(TokenRefused);
     cloudflare.status = 500;
     await expect(listZones(TOKEN, { fetch: fakeFetch })).rejects.not.toThrow(TokenRefused);
+  });
+
+  it("never sends a token on through a redirect, and does not take one for a refusal", async () => {
+    cloudflare.redirects = true;
+    await expect(listZones(TOKEN, { fetch: fakeFetch })).rejects.toThrow(
+      "Cloudflare answered 302.",
+    );
+    await expect(zoneLimits(TOKEN, "zone-joes", { fetch: fakeFetch })).rejects.toThrow(
+      "Cloudflare answered 302.",
+    );
+    expect(cloudflare.asked.map((asked) => new URL(asked.url).host)).toEqual([
+      "api.cloudflare.com",
+      "api.cloudflare.com",
+    ]);
   });
 
   it("is asked for one day at a time, for the website's host with and without www, and its fetchers", async () => {
