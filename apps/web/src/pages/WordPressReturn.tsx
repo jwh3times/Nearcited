@@ -1,5 +1,5 @@
 import { useMutation } from "@tanstack/react-query";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { ErrorNote } from "../components/ErrorNote";
 import { api } from "../lib/api";
@@ -13,7 +13,8 @@ import { forgetStarted, handedBack, startedFrom } from "../lib/wordpress";
 export function WordPressReturn() {
   const navigate = useNavigate();
   const back = handedBack();
-  const from = back.kind === "nothing" ? null : startedFrom(back.state);
+  // Read once: the start is forgotten as the connection settles, before an error is drawn.
+  const [from] = useState(() => (back.kind === "nothing" ? null : startedFrom(back.state)));
   const sent = useRef(false);
   const connect = useMutation({
     mutationFn: (locationId: string) =>
