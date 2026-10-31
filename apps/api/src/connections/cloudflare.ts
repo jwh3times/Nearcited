@@ -65,6 +65,11 @@ interface Answered<T> {
   result_info?: { page?: number; total_pages?: number };
 }
 
+/**
+ * A request to Cloudflare carrying the token. A redirect is not followed, since that would send the
+ * token to wherever it points; it comes back as an answer that is not `ok`. The Workers runtime
+ * throws on `redirect: "error"`, though Node takes it.
+ */
 async function ask(
   url: string,
   token: string,
@@ -77,7 +82,7 @@ async function ask(
       Authorization: `Bearer ${token}`,
       ...(init.body ? { "Content-Type": "application/json" } : {}),
     },
-    redirect: "error",
+    redirect: "manual",
     signal: AbortSignal.timeout(TIMEOUT_MS),
   });
   if (response.status === 401 || response.status === 403) {
