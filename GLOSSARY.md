@@ -69,7 +69,8 @@ system works; this file only settles vocabulary.
   came from an assistant: the visitor's browser names the assistant's site, or the address
   carries the assistant's own tag. Counted, never recorded: what is kept is how many there were on
   a day, from an assistant, on a page, and nothing about the visitor. Not a result of a scan, and
-  it says nothing of how often the business is named.
+  it says nothing of how often the business is named. Reported by the line, or read from the
+  site's Google Analytics; the two counts are kept apart and never added.
 - **Line to paste** (or **the line**): one line an owner pastes into their own site, once, so
   that the site reports its visits from assistants. It reports nothing about any other visit.
 - **Line check** (or **check**): an owner opening their own site through a marked link, so that
