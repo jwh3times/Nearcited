@@ -19,11 +19,6 @@ mode without it.
 - A file added, moved or retired has its row in `private/README.md`'s "Document authority" table in
   the same commit.
 
-## Sync with main
-
-`npm run sync:main` — refuses a dirty tree; fetches and fast-forwards `main` here and in `private/`
-(a missing `private/` is skipped). `npm run sync:main -- --skip-private` updates only this checkout.
-
 ## Safe-to-remove paths
 
 - `apps/web/dist/` — `pnpm build` output; the Worker's assets point at it, so `pnpm dev` needs

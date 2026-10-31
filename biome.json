@@ -9,6 +9,8 @@
       "!pnpm-lock.yaml",
       "!scripts/sync-agents*.mjs",
       "!scripts/lint-agent-neutrality*.mjs",
+      "!scripts/sync-main*.mjs",
+      "!scripts/check-docs*.mjs",
       "!.agents",
       "!.claude/skills"
     ]
