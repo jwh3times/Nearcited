@@ -415,6 +415,7 @@ scripts/        integration-db.sh prepares a plain Postgres for the store integr
                 the key connections are sealed with.
                 sync-agents.mjs generates the agent mirrors; lint-agent-neutrality.mjs checks
                 that the agent sources read correctly from them.
+                check-docs.mjs checks local doc links and that the doc map lists every document.
 private/        The private companion, when checked out. Ignored here; its own repository.
 docs/           architecture.md: how a scan flows, the tenancy model, and known gaps.
                 adr/: decisions that are hard to reverse, and why they were made.
