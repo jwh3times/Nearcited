@@ -34,7 +34,6 @@ mode without it.
   deploy; may hold private values, so removing it is never a loss
 - `apps/e2e/playwright-report/`, `apps/e2e/test-results/` — end-to-end test output
 - `coverage/`, `*.tsbuildinfo`
-- stray scratch files at the repository root or under `private/`, named one by one
 
 ## Never-remove paths
 
@@ -46,7 +45,7 @@ mode without it.
   maintainer's access token and database password
 - `supabase/.branches/`
 - `node_modules/` — every check runs from it
-- `.claude/settings.local.json`, `.claude/worktrees/` — removing a worktree is the user's decision
+- `.claude/settings.local.json`
 - never `git clean -x` or `-X`
 
 ## Dev stack
