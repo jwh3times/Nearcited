@@ -24,8 +24,8 @@
   - a command, script or package is added (`package.json` files, `scripts/`): Commands and Layout,
     and "Private companion" for a script that manages `private/`;
   - CI, Dependabot, the ruleset or a workflow changes (`.github/`): "Repository automation";
-  - a skill or agent is added, removed or replaced (`.agents/skills/`, `.claude/agents/`,
-    `skills-lock.json`): "Working with coding agents" and Layout.
+  - a skill is added, removed or replaced (`.agents/skills/`, `skills-lock.json`): "Working with
+    coding agents" and Layout.
 - `docs/architecture.md` — developers: how a scan flows, failure handling, tenancy, Worker limits,
   known gaps, open product questions, and how each provider bills a check (a vendor's published
   rate may be quoted; never what a check was measured to use or cost). **When:**
@@ -55,8 +55,8 @@
   secret is added whose misuse would be a report.
 - `CONTRIBUTING.md` — how to raise a bug or idea, the outside pull request policy, the pre-push
   command. **When:** that policy or `pnpm check` changes.
-- `GLOSSARY.md` — settled terms. `owner-only`: written through `/domain-modeling`; report a term a
-  change settles.
+- `GLOSSARY.md` — settled terms, written through `/domain-modeling`. `frozen` for this skill:
+  report a term a change settles or contradicts instead of editing it.
 - `docs/adr/*.md` — accepted decisions. `frozen`: a changed decision is a new record, made through
   `/domain-modeling`; report a contradiction between an ADR and the code.
 - `docs/agents/dev-flow.md` — routing to a flow skill, which paths count as code, the exemptions,
