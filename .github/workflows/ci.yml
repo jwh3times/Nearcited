@@ -55,6 +55,11 @@ jobs:
         run: node --test scripts/lint-agent-neutrality.test.mjs
       - name: Check agent sources are tool-neutral
         run: node scripts/lint-agent-neutrality.mjs
+      - name: Test the docs check
+        run: node --test scripts/check-docs.test.mjs
+      # Local links and anchors resolve, and the doc map lists every document.
+      - name: Check the docs
+        run: node scripts/check-docs.mjs
 
   integration:
     name: Store against Postgres and PostgREST

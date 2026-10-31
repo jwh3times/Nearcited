@@ -422,8 +422,8 @@ the flow skills from [mattpocock/skills](https://github.com/mattpocock/skills), 
   `docs/agents/docs.md`: `/ship` and `/end-session` run it, and run it yourself whenever a
   change touches a route, table, environment variable, command, scan behaviour, CI check or project
   rule.
-- `scripts/sync-agents.mjs`, `scripts/lint-agent-neutrality.mjs` and their tests are shared
-  verbatim with other repositories, from `jwh3times/skills`. Do not edit them here.
+- `scripts/sync-agents.mjs`, `scripts/lint-agent-neutrality.mjs`, `scripts/sync-main.mjs`,
+  `scripts/check-docs.mjs` and their tests are shared verbatim with other repositories, from `jwh3times/skills`. Do not edit them here.
 
 ### Issue tracker
 

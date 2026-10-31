@@ -18,6 +18,8 @@ Together they cover the static gates of every required check and its unit suites
   `.claude/skills/` and `.codex/agents/`
 - repo root: `node --test scripts/lint-agent-neutrality.test.mjs` and `pnpm lint:agents` (**Verify
   generated agent config**)
+- repo root: `node --test scripts/check-docs.test.mjs` and `node scripts/check-docs.mjs` (**Verify
+  generated agent config**)
 
 Left to CI, because each needs more than this checkout:
 

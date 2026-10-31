@@ -65,8 +65,9 @@
 - `docs/agents/issue-tracker.md`, `docs/agents/triage-labels.md`, `docs/agents/domain.md` — where
   issues live, the board and its fields, the label vocabulary, where the glossary and decision
   records live. **When:** a tracker, a board field or option, or a label changes.
-- `docs/agents/workspace.md`, `human-follow-up.md`, `docs.md`, `releases.md`, `ship.md`,
-  `handoffs.md` — the settings the shared skills read. **When:** a required check or CI job changes
+- `docs/agents/workspace.md`, `docs/agents/human-follow-up.md`, `docs/agents/docs.md`,
+  `docs/agents/releases.md`, `docs/agents/ship.md`, `docs/agents/handoffs.md` — the settings the
+  shared skills read. **When:** a required check or CI job changes
   (`.github/workflows/ci.yml`, the ruleset): `ship.md` `Fast checks`; a project rule changes:
   `ship.md` `## Rule triggers`; a build or test output path, an ignored local file or a dev-stack
   command changes: `workspace.md`; a document is added, renamed or retired: this `Doc map`.
@@ -119,8 +120,3 @@ names; the companion's name or locator, and any reference to a private issue; ke
   `HISTORY_LIMIT` in `apps/api/src/routes/scans.ts`
 - Generated copies: `pnpm sync:agents:check`
 - Internal links: every relative link and `#anchor` in the documents touched resolves
-
-## Docs validation
-
-none — Biome leaves Markdown unformatted (`biome.json`: `markdown.formatter.enabled: false`) and
-there is no docs test; the generated mirrors are the `Generated-config check`.
