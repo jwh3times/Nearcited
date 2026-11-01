@@ -916,7 +916,7 @@ The repository is set up for Claude Code and Codex.
   `pnpm sync:agents`, and CI fails if the two differ.
 - `docs/agents/` tells the skills where issues live (GitHub Issues and a project board), which
   triage labels to use, where the glossary and decision records go, and how work reaches a
-  change through the skills (`docs/agents/dev-flow.md`). It also holds the settings the five
+  change through the skills (`.agents/skills/ship/settings/dev-flow.md` and `docs/agents/dev-flow.md`). It also holds the settings the five
   shared skills read: `workspace.md`, `issue-tracker.md`, `human-follow-up.md`, `docs.md`
   (which document owns which fact), `releases.md`, `ship.md` and `handoffs.md`.
 

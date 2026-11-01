@@ -30,24 +30,29 @@ hosted pages on businesses' answer subdomains, and Supabase for Postgres and aut
 
 ## Development flow
 
-The [mattpocock/skills](https://github.com/mattpocock/skills) flow is how work becomes a change
-here. [`docs/agents/dev-flow.md`](docs/agents/dev-flow.md) holds where to route the user, which
-paths count as code, and how a branch and a pull request name their issue: read it before the
-first edit of a change.
+<!-- shared:development-flow -->
 
-- **Every code change starts from a ready issue**: a `ready-for-agent` issue whose body is a
-  `/to-spec` spec or a `/to-tickets` ticket or that carries a `/triage` brief, or a bug issue
-  worked through `/diagnosing-bugs`, which needs the number and no spec. With none in hand, stop
-  before the first edit and route the user. Reading code, running tests and answering questions
-  need no issue.
+The flow skills are this repository's binding process for changing code. Read
+`.agents/skills/ship/settings/dev-flow.md` (the routing, exemptions and issue linking) and
+`docs/agents/dev-flow.md` (what this repository adds) before the first edit of a change, and whenever
+no ready issue exists. `/ask-matt` maps the flow itself.
+
+- **The gate.** Every code edit starts from a ready issue: an open `ready-for-agent` issue whose body
+  is a `/to-spec` spec or a `/to-tickets` ticket or that carries a `/triage` brief, or a `bug` issue
+  worked through `/diagnosing-bugs`, which needs the number and no spec. With none, stop before the
+  first edit and route the user. Reading code, running tests and answering questions need no issue.
+- **Private work.** A ready issue in the private tracker counts. Its number stays out of the branch,
+  the PR, commits and public issues, and it is closed by hand after the merge.
 - **The human starts every phase.** `/wayfinder`, `/grill-with-docs`, `/to-spec`, `/to-tickets`,
-  `/implement` and `/triage` keep `disable-model-invocation: true`. At a phase boundary, name the
-  next command, say in one line why, and wait. Inside a phase, start `/tdd`, `/code-review`,
-  `/diagnosing-bugs`, `/domain-modeling`, `/codebase-design`, `/prototype` and `/research`
-  whenever they fit.
-- **Exempt from the gate:** dependency bumps, a change to docs and agent config only, release
-  prep, and the user's explicit waiver, which the pull request body records as
-  `Flow waived by the user: <reason>`.
+  `/implement` and `/triage` stay user-invoked. At a phase boundary, name the next command, say in
+  one line why, and wait. Inside a phase, use `/tdd`, `/code-review`, `/diagnosing-bugs`,
+  `/domain-modeling`, `/codebase-design`, `/prototype` and `/research` whenever they fit.
+- **Exempt from the gate:** dependency bumps, changes touching only docs and agent config, release
+  prep, and an explicit user waiver recorded in the PR body as `Flow waived by the user: <reason>`.
+- **Linking.** Branches are `<type>/<issue#>-<slug>`; the PR body opens with `Closes #N` or
+  `Part of #N`.
+
+<!-- /shared:development-flow -->
 
 ## Private companion
 
@@ -397,21 +402,10 @@ the flow skills from [mattpocock/skills](https://github.com/mattpocock/skills), 
 - **After installing, updating or editing a skill, run `pnpm sync:agents` and commit the result.**
   CI runs `pnpm sync:agents:check` and fails if the copy is stale, and `pnpm lint:agents`, which
   fails on a source that reads wrongly from its copy.
-- **Install and update with the same command**, so the lock file stays right, then regenerate the
-  copy. The `mattpocock/skills` set updates the same way, with its own skills' names after `-s`.
-  Never run `npx skills update`: it installs for every agent it detects, which leaves
-  `.claude/skills/<name>` linked to its source instead of copied.
+- **The `mattpocock/skills` set installs and updates like the shared skills below**, with its own
+  source and skills' names, so the lock file stays right, then regenerate the copy.
 
-  ```sh
-  npx skills add jwh3times/skills -s end-session -s handoff -s lets-go -s ship -s docs-updater -a codex --copy -y
-  pnpm sync:agents
-  ```
-
-- **The five from `jwh3times/skills` are never edited here.** The same skills run in other
-  repositories, and reinstalling overwrites a local edit: a fix goes upstream, and what a skill
-  needs to know about this repository goes in its settings under `docs/agents/`: `workspace.md`,
-  `issue-tracker.md`, `human-follow-up.md`, `docs.md`, `releases.md`, `ship.md` and `handoffs.md`.
-  A skill proposes a missing setting on its first run. When a project rule, a required check or a
+- When a project rule, a required check or a
   document's job changes, update the setting that names it (`ship.md` `## Rule triggers` and
   `Fast checks`, the `Doc map` in `docs.md`).
 - `ship` checks a branch against `## Rule triggers`, refreshes the docs, runs the fast checks and
@@ -422,8 +416,28 @@ the flow skills from [mattpocock/skills](https://github.com/mattpocock/skills), 
   `docs/agents/docs.md`: `/ship` and `/end-session` run it, and run it yourself whenever a
   change touches a route, table, environment variable, command, scan behaviour, CI check or project
   rule.
-- `scripts/sync-agents.mjs`, `scripts/lint-agent-neutrality.mjs`, `scripts/sync-main.mjs`,
-  `scripts/check-docs.mjs` and their tests are shared verbatim with other repositories, from `jwh3times/skills`. Do not edit them here.
+
+### Shared skills
+
+<!-- shared:shared-skills -->
+
+`end-session`, `handoff`, `lets-go`, `ship` and `docs-updater` install from `jwh3times/skills`, and
+are never edited here: reinstalling overwrites a local edit. A fix goes upstream, and what they need
+to know about this repository goes in the settings files under `docs/agents/`, which each skill
+proposes on first run. Re-running the install is the update; never run `npx skills update`, which
+leaves `.claude/skills/` linked to its source instead of copied:
+
+```bash
+npx skills add jwh3times/skills -s end-session -s handoff -s lets-go -s ship -s docs-updater -a codex --copy -y
+node scripts/sync-agents.mjs
+```
+
+`scripts/sync-agents.mjs`, `lint-agent-neutrality.mjs`, `check-docs.mjs`, and `sync-main.mjs`,
+`next-version.mjs` and `check-changelog.mjs` where this repository carries them, are canonical in
+`jwh3times/skills` with their tests: fix them there, then copy them here. `sync-agents.mjs` also
+writes the marked blocks in this file: change them in `jwh3times/skills`, not here.
+
+<!-- /shared:shared-skills -->
 
 ### Issue tracker
 
@@ -439,7 +453,8 @@ The five default labels (`needs-triage`, `needs-info`, `ready-for-agent`, `ready
 
 ### Development flow
 
-Routing to a flow skill, the exemptions and issue linking. See `docs/agents/dev-flow.md`.
+See [Development flow](#development-flow) above, `.agents/skills/ship/settings/dev-flow.md` for the whole flow, and
+`docs/agents/dev-flow.md` for what this repository adds.
 
 ### Domain docs
 

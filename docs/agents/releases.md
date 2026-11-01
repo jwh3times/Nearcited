@@ -10,4 +10,4 @@ prep"). Every `package.json` stays at `0.1.0`.
 
 `Bring the docs up to date for <summary>` — overrides the default,
 `docs: update docs for <summary>`, because commit subjects here are plain imperative sentences
-with no type prefix (`docs/agents/dev-flow.md`, "Linking work to its issue").
+with no type prefix (`docs/agents/dev-flow.md`, "Commit subjects").
