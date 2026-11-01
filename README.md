@@ -541,7 +541,7 @@ None of these files is committed. `apps/api/.dev.vars.example`, `apps/web/.env.e
 | `npm run audit:revoke -- <link or token>` | Make an audit's link stop working |
 | `pnpm test:scripts` | Tests for the scripts in `scripts/` |
 | `pnpm sync:agents` | Regenerate `.claude/skills` and `.codex/agents` from their sources, and the shared blocks in `AGENTS.md` |
-| `pnpm sync:agents:check` | Fail if a generated copy is stale |
+| `pnpm sync:agents:check` | Fail if a generated copy or shared block is stale |
 | `pnpm lint:agents` | Fail if an agent or skill source reads wrongly from its generated copy |
 
 `audit:create` takes `--name` and `--city` (required), `--region`, `--country` (default `US`),
