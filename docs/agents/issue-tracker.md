@@ -32,8 +32,8 @@ Required human follow-ups go to the private tracker too (`human-follow-up.md`).
 **Never reference a private issue from a public issue, pull request or commit.** The reference
 leaks that it exists. A private issue may cite public work freely.
 
-When one piece of work has both sides, the public issue describes the plumbing and stands on its
-own; the private issue holds the confidential part and links to the public one.
+Work from a ready private issue needs no public issue: see `Private work` in
+`.agents/skills/ship/settings/dev-flow.md`.
 
 ## Project board
 

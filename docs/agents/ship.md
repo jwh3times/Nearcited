@@ -36,26 +36,6 @@ Left to CI, because each needs more than this checkout:
 
 The report names the CI-only suite that covers the change.
 
-## Issue link
-
-- **Branch pattern:** `<type>/<issue#>-<slug>`, `<type>` one of `feat`, `fix`, `refactor`, `docs`,
-  `chore` (`feat/149-standing-permission`, `fix/6-stuck-scans`). Exempt work drops the number
-  (`docs/dev-flow`, `chore/bump-wrangler`); Dependabot names its own. Commit subjects stay plain
-  sentences.
-- **Link line:** `Closes #<n>` when the branch finishes issue `n`; `Part of #<n>` for one slice of a
-  spec that stays open; a slice that also finishes its own ticket names both
-  (`Closes #141. Part of #202.`). One keyword per issue (`Closes #104, closes #210`). It replaces
-  the template's `Closes #` first line.
-- **Waiver line:** `Flow waived by the user: <reason>`, in the user's words.
-- **Exempt:**
-  - dependency bumps — Dependabot's pull requests, and a hand bump changing only versions in
-    `package.json` files and `pnpm-lock.yaml`, with the edits it needs to pass `pnpm check`
-  - changes touching only docs and agent config: the root Markdown (`README.md`, `AGENTS.md`,
-    `CLAUDE.md`, `CONTRIBUTING.md`, `SECURITY.md`, `GLOSSARY.md`), `docs/`, `.agents/`, `.claude/`,
-    `.codex/`, `skills-lock.json`, `.github/pull_request_template.md`
-  - release prep (rare: there is no version file or changelog)
-- **Defined in:** `docs/agents/dev-flow.md`.
-
 ## Hook: before PR
 
 1. Walk the branch's whole diff (`git diff "$(git merge-base origin/main HEAD)"..HEAD`) once for
