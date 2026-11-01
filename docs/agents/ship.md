@@ -32,7 +32,8 @@ Left to CI, because each needs more than this checkout:
   `apps/e2e/`, `apps/api/src/routes/`, `apps/api/src/app.ts` and `packages/shared/src/schemas.ts`;
   with the stack running and the env files written (`pnpm local:env` once) it runs here as
   `pnpm e2e`.
-- CodeQL (medium-or-higher alerts block the merge) and the Copilot review.
+- CodeQL (a security alert of medium severity or higher blocks the merge, and so does any other
+  alert that is an error or a warning) and the Copilot review.
 
 The report names the CI-only suite that covers the change.
 
