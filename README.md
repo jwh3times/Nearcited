@@ -427,8 +427,8 @@ scripts/        integration-db.sh prepares a plain Postgres for the store integr
                 hosted-pages-setup.sh walks the owner through the Cloudflare setup for hosted pages, once.
                 local-env.mjs writes the two local env files from `supabase status`, and makes
                 the key connections are sealed with.
-                sync-agents.mjs generates the agent mirrors; lint-agent-neutrality.mjs checks
-                that the agent sources read correctly from them.
+                sync-agents.mjs generates the agent mirrors and the shared blocks in AGENTS.md;
+                lint-agent-neutrality.mjs checks that the agent sources read correctly from them.
                 check-docs.mjs checks local doc links and that the doc map lists every document.
 private/        The private companion, when checked out. Ignored here; its own repository.
 docs/           architecture.md: how a scan flows, the tenancy model, and known gaps.
@@ -540,8 +540,8 @@ None of these files is committed. `apps/api/.dev.vars.example`, `apps/web/.env.e
 | `npm run audit:create -- --name ... --city ... --prompt ...` | Create a shareable audit and queue it (owner only; see below) |
 | `npm run audit:revoke -- <link or token>` | Make an audit's link stop working |
 | `pnpm test:scripts` | Tests for the scripts in `scripts/` |
-| `pnpm sync:agents` | Regenerate `.claude/skills` and `.codex/agents` from their sources |
-| `pnpm sync:agents:check` | Fail if a generated copy is stale |
+| `pnpm sync:agents` | Regenerate `.claude/skills` and `.codex/agents` from their sources, and the shared blocks in `AGENTS.md` |
+| `pnpm sync:agents:check` | Fail if a generated copy or shared block is stale |
 | `pnpm lint:agents` | Fail if an agent or skill source reads wrongly from its generated copy |
 
 `audit:create` takes `--name` and `--city` (required), `--region`, `--country` (default `US`),
@@ -856,7 +856,8 @@ answers 503 `drafts_unavailable`, except for a test organization, whose drafts a
   against a local Supabase stack.
 - **`main` is protected by a ruleset.** Changes arrive by pull request with the required checks
   passing on an up-to-date branch and review threads resolved. Force pushes and deleting the
-  branch are blocked. CodeQL alerts block the merge, and Copilot reviews each push.
+  branch are blocked. A CodeQL security alert of medium severity or higher blocks the merge, and
+  so does any other alert that is an error or a warning. Copilot reviews each push.
 - **Dependabot** (`.github/dependabot.yml`) checks npm and GitHub Actions versions every day at
   05:00 US Eastern. Minor and patch updates arrive as one pull request per ecosystem; majors
   arrive separately. Dependabot alerts and security updates are on.
