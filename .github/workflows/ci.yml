@@ -49,6 +49,11 @@ jobs:
       # .claude/skills is generated from .agents/skills. Fails when the committed copy is stale.
       - name: Check the generated copies match their sources
         run: node scripts/sync-agents.mjs --check
+      - name: Test the installed-skills check
+        run: node --test scripts/check-skills.test.mjs
+      # Installed skills must match skills-lock.json, and the lock the shared install commands.
+      - name: Check installed skills match the lock
+        run: node scripts/check-skills.mjs
       # Sources are read from their mirrored copies too: a bare $0-$9 in a SKILL.md or a
       # relative link that breaks there fails here.
       - name: Test the tool-neutrality lint
