@@ -3741,7 +3741,9 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
 
     async recordUsage(source, usage) {
       if (userId !== null) throw new StoreError("forbidden", "worker only");
-      db.usage.push(...usage.map((row) => ({ ...source, ...row, created_at: timestamp() })));
+      // As the database's now(), which is the month the spend route reads against.
+      const created_at = db.now ?? new Date().toISOString();
+      db.usage.push(...usage.map((row) => ({ ...source, ...row, created_at })));
     },
 
     async setLocationPoint(id, point) {
