@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: accepted, amended by ADR-0030
 ---
 
 # A site's fetches are read from its Cloudflare zone
