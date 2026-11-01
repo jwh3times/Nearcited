@@ -1,5 +1,5 @@
 Closes #
-<!-- Or Part of #N for one slice of a spec that stays open, or Flow waived by the user: <reason>. One keyword per issue. See docs/agents/dev-flow.md. -->
+<!-- Or Part of #N for one slice of a spec that stays open, or Flow waived by the user: <reason>. One keyword per issue. See "Linking work to its issue" in .agents/skills/ship/settings/dev-flow.md. -->
 
 ## What changed
 
