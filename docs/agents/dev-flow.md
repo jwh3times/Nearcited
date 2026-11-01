@@ -3,11 +3,6 @@
 The flow itself is `.agents/skills/ship/settings/dev-flow.md`, and `AGENTS.md` summarizes it. This file holds what this repository
 adds.
 
-## `/ask-matt` here
-
-`/ask-matt` also names `/implement-spec`, `/pr` and `/retro`, which this repository has not installed:
-route around them.
-
 ## Commit subjects
 
 The branch's type is for the branch only; commit subjects stay plain sentences in the imperative, with

@@ -922,7 +922,7 @@ The repository is set up for Claude Code and Codex.
   (which document owns which fact), `releases.md`, `ship.md` and `handoffs.md`.
 
 To add or update skills, run the installer for one source at a time, then regenerate the copy.
-The `mattpocock/skills` set updates the same way, with its own skills' names after `-s`. Never run
+The `mattpocock/skills` snapshot's command, pinned by commit, is in `AGENTS.md`. Never run
 `npx skills update`, which leaves `.claude/skills/` linked to the sources instead of copied:
 
 ```sh

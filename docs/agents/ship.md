@@ -16,6 +16,8 @@ Together they cover the static gates of every required check and its unit suites
 - repo root: `node --test scripts/sync-agents.test.mjs` and `pnpm sync:agents:check` (**Verify
   generated agent config**), fixed by `pnpm sync:agents`, committing the regenerated
   `.claude/skills/`, `.codex/agents/` and shared blocks in `AGENTS.md`
+- repo root: `node --test scripts/check-skills.test.mjs` and `node scripts/check-skills.mjs` (**Verify
+  generated agent config**)
 - repo root: `node --test scripts/lint-agent-neutrality.test.mjs` and `pnpm lint:agents` (**Verify
   generated agent config**)
 - repo root: `node --test scripts/check-docs.test.mjs` and `node scripts/check-docs.mjs` (**Verify
