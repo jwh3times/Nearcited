@@ -1481,7 +1481,8 @@ An assistant's fetcher reads a page without running its scripts, so the line (se
 assistants") never sees it. Where a location's website is served through Cloudflare, the
 organization's owner or an admin connects a Cloudflare account, and the worker reads from the zone
 how often each known fetcher fetched each page (issue #156; the term is in `GLOSSARY.md`, the
-decision in `docs/adr/0028-a-sites-fetches-are-read-from-its-cloudflare-zone.md`).
+decision in `docs/adr/0028-a-sites-fetches-are-read-from-its-cloudflare-zone.md`, amended by
+`docs/adr/0030-a-cloudflare-token-lists-its-zones-and-the-first-read-is-what-the-zone-keeps.md`).
 
 ```
 daily sync, or the first one queued at connecting
