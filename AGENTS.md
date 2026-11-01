@@ -24,7 +24,7 @@ hosted pages on businesses' answer subdomains, and Supabase for Postgres and aut
 - `npm run bootstrap:private`: clone the private companion into `private/` (maintainers only).
 - `npm run sync:main`: fast-forward `main` here and in `private/`. Refuses a dirty tree.
 - `pnpm sync:agents`: regenerate `.claude/skills` from `.agents/skills` (and `.codex/agents` from
-  any `.claude/agents`) after installing or changing a skill.
+  any `.claude/agents`), and the shared blocks in this file, after installing or changing a skill.
 - `pnpm lint:agents`: check that the agent and skill sources read correctly from their generated
   copies.
 

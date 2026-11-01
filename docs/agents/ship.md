@@ -15,7 +15,7 @@ Together they cover the static gates of every required check and its unit suites
   whose build writes the `apps/web/dist` it serves)
 - repo root: `node --test scripts/sync-agents.test.mjs` and `pnpm sync:agents:check` (**Verify
   generated agent config**), fixed by `pnpm sync:agents`, committing the regenerated
-  `.claude/skills/` and `.codex/agents/`
+  `.claude/skills/`, `.codex/agents/` and shared blocks in `AGENTS.md`
 - repo root: `node --test scripts/check-skills.test.mjs` and `node scripts/check-skills.mjs` (**Verify
   generated agent config**)
 - repo root: `node --test scripts/lint-agent-neutrality.test.mjs` and `pnpm lint:agents` (**Verify
@@ -87,6 +87,6 @@ fixed or reported.
 | touches sample data, `is_test` or `platform_roles` | A test organization's scans are still generated, recorded as `sample_data`, shown under the banner, and never reach a real provider, a site or an inbox. Nothing a request can do writes `platform_roles` or `organizations.is_test`. |
 | touches billing, `subscriptions` or the webhook | The webhook still verifies the signature before reading the body, acts only on the subscription read back from the provider, and is the only caller of `applyPlan` on a request. No request path writes `subscriptions`. Checkout, the account pages and the subscription change routes answer only an organization's owner, and decide upgrade or downgrade on the server. A price is never edited in place: a change makes new prices and keeps the old ones in `plan_prices`, so a subscription still matches its plan. Nothing but `runPriceChangeStep` changes what a running subscription is billed at, and the thirty-day notice check stays per organization. Nothing lowers a paid plan's limits or allowances but an announced reduction made by `apply_limit_change()`; `operator_set_plan()` refuses to on a plan with subscribers. |
 | changes any `package.json` dependencies | A licence that combines with AGPL-3.0-only (MIT, ISC, BSD, Apache-2.0, MPL-2.0 pass; anything else is a stop until checked), and an updated `pnpm-lock.yaml`.                                          |
-| touches `.agents/skills/` or `.claude/agents/` | Regenerated `.claude/skills/` and `.codex/agents/` (the `Generated-config check`).                                                                                                                      |
+| touches `.agents/skills/` or `.claude/agents/` | Regenerated `.claude/skills/`, `.codex/agents/` and shared blocks in `AGENTS.md` (the `Generated-config check`).                                                                                                                      |
 | mentions prompts, weights, pricing, a vendor quote, what something was measured to use or cost, or a real business | None of it. That content lives in `private/` (see "Private companion" in `AGENTS.md`); move it there and leave at most a note that it exists. A provider's published rate is public and may stay; a recorded response in a test carries made-up usage numbers. The private repository's name appears nowhere in the diff. |
 | adds any file                           | No secrets and no real customer or prospect data: the repository is public. `.dev.vars` and `.env.local` stay untracked.                                                                               |
