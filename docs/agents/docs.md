@@ -62,8 +62,9 @@
 - `docs/adr/*.md` — accepted decisions. `frozen`: a changed decision is a new record, made through
   `/domain-modeling`; report a contradiction between an ADR and the code.
 - `docs/agents/dev-flow.md` — what this repository adds to the shared development flow: commit
-  subjects, bump and release details. **When:** one of those changes; the PR template's first line
-  follows the shared flow's linking rule.
+  subjects, bump and release details, and how a slice that finishes its own ticket links both.
+  **When:** one of those changes; the PR template's first line follows the shared flow's linking
+  rule.
 - `docs/agents/issue-tracker.md`, `docs/agents/triage-labels.md`, `docs/agents/domain.md` — where
   issues live, the board and its fields, the label vocabulary, where the glossary and decision
   records live. **When:** a tracker, a board field or option, or a label changes.

@@ -854,9 +854,10 @@ answers 503 `drafts_unavailable`, except for a test organization, whose drafts a
 - **CI** (`.github/workflows/ci.yml`) runs on every pull request and on `main`. Its four jobs are
   the required checks: `Lint, typecheck, test, build`, `Store against Postgres and PostgREST`,
   `Verify generated agent config`, which also checks that the installed skills match their lock
-  and install commands (`scripts/check-skills.mjs`) and that the agent sources read correctly from
-  their generated copies (`pnpm lint:agents`), and `End-to-end in a browser`, which runs `pnpm e2e`
-  against a local Supabase stack.
+  and install commands (`scripts/check-skills.mjs`), that the agent sources read correctly from
+  their generated copies (`pnpm lint:agents`), and that local doc links resolve and the doc map
+  lists every document (`scripts/check-docs.mjs`); and `End-to-end in a browser`, which runs
+  `pnpm e2e` against a local Supabase stack.
 - **`main` is protected by a ruleset.** Changes arrive by pull request with the required checks
   passing on an up-to-date branch and review threads resolved. Force pushes and deleting the
   branch are blocked. A CodeQL security alert of medium severity or higher blocks the merge, and
