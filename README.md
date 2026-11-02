@@ -771,10 +771,11 @@ The `integration` job in `.github/workflows/ci.yml` is a working example.
 ## Deploy
 
 1. Create a Supabase project and apply the migrations: `pnpm dlx supabase link`, then
-   `pnpm dlx supabase db push`. Both need a Supabase access token (`SUPABASE_ACCESS_TOKEN`) and
-   the project's database password (`SUPABASE_DB_PASSWORD`). Under Authentication, URL
-   Configuration, set the site URL to your deployed URL and add `<that URL>/**` to the redirect
-   URLs, or the emailed sign-in link will not return to the app.
+   `pnpm dlx supabase db push --remote`. Without `--remote` the CLI acts on the local stack. Both
+   need a Supabase access token (`SUPABASE_ACCESS_TOKEN`) and the project's database password
+   (`SUPABASE_DB_PASSWORD`). Under Authentication, URL Configuration, set the site URL to your
+   deployed URL and add `<that URL>/**` to the redirect URLs, or the emailed sign-in link will not
+   return to the app.
 2. Create the queues:
    ```sh
    cd apps/api
