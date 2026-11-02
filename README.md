@@ -429,6 +429,8 @@ scripts/        integration-db.sh prepares a plain Postgres for the store integr
                 the key connections are sealed with.
                 sync-agents.mjs generates the agent mirrors and the shared blocks in AGENTS.md;
                 lint-agent-neutrality.mjs checks that the agent sources read correctly from them.
+                check-skills.mjs checks the installed skills against skills-lock.json and the shared
+                install commands.
                 check-docs.mjs checks local doc links and that the doc map lists every document.
 private/        The private companion, when checked out. Ignored here; its own repository.
 docs/           architecture.md: how a scan flows, the tenancy model, and known gaps.
@@ -851,7 +853,8 @@ answers 503 `drafts_unavailable`, except for a test organization, whose drafts a
 
 - **CI** (`.github/workflows/ci.yml`) runs on every pull request and on `main`. Its four jobs are
   the required checks: `Lint, typecheck, test, build`, `Store against Postgres and PostgREST`,
-  `Verify generated agent config`, which also checks that the agent sources read correctly from
+  `Verify generated agent config`, which also checks that the installed skills match their lock
+  and install commands (`scripts/check-skills.mjs`) and that the agent sources read correctly from
   their generated copies (`pnpm lint:agents`), and `End-to-end in a browser`, which runs `pnpm e2e`
   against a local Supabase stack.
 - **`main` is protected by a ruleset.** Changes arrive by pull request with the required checks
