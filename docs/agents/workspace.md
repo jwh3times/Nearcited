@@ -54,7 +54,9 @@ mode without it.
   container the session started for the store integration test: `docker rm -f <name>`.
 - **Never run:** `supabase stop --no-backup`, `supabase db reset`, or `docker volume rm`/`prune` on
   the `supabase_*_nearcited` volumes — they delete the local database; `supabase link` or
-  `supabase db push` — they act on the hosted project (README "Deploy"); `pnpm cf:deploy`,
+  `supabase db push --remote` — they act on the hosted project (README "Deploy"); a bare
+  `supabase db push` — it acts on a local database, which on this machine can be another
+  project's; `pnpm cf:deploy`,
   `wrangler deploy`, `wrangler secret put` or the Deploy workflow — production;
   `pnpm local:env --force` — it rewrites the env files with a new `CONNECTIONS_KEY`.
 
