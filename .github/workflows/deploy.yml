@@ -84,20 +84,57 @@ jobs:
           echo "ref=$ref" >> "$GITHUB_OUTPUT"
         env:
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+      # The runner has no IPv6, and the project's direct database address is IPv6 only, so the CLI
+      # connects through the project's shared pooler, which answers on IPv4. Session mode (port
+      # 5432) keeps one connection for the whole push, as migrations need. The Management API
+      # names the pooler's host and user; the password never leaves the steps that use it.
+      - name: Find the database pooler
+        id: pooler
+        run: |
+          status=$(curl -sS -o pooler.json -w '%{http_code}' \
+            -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/config/database/pooler")
+          if [ "$status" != 200 ]; then
+            echo "::error::The Management API answered $status for the pooler config: $(jq -r '.message // empty' pooler.json 2>/dev/null)"
+            exit 1
+          fi
+          pooler=$(jq -c '[.[] | select(.database_type == "PRIMARY" and (.db_host | endswith(".pooler.supabase.com")))][0] // empty' pooler.json)
+          if [ -z "$pooler" ]; then
+            echo "::error::The pooler config names no shared pooler for the primary database (fields: $(jq -c '[.[] | keys] | add | unique' pooler.json))."
+            exit 1
+          fi
+          echo "host=$(jq -r .db_host <<<"$pooler")" >> "$GITHUB_OUTPUT"
+          echo "user=$(jq -r .db_user <<<"$pooler")" >> "$GITHUB_OUTPUT"
+          echo "database=$(jq -r .db_name <<<"$pooler")" >> "$GITHUB_OUTPUT"
+          rm pooler.json
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ steps.op.outputs.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ steps.project.outputs.ref }}
       # Prints the migrations the hosted project has not applied, and writes nothing. `db push`
       # refuses a migration dated before the newest one applied (that would need --include-all).
       - name: List the migrations to apply
-        run: supabase db push --remote="$SUPABASE_PROJECT_REF" --password "$SUPABASE_DB_PASSWORD" --dry-run
+        run: |
+          # The encoded form differs from the vault's value when it has special characters: mask it too.
+          password=$(jq -rn --arg p "$SUPABASE_DB_PASSWORD" '$p | @uri')
+          echo "::add-mask::$password"
+          supabase db push --remote="postgresql://$POOLER_USER:$password@$POOLER_HOST:5432/$POOLER_DATABASE" --dry-run
         env:
           SUPABASE_ACCESS_TOKEN: ${{ steps.op.outputs.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_DB_PASSWORD: ${{ steps.op.outputs.SUPABASE_DB_PASSWORD }}
-          SUPABASE_PROJECT_REF: ${{ steps.project.outputs.ref }}
+          POOLER_HOST: ${{ steps.pooler.outputs.host }}
+          POOLER_USER: ${{ steps.pooler.outputs.user }}
+          POOLER_DATABASE: ${{ steps.pooler.outputs.database }}
       - name: Apply the migrations
-        run: supabase db push --remote="$SUPABASE_PROJECT_REF" --password "$SUPABASE_DB_PASSWORD" --yes
+        run: |
+          password=$(jq -rn --arg p "$SUPABASE_DB_PASSWORD" '$p | @uri')
+          echo "::add-mask::$password"
+          supabase db push --remote="postgresql://$POOLER_USER:$password@$POOLER_HOST:5432/$POOLER_DATABASE" --yes
         env:
           SUPABASE_ACCESS_TOKEN: ${{ steps.op.outputs.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_DB_PASSWORD: ${{ steps.op.outputs.SUPABASE_DB_PASSWORD }}
-          SUPABASE_PROJECT_REF: ${{ steps.project.outputs.ref }}
+          POOLER_HOST: ${{ steps.pooler.outputs.host }}
+          POOLER_USER: ${{ steps.pooler.outputs.user }}
+          POOLER_DATABASE: ${{ steps.pooler.outputs.database }}
       # Both Workers: the main one with the app, then the Pages Worker that serves hosted pages
       # (docs/adr/0019-hosted-pages-are-served-by-a-worker-of-their-own.md).
       - name: Build the web app and deploy the Workers
