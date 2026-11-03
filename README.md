@@ -843,8 +843,8 @@ the Workers already live keep running. The workflow can also be run by hand, whi
 branch it is run on. It reads its credentials from the 1Password `Nearcited` vault at run time,
 so GitHub holds one secret, `OP_SERVICE_ACCOUNT_TOKEN`, for a service account that can read only
 that vault. The vault items it expects are named at the top of that file: the Cloudflare token and
-account, the deploy key for the private companion, and the Supabase access token, database password
-and project ref.
+account, the deploy key for the private companion, and the `Supabase` item's `access_token` and
+`database_password`. The project's ref comes from `VITE_SUPABASE_URL`.
 
 The same workflow can smoke-test what it deployed. To set that up: add a 1Password item `Smoke test`
 to the vault with the test account's `username` (an email) and `password`; run

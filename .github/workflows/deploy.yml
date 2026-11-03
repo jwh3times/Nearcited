@@ -48,8 +48,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: op://Nearcited/Cloudflare/account_id
           # The Supabase CLI reads the hosted project with the token and writes with the password.
           SUPABASE_ACCESS_TOKEN: op://Nearcited/Supabase/access_token
-          SUPABASE_DB_PASSWORD: op://Nearcited/Supabase/db_password
-          SUPABASE_PROJECT_REF: op://Nearcited/Supabase/project_ref
+          SUPABASE_DB_PASSWORD: op://Nearcited/Supabase/database_password
       # The build reads private/tuning.json. Without it the Worker gets the public default tuning
       # and refuses live scans (docs/adr/0001-private-tuning-as-data.md).
       - name: Check out the private companion
@@ -71,6 +70,20 @@ jobs:
       - uses: supabase/setup-cli@v3
         with:
           version: latest
+      # The project's ref is the first label of its public URL, https://<ref>.supabase.co.
+      - name: Find the project
+        id: project
+        run: |
+          url="${VITE_SUPABASE_URL%/}"
+          ref="${url#https://}"
+          ref="${ref%.supabase.co}"
+          if ! [[ "$ref" =~ ^[a-z0-9]+$ && "$url" == "https://$ref.supabase.co" ]]; then
+            echo "::error::VITE_SUPABASE_URL is not a https://<ref>.supabase.co address."
+            exit 1
+          fi
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+        env:
+          VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
       # Prints the migrations the hosted project has not applied, and writes nothing. `db push`
       # refuses a migration dated before the newest one applied (that would need --include-all).
       - name: List the migrations to apply
@@ -78,13 +91,13 @@ jobs:
         env:
           SUPABASE_ACCESS_TOKEN: ${{ steps.op.outputs.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_DB_PASSWORD: ${{ steps.op.outputs.SUPABASE_DB_PASSWORD }}
-          SUPABASE_PROJECT_REF: ${{ steps.op.outputs.SUPABASE_PROJECT_REF }}
+          SUPABASE_PROJECT_REF: ${{ steps.project.outputs.ref }}
       - name: Apply the migrations
         run: supabase db push --remote="$SUPABASE_PROJECT_REF" --password "$SUPABASE_DB_PASSWORD" --yes
         env:
           SUPABASE_ACCESS_TOKEN: ${{ steps.op.outputs.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_DB_PASSWORD: ${{ steps.op.outputs.SUPABASE_DB_PASSWORD }}
-          SUPABASE_PROJECT_REF: ${{ steps.op.outputs.SUPABASE_PROJECT_REF }}
+          SUPABASE_PROJECT_REF: ${{ steps.project.outputs.ref }}
       # Both Workers: the main one with the app, then the Pages Worker that serves hosted pages
       # (docs/adr/0019-hosted-pages-are-served-by-a-worker-of-their-own.md).
       - name: Build the web app and deploy the Workers
