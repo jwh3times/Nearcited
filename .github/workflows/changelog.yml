@@ -1,0 +1,45 @@
+name: Changelog Version
+
+# Fails a pull request unless CHANGELOG.md has a section for the version its merge will mint.
+# scripts/next-version.mjs predicts the tag version.yml will make, from the release line in
+# package.json and the tags; scripts/check-changelog.mjs compares it with the newest section, and
+# also requires a section for every released version (Dependabot's included).
+#
+# Dependabot's pull requests are exempt, since a bot writes no entry: the next human pull request
+# backfills their sections, and the check fails it until it does. The exemption is inside the step,
+# not a job-level `if`, so the check always reports a status.
+#
+# The prediction is exact only when nothing merges between this run and the merge. "Require
+# branches to be up to date before merging" makes an intervening merge re-run it.
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: changelog-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changelog-version:
+    name: Changelog names the version this merge mints
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # every tag, to predict the build number
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      - name: Check CHANGELOG.md names the version this merge mints
+        env:
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: |
+          if [ "$PR_AUTHOR" = "dependabot[bot]" ]; then
+            echo "A Dependabot pull request: its section is backfilled by the next human pull request."
+            exit 0
+          fi
+          node scripts/check-changelog.mjs

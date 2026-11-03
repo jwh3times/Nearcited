@@ -27,6 +27,8 @@ hosted pages on businesses' answer subdomains, and Supabase for Postgres and aut
   any `.claude/agents`), and the shared blocks in this file, after installing or changing a skill.
 - `pnpm lint:agents`: check that the agent and skill sources read correctly from their generated
   copies.
+- `pnpm changelog:check`: check `CHANGELOG.md` has the section for the version this merge mints.
+- `pnpm migrations:check`: fail if the branch changes a migration already on `main`.
 
 ## Development flow
 
@@ -130,12 +132,13 @@ pass `pnpm check` and run in mock mode without it.
   change.** Supabase grants everything in `public` to every API role by default, so a table
   without a `revoke` is open.
 - **Migrations are append-only.** Add a new file in `supabase/migrations`; do not edit one that
-  has been applied anywhere.
-- **A migration leaves the running Worker working.** It is applied before the deploy, so the
-  Worker from before it must still work against the database after it. Add a new column first
-  and drop the old one later, once no deployed code reads it. A change that drops something its
-  own code has just stopped using says in the pull request that it is deployed first and
-  migrated second.
+  has been applied anywhere. CI fails a pull request that edits, renames or deletes one already on
+  `main` (`pnpm migrations:check`).
+- **A migration leaves the running Worker working.** Every merge to `main` is released: its
+  migrations are applied, then its Workers deployed (README "Deploy"). So the Worker from before
+  it must still work against the database after it. Add a new column first and drop the old one
+  later, once no deployed code reads it. Dropping something code has just stopped using takes two
+  merges: the code first, the migration in a later pull request, which says so.
 - **An organization's limits come from its plan.** `apply_plan()`, which only the worker calls,
   copies them from the plan, and the operator's limits editor changes them through its function.
   Nothing on a request path writes a limit, `allowances`, `plan_key`, `paused_by_plan`,

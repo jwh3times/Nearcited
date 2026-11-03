@@ -57,7 +57,8 @@ mode without it.
   `supabase db push --remote` — they act on the hosted project (README "Deploy"); a bare
   `supabase db push` — it acts on a local database, which on this machine can be another
   project's; `pnpm cf:deploy`,
-  `wrangler deploy`, `wrangler secret put` or the Deploy workflow — production;
+  `wrangler deploy`, `wrangler secret put` or the Deploy workflow — production, which a merge to
+  `main` also deploys, migrations first;
   `pnpm local:env --force` — it rewrites the env files with a new `CONNECTIONS_KEY`.
 
 ## Hook: after sync
