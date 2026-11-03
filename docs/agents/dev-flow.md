@@ -15,8 +15,11 @@ no type prefix.
 
 ## Release prep
 
-A commit that only readies a release, such as a version number or a changelog. This repository keeps
-neither and deploys by running the Deploy workflow, so this rarely applies.
+A commit that only readies a release: the `CHANGELOG.md` section for the version the merge mints,
+and, for a new major or minor line, the root `package.json` `version`. Every merge to `main` is a
+release: the Version workflow tags it, and the Deploy workflow applies its migrations and deploys it
+(`docs/agents/releases.md`). A merge is therefore a production deploy, and a migration in it reaches
+the hosted project before its Worker does.
 
 ## Linking
 

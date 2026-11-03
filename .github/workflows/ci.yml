@@ -33,6 +33,19 @@ jobs:
       - name: Validate the Worker config and bundle
         run: pnpm --filter @nearcited/api exec wrangler deploy --dry-run --outdir dist
 
+  # Every merge applies its new migrations to the hosted project, each once, so one already on main
+  # is never changed (scripts/check-migrations.mjs). A push to main has nothing to compare with.
+  migrations:
+    name: Merged migrations are unchanged
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # the base commit, to diff against
+      - name: Check no migration on the base branch is edited, renamed or deleted
+        run: node scripts/check-migrations.mjs --base "${{ github.event.pull_request.base.sha }}"
+
   agent-config:
     name: Verify generated agent config
     runs-on: ubuntu-latest

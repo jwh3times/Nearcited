@@ -12,6 +12,8 @@
       "!scripts/sync-main*.mjs",
       "!scripts/check-docs*.mjs",
       "!scripts/check-skills*.mjs",
+      "!scripts/next-version*.mjs",
+      "!scripts/check-changelog*.mjs",
       "!.agents",
       "!.claude/skills"
     ]

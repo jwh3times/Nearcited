@@ -86,6 +86,8 @@
   `jwh3times/skills`: `frozen` here, fixed upstream and reinstalled. **When:** a skill is added,
   removed or replaced: `AGENTS.md` "Agent skills", README "Working with coding agents", and report
   the change to the owner-only `THIRD_PARTY_NOTICES.md` when a skill's source changes.
+- `CHANGELOG.md` — every release, one dated section per merge to `main`, naming the version it
+  mints. `ship-owned`: `ship` writes the section; outside `ship`, an `Unreleased` entry at most.
 - `LICENSE`, `THIRD_PARTY_NOTICES.md`, the copyright line — `owner-only`.
 - `private/README.md` — the companion's index: what belongs there, each file's class (living,
   reference snapshot, historical evidence) and what it owns, and its rules. **When:** a private file
@@ -116,7 +118,8 @@ names; the companion's name or locator, and any reference to a private issue; ke
 - Commands: `scripts` in the root `package.json` against the README Commands table
 - Surfaces and enums: `SURFACES`, `QUERY_KINDS` and the `z.enum` lists in
   `packages/shared/src/schemas.ts`
-- Required checks: the `name:` of each job under `jobs:` in `.github/workflows/ci.yml`, and
+- Required checks: the `name:` of each job under `jobs:` in `.github/workflows/ci.yml` and
+  `.github/workflows/changelog.yml`, and
   `gh api repos/jwh3times/Nearcited/rules/branches/main` (required checks, pull request, code
   scanning, Copilot review), against README "Repository automation" and `docs/agents/ship.md`
 - Schedules and limits: `crons`, `max_retries` and `max_batch_size` in `apps/api/wrangler.jsonc`;

@@ -432,6 +432,9 @@ scripts/        integration-db.sh prepares a plain Postgres for the store integr
                 check-skills.mjs checks the installed skills against skills-lock.json and the shared
                 install commands.
                 check-docs.mjs checks local doc links and that the doc map lists every document.
+                next-version.mjs computes the version a merge mints; check-changelog.mjs checks
+                CHANGELOG.md has its section; check-migrations.mjs fails a branch that changes a
+                merged migration.
 private/        The private companion, when checked out. Ignored here; its own repository.
 docs/           architecture.md: how a scan flows, the tenancy model, and known gaps.
                 adr/: decisions that are hard to reverse, and why they were made.
@@ -439,8 +442,9 @@ docs/           architecture.md: how a scan flows, the tenancy model, and known 
                 domain docs, development flow, and the shared skills' settings.
 .agents/skills/ Agent skills, as installed. Codex reads these.
 .claude/skills/ The same skills, generated for Claude Code. Do not edit.
-.github/        CI and deploy workflows, Dependabot config, pull request template.
+.github/        CI, changelog, version and deploy workflows, Dependabot config, pull request template.
 AGENTS.md       The rules a change has to follow. CLAUDE.md imports it.
+CHANGELOG.md    Every release, one section per merge to main.
 ```
 
 ## Run it locally
@@ -545,6 +549,8 @@ None of these files is committed. `apps/api/.dev.vars.example`, `apps/web/.env.e
 | `pnpm sync:agents` | Regenerate `.claude/skills` and `.codex/agents` from their sources, and the shared blocks in `AGENTS.md` |
 | `pnpm sync:agents:check` | Fail if a generated copy or shared block is stale |
 | `pnpm lint:agents` | Fail if an agent or skill source reads wrongly from its generated copy |
+| `pnpm changelog:check` | Fail unless `CHANGELOG.md` has a section for the version this branch's merge will mint, and for every released version |
+| `pnpm migrations:check` | Fail if this branch edits, renames or deletes a migration `origin/main` already has (`-- --base <ref>` compares with another) |
 
 `audit:create` takes `--name` and `--city` (required), `--region`, `--country` (default `US`),
 `--website`, `--samples` (1 to 5, default 5) and `--prompt` once for each of 1 to 5 prompts. It
@@ -773,7 +779,8 @@ The `integration` job in `.github/workflows/ci.yml` is a working example.
 1. Create a Supabase project and apply the migrations: `pnpm dlx supabase link`, then
    `pnpm dlx supabase db push --remote`. Without `--remote` the CLI acts on the local stack. Both
    need a Supabase access token (`SUPABASE_ACCESS_TOKEN`) and the project's database password
-   (`SUPABASE_DB_PASSWORD`). Under Authentication, URL Configuration, set the site URL to your
+   (`SUPABASE_DB_PASSWORD`). After this first time, the Deploy workflow applies each merge's new
+   migrations (below). Under Authentication, URL Configuration, set the site URL to your
    deployed URL and add `<that URL>/**` to the redirect URLs, or the emailed sign-in link will not
    return to the app.
 2. Create the queues:
@@ -828,10 +835,16 @@ route on `*/*` for `nearcited-pages`, in that order, and makes the API token for
 `CLOUDFLARE_HOSTNAMES_TOKEN` and sets it on the Worker. The Pages Worker's deploy makes no routes,
 so deploying it changes no traffic until the setup is done.
 
-`.github/workflows/deploy.yml` does step 4 on demand. It reads its credentials from the 1Password
-`Nearcited` vault at run time, so GitHub holds one secret, `OP_SERVICE_ACCOUNT_TOKEN`, for a
-service account that can read only that vault. The vault items it expects are named at the top
-of that file.
+Every merge to `main` is a release. `.github/workflows/version.yml` tags it with the version its
+`CHANGELOG.md` section names, and `.github/workflows/deploy.yml` then deploys that commit: it runs
+the tests, lists the migrations the hosted project has not applied (`supabase db push --remote
+--dry-run`), applies them, and only then does step 4. A failed migration stops the deploy, and
+the Workers already live keep running. The workflow can also be run by hand, which deploys the
+branch it is run on. It reads its credentials from the 1Password `Nearcited` vault at run time,
+so GitHub holds one secret, `OP_SERVICE_ACCOUNT_TOKEN`, for a service account that can read only
+that vault. The vault items it expects are named at the top of that file: the Cloudflare token and
+account, the deploy key for the private companion, and the `Supabase` item's `access_token` and
+`database_password`. The project's ref comes from `VITE_SUPABASE_URL`.
 
 The same workflow can smoke-test what it deployed. To set that up: add a 1Password item `Smoke test`
 to the vault with the test account's `username` (an email) and `password`; run
@@ -852,8 +865,10 @@ answers 503 `drafts_unavailable`, except for a test organization, whose drafts a
 
 ## Repository automation
 
-- **CI** (`.github/workflows/ci.yml`) runs on every pull request and on `main`. Its four jobs are
-  the required checks: `Lint, typecheck, test, build`, `Store against Postgres and PostgREST`,
+- **CI** (`.github/workflows/ci.yml`) runs on every pull request and on `main`. On a pull request it
+  also runs `Merged migrations are unchanged` (`scripts/check-migrations.mjs`), which fails a branch
+  that edits, renames or deletes a migration already on `main`. Its four other jobs are the
+  required checks: `Lint, typecheck, test, build`, `Store against Postgres and PostgREST`,
   `Verify generated agent config`, which also checks that the installed skills match their lock
   and install commands (`scripts/check-skills.mjs`), that the agent sources read correctly from
   their generated copies (`pnpm lint:agents`), and that local doc links resolve and the doc map
@@ -868,8 +883,17 @@ answers 503 `drafts_unavailable`, except for a test organization, whose drafts a
   arrive separately. Dependabot alerts and security updates are on.
 - **Secret scanning with push protection** and **private vulnerability reporting** are on. See
   [SECURITY.md](SECURITY.md) for how to report a problem.
-- **Deploy** (`.github/workflows/deploy.yml`) is manual. When the repository variable `SMOKE_TEST`
-  is `on`, a second job, `Smoke test the deployment`, runs `pnpm smoke` against the result.
+- **Changelog Version** (`.github/workflows/changelog.yml`) runs on every pull request:
+  `Changelog names the version this merge mints` fails unless `CHANGELOG.md` has a section for
+  the version `scripts/next-version.mjs` predicts, and for every version already released.
+  Dependabot's pull requests pass it, and the next human pull request writes their sections.
+- **Version** (`.github/workflows/version.yml`) tags every merge to `main` `v<major>.<minor>.<build>`
+  and creates its GitHub release. The release line is the root `package.json`'s `version`; each
+  merge on the line counts the build up by one.
+- **Deploy** (`.github/workflows/deploy.yml`) runs when Version succeeds, and by hand. It applies
+  the hosted project's pending migrations, then deploys both Workers (see [Deploy](#deploy)). When
+  the repository variable `SMOKE_TEST` is `on`, a second job, `Smoke test the deployment`, runs
+  `pnpm smoke` against the result.
 
 ## Private companion
 

@@ -196,4 +196,5 @@ Nearcited is multi-tenant, and tenant isolation is enforced by Postgres row-leve
 
 ## Supported versions
 
-Only the current `main` branch.
+Only the newest release. Every merge to `main` is released and deployed, so that is the current
+`main` branch.
