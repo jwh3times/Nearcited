@@ -143,14 +143,13 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - uses: supabase/setup-cli@v3
-        with:
-          version: latest
+      # The Supabase CLI is the root package's dev dependency, so CI runs the version the lockfile
+      # pins, and a newer one arrives only through a pull request.
       # Postgres, Auth, the REST API and the mail catcher the sign-in test reads. The rest of the
       # stack is not used by the app, and leaving it out saves a few minutes of image pulls.
       - name: Start the local Supabase stack
         run: >-
-          supabase start
+          pnpm exec supabase start
           --exclude realtime,storage-api,imgproxy,postgres-meta,studio,edge-runtime,logflare,vector,supavisor
       - name: Write the env files from the stack's keys
         run: pnpm local:env

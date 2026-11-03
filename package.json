@@ -32,10 +32,11 @@
     "lint:agents": "node scripts/lint-agent-neutrality.mjs",
     "changelog:check": "node scripts/check-changelog.mjs",
     "migrations:check": "node scripts/check-migrations.mjs",
-    "db:types": "supabase gen types typescript --local > packages/shared/src/database.types.ts"
+    "db:types": "supabase gen types --lang typescript > packages/shared/src/database.types.ts && biome format --write packages/shared/src/database.types.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.4",
+    "supabase": "3.0.0",
     "typescript": "^7.0.2"
   }
 }

@@ -4,8 +4,9 @@ import { defineConfig, devices } from "@playwright/test";
  * End-to-end tests: a real browser against the real app, the real Worker and a local Supabase
  * stack. Nothing is mocked but the providers, which serve generated data in mock mode.
  *
- * Before running: `supabase start`, then `pnpm local:env` to write the two env files. The config
- * below starts the Worker and the web app itself, or reuses them if `pnpm dev` is already up.
+ * Before running: `pnpm exec supabase start`, then `pnpm local:env` to write the two env files.
+ * The config below starts the Worker and the web app itself, or reuses them if `pnpm dev` is
+ * already up.
  */
 const CI = Boolean(process.env.CI);
 

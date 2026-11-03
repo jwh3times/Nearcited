@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Writes the gitignored env files a local run needs, from their examples and the keys the
-// local Supabase stack prints. Start the stack first (`supabase start`).
+// local Supabase stack prints. Start the stack first (`pnpm exec supabase start`).
 //
 //   pnpm local:env            write whichever of them is missing
 //   pnpm local:env --force    write them all, replacing what is there
@@ -11,10 +11,12 @@
 import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = join(fileURLToPath(import.meta.url), "../..");
+const require = createRequire(import.meta.url);
 
 /** The files to write: where each goes, and the example it starts from. */
 export const TARGETS = [
@@ -50,7 +52,9 @@ export function fillExample(example, status, made = {}) {
 /** The stack's status as an object, from what `supabase status -o json` prints. */
 export function parseStatus(output) {
   const start = output.indexOf("{");
-  if (start === -1) throw new Error("The Supabase stack is not running. Run `supabase start`.");
+  if (start === -1) {
+    throw new Error("The Supabase stack is not running. Run `pnpm exec supabase start`.");
+  }
   const status = JSON.parse(output.slice(start));
   for (const key of ["API_URL", "PUBLISHABLE_KEY", "SECRET_KEY"]) {
     if (!status[key]) throw new Error(`\`supabase status\` did not report ${key}.`);
@@ -58,21 +62,33 @@ export function parseStatus(output) {
   return status;
 }
 
+/**
+ * The command that runs the Supabase CLI the root package pins, with `args`: never one on PATH
+ * or fetched as the newest, whose defaults can differ. Run through Node, as its bin is a script,
+ * so it needs no shell on Windows.
+ */
+export function supabaseCli(args) {
+  const manifest = require.resolve("supabase/package.json");
+  const { bin } = JSON.parse(readFileSync(manifest, "utf8"));
+  return [process.execPath, [join(dirname(manifest), bin.supabase), ...args]];
+}
+
 function supabaseStatus() {
-  // The CLI is on PATH where it was installed for the machine or by CI; otherwise fetch it.
-  for (const [command, args] of [
-    ["supabase", ["status", "-o", "json"]],
-    ["pnpm", ["dlx", "supabase", "status", "-o", "json"]],
-  ]) {
-    try {
-      return execFileSync(command, args, {
-        cwd: root,
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "ignore"],
-      });
-    } catch {}
+  let command;
+  try {
+    command = supabaseCli(["status", "-o", "json"]);
+  } catch {
+    throw new Error("The Supabase CLI is not installed. Run `pnpm install`.");
   }
-  throw new Error("Could not run `supabase status`. Is the stack started?");
+  try {
+    return execFileSync(...command, {
+      cwd: root,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+  } catch {
+    throw new Error("Could not run `supabase status`. Is the stack started?");
+  }
 }
 
 function main() {

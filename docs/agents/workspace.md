@@ -45,11 +45,11 @@ mode without it.
 
 ## Dev stack
 
-- **Show:** `pnpm dlx supabase status` (the local stack, `project_id = "nearcited"`; containers
+- **Show:** `pnpm exec supabase status` (the local stack, `project_id = "nearcited"`; containers
   `supabase_*_nearcited` in `docker ps`); `docker ps --filter name=postgrest` for a store
   integration-test PostgREST; listeners on 8787 (Worker), 5173 (Vite) and 8788 (Pages Worker)
   (`ss -ltn` on Linux).
-- **Stop:** `pnpm dlx supabase stop` — keeps the local data; the stack stays up unless the user
+- **Stop:** `pnpm exec supabase stop` — keeps the local data; the stack stays up unless the user
   asks. `pnpm dev` and `wrangler dev` from the terminal that started them. A Postgres or PostgREST
   container the session started for the store integration test: `docker rm -f <name>`.
 - **Never run:** `supabase stop --no-backup`, `supabase db reset`, or `docker volume rm`/`prune` on
@@ -64,7 +64,7 @@ mode without it.
 ## Hook: after sync
 
 1. When the sync brought new files under `supabase/migrations/` and the local stack is running, say
-   so and offer `pnpm dlx supabase migration up` (applies only the pending migrations, keeping the
+   so and offer `pnpm exec supabase migration up` (applies only the pending migrations, keeping the
    data). Never `supabase db reset`.
 2. When `apps/api/.dev.vars`, `apps/pages/.dev.vars` or `apps/web/.env.local` is missing and the
    stack is running, offer `pnpm local:env` (never `--force`).

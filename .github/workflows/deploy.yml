@@ -66,10 +66,6 @@ jobs:
       - run: pnpm install --frozen-lockfile
       # Also checks the private tuning file against the schema.
       - run: pnpm test
-      # The same version CI asks for, the newest; #278 is to pin it.
-      - uses: supabase/setup-cli@v3
-        with:
-          version: latest
       # The project's ref is the first label of its public URL, https://<ref>.supabase.co.
       - name: Find the project
         id: project
@@ -110,6 +106,7 @@ jobs:
         env:
           SUPABASE_ACCESS_TOKEN: ${{ steps.op.outputs.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_PROJECT_REF: ${{ steps.project.outputs.ref }}
+      # `pnpm exec` runs the Supabase CLI the lockfile pins, the same one CI runs.
       # Prints the migrations the hosted project has not applied, and writes nothing. `db push`
       # refuses a migration dated before the newest one applied (that would need --include-all).
       - name: List the migrations to apply
@@ -117,7 +114,7 @@ jobs:
           # The encoded form differs from the vault's value when it has special characters: mask it too.
           password=$(jq -rn --arg p "$SUPABASE_DB_PASSWORD" '$p | @uri')
           echo "::add-mask::$password"
-          supabase db push --remote="postgresql://$POOLER_USER:$password@$POOLER_HOST:5432/$POOLER_DATABASE" --dry-run
+          pnpm exec supabase db push --remote="postgresql://$POOLER_USER:$password@$POOLER_HOST:5432/$POOLER_DATABASE" --dry-run
         env:
           SUPABASE_ACCESS_TOKEN: ${{ steps.op.outputs.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_DB_PASSWORD: ${{ steps.op.outputs.SUPABASE_DB_PASSWORD }}
@@ -128,7 +125,7 @@ jobs:
         run: |
           password=$(jq -rn --arg p "$SUPABASE_DB_PASSWORD" '$p | @uri')
           echo "::add-mask::$password"
-          supabase db push --remote="postgresql://$POOLER_USER:$password@$POOLER_HOST:5432/$POOLER_DATABASE" --yes
+          pnpm exec supabase db push --remote="postgresql://$POOLER_USER:$password@$POOLER_HOST:5432/$POOLER_DATABASE" --yes
         env:
           SUPABASE_ACCESS_TOKEN: ${{ steps.op.outputs.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_DB_PASSWORD: ${{ steps.op.outputs.SUPABASE_DB_PASSWORD }}

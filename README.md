@@ -390,7 +390,7 @@ tenancy model, the limits a Worker imposes, and the known gaps.
 | Data and auth | Supabase (Postgres with row-level security, email sign-in) |
 | Email | Resend |
 | Payments | Stripe (Checkout, the billing portal and webhooks), taking live payments |
-| Tooling | pnpm workspaces, Biome, Vitest |
+| Tooling | pnpm workspaces, Biome, Vitest, the Supabase CLI (an exact dev dependency of the root package) |
 
 ## Layout
 
@@ -452,10 +452,11 @@ CHANGELOG.md    Every release, one section per merge to main.
 Needs Node 26, pnpm 10, and Docker (for the local Supabase stack).
 
 ```sh
+# Also installs the Supabase CLI, pinned in package.json, which every command here runs.
 pnpm install
 
 # 1. Start Supabase. This applies supabase/migrations and prints the URL and keys.
-pnpm dlx supabase start
+pnpm exec supabase start
 
 # 2. Write both apps' env files from the example files and the keys `supabase status` reports,
 #    and make this machine's key for sealing connections.
@@ -532,14 +533,14 @@ None of these files is committed. `apps/api/.dev.vars.example`, `apps/web/.env.e
 | `pnpm typecheck` | `tsc` in every package |
 | `pnpm test` | Every unit test, including the row-level security tests |
 | `pnpm build` | Build the web app, which also writes `apps/web/dist/third-party-licenses.md` ([License](#license)) |
-| `pnpm e2e` | End-to-end tests in a browser (needs `supabase start` and the env files; `pnpm check` does not run them) |
+| `pnpm e2e` | End-to-end tests in a browser (needs `pnpm exec supabase start` and the env files; `pnpm check` does not run them) |
 | `pnpm smoke` | Smoke test against a deployment (`E2E_APP_URL`, `E2E_SUPABASE_URL`, `E2E_SUPABASE_PUBLISHABLE_KEY`, `TEST_ACCOUNT_EMAIL`, `TEST_ACCOUNT_PASSWORD`) |
 | `pnpm test-account:create` | Make the deployment's test account and grant it the `test` platform role; safe to run again (needs `SUPABASE_SECRET_KEY`, `TEST_ACCOUNT_EMAIL`, `TEST_ACCOUNT_PASSWORD`) |
 | `pnpm local:env` | Write `apps/api/.dev.vars`, `apps/web/.env.local` and `apps/pages/.dev.vars` from the examples and `supabase status`, with a newly made `CONNECTIONS_KEY` (`--force` replaces existing files, and so makes a new key) |
 | `pnpm billing:check` | Ask Stripe and the deployment whether billing is set up as the app expects (Tax active with a registration, the portal set to cancel only, the webhook registered with the events the app acts on and answering 400 to an unsigned request, each paid plan's prices, stronger ones included, matching, every recorded subscription existing under the key). Reads only; exits 1 when a check fails (needs `STRIPE_SECRET_KEY` and `SUPABASE_SECRET_KEY`) |
 | `pnpm cf:deploy` | Build, then `wrangler deploy` for the Worker, then for the Pages Worker |
 | `scripts/hosted-pages-setup.sh` | A wizard for the Cloudflare setup hosted pages need, run once by the owner after a deploy (see [Deploy](#deploy)) |
-| `pnpm db:types` | Generate TypeScript types from the local Supabase database |
+| `pnpm db:types` | Write `packages/shared/src/database.types.ts` from the local Supabase database (needs the local stack running: `pnpm exec supabase start`) |
 | `pnpm --filter @nearcited/api test` | One package's tests (`api`, `web`, `shared`, `pages` or `db`) |
 | `npm run bootstrap:private` | Clone the private companion into `private/` (maintainers) |
 | `npm run sync:main` | Fast-forward `main` here and in `private/` |
@@ -776,8 +777,8 @@ The `integration` job in `.github/workflows/ci.yml` is a working example.
 
 ## Deploy
 
-1. Create a Supabase project and apply the migrations: `pnpm dlx supabase link`, then
-   `pnpm dlx supabase db push --remote`. Without `--remote` the CLI acts on the local stack. Both
+1. Create a Supabase project and apply the migrations: `pnpm exec supabase link`, then
+   `pnpm exec supabase db push --remote`. Without `--remote` the CLI acts on the local stack. Both
    need a Supabase access token (`SUPABASE_ACCESS_TOKEN`) and the project's database password
    (`SUPABASE_DB_PASSWORD`). After this first time, the Deploy workflow applies each merge's new
    migrations (below). Under Authentication, URL Configuration, set the site URL to your
@@ -837,10 +838,10 @@ so deploying it changes no traffic until the setup is done.
 
 Every merge to `main` is a release. `.github/workflows/version.yml` tags it with the version its
 `CHANGELOG.md` section names, and `.github/workflows/deploy.yml` then deploys that commit: it runs
-the tests, lists the migrations the hosted project has not applied (`supabase db push --remote
---dry-run`), applies them, and only then does step 4. A failed migration stops the deploy, and
-the Workers already live keep running. The workflow can also be run by hand, which deploys the
-branch it is run on. It reads its credentials from the 1Password `Nearcited` vault at run time,
+the tests, lists the migrations the hosted project has not applied (`pnpm exec supabase db push
+--remote --dry-run`, with the CLI the lockfile pins), applies them, and only then does step 4. A
+failed migration stops the deploy, and the Workers already live keep running. The workflow can
+also be run by hand, which deploys the branch it is run on. It reads its credentials from the 1Password `Nearcited` vault at run time,
 so GitHub holds one secret, `OP_SERVICE_ACCOUNT_TOKEN`, for a service account that can read only
 that vault. The vault items it expects are named at the top of that file: the Cloudflare token and
 account, the deploy key for the private companion, and the `Supabase` item's `access_token` and
@@ -883,7 +884,8 @@ answers 503 `drafts_unavailable`, except for a test organization, whose drafts a
   so does any other alert that is an error or a warning. Copilot reviews each push.
 - **Dependabot** (`.github/dependabot.yml`) checks npm and GitHub Actions versions every day at
   05:00 US Eastern. Minor and patch updates arrive as one pull request per ecosystem; majors
-  arrive separately. Dependabot alerts and security updates are on.
+  arrive separately. A newer Supabase CLI arrives only this way, since CI, Deploy and the local
+  commands all run the version the lockfile pins. Dependabot alerts and security updates are on.
 - **Secret scanning with push protection** and **private vulnerability reporting** are on. See
   [SECURITY.md](SECURITY.md) for how to report a problem.
 - **Changelog Version** (`.github/workflows/changelog.yml`) runs on every pull request:
