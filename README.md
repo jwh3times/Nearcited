@@ -870,8 +870,8 @@ answers 503 `drafts_unavailable`, except for a test organization, whose drafts a
 
 - **CI** (`.github/workflows/ci.yml`) runs on every pull request and on `main`. On a pull request it
   also runs `Merged migrations are unchanged` (`scripts/check-migrations.mjs`), which fails a branch
-  that edits, renames or deletes a migration already on `main`. Its four other jobs are the
-  required checks: `Lint, typecheck, test, build`, `Store against Postgres and PostgREST`,
+  that edits, renames or deletes a migration already on `main`. All five jobs are required checks:
+  that one, `Lint, typecheck, test, build`, `Store against Postgres and PostgREST`,
   `Verify generated agent config`, which also checks that the installed skills match their lock
   and install commands (`scripts/check-skills.mjs`), that the agent sources read correctly from
   their generated copies (`pnpm lint:agents`), and that local doc links resolve and the doc map
@@ -889,7 +889,8 @@ answers 503 `drafts_unavailable`, except for a test organization, whose drafts a
 - **Changelog Version** (`.github/workflows/changelog.yml`) runs on every pull request:
   `Changelog names the version this merge mints` fails unless `CHANGELOG.md` has a section for
   the version `scripts/next-version.mjs` predicts, and for every version already released.
-  Dependabot's pull requests pass it, and the next human pull request writes their sections.
+  Dependabot's pull requests pass it, and the next human pull request writes their sections. It
+  is a required check.
 - **Version** (`.github/workflows/version.yml`) tags every merge to `main` `v<major>.<minor>.<build>`
   and creates its GitHub release. The release line is the root `package.json`'s `version`; each
   merge on the line counts the build up by one.

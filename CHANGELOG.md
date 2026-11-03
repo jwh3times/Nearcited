@@ -9,6 +9,13 @@ counting builds on a release line.
 
 No unreleased changes.
 
+## [1.0.2] - 2026-11-03
+
+### Changed
+
+- The changelog check and the merged-migration check are now required to merge a pull request,
+  and the README's Repository automation section says so.
+
 ## [1.0.1] - 2026-11-03
 
 ### Fixed
@@ -35,6 +42,7 @@ deployed.
   (`scripts/check-changelog.mjs`); a Dependabot merge gets its section on the next human pull
   request.
 
-[Unreleased]: https://github.com/jwh3times/Nearcited/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/jwh3times/Nearcited/compare/v1.0.2...HEAD
+[1.0.2]: https://github.com/jwh3times/Nearcited/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/jwh3times/Nearcited/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/jwh3times/Nearcited/releases/tag/v1.0.0
