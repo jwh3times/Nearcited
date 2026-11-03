@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
-import { fillExample, parseStatus, TARGETS } from "./local-env.mjs";
+import { fillExample, parseStatus, supabaseCli, TARGETS } from "./local-env.mjs";
 
 const root = join(fileURLToPath(import.meta.url), "../..");
 
@@ -75,5 +76,16 @@ describe("parseStatus", () => {
   it("says so when the stack is not running, or reports no key", () => {
     assert.throws(() => parseStatus("failed to inspect container health"), /not running/);
     assert.throws(() => parseStatus(JSON.stringify({ API_URL: "x" })), /PUBLISHABLE_KEY/);
+  });
+});
+
+describe("supabaseCli", () => {
+  it("runs the CLI the root package pins, not one on PATH or the newest", () => {
+    const pinned = JSON.parse(readFileSync(join(root, "package.json"), "utf8")).devDependencies
+      .supabase;
+    assert.match(pinned, /^\d+\.\d+\.\d+$/, "pinned to one exact version");
+    const [command, args] = supabaseCli(["--version"]);
+    assert.equal(command, process.execPath);
+    assert.equal(execFileSync(command, args, { encoding: "utf8" }).trim(), pinned);
   });
 });

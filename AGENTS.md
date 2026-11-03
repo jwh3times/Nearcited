@@ -14,7 +14,8 @@ hosted pages on businesses' answer subdomains, and Supabase for Postgres and aut
 - `pnpm format`: apply Biome fixes.
 - `pnpm --filter @nearcited/<api|web|shared|pages|db> test`: one package's tests.
 - `pnpm dev`: Worker on 8787, Vite on 5173.
-- `pnpm e2e`: browser tests; needs `supabase start` and the env files. `pnpm check` skips them.
+- `pnpm e2e`: browser tests; needs `pnpm exec supabase start` and the env files. `pnpm check`
+  skips them.
 - `pnpm smoke`: the smoke test against a deployment; needs `E2E_*` and `TEST_ACCOUNT_*` set.
 - `pnpm billing:check`: ask Stripe and the deployment whether billing is set up as the app
   expects. Reads only; needs `STRIPE_SECRET_KEY` and `SUPABASE_SECRET_KEY` in the environment.
