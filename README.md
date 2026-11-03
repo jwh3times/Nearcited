@@ -390,7 +390,7 @@ tenancy model, the limits a Worker imposes, and the known gaps.
 | Data and auth | Supabase (Postgres with row-level security, email sign-in) |
 | Email | Resend |
 | Payments | Stripe (Checkout, the billing portal and webhooks), taking live payments |
-| Tooling | pnpm workspaces, Biome, Vitest |
+| Tooling | pnpm workspaces, Biome, Vitest, the Supabase CLI (an exact dev dependency of the root package) |
 
 ## Layout
 
@@ -838,10 +838,10 @@ so deploying it changes no traffic until the setup is done.
 
 Every merge to `main` is a release. `.github/workflows/version.yml` tags it with the version its
 `CHANGELOG.md` section names, and `.github/workflows/deploy.yml` then deploys that commit: it runs
-the tests, lists the migrations the hosted project has not applied (`supabase db push --remote
---dry-run`), applies them, and only then does step 4. A failed migration stops the deploy, and
-the Workers already live keep running. The workflow can also be run by hand, which deploys the
-branch it is run on. It reads its credentials from the 1Password `Nearcited` vault at run time,
+the tests, lists the migrations the hosted project has not applied (`pnpm exec supabase db push
+--remote --dry-run`, with the CLI the lockfile pins), applies them, and only then does step 4. A
+failed migration stops the deploy, and the Workers already live keep running. The workflow can
+also be run by hand, which deploys the branch it is run on. It reads its credentials from the 1Password `Nearcited` vault at run time,
 so GitHub holds one secret, `OP_SERVICE_ACCOUNT_TOKEN`, for a service account that can read only
 that vault. The vault items it expects are named at the top of that file: the Cloudflare token and
 account, the deploy key for the private companion, and the `Supabase` item's `access_token` and
@@ -884,7 +884,8 @@ answers 503 `drafts_unavailable`, except for a test organization, whose drafts a
   so does any other alert that is an error or a warning. Copilot reviews each push.
 - **Dependabot** (`.github/dependabot.yml`) checks npm and GitHub Actions versions every day at
   05:00 US Eastern. Minor and patch updates arrive as one pull request per ecosystem; majors
-  arrive separately. Dependabot alerts and security updates are on.
+  arrive separately. A newer Supabase CLI arrives only this way, since CI, Deploy and the local
+  commands all run the version the lockfile pins. Dependabot alerts and security updates are on.
 - **Secret scanning with push protection** and **private vulnerability reporting** are on. See
   [SECURITY.md](SECURITY.md) for how to report a problem.
 - **Changelog Version** (`.github/workflows/changelog.yml`) runs on every pull request:
