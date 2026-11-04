@@ -9,6 +9,35 @@ counting builds on a release line.
 
 No unreleased changes.
 
+## [1.3.0] - 2026-11-04
+
+### Added
+
+- Receipts copied to a location's receipt address are received, and each becomes a customer
+  contact: the customer's email address and the day of the job, and nothing else (#291, part of
+  #146). Nothing is proposed or sent to a customer yet, and no plan includes review requests.
+  - **Receiving:** mail to `receipts.nearcited.com` reaches the Worker through Cloudflare Email
+    Routing, a fourth way in beside the app, the schedule and the queue. Mail to an address that
+    belongs to no location is refused.
+  - **What counts:** a receipt counts only when Cloudflare found it passed DKIM or SPF for its
+    sender's own domain, or DMARC. The customer is the one address in "To" that is neither the
+    business's own nor Nearcited's, and the day of the job is the receipt's date in the
+    location's time zone.
+  - **Never guessed at:** a receipt that fails those checks, names no customer or more than one,
+    comes from a declined sender, or arrives while review requests are off is dropped. Each is
+    counted for the location by reason, and the Settings tab shows the counts for the last 30
+    days.
+  - **Senders:** receipts from a sender nobody has confirmed are held. An owner or admin confirms
+    the sender as their own tool, which makes what it sent ready, or declines it, which deletes
+    what it sent and drops what it sends later. What is held for seven days with nobody confirming
+    is deleted. The daily email to the owners names a sender waiting.
+  - **Who sees what:** nobody but the worker reads a customer's address in full
+    (`docs/adr/0031-a-customer-contact-is-read-only-by-the-worker.md`). Members, owners, admins
+    and the operator see it masked, as `j•••@gmail.com`, with the day, on the location's Settings
+    tab. The download of an organization's data leaves contacts out.
+  - A test organization, and a deployment on sample data, receive nothing: their receipts are made
+    up once a day and marked as sample data.
+
 ## [1.2.0] - 2026-11-04
 
 ### Added
@@ -109,7 +138,8 @@ deployed.
   (`scripts/check-changelog.mjs`); a Dependabot merge gets its section on the next human pull
   request.
 
-[Unreleased]: https://github.com/jwh3times/Nearcited/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/jwh3times/Nearcited/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/jwh3times/Nearcited/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/jwh3times/Nearcited/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/jwh3times/Nearcited/compare/v1.0.5...v1.1.0
 [1.0.5]: https://github.com/jwh3times/Nearcited/compare/v1.0.4...v1.0.5
