@@ -9,6 +9,18 @@ counting builds on a release line.
 
 No unreleased changes.
 
+## [1.0.5] - 2026-11-03
+
+### Changed
+
+- The decisions for asking a business's customers for reviews by email (#146) are recorded ahead of
+  the work. A new decision record says that only the worker, which sends the request, reads a
+  customer's address in full, and that no member, owner or the operator does. It also says that an
+  opt-out and the twelve months without a second request hold for the whole organization, and that
+  a bounce or a complaint stops requests to that address from every business. The glossary now
+  defines a customer contact as an email address and the day of the job, and adds the receipt
+  address and the confirmed sender. Nothing the product does changes yet.
+
 ## [1.0.4] - 2026-11-03
 
 ### Fixed
@@ -61,7 +73,8 @@ deployed.
   (`scripts/check-changelog.mjs`); a Dependabot merge gets its section on the next human pull
   request.
 
-[Unreleased]: https://github.com/jwh3times/Nearcited/compare/v1.0.4...HEAD
+[Unreleased]: https://github.com/jwh3times/Nearcited/compare/v1.0.5...HEAD
+[1.0.5]: https://github.com/jwh3times/Nearcited/compare/v1.0.4...v1.0.5
 [1.0.4]: https://github.com/jwh3times/Nearcited/compare/v1.0.3...v1.0.4
 [1.0.3]: https://github.com/jwh3times/Nearcited/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/jwh3times/Nearcited/compare/v1.0.1...v1.0.2
