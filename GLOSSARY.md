@@ -160,7 +160,9 @@ system works; this file only settles vocabulary.
   receipts or invoices their own tool already sends, so the product learns who was served and on
   what day. The first kind of customer source.
 - **Confirmed sender**: an address that sends receipts to a receipt address and that an owner or
-  admin confirmed is their own tool. A receipt from any other sender is not read.
+  admin confirmed is their own tool. A receipt from a sender not yet confirmed is held, for at most
+  seven days, until an owner or admin confirms or declines it; one from a declined sender is
+  dropped.
 - **Organization role**: what a person may do inside one organization: owner, admin or member.
   Whoever creates an organization is its owner. It says nothing about the product as a whole.
   - **Member**: anyone in an organization, and the role of someone who is only that: they see
