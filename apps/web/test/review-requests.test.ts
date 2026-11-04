@@ -1,6 +1,6 @@
-import { OPT_OUT_SHOWN, REVIEW_REQUESTS_BARS } from "@nearcited/shared";
+import { OPT_OUT_SHOWN, RECEIPT_DROPS, REVIEW_REQUESTS_BARS } from "@nearcited/shared";
 import { describe, expect, it } from "vitest";
-import { barNote, wordingFor } from "../src/lib/review-requests";
+import { barNote, droppedNote, senderNote, wordingFor } from "../src/lib/review-requests";
 
 describe("the review requests card", () => {
   it("says why they cannot be turned on, for every reason there is", () => {
@@ -20,5 +20,18 @@ describe("the review requests card", () => {
     expect(email.body).toContain("Would you leave a review on BBB?");
     expect(email.body).toContain("Nearcited sends this email for Joe's Pizza.");
     expect(email.body.endsWith(OPT_OUT_SHOWN)).toBe(true);
+  });
+
+  it("says why receipts were dropped, for every reason there is, counted", () => {
+    for (const reason of RECEIPT_DROPS) {
+      expect(droppedNote(reason, 1), reason).toMatch(/^1 receipt dropped: /);
+      expect(droppedNote(reason, 3), reason).toMatch(/^3 receipts dropped: /);
+    }
+    expect(droppedNote("several_customers", 2)).toMatch(/more than one customer/);
+  });
+
+  it("says where each sender stands", () => {
+    expect(senderNote("waiting")).toBe("Waiting for a yes");
+    expect(senderNote("declined")).toMatch(/dropped/);
   });
 });

@@ -199,6 +199,21 @@ Nearcited is multi-tenant, and tenant isolation is enforced by Postgres row-leve
   `new_receipt_address()` through the API, writing `review_request_settings` directly, reading
   another organization's review requests or their receipt address, working out or guessing a
   receipt address, and an address that was replaced or let go still belonging to a location.
+- Receipts and customer contacts. The Worker's `email` handler takes mail to
+  `receipts.nearcited.com` from anyone, with no sign-in, and acts as the worker, so each of these is
+  a report: a receipt kept when Cloudflare's own result showed neither DMARC nor DKIM or SPF passing
+  for its sender's own domain; a customer picked by a guess; a receipt kept for review requests that
+  are off, from a declined sender or for a test organization; a message to an address that is
+  nobody's reaching any location; and anything of a message kept or logged but its sender, its one
+  customer, the day of the job and what became of it. Also reading a customer contact's full
+  address by any path but the worker's (`customer_contacts.address` is granted to no API role, the
+  operator included, and no route, response, export or log line carries it); calling
+  `receive_receipt()`, `record_receipt_drop()` or `drop_expired_held_contacts()` as anyone but the
+  worker; confirming or declining a sender through `confirm_receipt_sender()`,
+  `decline_receipt_sender()` or `POST /api/receipt-senders/:senderId/confirm` and `/decline` as
+  anyone but an owner or admin of its organization, the operator included; writing
+  `receipt_senders`, `customer_contacts` or `receipt_drops` directly; and reading another
+  organization's senders, contacts or dropped receipts.
 - Reading a shareable audit without its link, or after it was revoked or expired; listing audits;
   or creating one. `/api/audits/:token` is the one route that gives out an organization's data
   with no sign-in, and the token in the link is the only key to it. `/api/plans` needs no sign-in

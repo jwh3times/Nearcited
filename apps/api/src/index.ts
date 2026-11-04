@@ -61,6 +61,7 @@ import {
   usesSampleData,
 } from "./providers";
 import { createMockProviders } from "./providers/mock";
+import { receiveEmail } from "./receipts";
 import { runScan } from "./scans/runner";
 import { enqueueDueScans, failStaleAudits, failStaleScans } from "./scans/schedule";
 import { fetchCitedPages, fetchSite } from "./site/fetch";
@@ -104,6 +105,7 @@ export default {
    * and checks again every answer subdomain still waiting for its record; the daily run also
    * queues a scan for every location that is due and a sync for every connection that is, lapses
    * the proposals nobody answered, drops what an action replaced once it may be kept no longer,
+   * deletes the customer contacts held seven days with nobody confirming their sender,
    * tells each organization's owners what was done for it, lets go of every answer subdomain
    * whose record never appeared, and forgets the accounts closed thirty days ago. The two
    * schedules are in wrangler.jsonc.
@@ -146,6 +148,8 @@ export default {
     if (lapsed > 0) console.log(`Lapsed ${lapsed} actions that waited fourteen days`);
     const dropped = await store.dropExpiredSeen();
     if (dropped > 0) console.log(`Dropped what ${dropped} actions replaced`);
+    const held = await store.dropExpiredHeldContacts();
+    if (held > 0) console.log(`Deleted ${held} customer contacts held seven days unconfirmed`);
     // The day's message to each organization's owners: what was done, and what is waiting.
     const noticed = await sendActionNotices({
       store,
@@ -181,6 +185,19 @@ export default {
     if (steps > 0) console.log(`Queued ${steps} price change steps`);
     const reductions = await advanceLimitChanges(store, env.SCAN_QUEUE);
     if (reductions > 0) console.log(`Made ${reductions} announced reductions`);
+  },
+
+  /**
+   * Email Routing: a message to the receiving domain, which is a receipt copied to a location's
+   * receipt address. It arrives with no signed-in user and is received as the worker: kept as a
+   * customer contact, or dropped and counted (`receiveEmail`). An address that is nobody's is
+   * refused. Nothing of a message is logged but what became of it.
+   */
+  async email(message, env) {
+    const store = createSupabaseStore(createAdminClient(env));
+    const outcome = await receiveEmail(message, { store, sampleData: usesSampleData(env) });
+    console.log(`Receipt: ${outcome}`);
+    if (outcome === "unknown") message.setReject("There is no such address.");
   },
 
   /** Queue consumer: run each scan, and email its report if it was a scheduled one. */

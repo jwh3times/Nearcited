@@ -14,6 +14,7 @@ import { buildConnectionBrokenEmail } from "../email/connection-broken";
 import type { Email } from "../email/report";
 import type { Env } from "../env";
 import { usesSampleData } from "../providers";
+import { receiveSampleReceipts } from "../receipts";
 import { fetchSite } from "../site/fetch";
 import type { Store } from "../store/types";
 import { listZones, readFetches, TokenRefused, zoneLimits } from "./cloudflare";
@@ -351,11 +352,22 @@ export async function syncConnection(
   }
 
   // Review requests have no sign-in and nothing outside to read. A sync only says they were
-  // looked at, keeping what they reach: their own location.
+  // looked at, keeping what they reach: their own location. A test organization's, and any on
+  // sample data, are given the day's made-up receipts, since none are received for them.
   if (connection.kind === "review_requests") {
-    return (await store.recordConnectionSync(connectionId, connection.choices))
-      ? "synced"
-      : "not_working";
+    if (!(await store.recordConnectionSync(connectionId, connection.choices))) return "not_working";
+    const organization = await store.getOrganization(connection.organization_id);
+    const [match] = connection.matches;
+    const location = match ? await store.getLocation(match.location_id) : null;
+    if (location && (deps.hosting?.sampleData || organization?.is_test)) {
+      try {
+        await receiveSampleReceipts(connectionId, location, deps);
+      } catch (error) {
+        // The sync stands. The next one makes them.
+        console.error(`Connection ${connectionId}: could not make its sample receipts`, error);
+      }
+    }
+    return "synced";
   }
 
   const sealed = await store.getConnectionSecret(connectionId);

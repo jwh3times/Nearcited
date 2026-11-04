@@ -12,6 +12,7 @@ import {
   CitedPageSchema,
   ConnectionMatchSchema,
   ConnectionSchema,
+  CustomerContactSchema,
   DraftSchema,
   type Invitation,
   InvitationSchema,
@@ -34,6 +35,10 @@ import {
   PlatformRoleSchema,
   PriceChangeSchema,
   PromptPageSchema,
+  RECEIPT_DROPS,
+  RECEIPTS_LISTED,
+  type ReceiptDrop,
+  ReceiptSenderSchema,
   RecommendationSchema,
   ScanResultSchema,
   ScanSchema,
@@ -53,6 +58,7 @@ import { PAGE_SIZE, type ReadPage, readEvery } from "./paging";
 import {
   type KeptAnswerSubdomain,
   type KeptReviewRequests,
+  RECEIPT_OUTCOMES,
   type Store,
   StoreError,
   type StoreErrorKind,
@@ -182,6 +188,13 @@ const keptReviewRequests = ({
   connection,
   ...row
 }: z.infer<typeof ReviewRequestsRowSchema>): KeptReviewRequests => ({ ...row, ...connection });
+
+/** A receipt sender as a member is sent it. */
+const RECEIPT_SENDER_COLUMNS =
+  "id, location_id, address, status, first_seen_at, decided_by_email, decided_at";
+
+/** A customer contact as anyone but the worker reads it: every column but the address. */
+const CUSTOMER_CONTACT_COLUMNS = "id, sender_id, masked, job_day, status, sample_data, received_at";
 
 /** A hosted page as the worker reads it. */
 const HostedPageRowSchema = z.object({
@@ -936,6 +949,160 @@ export function createSupabaseStore(
         .maybeSingle();
       if (error) fail("Replace a receipt address", error);
       return data ? keptReviewRequests(ReviewRequestsRowSchema.parse(data)) : null;
+    },
+
+    async getLocationReceipts(locationId, since) {
+      const [senders, contacts, drops] = await Promise.all([
+        db
+          .from("receipt_senders")
+          .select(RECEIPT_SENDER_COLUMNS)
+          .eq("location_id", locationId)
+          .order("first_seen_at", { ascending: false })
+          .order("id")
+          .limit(RECEIPTS_LISTED),
+        // Every column but the address, which no API role is granted.
+        db
+          .from("customer_contacts")
+          .select(CUSTOMER_CONTACT_COLUMNS)
+          .eq("location_id", locationId)
+          .order("received_at", { ascending: false })
+          .order("id")
+          .limit(RECEIPTS_LISTED),
+        db
+          .from("receipt_drops")
+          .select("reason, count")
+          .eq("location_id", locationId)
+          .gte("day", since),
+      ]);
+      if (senders.error) fail("List a location's receipt senders", senders.error);
+      if (contacts.error) fail("List a location's customer contacts", contacts.error);
+      if (drops.error) fail("Count a location's dropped receipts", drops.error);
+      const dropped: Partial<Record<ReceiptDrop, number>> = {};
+      for (const { reason, count } of z
+        .array(z.object({ reason: z.enum(RECEIPT_DROPS), count: z.number().int() }))
+        .parse(drops.data ?? [])) {
+        if (count > 0) dropped[reason] = (dropped[reason] ?? 0) + count;
+      }
+      return {
+        senders: z.array(ReceiptSenderSchema).parse(senders.data ?? []),
+        contacts: z.array(CustomerContactSchema).parse(contacts.data ?? []),
+        dropped,
+      };
+    },
+
+    async confirmReceiptSender(id) {
+      const { data, error } = await db
+        .rpc("confirm_receipt_sender", { sender: id })
+        .select(RECEIPT_SENDER_COLUMNS)
+        .maybeSingle();
+      if (error) fail("Confirm a receipt sender", error);
+      return data ? ReceiptSenderSchema.parse(data) : null;
+    },
+
+    async declineReceiptSender(id) {
+      const { data, error } = await db
+        .rpc("decline_receipt_sender", { sender: id })
+        .select(RECEIPT_SENDER_COLUMNS)
+        .maybeSingle();
+      if (error) fail("Decline a receipt sender", error);
+      return data ? ReceiptSenderSchema.parse(data) : null;
+    },
+
+    async findReceiptAddress(name) {
+      const { data, error } = await db
+        .from("review_request_settings")
+        .select(
+          "connection_id, organization_id, location_id, reply_to, released_at, connection:connections!inner(status), location:locations!inner(website, time_zone), organization:organizations!inner(is_test)",
+        )
+        .eq("receipt_address", name)
+        .maybeSingle();
+      if (error) fail("Find a receipt address", error);
+      if (!data) return null;
+      const row = z
+        .object({
+          connection_id: z.uuid(),
+          organization_id: z.uuid(),
+          location_id: z.uuid(),
+          reply_to: z.string(),
+          released_at: z.string().nullable(),
+          connection: z.object({ status: ConnectionSchema.shape.status }),
+          location: z.object({ website: z.string().nullable(), time_zone: z.string().nullable() }),
+          organization: z.object({ is_test: z.boolean() }),
+        })
+        .parse(data);
+      return {
+        connection_id: row.connection_id,
+        organization_id: row.organization_id,
+        location_id: row.location_id,
+        on:
+          row.released_at === null &&
+          !["paused", "removing", "removed"].includes(row.connection.status),
+        is_test: row.organization.is_test,
+        website: row.location.website,
+        time_zone: row.location.time_zone,
+        reply_to: row.reply_to,
+      };
+    },
+
+    async receiveReceipt({ connection_id, sender, customer, job_day, sample }) {
+      const { data, error } = await db.rpc("receive_receipt", {
+        connection: connection_id,
+        sender,
+        customer,
+        day: job_day,
+        sample,
+      });
+      if (error) fail("Receive a receipt", error);
+      return z.enum(RECEIPT_OUTCOMES).parse(data);
+    },
+
+    async recordReceiptDrop(locationId, reason) {
+      const { error } = await db.rpc("record_receipt_drop", { location: locationId, reason });
+      if (error) fail("Count a dropped receipt", error);
+    },
+
+    async dropExpiredHeldContacts() {
+      const { data, error } = await db.rpc("drop_expired_held_contacts");
+      if (error) fail("Drop expired held contacts", error);
+      return z
+        .number()
+        .int()
+        .parse(data ?? 0);
+    },
+
+    async listSendersToTell() {
+      const data = await every("List receipt senders to tell owners of", (from, to, first) =>
+        db
+          .from("receipt_senders")
+          .select(
+            `${RECEIPT_SENDER_COLUMNS}, organization_id, location:locations!inner(name)`,
+            counted(first),
+          )
+          .eq("status", "waiting")
+          .eq("untold", true)
+          .order("first_seen_at")
+          .order("id")
+          .range(from, to),
+      );
+      const where = z.object({
+        organization_id: z.uuid(),
+        location: z.object({ name: z.string() }),
+      });
+      return data.map((row) => {
+        const kept = where.parse(row);
+        return {
+          sender: ReceiptSenderSchema.parse(row),
+          organization_id: kept.organization_id,
+          location_name: kept.location.name,
+        };
+      });
+    },
+
+    async markSendersTold(ids) {
+      if (ids.length === 0) return;
+      // One that was decided meanwhile is told nothing more anyway.
+      const { error } = await db.from("receipt_senders").update({ untold: false }).in("id", ids);
+      if (error) fail("Keep that owners were told of receipt senders", error);
     },
 
     async listLocationPageFetches(locationId, since) {

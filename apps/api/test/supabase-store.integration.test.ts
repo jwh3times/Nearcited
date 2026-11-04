@@ -1636,6 +1636,54 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
     expect(another?.receipt_address).toMatch(/^[0-9a-f]{32}$/);
     expect(another?.receipt_address).not.toBe(asked?.receipt_address);
 
+    // Receipts: the worker finds the address and keeps a contact held for a new sender, which an
+    // owner or admin confirms; members read it masked, and a drop is counted.
+    const receiving = await workerStore();
+    expect(await receiving.findReceiptAddress("0".repeat(32))).toBeNull();
+    expect(await receiving.findReceiptAddress(another?.receipt_address ?? "")).toMatchObject({
+      connection_id: requests.id,
+      location_id: asking.id,
+      on: true,
+      is_test: false,
+      time_zone: "America/New_York",
+      reply_to: "alice@example.com",
+    });
+    const receipt = {
+      connection_id: requests.id,
+      sender: "receipts@square.example",
+      customer: "jane@example.org",
+      job_day: "2026-11-03",
+      sample: false,
+    };
+    expect(await receiving.receiveReceipt(receipt)).toBe("held");
+    await receiving.recordReceiptDrop(asking.id, "no_customer");
+    const [waiting] = await receiving.listSendersToTell();
+    expect(waiting).toMatchObject({
+      organization_id: organization.id,
+      location_name: "Asking Pizza",
+      sender: { address: "receipts@square.example", status: "waiting" },
+    });
+    await receiving.markSendersTold([waiting?.sender.id ?? ""]);
+    expect(await receiving.listSendersToTell()).toEqual([]);
+    expect(await bobStore.confirmReceiptSender(waiting?.sender.id ?? "")).toBeNull();
+    expect(await bobStore.declineReceiptSender(waiting?.sender.id ?? "")).toBeNull();
+    expect(await aliceStore.confirmReceiptSender(waiting?.sender.id ?? "")).toMatchObject({
+      status: "confirmed",
+      decided_by_email: "alice@example.com",
+    });
+    const receipts = await aliceStore.getLocationReceipts(asking.id, "2026-01-01");
+    expect(receipts.contacts).toMatchObject([
+      { masked: "j•••@example.org", job_day: "2026-11-03", status: "ready" },
+    ]);
+    expect(JSON.stringify(receipts)).not.toContain("jane@example.org");
+    expect(receipts.dropped).toEqual({ no_customer: 1 });
+    expect(await bobStore.getLocationReceipts(asking.id, "2026-01-01")).toEqual({
+      senders: [],
+      contacts: [],
+      dropped: {},
+    });
+    expect(await receiving.dropExpiredHeldContacts()).toBe(0);
+
     // Answer subdomains: made by an owner or admin, read by members, checked by the worker.
     const included = await aliceStore.getOrganization(organization.id);
     await admin

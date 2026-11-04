@@ -19,6 +19,8 @@ export interface ActionNoticeEmail {
   given?: StandingPermission[];
   /** Standing permission that ended since the last notice, with what a take-back took back. */
   ended?: EndedPermission[];
+  /** Senders of receipts waiting to be confirmed or declined, with a receipt held. */
+  senders?: { address: string; location_name: string }[];
   appUrl: string;
 }
 
@@ -48,7 +50,7 @@ function endedLine(permission: EndedPermission): string {
  * themselves too: this is the record of what changed.
  */
 export function buildActionNoticeEmail(email: ActionNoticeEmail): Email {
-  const { organization, done, waiting, given = [], ended = [] } = email;
+  const { organization, done, waiting, given = [], ended = [], senders = [] } = email;
   const app = email.appUrl.replace(/\/$/, "");
   const count = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
   const lines: string[] = [];
@@ -107,6 +109,20 @@ export function buildActionNoticeEmail(email: ActionNoticeEmail): Email {
       "",
     );
   }
+  if (senders.length > 0) {
+    lines.push(
+      senders.length === 1
+        ? "Receipts from a new sender are held until someone confirms it is your own tool:"
+        : "Receipts from new senders are held until someone confirms each is your own tool:",
+      "",
+    );
+    for (const sender of senders) lines.push(`- ${sender.location_name}: ${sender.address}`);
+    lines.push(
+      "",
+      "An owner or admin confirms or declines a sender under Review requests on the location's Settings tab. What a sender sent is deleted after seven days if nobody confirms it.",
+      "",
+    );
+  }
   lines.push(
     "You can read exactly what was changed, and answer what is waiting, on each location's Actions tab:",
     app,
@@ -120,7 +136,9 @@ export function buildActionNoticeEmail(email: ActionNoticeEmail): Email {
         ? `What Nearcited did for ${organization}`
         : waiting.length > 0
           ? `Waiting for your yes at ${organization}`
-          : `Standing permission at ${organization}`,
+          : given.length > 0 || ended.length > 0
+            ? `Standing permission at ${organization}`
+            : `Receipts waiting for your yes at ${organization}`,
     text: lines.join("\n"),
   };
 }

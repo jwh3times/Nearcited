@@ -1,8 +1,8 @@
 # Architecture
 
-## One Worker, three entry points
+## One Worker, four entry points
 
-`apps/api/src/index.ts` exports a single Worker with three handlers. It is one of two Workers: the
+`apps/api/src/index.ts` exports a single Worker with four handlers. It is one of two Workers: the
 other, the Pages Worker in `apps/pages`, serves hosted pages and nothing else (see "Hosted pages").
 Everything below is the main one.
 
@@ -33,8 +33,9 @@ Everything below is the main one.
   `scheduled` scan row for each, and puts the scan IDs on the queue. It also queues a sync for each
   connection that is due (`enqueueDueSyncs`). It also lapses the proposals that waited fourteen
   days (`lapse_actions()`), drops what an action replaced once it may be kept no longer
-  (`drop_expired_seen()`) and tells each organization's owners what was done and what is newly
-  waiting (`sendActionNotices`; see "Actions"). It also starts the removal of each connection that
+  (`drop_expired_seen()`), deletes the customer contacts held seven days with nobody confirming
+  their sender (`drop_expired_held_contacts()`; see "Connections") and tells each organization's
+  owners what was done and what is newly waiting (`sendActionNotices`; see "Actions"). It also starts the removal of each connection that
   has been paused for thirty days, an answer subdomain for 120 (`expirePausedConnections`) and reminds, once, the owners and
   admins of each they were told a week ago had broken and that still is
   (`remindBrokenConnections`), and tells those of any broken one nobody could be told of at the
@@ -61,6 +62,13 @@ Everything below is the main one.
   at most a second for others to join it (`max_batch_timeout` in `wrangler.jsonc`), because
   somebody is usually watching the page for it; a message that lands in a batch behind scans
   still waits for those to finish.
+- **`email`**: Cloudflare Email Routing hands it every message to the receiving domain,
+  `receipts.nearcited.com` (`RECEIPTS_DOMAIN`), which is a receipt copied to a location's receipt
+  address. It arrives with no signed-in user and is received as the worker, with the secret key as
+  the cron and the queue are, by `receiveEmail` (`apps/api/src/receipts.ts`; see "Connections"). A
+  message to an address that is nobody's is refused (`setReject`). Nothing of a message is logged
+  but what became of it. The handler needs no binding: the Email Routing rule on the zone is what
+  sends the mail to it (see the README's "Deploy").
 
 ## How a scan runs
 
@@ -1406,12 +1414,61 @@ five can break or pause in practice.
   off with `DELETE /api/connections/:connectionId`: `removeConnection` has nothing outside to take
   back, and `finish_connection_removal()` sets `released_at`, letting the address go. Deleting the
   location starts their removal (a trigger, `removal_reason` `location`), which the sweep of stalled
-  removals finishes. A sync reads nothing and only records that it ran, no action is proposed after
+  removals finishes. A sync reads nothing and only records that it ran, but for a test organization
+  and on sample data, where it makes up the day's receipts (below); no action is proposed after
   one, and the match routes refuse them (`not_matched_by_hand`). A location has them on once at a
   time, and they can be turned on again, with a new address, once the removal has finished. The
   "Review requests" card is on the location's Settings tab, shown only where the organization's
-  allowances include the kind. Nothing is received at a receipt address yet, nothing is sent to a
-  customer, and nothing takes from the allowance, which is counted and on no plan (see "Tenancy").
+  allowances include the kind. Nothing is sent to a customer yet, and nothing takes from the
+  allowance, which is counted and on no plan (see "Tenancy").
+- **A receipt is read by rule, and kept only as a customer contact.** Issue #291, part of #146
+  (`docs/adr/0031-a-customer-contact-is-read-only-by-the-worker.md`; the terms are in
+  `GLOSSARY.md`). The business's own tool copies each receipt it sends a customer to the location's
+  receipt address, and the Worker's `email` handler (see "One Worker, four entry points") hands it
+  to `receiveEmail`. That finds the review requests the address belongs to (`findReceiptAddress`);
+  an address that is nobody's is refused, and one of a test organization's, or any on a deployment
+  on sample data, receives nothing. `readReceipt` (`packages/shared/src/receipts.ts`) then decides
+  what the receipt says, by rule and never by a guess, from its headers alone:
+  - It counts only when the first `Authentication-Results` header, the one Cloudflare
+    (`mx.cloudflare.net`) prepends on arrival, says DMARC passed, or DKIM (`header.d`, else
+    `header.i`) or SPF (`smtp.mailfrom`) passed for the sender's own domain, a domain above it or
+    one below it. A pass for another domain says nothing about who sent it, and a header after the
+    first came with the message. The sender is the one address `From:` names, or else the
+    envelope's.
+  - The customer is the single address in `To:` that is neither the business's own (the sender,
+    the reply address, an address at the website's domain) nor the product's (`nearcited.com` and
+    the names under it). A `To:` with any part that cannot be read with certainty names no
+    customer, and one that names several picks none of them.
+  - The day of the job is the receipt's `Date` in the location's time zone, or the day it arrived
+    where `Date` is missing, unreadable or more than a day ahead.
+
+  A receipt that fails the check, for review requests that are off, paused or being turned off,
+  from a declined sender, or with no customer or several, is dropped: `record_receipt_drop()` adds
+  one to `receipt_drops` for the location, the day (UTC) and the reason (`unauthenticated`,
+  `not_on`, `declined_sender`, `no_customer` or `several_customers`), and nothing else of it is
+  kept. Otherwise `receive_receipt()` keeps the sender in `receipt_senders`, the first time as
+  `waiting`, and the customer's address and the day of the job in `customer_contacts`, once for a
+  location, an address and a day. A contact from a confirmed sender is `ready`; one from a waiting
+  sender is `held`. `confirm_receipt_sender()` makes what that sender sent `ready`, and
+  `decline_receipt_sender()` deletes what it held, and from then on what it sends is dropped. Both
+  answer an owner or admin of the organization and no one else, the operator included, and only
+  for a sender still waiting (`POST /api/receipt-senders/:senderId/confirm` and `/decline`, which
+  answer 404 to anyone else). The daily run deletes a contact held seven days
+  (`drop_expired_held_contacts()`), and the daily notice to the owners names each waiting sender
+  once for each receipt it held since it was last named (`receipt_senders.untold`; see "Actions").
+  `receive_receipt()`, `record_receipt_drop()` and `drop_expired_held_contacts()` are the worker's
+  alone. `customer_contacts.address` is granted to no API role: members and the operator read the
+  contact through `masked` (`j•••@gmail.com`, a generated column that writes what `maskAddress`
+  does) and the day, the Supabase store selects contacts by named columns, and no route or wire
+  type carries the address. `GET /api/locations/:locationId/receipts`, for anyone who can read the
+  location, answers the senders and the latest 200 contacts (`RECEIPTS_LISTED`), newest first, and
+  the receipts dropped in the last 30 days by reason (`RECEIPT_DROPS_DAYS`), with `can_manage`.
+  The "Review requests" card shows them on the location's Settings tab, with Confirm and Decline
+  for an owner or admin. For a test organization and on sample data, each sync of the review
+  requests makes up one to three receipts for the day before, from the waiting sender
+  `receipts@example.com` to customers at `example.com` (`sampleReceipts`,
+  `receiveSampleReceipts`), kept as `sample_data`; the same day makes the same ones, so a second
+  sync keeps nothing more.
 - **Without the key nothing can be connected.** With no `CONNECTIONS_KEY`, `available` is empty and
   `POST` answers 503 `connections_unavailable`. A kind that is not offered answers 422
   `connection_unavailable`. A value that is not base64, or not 32 bytes, throws instead of
@@ -1893,8 +1950,11 @@ A decision about what the product may change on a business's site is in
   organization with something to tell, one email to its owners only (`listOwnerEmails`; the wording
   is `apps/api/src/email/action-notice.ts`) saying what was carried out since the last, with who
   approved each (an owner's own approvals included, and whether they changed the text first), and
-  what is newly waiting for a yes, and which standing permission was given or ended
-  (`listPermissionsToTell`, `markPermissionsTold`). `told_at` is when an action counted as told of, and
+  what is newly waiting for a yes, which standing permission was given or ended
+  (`listPermissionsToTell`, `markPermissionsTold`), and each sender of receipts waiting for an owner
+  or admin with a receipt held since it was last named (`listSendersToTell`, `markSendersTold`; see
+  "Connections"). A permission or a sender named holds nothing up while it is untold: only actions
+  do. `told_at` is when an action counted as told of, and
   `waiting_told_at` when a message said it was waiting; only the worker's secret key writes them
   (`markActionsTold`), and only once the email went. Where `RESEND_API_KEY` is not set on live
   data, nobody is an owner with an address, or the send fails (logged, and the other organizations
@@ -2149,6 +2209,13 @@ through `location_site_fetches()` (see "Fetches of a business's own site"), and 
 API role, only by `turn_on_review_requests()` and `replace_receipt_address()`, which answer an owner
 or admin of the location's organization alone, and by the worker's `finish_connection_removal()`
 (see "Connections").
+`receipt_senders`, `customer_contacts` and `receipt_drops` are read by the organization's members
+and the operator and written by no API role: only the worker's `receive_receipt()`,
+`record_receipt_drop()` and `drop_expired_held_contacts()` write them, and
+`confirm_receipt_sender()` and `decline_receipt_sender()`, which answer an owner or admin of the
+organization and no one else, the operator included, decide a sender. `customer_contacts.address` is
+granted to no API role, the operator included: every other column is granted by name, so a
+caller reads a contact masked (see "Connections").
 `standing_permissions` is read by the organization's members and the operator and written by no API
 role, only by `give_standing_permission()` and `end_standing_permission()`, which answer an owner or
 admin alone, and by the database's own functions when a take-back or the plan ends one (see "Actions").
@@ -2480,7 +2547,9 @@ A cell a spreadsheet would run as a formula is prefixed with an apostrophe. The 
 `application/zip`, an attachment, and `Cache-Control: private, no-store`.
 
 It holds no sign-in (`connection_secrets` is not read), no row of the operator's record of changes
-(`operator_actions`) and nothing about what the providers were paid (`provider_usage`). The web
+(`operator_actions`), nothing about what the providers were paid (`provider_usage`), and no customer
+contact, receipt sender or dropped receipt
+(`docs/adr/0031-a-customer-contact-is-read-only-by-the-worker.md`). The web
 app's Account settings shows the owner a "Your data" card with the button.
 
 ## Closing an account
@@ -2618,10 +2687,11 @@ drop it.
   needs it (see "Connections"), a kind of action that takes from it (see "Actions"), standing
   permission (see "Actions"), a draft (see "Drafts") and counting a visit (see "Visits from
   assistants") ([#133](https://github.com/jwh3times/Nearcited/issues/133)).
-- Review requests stop at being turned on (see "Connections"). Nothing receives mail at
-  `receipts.nearcited.com`, so no receipt is read, no sender is confirmed, no customer contact is
-  kept and no request is sent. Whether a business's list of customers is confidential is read from
-  the words of its location's category alone: one whose category names it otherwise is let through
+- Review requests stop at receiving receipts (see "Connections"). No request is proposed or sent to
+  a customer, so a ready contact is used for nothing yet; there is no opt-out and no fingerprint of
+  an address asked; and a contact is not deleted when its review requests are turned off, or paused
+  because the plan stops including them, but only with its location or organization, or once it has
+  been held seven days. Whether a business's list of customers is confidential is read from the words of its location's category alone: one whose category names it otherwise is let through
   on the owner's word, and one whose category only looks like one (a massage therapist, a
   veterinary clinic) is refused.
 - A real draft is written only where the private tuning has instructions for its kind, and it

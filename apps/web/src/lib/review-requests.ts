@@ -1,6 +1,7 @@
 import {
   type Location,
   OPT_OUT_SHOWN,
+  type ReceiptDrop,
   type ReviewRequestEmail,
   type ReviewRequestsBar,
   type ReviewSite,
@@ -9,6 +10,9 @@ import {
 
 /** Where a location's review requests are kept in the page's cache. */
 export const reviewRequestsKey = (locationId: string) => ["review-requests", locationId];
+
+/** Where a location's receipts are kept in the page's cache. */
+export const receiptsKey = (locationId: string) => ["receipts", locationId];
 
 /** What the card says, kept together so the tests and the page agree. */
 export const REVIEW_WORDS = {
@@ -37,7 +41,50 @@ export const REVIEW_WORDS = {
   paused: "Your plan no longer includes review requests, so nothing is sent.",
   turnedOn: (by: string | null, day: string) =>
     `Turned on${by ? ` by ${by}` : ""} on ${day}, approving this wording.`,
+  receipts: "Receipts received",
+  sendersTitle: "Who sends them",
+  sendersAbout:
+    "Receipts from a sender nobody has confirmed are held, and deleted after seven days. Confirm a sender only if it is your own tool.",
+  confirmSender: "Confirm",
+  declineSender: "Decline",
+  onlyManagersDecide: "Only your organization's owner or an admin can confirm or decline a sender.",
+  contactsTitle: "Customers",
+  contactsAbout:
+    "Each customer is shown only by the first letter of their address and its domain. Nobody here can see more of it.",
+  noContacts: "No receipts yet.",
+  held: "Held until its sender is confirmed",
+  ready: "Ready",
+  sample: "sample",
 } as const;
+
+/** What a sender's standing says, beside its address. */
+export function senderNote(status: "waiting" | "confirmed" | "declined"): string {
+  switch (status) {
+    case "waiting":
+      return "Waiting for a yes";
+    case "confirmed":
+      return "Confirmed";
+    case "declined":
+      return "Declined: what it sends is dropped";
+  }
+}
+
+/** Why receipts were dropped, as the card counts them over the last thirty days. */
+export function droppedNote(reason: ReceiptDrop, count: number): string {
+  const receipts = count === 1 ? "1 receipt" : `${count} receipts`;
+  switch (reason) {
+    case "unauthenticated":
+      return `${receipts} dropped: the message could not be shown to come from its sender (it passed neither DKIM nor SPF).`;
+    case "not_on":
+      return `${receipts} dropped: review requests were off or paused.`;
+    case "declined_sender":
+      return `${receipts} dropped: from a sender that was declined.`;
+    case "no_customer":
+      return `${receipts} dropped: no customer's address could be found in "To".`;
+    case "several_customers":
+      return `${receipts} dropped: "To" named more than one customer, so none was picked.`;
+  }
+}
 
 /** Why review requests cannot be turned on, as the card says it. */
 export function barNote(bar: ReviewRequestsBar): string {

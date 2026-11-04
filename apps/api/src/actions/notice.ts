@@ -1,6 +1,6 @@
 import { buildActionNoticeEmail, type NoticedAction } from "../email/action-notice";
 import type { Email } from "../email/report";
-import type { ActionToTell, PermissionToTell, Store } from "../store/types";
+import type { ActionToTell, PermissionToTell, SenderToTell, Store } from "../store/types";
 
 export interface NoticeDeps {
   store: Store;
@@ -14,9 +14,11 @@ export interface NoticeDeps {
 
 /**
  * Tells each organization's owners, in one message, what was carried out for it since the last
- * and what is newly waiting for a yes, and any standing permission given or ended since. The daily
- * run calls it, so every action is told within about a day, well inside the 48 hours. A
- * permission given or ended holds nothing up while it is untold: only actions do.
+ * and what is newly waiting for a yes, any standing permission given or ended since, and any
+ * sender of receipts waiting for an owner or admin with a receipt held since it was last named.
+ * The daily run calls it, so every action is told within about a day, well inside the 48 hours.
+ * A permission given or ended, or a sender named, holds nothing up while it is untold: only
+ * actions do.
  *
  * A test organization is never written to: its actions are marked told, since the record on its
  * page is the notice. The same goes for a deployment on sample data that has no email to send
@@ -49,6 +51,11 @@ export async function sendActionNotices({
     ]);
     if (!byOrganization.has(row.organization_id)) byOrganization.set(row.organization_id, []);
   }
+  const sendersOf = new Map<string, SenderToTell[]>();
+  for (const row of await store.listSendersToTell()) {
+    sendersOf.set(row.organization_id, [...(sendersOf.get(row.organization_id) ?? []), row]);
+    if (!byOrganization.has(row.organization_id)) byOrganization.set(row.organization_id, []);
+  }
 
   let told = 0;
   for (const [organizationId, rows] of byOrganization) {
@@ -71,7 +78,13 @@ export async function sendActionNotices({
             : null,
         })),
     );
+    const senders = (sendersOf.get(organizationId) ?? []).map(({ sender, location_name }) => ({
+      id: sender.id,
+      address: sender.address,
+      location_name,
+    }));
     const mark = async () => {
+      await store.markSendersTold(senders.map((sender) => sender.id));
       await store.markPermissionsTold(
         given.map((permission) => permission.id),
         "given",
@@ -110,6 +123,7 @@ export async function sendActionNotices({
           waiting,
           given,
           ended,
+          senders,
           appUrl,
         }),
       );

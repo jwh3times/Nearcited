@@ -311,6 +311,25 @@ pass `pnpm check` and run in mock mode without it.
   day, a location, an assistant and a page, and no score, alert, task, report or bill is worked out
   from it. On sample data and for a test organization the counts are made up
   (`sampleAnalyticsVisits`), kept as `sample_data`, and Google is never asked for them.
+- **Only the worker reads a customer contact in full, and a receipt is never guessed at.** A receipt
+  copied to a location's receipt address reaches the Worker's `email` handler, which acts as the
+  worker (`receiveEmail`, `apps/api/src/receipts.ts`). What a receipt says is decided by rule in
+  `readReceipt` (`packages/shared/src/receipts.ts`): it counts only when Cloudflare's own
+  `Authentication-Results`, the first one, says DKIM or SPF passed for the sender's own domain (or
+  DMARC passed): a pass for another domain says nothing about who sent it. The customer is the single
+  address in `To:` that is neither the business's own nor the product's. One that fails, names no
+  customer or several, is from a declined sender or is for review requests that are not on is
+  dropped and counted for its location (`receipt_drops`), and nothing else of it is kept. Only
+  the customer's address and the job day, the `Date` in the location's time zone, are kept, by
+  `receive_receipt()`, which only the worker calls. A receipt from a sender no owner or admin
+  confirmed is held, and deleted after seven days; `confirm_receipt_sender()` and
+  `decline_receipt_sender()` answer an owner or admin and no one else, the operator included.
+  `customer_contacts.address` is granted to no API role: every member and the operator read
+  `masked` and the day, no route or wire type carries the address, and `export_organization()`
+  leaves contacts out (`docs/adr/0031-a-customer-contact-is-read-only-by-the-worker.md`). Keep the
+  column ungranted, select contacts by named columns, and log nothing of a message but what became
+  of it. A test organization and a deployment on sample data receive nothing: their receipts are
+  made up when the review requests sync (`sampleReceipts`), kept as `sample_data`.
 - **Only the worker closes an account.** A request records an owner's ask through
   `request_closing()`, which answers an owner of the organization and no one else, refuses the
   operator, a test account and a name that is not the organization's, and queues the worker

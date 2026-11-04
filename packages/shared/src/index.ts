@@ -16,6 +16,7 @@ export * from "./limits";
 export * from "./listings";
 export * from "./operator";
 export * from "./pages";
+export * from "./receipts";
 export * from "./recommendations";
 export * from "./review-requests";
 export * from "./robots";
