@@ -27,8 +27,9 @@ interface LocationEditorProps {
  * there is nothing here to set it.
  */
 export function LocationEditor({ location, onSaved, readOnly }: LocationEditorProps) {
+  // The browser's time zone is offered only to a member who can save it, never to the operator.
   const [form, setForm] = useState<Required<LocationFormValues>>(() =>
-    locationFormValues(location),
+    readOnly ? locationFormValues(location, null) : locationFormValues(location),
   );
   const save = useMutation({
     mutationFn: (values: LocationFormValues) => api.updateLocation(location.id, values),

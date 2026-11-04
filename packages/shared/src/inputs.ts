@@ -60,13 +60,13 @@ export function normalizeWebsite(typed: string): string | null {
   return withScheme;
 }
 
-/** The shape of an IANA time zone's name, as the database checks it. An offset is not one. */
+/** The shape of an IANA time zone's name, as the database checks it. A bare offset is not one. */
 const TIME_ZONE_NAME = /^[A-Za-z][A-Za-z0-9_+-]*(\/[A-Za-z0-9_+-]+)*$/;
 
 /**
  * A time zone's IANA name as it is stored: spelled the way the runtime spells it, so
  * `america/chicago` is kept as `America/Chicago`. Null when it names no time zone the runtime
- * knows, or only an offset, which would keep no daylight saving.
+ * knows, or is a bare offset such as `+05:00` rather than a name.
  */
 export function normalizeTimeZone(typed: string): string | null {
   if (typed.length > 64 || !TIME_ZONE_NAME.test(typed)) return null;
