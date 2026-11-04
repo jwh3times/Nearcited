@@ -1580,6 +1580,62 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
     ).toBeNull();
     expect(await visitor.getAuditByToken(audit.token)).toBeNull();
 
+    // Review requests: turned on by an owner or admin, read by members, with a receipt address
+    // that is replaced, and refused where they cannot be.
+    const allowing = await aliceStore.getOrganization(organization.id);
+    await admin
+      .from("organizations")
+      .update({
+        max_locations: 20,
+        allowances: { ...allowing?.allowances, review_requests: 100 },
+      })
+      .eq("id", organization.id)
+      .throwOnError();
+    const asking = await aliceStore.createLocation(organization.id, {
+      name: "Asking Pizza",
+      website: null,
+      phone: null,
+      address_line: null,
+      city: "Raleigh",
+      region: "NC",
+      postal_code: null,
+      country_code: "US",
+      google_place_id: null,
+      primary_category: "Pizza restaurant",
+      time_zone: "America/New_York",
+    });
+    await aliceStore.setListing(asking.id, "google.com", "https://g.page/r/asking-pizza/review");
+    const requests = {
+      id: crypto.randomUUID(),
+      location_id: asking.id,
+      site: "google.com",
+      reply_to: "alice@example.com",
+      confirmed: true,
+    };
+    expect(await bobStore.turnOnReviewRequests(requests)).toBeNull();
+    await expect(
+      aliceStore.turnOnReviewRequests({ ...requests, confirmed: false }),
+    ).rejects.toMatchObject({ kind: "limit" });
+    expect(await aliceStore.turnOnReviewRequests(requests)).toMatchObject({
+      id: requests.id,
+      kind: "review_requests",
+      label: "Asking Pizza",
+    });
+    const asked = await aliceStore.getLocationReviewRequests(asking.id);
+    expect(asked).toMatchObject({
+      connection_id: requests.id,
+      site: "google.com",
+      reply_to: "alice@example.com",
+      status: "working",
+      released_at: null,
+    });
+    expect(asked?.receipt_address).toMatch(/^[0-9a-f]{32}$/);
+    expect(await bobStore.getLocationReviewRequests(asking.id)).toBeNull();
+    expect(await bobStore.replaceReceiptAddress(asking.id)).toBeNull();
+    const another = await aliceStore.replaceReceiptAddress(asking.id);
+    expect(another?.receipt_address).toMatch(/^[0-9a-f]{32}$/);
+    expect(another?.receipt_address).not.toBe(asked?.receipt_address);
+
     // Answer subdomains: made by an owner or admin, read by members, checked by the worker.
     const included = await aliceStore.getOrganization(organization.id);
     await admin

@@ -1091,8 +1091,9 @@ export type RecommendationUpdate = z.output<typeof RecommendationUpdateSchema>;
  * the data is generated. `wordpress` is a business's own WordPress site (`wordpress.ts`).
  * `hosted_pages` is an answer subdomain of the business's own domain, which the product serves
  * pages on (`hosted-pages.ts`); it has no sign-in. `cloudflare` is a token that reads the
- * request counts of the zones a business's site is served through (`fetches.ts`). See
- * `docs/adr/0013-a-sign-in-is-sealed-by-the-worker.md`.
+ * request counts of the zones a business's site is served through (`fetches.ts`).
+ * `review_requests` is a location's review requests and its receipt address, which has no
+ * sign-in either (`review-requests.ts`). See `docs/adr/0013-a-sign-in-is-sealed-by-the-worker.md`.
  */
 export const CONNECTION_KINDS = [
   "sample",
@@ -1100,6 +1101,7 @@ export const CONNECTION_KINDS = [
   "hosted_pages",
   "cloudflare",
   "google_analytics",
+  "review_requests",
 ] as const;
 export const ConnectionKindSchema = z.enum(CONNECTION_KINDS);
 export type ConnectionKind = z.infer<typeof ConnectionKindSchema>;
@@ -1110,6 +1112,7 @@ export const CONNECTION_KIND_LABELS: Record<ConnectionKind, string> = {
   hosted_pages: "Answer subdomain",
   cloudflare: "Cloudflare account",
   google_analytics: "Google Analytics account",
+  review_requests: "Review requests",
 };
 
 /**
@@ -1122,6 +1125,7 @@ export const CONNECTION_KIND_ALLOWANCES: Record<ConnectionKind, string | null> =
   hosted_pages: "hosted_pages",
   cloudflare: "fetches",
   google_analytics: "visits",
+  review_requests: "review_requests",
 };
 
 /**
@@ -1247,7 +1251,9 @@ export const CloudflareTokenSchema = z
  */
 export const ConnectionInputSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("cloudflare"), token: CloudflareTokenSchema }),
-  z.object({ kind: ConnectionKindSchema.exclude(["cloudflare", "google_analytics"]) }),
+  z.object({
+    kind: ConnectionKindSchema.exclude(["cloudflare", "google_analytics", "review_requests"]),
+  }),
 ]);
 export type ConnectionInput = z.infer<typeof ConnectionInputSchema>;
 
@@ -1369,6 +1375,84 @@ export const AnswerSubdomainInputSchema = z.object({
   label: z.string().trim().min(1, "Enter a name").max(63),
 });
 export type AnswerSubdomainInput = z.infer<typeof AnswerSubdomainInputSchema>;
+
+/** A site a location's review requests may ask for (`qualifyingSites`). */
+export const ReviewSiteSchema = z.object({
+  /** The site, as the list of known sites names it. */
+  site: z.string(),
+  /** What a customer calls it. */
+  name: z.string(),
+  /** The review form a customer is sent to, made from the location's listing there. */
+  link: z.string(),
+  /** How many answers in the scan window cited it. */
+  cited: z.number().int().nonnegative(),
+});
+export type ReviewSite = z.infer<typeof ReviewSiteSchema>;
+
+/** A location's review requests while they are on: its receipt address and what they ask for. */
+export const ReviewRequestSettingsSchema = z.object({
+  connection_id: Id,
+  location_id: Id,
+  /** The address its owner copies receipts to, at the product's receiving domain. */
+  receipt_address: z.string(),
+  /** When the receipt address was made: when they were turned on, or it was last replaced. */
+  address_made_at: Timestamp,
+  /** The site a customer is asked to review the business on. */
+  site: z.string(),
+  /** Where a customer's reply goes. */
+  reply_to: z.string(),
+  /** Who turned them on, approving the wording, as the address they had then. */
+  turned_on_by_email: z.string().nullable(),
+  turned_on_at: Timestamp,
+  status: ConnectionStatusSchema,
+  paused_at: Timestamp.nullable(),
+});
+export type ReviewRequestSettings = z.infer<typeof ReviewRequestSettingsSchema>;
+
+/**
+ * Why a location's review requests cannot be turned on, where they cannot: its plan does not
+ * include them, it has no time zone, its category is one whose customers are confidential, or it
+ * has no listing on a site that may be asked for.
+ */
+export const REVIEW_REQUESTS_BARS = [
+  "not_included",
+  "no_time_zone",
+  "confidential",
+  "no_site",
+] as const;
+export type ReviewRequestsBar = (typeof REVIEW_REQUESTS_BARS)[number];
+
+/** A location's review requests, as its Settings tab shows them. */
+export const LocationReviewRequestsSchema = z.object({
+  /** What stands in the way of turning them on. Null where they can be. */
+  barred: z.enum(REVIEW_REQUESTS_BARS).nullable(),
+  /** True for the organization's owner or an admin, who alone turn them on and off. */
+  can_manage: z.boolean(),
+  /** Their settings, while they are on. */
+  settings: ReviewRequestSettingsSchema.nullable(),
+  /** The sites that may be asked for, the one cited most first. */
+  sites: z.array(ReviewSiteSchema),
+  /** The address of whoever is reading, which replies go to unless they give another. */
+  reply_to: z.string().nullable(),
+});
+export type LocationReviewRequests = z.infer<typeof LocationReviewRequestsSchema>;
+
+/**
+ * What is sent to turn a location's review requests on: the site, where replies go, and the
+ * owner's word that the list of customers is not confidential. Sending it approves the wording.
+ */
+export const ReviewRequestsInputSchema = z.object({
+  site: z.string().trim().min(1, "Choose a site").max(253),
+  reply_to: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .pipe(z.email("Enter an email address").max(254, "Enter an email address")),
+  confirmed: z.literal(true, {
+    error: "Confirm that your customer list is not confidential",
+  }),
+});
+export type ReviewRequestsInput = z.output<typeof ReviewRequestsInputSchema>;
 
 /**
  * A business as its hosted pages show it: what its location holds of who and where it is, which
@@ -2544,6 +2628,19 @@ export const ExportAnalyticsVisitSchema = z.object({
   sample_data: z.boolean(),
 });
 
+/** A location's review requests, on or turned off, as the export holds them. */
+export const ExportReviewRequestsSchema = z.object({
+  connection_id: Id,
+  /** Null once its location was removed. */
+  location_id: Id.nullable(),
+  receipt_address: z.string(),
+  address_made_at: Timestamp,
+  site: z.string(),
+  reply_to: z.string(),
+  /** When they were turned off and the receipt address let go. */
+  released_at: Timestamp.nullable(),
+});
+
 /**
  * Everything an organization holds, as its owner downloads it. Each list's rows are the same
  * wire types the app is sent. Never a sign-in, the operator's record of changes or what the
@@ -2573,6 +2670,7 @@ export const AccountExportSchema = z.object({
   page_fetches: z.array(ExportPageFetchSchema),
   site_fetches: z.array(ExportSiteFetchSchema),
   analytics_visits: z.array(ExportAnalyticsVisitSchema),
+  review_requests: z.array(ExportReviewRequestsSchema),
 });
 export type AccountExport = z.infer<typeof AccountExportSchema>;
 

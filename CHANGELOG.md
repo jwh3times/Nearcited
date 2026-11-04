@@ -9,6 +9,31 @@ counting builds on a release line.
 
 No unreleased changes.
 
+## [1.2.0] - 2026-11-04
+
+### Added
+
+- An owner or admin can turn on review requests for a location, the first step of asking a
+  business's customers for reviews by email (#146). Nothing is received or sent yet, and no plan
+  includes them: they are tried on an organization whose limits are set by hand. Turning them on,
+  from a card on the location's Settings tab, sets four things:
+  - **Receipt address:** an unguessable address of the location's own, at
+    `receipts.nearcited.com`, for the owner to copy receipts to. An owner or admin can replace it,
+    and the old one then belongs to nobody.
+  - **Site:** the site a customer is asked to review the business on. It starts on the one the
+    answers cited most, among Google, BBB and Trustpilot where the location has a listing with a
+    review form, and another can be chosen.
+  - **Reply address:** where a customer's reply goes, starting as the owner's own address.
+  - **Wording:** the email a customer would be sent, composed by rule with an opt-out line. It is
+    read and approved as it stands, never edited.
+
+  Turning them on is refused for a location with no time zone, for a category whose list of
+  customers is confidential (medical, dental, mental health, legal, financial advice and the
+  like), and without the owner's word that their list is not confidential and their customers
+  expect to hear from them. Any member sees the settings, and a plain member or the operator cannot
+  change them. They are turned off by removing the connection, and with their location. The export
+  includes them.
+
 ## [1.1.0] - 2026-11-04
 
 ### Added
@@ -84,7 +109,8 @@ deployed.
   (`scripts/check-changelog.mjs`); a Dependabot merge gets its section on the next human pull
   request.
 
-[Unreleased]: https://github.com/jwh3times/Nearcited/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/jwh3times/Nearcited/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/jwh3times/Nearcited/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/jwh3times/Nearcited/compare/v1.0.5...v1.1.0
 [1.0.5]: https://github.com/jwh3times/Nearcited/compare/v1.0.4...v1.0.5
 [1.0.4]: https://github.com/jwh3times/Nearcited/compare/v1.0.3...v1.0.4

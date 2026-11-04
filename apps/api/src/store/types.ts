@@ -271,6 +271,36 @@ export interface KeptAnswerSubdomain {
 }
 
 /**
+ * Review requests to turn on for a location: the connection's ID, the site asked for, where
+ * replies go, and the owner's word that the list of customers is not confidential.
+ */
+export interface NewReviewRequests {
+  id: string;
+  location_id: string;
+  site: string;
+  reply_to: string;
+  confirmed: boolean;
+}
+
+/** A location's review requests as the database keeps them, with their connection's standing. */
+export interface KeptReviewRequests {
+  connection_id: string;
+  organization_id: string;
+  location_id: string | null;
+  /** The name in front of the receiving domain (`receiptAddress`). */
+  receipt_address: string;
+  address_made_at: string;
+  site: string;
+  reply_to: string;
+  /** When they were turned off and the receipt address let go. */
+  released_at: string | null;
+  connected_by_email: string | null;
+  connected_at: string;
+  status: Connection["status"];
+  paused_at: string | null;
+}
+
+/**
  * An owner's ask to close the account, and how far the worker has got with it. It outlives the
  * organization: what the closing email needs is kept here until it has gone, and then only the
  * fingerprint of the owner's email is kept, for thirty days.
@@ -596,6 +626,19 @@ export interface Store {
    * removed. For whoever can read the location.
    */
   getLocationAnswerSubdomain(locationId: string): Promise<KeptAnswerSubdomain | null>;
+  /**
+   * Turns a location's review requests on, as a connection matched to it with no sign-in and a
+   * new receipt address. Null for anyone but an owner or admin of its organization. Throws a
+   * `limit` with the reason for anything that stands in the way.
+   */
+  turnOnReviewRequests(requests: NewReviewRequests): Promise<Connection | null>;
+  /** A location's review requests while they are on, for whoever can read the location. */
+  getLocationReviewRequests(locationId: string): Promise<KeptReviewRequests | null>;
+  /**
+   * Gives a location's review requests a new receipt address; the old one is nobody's from then
+   * on. Null for anyone but an owner or admin, and where they are not on.
+   */
+  replaceReceiptAddress(locationId: string): Promise<KeptReviewRequests | null>;
   /**
    * How much of each counted allowance an organization has used this calendar month (UTC), by
    * kind. A kind with none used is absent, and so is everything where the caller cannot read the

@@ -192,6 +192,7 @@ describe("downloading everything", () => {
       "page-addresses.csv",
       "page-fetches.csv",
       "prompts.csv",
+      "review-requests.csv",
       "scans.csv",
       "site-fetches.csv",
       "standing-permissions.csv",

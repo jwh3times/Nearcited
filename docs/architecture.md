@@ -1143,13 +1143,14 @@ A connection is an organization's standing sign-in to an outside account (`conne
 is in `GLOSSARY.md`, the decision in `docs/adr/0013-a-sign-in-is-sealed-by-the-worker.md`). What
 exists is making one, listing them, reading what one reaches, saying which of those is each
 location's, breaking one that stops working, pausing one the plan stops including, and removing
-one. There are five kinds, `sample`, `wordpress` (see "A WordPress site" below), `hosted_pages`
-(see "An answer subdomain" below), `cloudflare` (see "Fetches of a business's own site") and
-`google_analytics` (see "Sessions from assistants, read from Google Analytics"). Nothing reads
+one. There are six kinds, `sample`, `wordpress` (see "A WordPress site" below), `hosted_pages`
+(see "An answer subdomain" below), `cloudflare` (see "Fetches of a business's own site"),
+`google_analytics` (see "Sessions from assistants, read from Google Analytics") and
+`review_requests` (see "Review requests" below). Nothing reads
 anything from an account beyond what it reaches, but for a Cloudflare zone's request counts and a
 Google Analytics property's sessions from assistants, and nothing is done through either kind (see
 "Actions" for the rest). The `sample` kind never fails and needs no allowance, so only the other
-four can break or pause in practice.
+five can break or pause in practice.
 
 - **Only an owner or admin connects or removes.** `create_connection()` and
   `request_connection_removal()` are security-definer functions that return no row to anyone else,
@@ -1179,7 +1180,8 @@ four can break or pause in practice.
   recorded, and running the step twice is safe: `finish_connection_removal()` answers false when
   none is waiting. A sign-in the Worker cannot
   open (another key, or none) is deleted all the same, without taking the access back. The
-  `sample` kind has none to take back. A `wordpress` one deletes its application password at the
+  `sample` kind has none to take back, and nor do review requests, whose removal lets the receipt
+  address go (below). A `wordpress` one deletes its application password at the
   site (below), and a `google_analytics` one posts its refresh token to Google's revoke endpoint.
 - **A lost message is asked for again.** If the send fails, the request still succeeds and logs it.
   If a step throws, the queue redelivers it, and after `max_retries` it goes to the dead-letter
@@ -1369,6 +1371,47 @@ four can break or pause in practice.
   `connection_kind_allowances` and its turning on for Pro and Enterprise (see "Tenancy"). The
   members of the organization and the operator read an answer subdomain, but not `cloudflare_id` or
   `live_told_at`; no API role writes the table.
+- **Review requests are turned on from their location, and have no sign-in.** Issue #290, part of
+  #146 (`docs/adr/0011-the-product-does-the-work-and-the-owner-approves.md`,
+  `docs/adr/0031-a-customer-contact-is-read-only-by-the-worker.md`).
+  `POST /api/locations/:locationId/review-requests` (`apps/api/src/routes/review-requests.ts`) is
+  for an owner or admin: a plain member and the operator get 403 `owners_and_admins_only`, and a
+  stranger 404. `GET` on the same path is for anyone who can read the location, and says why they
+  cannot be turned on (`barred`), the sites they may ask for and, while they are on, their settings.
+  The generic connect route does not take the kind and `create_connection()` refuses it.
+  `turn_on_review_requests()` makes the connection, its match to the location and its
+  `review_request_settings` row in one step, with a new receipt address: 32 hex characters from
+  `gen_random_uuid()` (`new_receipt_address()`, which no API role may call) in front of
+  `receipts.nearcited.com` (`RECEIPTS_DOMAIN`, `packages/shared/src/review-requests.ts`). It
+  refuses a plan without the `review_requests` allowance, a location that has them on already, one
+  with no time zone (a request would be sent at a time of the location's day), one whose
+  `primary_category` names a kind of business whose list of customers is confidential
+  (`is_confidential_category()`, by a whole word or phrase of a list of medical, dental, mental
+  health, legal and financial-advice words, in any case and as a plural, erring toward refusing;
+  `CONFIDENTIAL_KINDS` and `isConfidentialCategory` in the shared package hold the same list, and a
+  test in `packages/db` holds the two together), a call without `confirmed` (the owner's word that
+  the list is not confidential and the customers expect to hear from them), a site where the
+  location has no listing with a review form, and a reply address that is not one. The route checks
+  the same first, so it can say which (409 `already_connected`; 422 `connection_unavailable`,
+  `no_time_zone`, `confidential`, `no_site` or `not_a_site`). The sites are `qualifyingSites`: the
+  review sites where the location's listing gives a review form, which today is Google's review
+  link, a BBB profile and a Trustpilot page, each with the link a customer would be sent and how
+  many answers in the scan window cited it, the one cited most first, which the card chooses to
+  start with; generated and real results never share the window. Turning them on approves the
+  wording, which is composed by rule (`reviewRequestEmail`): the request to send (see "Tasks"), then
+  a line saying Nearcited sends it for the business and a reply goes to the business, then a line to
+  opt out with. It is not kept, and nobody edits it. Who turned them on, and when, is the
+  connection's. `replace_receipt_address()` (`POST /api/locations/:locationId/review-requests/address`,
+  the same callers) gives a new address; the old one belongs to nobody from then on. They are turned
+  off with `DELETE /api/connections/:connectionId`: `removeConnection` has nothing outside to take
+  back, and `finish_connection_removal()` sets `released_at`, letting the address go. Deleting the
+  location starts their removal (a trigger, `removal_reason` `location`), which the sweep of stalled
+  removals finishes. A sync reads nothing and only records that it ran, no action is proposed after
+  one, and the match routes refuse them (`not_matched_by_hand`). A location has them on once at a
+  time, and they can be turned on again, with a new address, once the removal has finished. The
+  "Review requests" card is on the location's Settings tab, shown only where the organization's
+  allowances include the kind. Nothing is received at a receipt address yet, nothing is sent to a
+  customer, and nothing takes from the allowance, which is counted and on no plan (see "Tenancy").
 - **Without the key nothing can be connected.** With no `CONNECTIONS_KEY`, `available` is empty and
   `POST` answers 503 `connections_unavailable`. A kind that is not offered answers 422
   `connection_unavailable`. A value that is not base64, or not 32 bytes, throws instead of
@@ -2102,6 +2145,10 @@ a caller who is not signed in, and written by no API role, only by `record_page_
 through `location_site_fetches()` (see "Fetches of a business's own site"), and so is
 `analytics_visits`, written only by the worker's `record_analytics_visits()` and read added up through
 `location_analytics_visits()` (see "Sessions from assistants, read from Google Analytics").
+`review_request_settings` is read by the organization's members and the operator and written by no
+API role, only by `turn_on_review_requests()` and `replace_receipt_address()`, which answer an owner
+or admin of the location's organization alone, and by the worker's `finish_connection_removal()`
+(see "Connections").
 `standing_permissions` is read by the organization's members and the operator and written by no API
 role, only by `give_standing_permission()` and `end_standing_permission()`, which answer an owner or
 admin alone, and by the database's own functions when a take-back or the plan ends one (see "Actions").
@@ -2284,7 +2331,9 @@ copy, edit and lower a plan.
   `hosted_pages` is the same: `20261016110000_answer_subdomains.sql` turned it on for them (the kind
   itself came in `20261016100000_hosted_pages_kind.sql`). `fetches` is included or not too, and on
   no plan: `20261024000000_cloudflare_kind.sql` added the kind and left which plans include it to
-  the operator.
+  the operator. `review_requests` is counted, a number a month for each location, and on no plan
+  either: `20261104000000_review_requests_kind.sql` added the kind and left it to the operator's
+  limits editor for one organization, and test organizations have it from the trigger.
 - **Use of a counted kind is kept in `allowance_use`**, one row for an organization, a kind and a
   calendar month in UTC. Its members read their own organization's rows and the operator reads
   all of them; no API role writes it, since a count a member could write is a count a member could
@@ -2297,7 +2346,8 @@ copy, edit and lower a plan.
   functions call either. Two kinds exist. `drafts` is counted, by `claim_draft()` and
   `finish_draft()` (see "Drafts"). `visits` is included or not, so nothing is claimed for it:
   `counts_visits()` checks that the organization's allowances name it before a visit is counted
-  (see "Visits from assistants"). No kind of action is counted yet (see "Actions" and "Known
+  (see "Visits from assistants"). `review_requests` is counted, and nothing claims it yet, since
+  nothing is sent (see "Connections"). No kind of action is counted yet (see "Actions" and "Known
   gaps").
 - **A kind of connection can name the allowance it needs**, in `connection_kind_allowances`; see
   "Connections".
@@ -2550,22 +2600,30 @@ drop it.
   A signed-in user cannot update a scan, so the request that hit the failure cannot clear it.
 - On a Supabase project that still signs tokens with a legacy shared secret, `getClaims` asks the
   Auth server on every request. Use asymmetric signing keys.
-- Allowances limit little yet. Eight kinds of allowance exist (`ALLOWANCE_KINDS` and
-  `allowance_kinds`): `drafts`, counted, and `visits`, `wordpress`, `hosted_pages`, `stronger_models`,
-  `google_results`, `standing_permission` and `fetches`, included or not.
+- Allowances limit little yet. Nine kinds of allowance exist (`ALLOWANCE_KINDS` and
+  `allowance_kinds`): `drafts` and `review_requests`, counted, and `visits`, `wordpress`,
+  `hosted_pages`, `stronger_models`, `google_results`, `standing_permission` and `fetches`, included
+  or not.
   Every paid plan includes `drafts` and `visits`, Pro and Enterprise include `wordpress`,
-  `hosted_pages` and `standing_permission`, no plan includes `fetches` until the operator puts it
-  on one, and the free plan includes none. A test organization is
+  `hosted_pages` and `standing_permission`, no plan includes `fetches` or `review_requests` until
+  the operator puts it on one, and the free plan includes none. Nothing takes from
+  `review_requests` yet, since no request is sent. A test organization is
   given every kind, so its drafts are counted and its visits and WordPress connection are included,
   but it is refused an answer subdomain, whose pages would go out under a real domain, and is
   offered no Cloudflare or Google Analytics connection, its fetches and sessions being made up. The
-  `wordpress`, `hosted_pages`, `cloudflare` and `google_analytics` kinds of connection name an allowance, and the kinds of action
+  `wordpress`, `hosted_pages`, `cloudflare`, `google_analytics` and `review_requests` kinds of connection name an allowance, and the kinds of action
   that go through the first two take from those two, which are included without a number; so a number
   for any kind but `drafts` would be stored, shown and lowered by announcement, but no work would
   stop at it or be counted against it. What an allowance can stop is a kind of connection that
   needs it (see "Connections"), a kind of action that takes from it (see "Actions"), standing
   permission (see "Actions"), a draft (see "Drafts") and counting a visit (see "Visits from
   assistants") ([#133](https://github.com/jwh3times/Nearcited/issues/133)).
+- Review requests stop at being turned on (see "Connections"). Nothing receives mail at
+  `receipts.nearcited.com`, so no receipt is read, no sender is confirmed, no customer contact is
+  kept and no request is sent. Whether a business's list of customers is confidential is read from
+  the words of its location's category alone: one whose category names it otherwise is let through
+  on the owner's word, and one whose category only looks like one (a massage therapist, a
+  veterinary clinic) is refused.
 - A real draft is written only where the private tuning has instructions for its kind, and it
   needs them before a deployment writes one, or offers a task one (see "Tuning" and "Drafts"). What a real draft costs has
   been measured only in a trial, whose readings are kept privately: a draft's use is recorded, so

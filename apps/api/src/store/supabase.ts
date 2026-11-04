@@ -50,7 +50,13 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import type { Env } from "../env";
 import { PAGE_SIZE, type ReadPage, readEvery } from "./paging";
-import { type KeptAnswerSubdomain, type Store, StoreError, type StoreErrorKind } from "./types";
+import {
+  type KeptAnswerSubdomain,
+  type KeptReviewRequests,
+  type Store,
+  StoreError,
+  type StoreErrorKind,
+} from "./types";
 
 const clientOptions = {
   auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
@@ -102,6 +108,7 @@ const ERROR_KINDS: Record<string, StoreErrorKind> = {
   NC014: "limit", // a draft asked for when the month has no more
   NC015: "limit", // a listing on one site more than a location may hold
   NC016: "limit", // who is in an organization: no owner left, already in or invited, too many
+  NC017: "limit", // review requests that cannot be turned on, with the reason
 };
 
 function fail(action: string, error: DbError): never {
@@ -149,6 +156,32 @@ const keptAnswerSubdomain = ({
   connection,
   ...row
 }: z.infer<typeof AnswerSubdomainRowSchema>): KeptAnswerSubdomain => ({ ...row, ...connection });
+
+/** A location's review requests, with their connection's standing read with them. */
+const REVIEW_REQUESTS_COLUMNS =
+  "connection_id, organization_id, location_id, receipt_address, address_made_at, site, reply_to, released_at, connection:connections!inner(connected_by_email, connected_at, status, paused_at)";
+
+const ReviewRequestsRowSchema = z.object({
+  connection_id: z.uuid(),
+  organization_id: z.uuid(),
+  location_id: z.uuid().nullable(),
+  receipt_address: z.string(),
+  address_made_at: z.string(),
+  site: z.string(),
+  reply_to: z.string(),
+  released_at: z.string().nullable(),
+  connection: z.object({
+    connected_by_email: z.string().nullable(),
+    connected_at: z.string(),
+    status: ConnectionSchema.shape.status,
+    paused_at: z.string().nullable(),
+  }),
+});
+
+const keptReviewRequests = ({
+  connection,
+  ...row
+}: z.infer<typeof ReviewRequestsRowSchema>): KeptReviewRequests => ({ ...row, ...connection });
 
 /** A hosted page as the worker reads it. */
 const HostedPageRowSchema = z.object({
@@ -868,6 +901,41 @@ export function createSupabaseStore(
             AnswerSubdomainRowSchema.parse({ ...data, cloudflare_id: null, live_told_at: null }),
           )
         : null;
+    },
+
+    async turnOnReviewRequests({ id, location_id, site, reply_to, confirmed }) {
+      const { data, error } = await db
+        .rpc("turn_on_review_requests", {
+          location: location_id,
+          new_id: id,
+          chosen_site: site,
+          reply_address: reply_to,
+          confirmed,
+        })
+        .select(CONNECTION_COLUMNS)
+        .maybeSingle();
+      if (error) fail("Turn on review requests", error);
+      return data ? ConnectionSchema.parse(data) : null;
+    },
+
+    async getLocationReviewRequests(locationId) {
+      const { data, error } = await db
+        .from("review_request_settings")
+        .select(REVIEW_REQUESTS_COLUMNS)
+        .eq("location_id", locationId)
+        .is("released_at", null)
+        .maybeSingle();
+      if (error) fail("Get a location's review requests", error);
+      return data ? keptReviewRequests(ReviewRequestsRowSchema.parse(data)) : null;
+    },
+
+    async replaceReceiptAddress(locationId) {
+      const { data, error } = await db
+        .rpc("replace_receipt_address", { location: locationId })
+        .select(REVIEW_REQUESTS_COLUMNS)
+        .maybeSingle();
+      if (error) fail("Replace a receipt address", error);
+      return data ? keptReviewRequests(ReviewRequestsRowSchema.parse(data)) : null;
     },
 
     async listLocationPageFetches(locationId, since) {

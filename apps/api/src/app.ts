@@ -31,6 +31,7 @@ import { memberRoutes } from "./routes/members";
 import { operatorRoutes } from "./routes/operator";
 import { organizationRoutes } from "./routes/organizations";
 import { pageRoutes } from "./routes/pages";
+import { reviewRequestRoutes } from "./routes/review-requests";
 import { scanRoutes } from "./routes/scans";
 import { visitRoutes } from "./routes/visits";
 import { wordpressRoutes } from "./routes/wordpress";
@@ -242,6 +243,7 @@ export function createApp(deps: AppDeps = { authenticate: authenticateWithSupaba
   app.route("/", pageRoutes);
   app.route("/", wordpressRoutes);
   app.route("/", hostedPagesRoutes);
+  app.route("/", reviewRequestRoutes);
   app.route("/", visitRoutes);
   app.route("/", fetchRoutes);
 

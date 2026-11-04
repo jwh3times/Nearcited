@@ -27,6 +27,7 @@ import {
   type LocationFormValues,
   LocationHostedPagesSchema,
   LocationLineSchema,
+  LocationReviewRequestsSchema,
   LocationSchema,
   LocationVisitsSchema,
   type MemberRole,
@@ -51,6 +52,8 @@ import {
   PublicAuditSchema,
   RecommendationSchema,
   type RecommendationStatus,
+  ReviewRequestSettingsSchema,
+  type ReviewRequestsInput,
   ScanSchema,
   StandingPermissionSchema,
   SubscriptionChangeSchema,
@@ -263,6 +266,15 @@ export const api = {
   /** Makes a location's answer subdomain from the one word in front of its domain. */
   makeAnswerSubdomain: (locationId: string, label: string) =>
     json(AnswerSubdomainSchema, "POST", `/locations/${locationId}/hosted-pages`, { label }),
+  /** A location's review requests: whether they are on, and what can be chosen. */
+  reviewRequests: (locationId: string) =>
+    json(LocationReviewRequestsSchema, "GET", `/locations/${locationId}/review-requests`),
+  /** Turns a location's review requests on, which approves the wording as it stands. */
+  turnOnReviewRequests: (locationId: string, input: ReviewRequestsInput) =>
+    json(ReviewRequestSettingsSchema, "POST", `/locations/${locationId}/review-requests`, input),
+  /** Gives a location's review requests a new receipt address. */
+  replaceReceiptAddress: (locationId: string) =>
+    json(ReviewRequestSettingsSchema, "POST", `/locations/${locationId}/review-requests/address`),
   connect: (organizationId: string, input: ConnectionInput) =>
     json(ConnectionSchema, "POST", `/organizations/${organizationId}/connections`, input),
   /** Asks for a connection to be removed. The worker finishes it shortly after. */
