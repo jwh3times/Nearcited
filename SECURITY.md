@@ -189,6 +189,16 @@ Nearcited is multi-tenant, and tenant isolation is enforced by Postgres row-leve
   anything but a count for a day, a location, a known assistant and a page; these counts reaching
   `visits`; and reading another organization's counts through `location_analytics_visits()` or
   `GET /api/locations/:locationId/analytics-visits`, or any of them as a caller who is not signed in.
+- Review requests: turning them on, or replacing a location's receipt address, as anyone but an
+  owner or admin of the location's organization, through `turn_on_review_requests()`,
+  `replace_receipt_address()` or `POST /api/locations/:locationId/review-requests` and its
+  `/address`: a plain member, the operator, a member of another organization and a caller who is
+  not signed in must get nothing. Also turning them on past a refusal (a plan without them, a
+  location with no time zone or a confidential category, no confirmation, a site with no listing
+  that gives a review form), making one through `create_connection()`, calling
+  `new_receipt_address()` through the API, writing `review_request_settings` directly, reading
+  another organization's review requests or their receipt address, working out or guessing a
+  receipt address, and an address that was replaced or let go still belonging to a location.
 - Reading a shareable audit without its link, or after it was revoked or expired; listing audits;
   or creating one. `/api/audits/:token` is the one route that gives out an organization's data
   with no sign-in, and the token in the link is the only key to it. `/api/plans` needs no sign-in
