@@ -33,6 +33,7 @@ import type {
   LocationConnection,
   LocationFetches,
   LocationInput,
+  LocationReceipts,
   LocationVisits,
   Member,
   MemberRole,
@@ -49,6 +50,8 @@ import type {
   PriceChangeNotice,
   PromptPage,
   ProviderUsage,
+  ReceiptDrop,
+  ReceiptSender,
   Recommendation,
   RecommendationStatus,
   Scan,
@@ -181,6 +184,46 @@ export interface PermissionToTell {
   given_untold: boolean;
   /** Ended, and not yet told it ended. */
   ended_untold: boolean;
+}
+
+/** A receipt address, as the worker reads it to receive a receipt: whose it is and whether it is on. */
+export interface ReceiptAddressOwner {
+  connection_id: string;
+  organization_id: string;
+  location_id: string;
+  /** Not turned off, paused or being turned off. */
+  on: boolean;
+  /** A test organization, whose receipts are generated and never received. */
+  is_test: boolean;
+  website: string | null;
+  time_zone: string | null;
+  reply_to: string;
+}
+
+/** What a receipt said, as the worker read it, to keep for a location's review requests. */
+export interface ReceivedReceipt {
+  connection_id: string;
+  sender: string;
+  customer: string;
+  /** `YYYY-MM-DD`, in the location's time zone. */
+  job_day: string;
+  /** Generated, for a test organization or a deployment on sample data. */
+  sample: boolean;
+}
+
+/**
+ * What became of a receipt kept: a contact `ready`, or `held` for a sender nobody confirmed; or
+ * dropped and counted, from a declined sender or for review requests that are not on; or
+ * `unknown` review requests.
+ */
+export const RECEIPT_OUTCOMES = ["ready", "held", "declined_sender", "not_on", "unknown"] as const;
+export type ReceiptOutcome = (typeof RECEIPT_OUTCOMES)[number];
+
+/** A sender waiting for an owner or admin, with a receipt held that the owners were not told of. */
+export interface SenderToTell {
+  sender: ReceiptSender;
+  organization_id: string;
+  location_name: string;
 }
 
 /** A connection to make: its sign-in is already sealed, to the ID given here. */
@@ -639,6 +682,39 @@ export interface Store {
    * on. Null for anyone but an owner or admin, and where they are not on.
    */
   replaceReceiptAddress(locationId: string): Promise<KeptReviewRequests | null>;
+  /**
+   * A location's receipts for whoever can read it: its senders, its latest contacts masked
+   * (`RECEIPTS_LISTED`, newest first), and how many receipts were dropped since `since`
+   * (`YYYY-MM-DD`), by reason. Nothing carries a contact's full address.
+   */
+  getLocationReceipts(
+    locationId: string,
+    since: string,
+  ): Promise<Omit<LocationReceipts, "can_manage">>;
+  /**
+   * Confirms a waiting sender, which makes what it sent that was held ready. Null for anyone but
+   * an owner or admin of its organization, and for a sender not waiting.
+   */
+  confirmReceiptSender(id: string): Promise<ReceiptSender | null>;
+  /**
+   * Declines a waiting sender, which deletes what it sent that was held. Null as for confirming.
+   */
+  declineReceiptSender(id: string): Promise<ReceiptSender | null>;
+  /** Whose a receipt address is, by the name in front of the receiving domain. Worker only. */
+  findReceiptAddress(name: string): Promise<ReceiptAddressOwner | null>;
+  /** Keeps what a receipt said, as a contact held or ready, or counts it dropped. Worker only. */
+  receiveReceipt(receipt: ReceivedReceipt): Promise<ReceiptOutcome>;
+  /** Counts a receipt dropped for a location today. Worker only. */
+  recordReceiptDrop(locationId: string, reason: ReceiptDrop): Promise<void>;
+  /**
+   * Deletes every contact held seven days with nobody confirming its sender. Returns how many.
+   * Worker only.
+   */
+  dropExpiredHeldContacts(): Promise<number>;
+  /** The senders waiting with a receipt held that their owners were not told of. Worker only. */
+  listSendersToTell(): Promise<SenderToTell[]>;
+  /** Keeps that the owners were told these senders wait. Worker only. */
+  markSendersTold(ids: string[]): Promise<void>;
   /**
    * How much of each counted allowance an organization has used this calendar month (UTC), by
    * kind. A kind with none used is absent, and so is everything where the caller cannot read the

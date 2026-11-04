@@ -6,6 +6,7 @@ import type {
   AuditPart,
   CitedPage,
   Connection,
+  CustomerContact,
   Draft,
   FetchCount,
   Invitation,
@@ -21,6 +22,8 @@ import type {
   PriceChangeNotice,
   PromptPage,
   ProviderUsage,
+  ReceiptDrop,
+  ReceiptSender,
   Recommendation,
   Scan,
   ScanResult,
@@ -52,11 +55,13 @@ import {
   MOST_INVITATIONS_WAITING,
   MOST_PAGES_A_DAY,
   MOST_VISITS_A_DAY,
+  maskAddress,
   NOTICE_HOLD_HOURS,
   PAGE_FETCHER_KEYS,
   PAGES_SHOWN,
   PLAN_ASSISTANTS,
   qualifyingSites,
+  RECEIPTS_LISTED,
   receiptAddress,
   reductions,
   STANDING_PERMISSION_AFTER,
@@ -231,6 +236,25 @@ export interface MemoryDb {
     KeptReviewRequests,
     "connected_by_email" | "connected_at" | "status" | "paused_at"
   >[];
+  /** The `receipt_senders` table: who sends receipts to each location, and whether confirmed. */
+  receiptSenders: (ReceiptSender & { organization_id: string; untold: boolean })[];
+  /**
+   * The `customer_contacts` table, with the full address that only the worker reads beside what
+   * anyone else is sent.
+   */
+  customerContacts: (CustomerContact & {
+    organization_id: string;
+    location_id: string;
+    address: string;
+  })[];
+  /** The `receipt_drops` table: how many receipts were dropped, by location, day and reason. */
+  receiptDrops: {
+    location_id: string;
+    organization_id: string;
+    day: string;
+    reason: ReceiptDrop;
+    count: number;
+  }[];
   /** The `hosted_pages` table: every page served on an answer subdomain, and taken back. */
   hostedPages: HostedPage[];
   /** The `hosted_page_fetches` table: a count for a page, a day and a fetcher. */
@@ -340,6 +364,9 @@ export function createMemoryDb(): MemoryDb {
     fetchReads: new Map(),
     answerSubdomains: [],
     reviewRequests: [],
+    receiptSenders: [],
+    customerContacts: [],
+    receiptDrops: [],
     hostedPages: [],
     pageFetches: [],
     pauseTold: new Map(),
@@ -735,6 +762,29 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
           paused_at: null,
         });
       }
+    }
+  };
+  /** Mirrors record_receipt_drop(): one more dropped for the location today (UTC). */
+  const countDrop = (locationId: string, reason: ReceiptDrop) => {
+    const location = db.locations.find((candidate) => candidate.id === locationId);
+    if (!location) return;
+    // Today, as the database's own clock says.
+    const day = (db.now ?? new Date().toISOString()).slice(0, 10);
+    const row = db.receiptDrops.find(
+      (candidate) =>
+        candidate.location_id === locationId &&
+        candidate.day === day &&
+        candidate.reason === reason,
+    );
+    if (row) row.count++;
+    else {
+      db.receiptDrops.push({
+        location_id: locationId,
+        organization_id: location.organization_id,
+        day,
+        reason,
+        count: 1,
+      });
     }
   };
   /** An owner or admin of the organization, by their own membership. */
@@ -2410,6 +2460,185 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         address_made_at: db.now ?? timestamp(),
       });
       return keptReviewRequests(kept, connection);
+    },
+
+    async getLocationReceipts(locationId, since) {
+      if (!readsLocation(locationId)) return { senders: [], contacts: [], dropped: {} };
+      const dropped: Partial<Record<ReceiptDrop, number>> = {};
+      for (const row of db.receiptDrops) {
+        if (row.location_id === locationId && row.day >= since && row.count > 0) {
+          dropped[row.reason] = (dropped[row.reason] ?? 0) + row.count;
+        }
+      }
+      return {
+        senders: db.receiptSenders
+          .filter((sender) => sender.location_id === locationId)
+          .sort(
+            (a, b) => b.first_seen_at.localeCompare(a.first_seen_at) || a.id.localeCompare(b.id),
+          )
+          .slice(0, RECEIPTS_LISTED)
+          .map(({ organization_id: _org, untold: _untold, ...sender }) => sender),
+        // Never the address.
+        contacts: db.customerContacts
+          .filter((contact) => contact.location_id === locationId)
+          .sort((a, b) => b.received_at.localeCompare(a.received_at) || a.id.localeCompare(b.id))
+          .slice(0, RECEIPTS_LISTED)
+          .map(
+            ({ organization_id: _org, location_id: _location, address: _address, ...contact }) =>
+              contact,
+          ),
+        dropped,
+      };
+    },
+
+    // Mirrors confirm_receipt_sender(): an owner or admin's, once.
+    async confirmReceiptSender(id) {
+      const sender = db.receiptSenders.find((candidate) => candidate.id === id);
+      if (!sender || !managesOrg(sender.organization_id) || sender.status !== "waiting")
+        return null;
+      Object.assign(sender, {
+        status: "confirmed",
+        untold: false,
+        decided_at: db.now ?? timestamp(),
+        decided_by_email: db.emails.get(userId ?? "") ?? null,
+      });
+      for (const contact of db.customerContacts) {
+        if (contact.sender_id === id && contact.status === "held") contact.status = "ready";
+      }
+      const { organization_id: _org, untold: _untold, ...sent } = sender;
+      return sent;
+    },
+
+    // Mirrors decline_receipt_sender(): as confirming, and what it sent that was held goes.
+    async declineReceiptSender(id) {
+      const sender = db.receiptSenders.find((candidate) => candidate.id === id);
+      if (!sender || !managesOrg(sender.organization_id) || sender.status !== "waiting")
+        return null;
+      Object.assign(sender, {
+        status: "declined",
+        untold: false,
+        decided_at: db.now ?? timestamp(),
+        decided_by_email: db.emails.get(userId ?? "") ?? null,
+      });
+      db.customerContacts = db.customerContacts.filter(
+        (contact) => !(contact.sender_id === id && contact.status === "held"),
+      );
+      const { organization_id: _org, untold: _untold, ...sent } = sender;
+      return sent;
+    },
+
+    async findReceiptAddress(name) {
+      const kept = db.reviewRequests.find((candidate) => candidate.receipt_address === name);
+      const connection = db.connections.find((c) => c.id === kept?.connection_id);
+      const location = db.locations.find((candidate) => candidate.id === kept?.location_id);
+      const organization = db.organizations.find((o) => o.id === kept?.organization_id);
+      if (!kept || !connection || !location) return null;
+      return {
+        connection_id: kept.connection_id,
+        organization_id: kept.organization_id,
+        location_id: location.id,
+        on:
+          kept.released_at === null &&
+          !["paused", "removing", "removed"].includes(connection.status),
+        is_test: organization?.is_test ?? false,
+        website: location.website,
+        time_zone: location.time_zone,
+        reply_to: kept.reply_to,
+      };
+    },
+
+    // Mirrors receive_receipt().
+    async receiveReceipt({ connection_id, sender, customer, job_day, sample }) {
+      const kept = db.reviewRequests.find((candidate) => candidate.connection_id === connection_id);
+      const connection = db.connections.find((c) => c.id === connection_id);
+      if (!kept?.location_id || !connection) return "unknown";
+      const locationId = kept.location_id;
+      if (
+        kept.released_at !== null ||
+        ["paused", "removing", "removed"].includes(connection.status)
+      ) {
+        countDrop(locationId, "not_on");
+        return "not_on";
+      }
+      const address = sender.toLowerCase();
+      let from = db.receiptSenders.find(
+        (candidate) => candidate.location_id === locationId && candidate.address === address,
+      );
+      if (!from) {
+        from = {
+          id: crypto.randomUUID(),
+          organization_id: kept.organization_id,
+          location_id: locationId,
+          address,
+          status: "waiting",
+          first_seen_at: db.now ?? timestamp(),
+          decided_by_email: null,
+          decided_at: null,
+          untold: false,
+        };
+        db.receiptSenders.push(from);
+      }
+      if (from.status === "declined") {
+        countDrop(locationId, "declined_sender");
+        return "declined_sender";
+      }
+      const status = from.status === "confirmed" ? "ready" : "held";
+      const customerAddress = customer.toLowerCase();
+      if (
+        !db.customerContacts.some(
+          (contact) =>
+            contact.location_id === locationId &&
+            contact.address === customerAddress &&
+            contact.job_day === job_day,
+        )
+      ) {
+        db.customerContacts.push({
+          id: crypto.randomUUID(),
+          organization_id: kept.organization_id,
+          location_id: locationId,
+          sender_id: from.id,
+          address: customerAddress,
+          masked: maskAddress(customerAddress),
+          job_day,
+          status,
+          sample_data: sample,
+          received_at: db.now ?? timestamp(),
+        });
+      }
+      if (status === "held") from.untold = true;
+      return status;
+    },
+
+    async recordReceiptDrop(locationId, reason) {
+      countDrop(locationId, reason);
+    },
+
+    async dropExpiredHeldContacts() {
+      const before = new Date(
+        new Date(db.now ?? timestamp()).getTime() - 7 * 86_400_000,
+      ).toISOString();
+      const kept = db.customerContacts.filter(
+        (contact) => !(contact.status === "held" && contact.received_at < before),
+      );
+      const dropped = db.customerContacts.length - kept.length;
+      db.customerContacts = kept;
+      return dropped;
+    },
+
+    async listSendersToTell() {
+      return db.receiptSenders
+        .filter((sender) => sender.status === "waiting" && sender.untold)
+        .map(({ organization_id, untold: _untold, ...sender }) => ({
+          sender,
+          organization_id,
+          location_name: db.locations.find((l) => l.id === sender.location_id)?.name ?? "",
+        }));
+    },
+
+    async markSendersTold(ids) {
+      for (const sender of db.receiptSenders) {
+        if (ids.includes(sender.id)) sender.untold = false;
+      }
     },
 
     // The one held, or else the one let go last.

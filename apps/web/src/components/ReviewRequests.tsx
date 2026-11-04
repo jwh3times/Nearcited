@@ -1,6 +1,8 @@
 import {
   type Allowances,
   type Location,
+  RECEIPT_DROPS,
+  RECEIPT_DROPS_DAYS,
   REVIEW_REQUESTS_ALLOWANCE,
   type ReviewRequestSettings,
   type ReviewSite,
@@ -11,7 +13,15 @@ import { useState } from "react";
 import { api } from "../lib/api";
 import { formatDay } from "../lib/billing";
 import { useCopy } from "../lib/copy";
-import { barNote, REVIEW_WORDS, reviewRequestsKey, wordingFor } from "../lib/review-requests";
+import {
+  barNote,
+  droppedNote,
+  REVIEW_WORDS,
+  receiptsKey,
+  reviewRequestsKey,
+  senderNote,
+  wordingFor,
+} from "../lib/review-requests";
 import { ErrorNote } from "./ErrorNote";
 import { Field } from "./Field";
 
@@ -46,12 +56,15 @@ export function ReviewRequests({ location, allowances, readOnly }: ReviewRequest
         <p className="small muted">{REVIEW_WORDS.about}</p>
       </div>
       {settings ? (
-        <TurnedOn
-          location={location}
-          settings={settings}
-          sites={sites}
-          canManage={canManage && !readOnly}
-        />
+        <>
+          <TurnedOn
+            location={location}
+            settings={settings}
+            sites={sites}
+            canManage={canManage && !readOnly}
+          />
+          <Receipts location={location} readOnly={readOnly} />
+        </>
       ) : barred ? (
         <p>{barNote(barred)}</p>
       ) : readOnly ? null : !canManage ? (
@@ -244,6 +257,110 @@ function TurnedOn({
         </div>
       )}
       <ErrorNote error={replace.error ?? turnOff.error} />
+    </div>
+  );
+}
+
+/**
+ * What came to the receipt address: the senders, which an owner or admin confirms or declines,
+ * the customers kept, masked, and how many receipts were dropped and why. Nobody is shown more of
+ * a customer's address than its first letter and its domain.
+ */
+function Receipts({ location, readOnly }: { location: Location; readOnly: boolean }) {
+  const queryClient = useQueryClient();
+  const found = useQuery({
+    queryKey: receiptsKey(location.id),
+    queryFn: () => api.receipts(location.id),
+  });
+  const refresh = () => queryClient.invalidateQueries({ queryKey: receiptsKey(location.id) });
+  const confirm = useMutation({ mutationFn: api.confirmReceiptSender, onSuccess: refresh });
+  const decline = useMutation({ mutationFn: api.declineReceiptSender, onSuccess: refresh });
+  if (!found.data) return <ErrorNote error={found.error} />;
+  const { senders, contacts, dropped, can_manage: canManage } = found.data;
+  const deciding = confirm.isPending || decline.isPending;
+  const drops = RECEIPT_DROPS.flatMap((reason) => {
+    const count = dropped[reason];
+    return count ? [droppedNote(reason, count)] : [];
+  });
+
+  return (
+    <div className="paste-block">
+      <h3 className="side-title">{REVIEW_WORDS.receipts}</h3>
+      {senders.length > 0 && (
+        <div>
+          <h4>{REVIEW_WORDS.sendersTitle}</h4>
+          <p className="small muted">{REVIEW_WORDS.sendersAbout}</p>
+          <ul className="facts">
+            {senders.map((sender) => (
+              <li key={sender.id}>
+                <span>{sender.address}</span>
+                <span>
+                  {senderNote(sender.status)}
+                  {sender.status === "waiting" && canManage && !readOnly && (
+                    <>
+                      {" "}
+                      <button
+                        type="button"
+                        className="link"
+                        disabled={deciding}
+                        onClick={() => confirm.mutate(sender.id)}
+                      >
+                        {REVIEW_WORDS.confirmSender}
+                      </button>{" "}
+                      <button
+                        type="button"
+                        className="link"
+                        disabled={deciding}
+                        onClick={() => decline.mutate(sender.id)}
+                      >
+                        {REVIEW_WORDS.declineSender}
+                      </button>
+                    </>
+                  )}
+                </span>
+              </li>
+            ))}
+          </ul>
+          {!canManage && senders.some((sender) => sender.status === "waiting") && (
+            <p className="small muted">{REVIEW_WORDS.onlyManagersDecide}</p>
+          )}
+        </div>
+      )}
+      <div>
+        <h4>{REVIEW_WORDS.contactsTitle}</h4>
+        {contacts.length === 0 ? (
+          <p className="small muted">{REVIEW_WORDS.noContacts}</p>
+        ) : (
+          <>
+            <p className="small muted">{REVIEW_WORDS.contactsAbout}</p>
+            <ul className="facts">
+              {contacts.map((contact) => (
+                <li key={contact.id}>
+                  <span>
+                    {contact.masked}
+                    {contact.sample_data && ` (${REVIEW_WORDS.sample})`}
+                  </span>
+                  <span>
+                    {formatDay(`${contact.job_day}T12:00:00Z`)}:{" "}
+                    {contact.status === "held" ? REVIEW_WORDS.held : REVIEW_WORDS.ready}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+      </div>
+      {drops.length > 0 && (
+        <div>
+          <p className="small muted">In the last {RECEIPT_DROPS_DAYS} days:</p>
+          <ul className="small muted">
+            {drops.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+      <ErrorNote error={confirm.error ?? decline.error} />
     </div>
   );
 }

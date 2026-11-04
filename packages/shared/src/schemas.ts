@@ -1454,6 +1454,73 @@ export const ReviewRequestsInputSchema = z.object({
 });
 export type ReviewRequestsInput = z.output<typeof ReviewRequestsInputSchema>;
 
+/** Why a receipt copied to a receipt address was dropped and counted, and kept nothing. */
+export const RECEIPT_DROPS = [
+  /** It passed neither DKIM nor SPF. */
+  "unauthenticated",
+  /** Its location's review requests are off, paused or being turned off. */
+  "not_on",
+  /** An owner or admin declined its sender. */
+  "declined_sender",
+  /** `To:` names nobody but the business and the product, or cannot be read with certainty. */
+  "no_customer",
+  /** `To:` names more than one customer. */
+  "several_customers",
+] as const;
+export type ReceiptDrop = (typeof RECEIPT_DROPS)[number];
+
+/**
+ * An address that sends receipts to a location's receipt address: the business's own tool once an
+ * owner or admin confirms it. A receipt from a sender still `waiting` is held; one from a
+ * `declined` sender is dropped. A sender is not a customer, and its address is shown whole.
+ */
+export const ReceiptSenderSchema = z.object({
+  id: Id,
+  location_id: Id,
+  address: z.string(),
+  status: z.enum(["waiting", "confirmed", "declined"]),
+  first_seen_at: Timestamp,
+  /** Who confirmed or declined it, as the address they had then, and when. */
+  decided_by_email: z.string().nullable(),
+  decided_at: Timestamp.nullable(),
+});
+export type ReceiptSender = z.infer<typeof ReceiptSenderSchema>;
+
+/**
+ * A customer contact as anyone but the worker reads it: masked, as `j•••@gmail.com`, and the day
+ * of the job (`docs/adr/0031-a-customer-contact-is-read-only-by-the-worker.md`). No wire type
+ * carries the full address.
+ */
+export const CustomerContactSchema = z.object({
+  id: Id,
+  sender_id: Id,
+  masked: z.string(),
+  /** The day of the job, as `YYYY-MM-DD` in the location's time zone. */
+  job_day: z.string(),
+  /** `held` until its sender is confirmed. */
+  status: z.enum(["held", "ready"]),
+  sample_data: z.boolean(),
+  received_at: Timestamp,
+});
+export type CustomerContact = z.infer<typeof CustomerContactSchema>;
+
+/** A location's receipts, as its Settings tab shows them. */
+export const LocationReceiptsSchema = z.object({
+  /** True for an owner or admin, who alone confirm or decline a sender. */
+  can_manage: z.boolean(),
+  senders: z.array(ReceiptSenderSchema),
+  /** The latest contacts, newest first, at most `RECEIPTS_LISTED`. */
+  contacts: z.array(CustomerContactSchema),
+  /** How many receipts were dropped in the last `RECEIPT_DROPS_DAYS` days, by reason. */
+  dropped: z.partialRecord(z.enum(RECEIPT_DROPS), z.number().int().positive()),
+});
+export type LocationReceipts = z.infer<typeof LocationReceiptsSchema>;
+
+/** How many of a location's senders, and of its contacts, its list shows, newest first. */
+export const RECEIPTS_LISTED = 200;
+/** How many days of dropped receipts a location's page counts. */
+export const RECEIPT_DROPS_DAYS = 30;
+
 /**
  * A business as its hosted pages show it: what its location holds of who and where it is, which
  * the page states anyway. Nothing else about the location is answered to anyone.

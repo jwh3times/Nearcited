@@ -27,6 +27,7 @@ import {
   type LocationFormValues,
   LocationHostedPagesSchema,
   LocationLineSchema,
+  LocationReceiptsSchema,
   LocationReviewRequestsSchema,
   LocationSchema,
   LocationVisitsSchema,
@@ -50,6 +51,7 @@ import {
   PriceChangeSchema,
   PromptPageSchema,
   PublicAuditSchema,
+  ReceiptSenderSchema,
   RecommendationSchema,
   type RecommendationStatus,
   ReviewRequestSettingsSchema,
@@ -275,6 +277,15 @@ export const api = {
   /** Gives a location's review requests a new receipt address. */
   replaceReceiptAddress: (locationId: string) =>
     json(ReviewRequestSettingsSchema, "POST", `/locations/${locationId}/review-requests/address`),
+  /** A location's receipts: who sends them, the contacts kept, masked, and how many were dropped. */
+  receipts: (locationId: string) =>
+    json(LocationReceiptsSchema, "GET", `/locations/${locationId}/receipts`),
+  /** Confirms a sender of receipts as the business's own tool. Owner or admin only. */
+  confirmReceiptSender: (senderId: string) =>
+    json(ReceiptSenderSchema, "POST", `/receipt-senders/${senderId}/confirm`),
+  /** Declines a sender of receipts: what it sent that was held is deleted. Owner or admin only. */
+  declineReceiptSender: (senderId: string) =>
+    json(ReceiptSenderSchema, "POST", `/receipt-senders/${senderId}/decline`),
   connect: (organizationId: string, input: ConnectionInput) =>
     json(ConnectionSchema, "POST", `/organizations/${organizationId}/connections`, input),
   /** Asks for a connection to be removed. The worker finishes it shortly after. */
