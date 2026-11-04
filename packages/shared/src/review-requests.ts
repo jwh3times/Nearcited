@@ -107,7 +107,11 @@ export const CONFIDENTIAL_KINDS = [
   "tax preparation",
 ] as const;
 
-/** A whole word or phrase of the list, in any case, and as a plural. */
+/**
+ * A whole word or phrase of the list, in any case, and as a plural. It errs toward refusing: a
+ * massage therapist, a veterinary clinic or a tree surgeon is refused too, which costs a business
+ * a convenience, where letting a confidential list through would cost its customers their privacy.
+ */
 const CONFIDENTIAL = new RegExp(`\\b(?:${CONFIDENTIAL_KINDS.join("|")})s?\\b`, "i");
 
 /** True when a location's category says its list of customers is confidential. */
@@ -119,7 +123,7 @@ export function isConfidentialCategory(category: string | null): boolean {
  * The link a customer is sent for a listing: on Google the review link the owner gave, and on a
  * site whose form address is known, the form. Null where there is no form to send anyone to.
  */
-export function askingLink(listing: Pick<Listing, "site" | "url">): string | null {
+function askingLink(listing: Pick<Listing, "site" | "url">): string | null {
   if (listingSite(listing.site) !== listing.site) return null;
   return asksForReviewLink(listing.site) ? listing.url : reviewForm(listing.site, listing.url);
 }

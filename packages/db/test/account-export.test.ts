@@ -6,6 +6,7 @@ import {
   EXPORT_SHEETS,
   type ExportList,
   exportColumns,
+  receiptAddress,
 } from "@nearcited/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
@@ -98,6 +99,16 @@ async function seeded(name: string, by: string) {
     "insert into public.connection_secrets (connection_id, sealed) values ($1, 'sealed-sign-in-never-exported')",
     [connection],
   );
+  const { id: asking } = await one<{ id: string }>(
+    "insert into public.connections (id, organization_id, kind, label) values (gen_random_uuid(), $1, 'review_requests', 'Joe''s Pizza') returning id",
+    [org],
+  );
+  await db.query(
+    `insert into public.review_request_settings
+       (connection_id, organization_id, location_id, receipt_address, site, reply_to)
+     values ($1, $2, $3, replace(gen_random_uuid()::text, '-', ''), 'google.com', 'owner@example.com')`,
+    [asking, org, location],
+  );
   await db.query(
     "insert into public.listings (location_id, site, url) values ($1, 'yelp', 'https://www.yelp.com/biz/joes')",
     [location],
@@ -173,7 +184,17 @@ describe("downloading everything", () => {
     ]);
     expect(exported.tasks).toHaveLength(1);
     expect(exported.actions).toHaveLength(1);
-    expect(exported.connections.map((row) => row.label)).toEqual(["joespizza.example"]);
+    expect(exported.connections.map((row) => row.label)).toEqual([
+      "joespizza.example",
+      "Joe's Pizza",
+    ]);
+    // The receipt address written out whole, as the app shows it.
+    const [asking] = exported.review_requests;
+    expect(asking?.site).toBe("google.com");
+    expect(asking?.receipt_address).toBe(
+      receiptAddress(asking?.receipt_address.split("@")[0] ?? ""),
+    );
+    expect(asking?.receipt_address).toMatch(/^[0-9a-f]{32}@/);
     expect(exported.listings.map((row) => row.site)).toEqual(["yelp"]);
     expect(exported.visits.map((row) => row.count)).toEqual([3]);
     expect(exported.site_fetches.map((row) => [row.fetcher, row.path, row.count])).toEqual([

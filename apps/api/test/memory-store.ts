@@ -56,6 +56,8 @@ import {
   PAGE_FETCHER_KEYS,
   PAGES_SHOWN,
   PLAN_ASSISTANTS,
+  qualifyingSites,
+  receiptAddress,
   reductions,
   STANDING_PERMISSION_AFTER,
   STANDING_PERMISSION_ALLOWANCE,
@@ -923,6 +925,12 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         page_fetches: db.pageFetches.filter((counted) => at.has(counted.location_id)),
         site_fetches: db.siteFetches.filter((counted) => at.has(counted.location_id)),
         analytics_visits: db.analyticsVisits.filter((counted) => at.has(counted.location_id)),
+        review_requests: db.reviewRequests
+          .filter((kept) => kept.organization_id === organizationId)
+          .map(({ organization_id: _org, receipt_address, ...kept }) => ({
+            ...kept,
+            receipt_address: receiptAddress(receipt_address),
+          })),
       });
     },
 
@@ -2339,10 +2347,8 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
           "Confirm that your customer list is not confidential, and that your customers expect to hear from you.",
         );
       }
-      if (
-        !["google.com", "bbb.org", "trustpilot.com"].includes(site) ||
-        !db.listings.some((listing) => listing.location_id === location_id && listing.site === site)
-      ) {
+      const listings = db.listings.filter((listing) => listing.location_id === location_id);
+      if (!qualifyingSites(listings, []).some((qualifying) => qualifying.site === site)) {
         throw refuse("Choose a site where this location has a listing to be reviewed on.");
       }
       const now = db.now ?? timestamp();

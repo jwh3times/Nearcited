@@ -175,12 +175,22 @@ describe("review requests", () => {
     const noZone = await locationOf(org, { zone: null as unknown as string });
     const clinic = await locationOf(org, { category: "Family dental clinic" });
     const plain = await locationOf(org);
+    // Listings on BBB and Trustpilot whose addresses give no review form.
+    const formless = await locationOf(org, { google: false });
+    await db.query(
+      `insert into public.listings (location_id, site, url) values
+        ($1, 'bbb.org', 'https://www.bbb.org/ca/on/toronto/profile/joes'),
+        ($1, 'trustpilot.com', 'https://www.trustpilot.com/categories/pizza')`,
+      [formless],
+    );
     for (const [args, why] of [
       [on(noZone), /time zone/],
       [on(clinic), /confidential/],
       [on(plain, "google.com", false), /Confirm that your customer list/],
       [on(plain, "google.com", null), /Confirm that your customer list/],
       [on(plain, "bbb.org"), /listing to be reviewed on/],
+      [on(formless, "bbb.org"), /listing to be reviewed on/],
+      [on(formless, "trustpilot.com"), /listing to be reviewed on/],
       [on(plain, "yelp.com"), /listing to be reviewed on/],
       [[plain, crypto.randomUUID(), "google.com", "not an address", true], /reply goes to/],
     ] as const) {

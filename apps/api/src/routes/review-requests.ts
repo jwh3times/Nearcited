@@ -81,11 +81,14 @@ const BARRED: Record<ReviewRequestsBar, ApiError> = {
   ),
 };
 
-/** Review requests as a member is sent them: with the receipt address written out whole. */
-function sentReviewRequests(kept: KeptReviewRequests): ReviewRequestSettings {
+/**
+ * Review requests as a member is sent them, for the location they were read for: with the receipt
+ * address written out whole.
+ */
+function sentReviewRequests(location: Location, kept: KeptReviewRequests): ReviewRequestSettings {
   return {
     connection_id: kept.connection_id,
-    location_id: kept.location_id ?? "",
+    location_id: location.id,
     receipt_address: receiptAddress(kept.receipt_address),
     address_made_at: kept.address_made_at,
     site: kept.site,
@@ -125,7 +128,7 @@ reviewRequestRoutes.get("/locations/:locationId/review-requests", async (c) => {
   return c.json({
     barred: barred(organization, location, sites),
     can_manage: canManage,
-    settings: kept ? sentReviewRequests(kept) : null,
+    settings: kept ? sentReviewRequests(location, kept) : null,
     sites,
     reply_to: c.get("user").email ?? null,
   } satisfies LocationReviewRequests);
@@ -138,12 +141,12 @@ reviewRequestRoutes.get("/locations/:locationId/review-requests", async (c) => {
  * those, and without the owner's word that the list of customers is not confidential.
  */
 reviewRequestRoutes.post("/locations/:locationId/review-requests", async (c) => {
-  const input = await parseJson(c, ReviewRequestsInputSchema);
   const store = c.get("store");
   const location = await requireLocation(store, uuidParam(c, "locationId", "Location"));
   const organization = await store.getOrganization(location.organization_id);
   if (!organization) throw notFound("Location");
   await requireManager(store, organization.id);
+  const input = await parseJson(c, ReviewRequestsInputSchema);
   if (await store.getLocationReviewRequests(location.id)) {
     throw new ApiError(
       409,
@@ -172,7 +175,7 @@ reviewRequestRoutes.post("/locations/:locationId/review-requests", async (c) => 
   if (!made) throw notFound("Location");
   const kept = await store.getLocationReviewRequests(location.id);
   if (!kept) throw notFound("Location");
-  return c.json(sentReviewRequests(kept), 201);
+  return c.json(sentReviewRequests(location, kept), 201);
 });
 
 /**
@@ -185,5 +188,5 @@ reviewRequestRoutes.post("/locations/:locationId/review-requests/address", async
   await requireManager(store, location.organization_id);
   const kept = await store.replaceReceiptAddress(location.id);
   if (!kept) throw notFound("Review requests");
-  return c.json(sentReviewRequests(kept));
+  return c.json(sentReviewRequests(location, kept));
 });

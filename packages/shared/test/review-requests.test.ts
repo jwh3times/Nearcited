@@ -99,6 +99,14 @@ describe("a confidential kind of business", () => {
     }
   });
 
+  it("errs toward refusing a business whose category only might be one", () => {
+    // Deliberate: refusing costs a business a convenience, letting one through costs its
+    // customers their privacy.
+    for (const category of ["Massage therapy", "Veterinary clinic", "Animal hospital"]) {
+      expect(isConfidentialCategory(category), category).toBe(true);
+    }
+  });
+
   it("matches every kind on the list, written as it is listed", () => {
     for (const kind of CONFIDENTIAL_KINDS) expect(isConfidentialCategory(kind), kind).toBe(true);
   });

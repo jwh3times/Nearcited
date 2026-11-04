@@ -2628,6 +2628,19 @@ export const ExportAnalyticsVisitSchema = z.object({
   sample_data: z.boolean(),
 });
 
+/** A location's review requests, on or turned off, as the export holds them. */
+export const ExportReviewRequestsSchema = z.object({
+  connection_id: Id,
+  /** Null once its location was removed. */
+  location_id: Id.nullable(),
+  receipt_address: z.string(),
+  address_made_at: Timestamp,
+  site: z.string(),
+  reply_to: z.string(),
+  /** When they were turned off and the receipt address let go. */
+  released_at: Timestamp.nullable(),
+});
+
 /**
  * Everything an organization holds, as its owner downloads it. Each list's rows are the same
  * wire types the app is sent. Never a sign-in, the operator's record of changes or what the
@@ -2657,6 +2670,7 @@ export const AccountExportSchema = z.object({
   page_fetches: z.array(ExportPageFetchSchema),
   site_fetches: z.array(ExportSiteFetchSchema),
   analytics_visits: z.array(ExportAnalyticsVisitSchema),
+  review_requests: z.array(ExportReviewRequestsSchema),
 });
 export type AccountExport = z.infer<typeof AccountExportSchema>;
 
