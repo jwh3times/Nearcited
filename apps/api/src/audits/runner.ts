@@ -52,6 +52,7 @@ function standIns(audit: AuditJob, prompt: string, at: Date) {
     geocoded_from: null,
     primary_category: null,
     what_we_do: null,
+    time_zone: null,
     paused_by_plan: false,
     last_scanned_at: null,
     created_at: at.toISOString(),

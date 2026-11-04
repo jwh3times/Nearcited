@@ -44,6 +44,7 @@ const location = (
   geocoded_from: null,
   primary_category: null,
   what_we_do: null,
+  time_zone: null,
   paused_by_plan: false,
   last_scanned_at: ago(2),
   created_at: ago(24 * 20),

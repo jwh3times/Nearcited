@@ -9,6 +9,17 @@ counting builds on a release line.
 
 No unreleased changes.
 
+## [1.1.0] - 2026-11-04
+
+### Added
+
+- A location keeps its time zone, so a morning can later be worked out where the business is. The
+  location's details form has a Time zone field, an IANA name such as `America/Chicago` chosen from
+  a list. For a location with none, it starts on the member's own browser time zone until they
+  save. A name that is not a time zone, or a bare offset such as `+05:00`, is refused. Existing
+  locations have none until someone sets one, and they load and save as before. The export
+  includes it. Nothing reads it yet: asking customers for reviews by email (#146) will need it.
+
 ## [1.0.5] - 2026-11-03
 
 ### Changed
@@ -73,7 +84,8 @@ deployed.
   (`scripts/check-changelog.mjs`); a Dependabot merge gets its section on the next human pull
   request.
 
-[Unreleased]: https://github.com/jwh3times/Nearcited/compare/v1.0.5...HEAD
+[Unreleased]: https://github.com/jwh3times/Nearcited/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/jwh3times/Nearcited/compare/v1.0.5...v1.1.0
 [1.0.5]: https://github.com/jwh3times/Nearcited/compare/v1.0.4...v1.0.5
 [1.0.4]: https://github.com/jwh3times/Nearcited/compare/v1.0.3...v1.0.4
 [1.0.3]: https://github.com/jwh3times/Nearcited/compare/v1.0.2...v1.0.3

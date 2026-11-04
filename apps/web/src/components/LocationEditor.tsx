@@ -6,10 +6,10 @@ import {
   WHAT_WE_DO_MAX,
 } from "@nearcited/shared";
 import { useMutation } from "@tanstack/react-query";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useId, useMemo, useState } from "react";
 import { api } from "../lib/api";
 import { useFormErrors } from "../lib/form";
-import { locationFormValues } from "../lib/location";
+import { locationFormValues, timeZoneNames } from "../lib/location";
 import { ErrorNote } from "./ErrorNote";
 import { Field, LongField } from "./Field";
 
@@ -27,14 +27,16 @@ interface LocationEditorProps {
  * there is nothing here to set it.
  */
 export function LocationEditor({ location, onSaved, readOnly }: LocationEditorProps) {
+  // The browser's time zone is offered only to a member who can save it, never to the operator.
   const [form, setForm] = useState<Required<LocationFormValues>>(() =>
-    locationFormValues(location),
+    readOnly ? locationFormValues(location, null) : locationFormValues(location),
   );
   const save = useMutation({
     mutationFn: (values: LocationFormValues) => api.updateLocation(location.id, values),
     onSuccess: (saved) => {
-      // The server tidies what it stores (trimmed text, an upper-case country), so show that.
-      setForm(locationFormValues(saved));
+      // The server tidies what it stores (trimmed text, an upper-case country), so show that. A
+      // time zone saved blank stays blank: the browser's is offered only before the first save.
+      setForm(locationFormValues(saved, null));
       onSaved();
     },
   });
@@ -54,6 +56,9 @@ export function LocationEditor({ location, onSaved, readOnly }: LocationEditorPr
       setForm((current) => ({ ...current, [name]: event.target.value })),
   });
   const phone = field("phone");
+  const zones = useId();
+  const zoneNames = useMemo(timeZoneNames, []);
+  const zoneUnsaved = location.time_zone === null && form.time_zone !== "";
 
   return (
     <form onSubmit={submit} className="card settings-main" noValidate>
@@ -120,6 +125,26 @@ export function LocationEditor({ location, onSaved, readOnly }: LocationEditorPr
           maxLength={200}
           {...field("google_place_id")}
         />
+        <Field
+          label="Time zone"
+          autoCapitalize="none"
+          autoComplete="off"
+          spellCheck={false}
+          maxLength={64}
+          placeholder="America/Chicago"
+          list={zones}
+          hint={
+            zoneUnsaved
+              ? "Filled in from this browser. Save to keep it."
+              : "Where the business is, as a name like America/Chicago."
+          }
+          {...field("time_zone")}
+        />
+        <datalist id={zones}>
+          {zoneNames.map((name) => (
+            <option key={name} value={name} />
+          ))}
+        </datalist>
         <LongField
           label="What we do"
           maxLength={WHAT_WE_DO_MAX}

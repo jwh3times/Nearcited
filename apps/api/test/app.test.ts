@@ -1062,6 +1062,32 @@ describe("organizations and locations", () => {
     expect(db.locations[0]?.what_we_do).toBe("Pizza.");
   });
 
+  it("keeps a time zone it was given, refuses one that is none, and saves without one", async () => {
+    const { location } = await seed();
+    expect(location.time_zone).toBeNull();
+    const whole = { name: location.name, city: location.city };
+    const edit = (body: Record<string, unknown>) =>
+      call(alice, "PATCH", `/locations/${location.id}`, { ...whole, ...body });
+    const zone = async (body: Record<string, unknown>) =>
+      LocationSchema.parse(await (await edit(body)).json()).time_zone;
+
+    // A location with none saves as before.
+    expect(await zone({ website: "joespizza.example" })).toBeNull();
+    expect(await zone({ time_zone: "america/chicago" })).toBe("America/Chicago");
+    // A page opened before the field existed sends the whole form without it.
+    expect(await zone({ website: "joes.example" })).toBe("America/Chicago");
+
+    const invalid = await edit({ time_zone: "America/Springfield" });
+    expect(invalid.status).toBe(422);
+    expect(db.locations[0]?.time_zone).toBe("America/Chicago");
+
+    const loaded = LocationDetailSchema.parse(
+      await (await call(alice, "GET", `/locations/${location.id}`)).json(),
+    );
+    expect(loaded.location.time_zone).toBe("America/Chicago");
+    expect(await zone({ time_zone: "" })).toBeNull();
+  });
+
   it("deletes a location", async () => {
     const { location } = await seed();
     expect((await call(alice, "DELETE", `/locations/${location.id}`)).status).toBe(204);

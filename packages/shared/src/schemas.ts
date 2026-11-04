@@ -1,7 +1,13 @@
 import { z } from "zod";
 import { allowanceErrors } from "./allowances";
 import { PAGE_FETCHER_KEYS, type PageFetcher } from "./hosted-pages";
-import { isCountry, normalizePhone, normalizePostalCode, normalizeWebsite } from "./inputs";
+import {
+  isCountry,
+  normalizePhone,
+  normalizePostalCode,
+  normalizeTimeZone,
+  normalizeWebsite,
+} from "./inputs";
 import { STANDING_PERMISSION_AFTER } from "./standing-permission";
 
 /**
@@ -217,6 +223,11 @@ export const LocationSchema = z.object({
   primary_category: z.string().nullable(),
   /** What the business does, in its owner's words. A draft states nothing about it but this. */
   what_we_do: z.string().nullable(),
+  /**
+   * The IANA name of its time zone, such as `America/Chicago`, so a morning can be worked out
+   * where the business is. Null until someone sets it.
+   */
+  time_zone: z.string().nullable(),
   /**
    * True while the organization has more locations than its plan covers and this is one of those
    * not being scanned. Everything measured so far stays readable.
@@ -789,6 +800,25 @@ const Website = optionalText(200).transform((typed, context) => {
   return website;
 });
 
+/** A time zone's IANA name as typed or chosen. Blank is none; left out, what is on file stays. */
+const TimeZone = z
+  .string()
+  .trim()
+  .nullable()
+  .transform((typed, context) => {
+    if (!typed) return null;
+    const zone = normalizeTimeZone(typed);
+    if (zone === null) {
+      context.addIssue({
+        code: "custom",
+        message: "Choose a time zone from the list, like America/Chicago",
+      });
+      return z.NEVER;
+    }
+    return zone;
+  })
+  .optional();
+
 const CountryCode = z
   .string()
   .trim()
@@ -826,6 +856,8 @@ export const LocationInputSchema = z
       .nullable()
       .transform((value) => value || null)
       .optional(),
+    /** As `what_we_do`: blank is none, and left out, what is on file stays. */
+    time_zone: TimeZone,
   })
   // The phone number and the postal code are read in the location's own country. These run even
   // when another field is wrong, so a form can show every problem at once.

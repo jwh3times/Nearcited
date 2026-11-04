@@ -25,6 +25,7 @@ const location: Location = {
   geocoded_from: null,
   primary_category: "Pizza restaurant",
   what_we_do: null,
+  time_zone: "America/New_York",
   paused_by_plan: false,
   last_scanned_at: "2026-10-07T09:00:00.000Z",
   created_at: "2026-10-04T00:00:00.000Z",
@@ -44,7 +45,22 @@ describe("locationFormValues", () => {
       google_place_id: "",
       primary_category: "Pizza restaurant",
       what_we_do: "",
+      time_zone: "America/New_York",
     });
+  });
+
+  it("shows the stored time zone, and the browser's where none is stored", () => {
+    expect(locationFormValues(location, "America/Chicago").time_zone).toBe("America/New_York");
+    const unset = { ...location, time_zone: null };
+    expect(locationFormValues(unset, "America/Chicago").time_zone).toBe("America/Chicago");
+    expect(locationFormValues(unset, null).time_zone).toBe("");
+  });
+
+  it("saves a location with no time zone as before when the browser gives none", () => {
+    const unset = { ...location, time_zone: null };
+    expect({ ...unset, ...LocationInputSchema.parse(locationFormValues(unset, null)) }).toEqual(
+      unset,
+    );
   });
 
   it("shows a stored phone number the way it is written, and saves it back as it was", () => {

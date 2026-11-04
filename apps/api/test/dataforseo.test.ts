@@ -181,6 +181,7 @@ const location: Location = {
   geocoded_from: "1 Main St, Raleigh, NC 27601, US",
   primary_category: null,
   what_we_do: null,
+  time_zone: null,
   paused_by_plan: false,
   last_scanned_at: null,
   created_at: "2026-10-01T00:00:00Z",
