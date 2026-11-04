@@ -1716,6 +1716,13 @@ details.as-table td {
   color: var(--ink);
 }
 
+/* An email as it will be sent, read before it is approved: its lines kept, its sentences wrapped. */
+.paste-block pre.wording {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: inherit;
+}
+
 .notice {
   padding: 1rem 1.25rem;
   font-size: 0.875rem;

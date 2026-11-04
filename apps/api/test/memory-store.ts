@@ -46,6 +46,7 @@ import {
   FETCHED_PAGES_SHOWN,
   hostOf,
   INVITATION_DAYS,
+  isConfidentialCategory,
   LONGEST_PATH,
   MOST_INVITATIONS_LISTED,
   MOST_INVITATIONS_WAITING,
@@ -68,6 +69,7 @@ import {
   type Closing,
   type HostedPage,
   type KeptAnswerSubdomain,
+  type KeptReviewRequests,
   type NewAction,
   type PriceVersion,
   type PropertyMatch,
@@ -219,6 +221,14 @@ export interface MemoryDb {
     KeptAnswerSubdomain,
     "connected_at" | "status" | "paused_at" | "removal_reason" | "removed_at"
   > & { released_at: string | null })[];
+  /**
+   * The `review_request_settings` table: each location's review requests, with the name of its
+   * receipt address. Their connection's standing is read from `connections`.
+   */
+  reviewRequests: Omit<
+    KeptReviewRequests,
+    "connected_by_email" | "connected_at" | "status" | "paused_at"
+  >[];
   /** The `hosted_pages` table: every page served on an answer subdomain, and taken back. */
   hostedPages: HostedPage[];
   /** The `hosted_page_fetches` table: a count for a page, a day and a fetcher. */
@@ -327,6 +337,7 @@ export function createMemoryDb(): MemoryDb {
     analyticsVisits: [],
     fetchReads: new Map(),
     answerSubdomains: [],
+    reviewRequests: [],
     hostedPages: [],
     pageFetches: [],
     pauseTold: new Map(),
@@ -394,6 +405,23 @@ function keptAnswerSubdomain(
     removed_at: connection.removed_at,
   };
 }
+
+/** Review requests with their connection's standing, as the store returns them. */
+function keptReviewRequests(
+  kept: MemoryDb["reviewRequests"][number],
+  connection: Connection,
+): KeptReviewRequests {
+  return {
+    ...kept,
+    connected_by_email: connection.connected_by_email,
+    connected_at: connection.connected_at,
+    status: connection.status,
+    paused_at: connection.paused_at,
+  };
+}
+
+/** Mirrors new_receipt_address(): 32 random hex digits. */
+const newReceiptAddress = () => crypto.randomUUID().replaceAll("-", "");
 
 export function memoryStore(db: MemoryDb, userId: string | null): Store {
   /** Membership: what every write is checked against. */
@@ -1022,6 +1050,9 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
       for (const id of connections) db.connectionSecrets.delete(id);
       db.answerSubdomains = db.answerSubdomains.filter(
         (name) => name.organization_id !== organizationId,
+      );
+      db.reviewRequests = db.reviewRequests.filter(
+        (kept) => kept.organization_id !== organizationId,
       );
       db.subscriptions.delete(organizationId);
       return db.organizations.length < before;
@@ -1969,9 +2000,11 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         matches: [],
       });
       db.connectionSecrets.delete(id);
-      // An answer subdomain's name is free for anyone again.
-      for (const kept of db.answerSubdomains) {
-        if (kept.connection_id === id) kept.released_at = db.now ?? timestamp();
+      // An answer subdomain's name is free for anyone again, and a receipt address is nobody's.
+      for (const kept of [...db.answerSubdomains, ...db.reviewRequests]) {
+        if (kept.connection_id === id && kept.released_at === null) {
+          kept.released_at = db.now ?? timestamp();
+        }
       }
       return true;
     },
@@ -2280,6 +2313,97 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         released_at: null,
       });
       return made;
+    },
+
+    // Mirrors turn_on_review_requests(): a connection with no sign-in, matched to its location.
+    async turnOnReviewRequests({ id, location_id, site, reply_to, confirmed }) {
+      const location = db.locations.find((candidate) => candidate.id === location_id);
+      if (!location || !managesOrg(location.organization_id)) return null;
+      const refuse = (why: string) => new StoreError("limit", why);
+      if (!allowsConnection(location.organization_id, "review_requests")) {
+        throw refuse("This organization's plan does not include review requests.");
+      }
+      if (db.reviewRequests.some((kept) => kept.location_id === location_id && !kept.released_at)) {
+        throw refuse("Review requests are on for this location already.");
+      }
+      if (location.time_zone === null) {
+        throw refuse("Set this location's time zone under Settings first.");
+      }
+      if (isConfidentialCategory(location.primary_category)) {
+        throw refuse(
+          "Review requests are not offered to a business whose list of customers is confidential, such as a clinic or a law firm.",
+        );
+      }
+      if (!confirmed) {
+        throw refuse(
+          "Confirm that your customer list is not confidential, and that your customers expect to hear from you.",
+        );
+      }
+      if (
+        !["google.com", "bbb.org", "trustpilot.com"].includes(site) ||
+        !db.listings.some((listing) => listing.location_id === location_id && listing.site === site)
+      ) {
+        throw refuse("Choose a site where this location has a listing to be reviewed on.");
+      }
+      const now = db.now ?? timestamp();
+      const made: Connection = {
+        id,
+        organization_id: location.organization_id,
+        kind: "review_requests",
+        label: location.name,
+        status: "working",
+        connected_by_email: db.emails.get(userId ?? "") ?? null,
+        connected_at: now,
+        removed_by_email: null,
+        removal_requested_at: null,
+        removed_at: null,
+        broken_reason: null,
+        broken_at: null,
+        paused_at: null,
+        removal_reason: null,
+        last_synced_at: now,
+        choices: [{ id: location_id, label: location.name }],
+        matches: [
+          { location_id, external_id: location_id, external_label: location.name, matched_at: now },
+        ],
+      };
+      db.connections.push(made);
+      db.reviewRequests.push({
+        connection_id: id,
+        organization_id: location.organization_id,
+        location_id,
+        receipt_address: newReceiptAddress(),
+        address_made_at: now,
+        site,
+        reply_to: reply_to.trim().toLowerCase(),
+        released_at: null,
+      });
+      return made;
+    },
+
+    async getLocationReviewRequests(locationId) {
+      if (!readsLocation(locationId)) return null;
+      const kept = db.reviewRequests.find(
+        (candidate) => candidate.location_id === locationId && candidate.released_at === null,
+      );
+      const connection = db.connections.find((c) => c.id === kept?.connection_id);
+      return kept && connection ? keptReviewRequests(kept, connection) : null;
+    },
+
+    // Mirrors replace_receipt_address(): an owner or admin's, while they are not being turned off.
+    async replaceReceiptAddress(locationId) {
+      const location = db.locations.find((candidate) => candidate.id === locationId);
+      if (!location || !managesOrg(location.organization_id)) return null;
+      const kept = db.reviewRequests.find(
+        (candidate) => candidate.location_id === locationId && candidate.released_at === null,
+      );
+      const connection = db.connections.find((c) => c.id === kept?.connection_id);
+      if (!kept || !connection || ["removing", "removed"].includes(connection.status)) return null;
+      Object.assign(kept, {
+        receipt_address: newReceiptAddress(),
+        address_made_at: db.now ?? timestamp(),
+      });
+      return keptReviewRequests(kept, connection);
     },
 
     // The one held, or else the one let go last.
@@ -3411,18 +3535,26 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
       db.locations = db.locations.filter((location) => location.id !== id);
       db.visitLines.delete(id);
       db.visits = db.visits.filter((counted) => counted.location_id !== id);
-      // Mirrors the trigger on locations: its answer subdomain is removed with it, since nothing
-      // is left to serve there, and its connection is matched to nothing any more.
+      // Mirrors the triggers on locations: its answer subdomain and its review requests are
+      // removed with it, since nothing is left to serve there or ask for, and their connections
+      // are matched to nothing any more.
       for (const connection of db.connections) {
         const own = connection.matches.some((match) => match.location_id === id);
         connection.matches = connection.matches.filter((match) => match.location_id !== id);
-        if (own && connection.kind === "hosted_pages" && connection.status !== "removed") {
+        if (
+          own &&
+          (connection.kind === "hosted_pages" || connection.kind === "review_requests") &&
+          connection.status !== "removed"
+        ) {
           Object.assign(connection, {
             status: "removing",
             removal_reason: "location",
             removal_requested_at: db.now ?? timestamp(),
           });
         }
+      }
+      for (const kept of db.reviewRequests) {
+        if (kept.location_id === id) kept.location_id = null;
       }
       return true;
     },

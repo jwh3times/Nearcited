@@ -24,7 +24,10 @@ import { CLOUDFLARE_TOKENS_URL, CLOUDFLARE_WORDS } from "../lib/fetches";
 import { GOOGLE_WORDS, noteGoogleStarted } from "../lib/google";
 
 /** The kinds connected with one press, with nothing to give. */
-type OnePress = Exclude<ConnectionKind, "wordpress" | "cloudflare" | "google_analytics">;
+type OnePress = Exclude<
+  ConnectionKind,
+  "wordpress" | "cloudflare" | "google_analytics" | "review_requests"
+>;
 
 /**
  * The accounts an organization has connected: what is connected, who connected it, and for its
@@ -51,11 +54,15 @@ export function Connections({ organization }: { organization: Organization }) {
   const canManage = found.data?.can_manage ?? false;
   // A WordPress site is connected by approving on the site, from its location's Website tab. A
   // Cloudflare account is connected with a token, through its own form, and a Google Analytics
-  // account by signing in on Google's screen.
+  // account by signing in on Google's screen. Review requests are turned on from a location's
+  // Settings tab.
   const here =
     found.data?.available.filter(
       (kind): kind is OnePress =>
-        kind !== "wordpress" && kind !== "cloudflare" && kind !== "google_analytics",
+        kind !== "wordpress" &&
+        kind !== "cloudflare" &&
+        kind !== "google_analytics" &&
+        kind !== "review_requests",
     ) ?? [];
   const fromLocation = found.data?.available.includes("wordpress") ?? false;
   const withToken = found.data?.available.includes("cloudflare") ?? false;

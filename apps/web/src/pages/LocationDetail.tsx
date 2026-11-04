@@ -28,6 +28,7 @@ import { PageTasks } from "../components/PageTasks";
 import { PausedByPlan } from "../components/PausedByPlan";
 import { PromptGrid } from "../components/PromptGrid";
 import { Quote } from "../components/Quote";
+import { ReviewRequests } from "../components/ReviewRequests";
 import { ScoreCard } from "../components/ScoreCard";
 import { SiteChecklist } from "../components/SiteChecklist";
 import { SiteFetches } from "../components/SiteFetches";
@@ -44,6 +45,7 @@ import { hostedPagesKey, offersPages } from "../lib/hosted-pages";
 import { googlePointLine, startingKind, wantsGoogleKeyword } from "../lib/location";
 import { locationKey, placeOf, scansKey } from "../lib/locations";
 import { nothingShownLine } from "../lib/matrix";
+import { reviewRequestsKey } from "../lib/review-requests";
 import { namedInsteadCard, noScoreReason, windowRate } from "../lib/summary";
 import { neighbour, TAB_LABELS, type Tab, tabFrom, tabsFor } from "../lib/tabs";
 import { buildTrend } from "../lib/trend";
@@ -572,16 +574,25 @@ export function LocationDetail() {
 
         {tab === "settings" && (
           <div className="settings">
-            <LocationEditor
-              // Another location starts the form from what is on file for it.
-              key={location.id}
-              location={location}
-              readOnly={readOnly}
-              onSaved={async () => {
-                refresh();
-                await queryClient.invalidateQueries({ queryKey: ["locations"] });
-              }}
-            />
+            <div className="settings-column">
+              <LocationEditor
+                // Another location starts the form from what is on file for it.
+                key={location.id}
+                location={location}
+                readOnly={readOnly}
+                onSaved={async () => {
+                  refresh();
+                  await queryClient.invalidateQueries({ queryKey: ["locations"] });
+                  // Whether review requests can be turned on rests on the time zone and category.
+                  await queryClient.invalidateQueries({ queryKey: reviewRequestsKey(location.id) });
+                }}
+              />
+              <ReviewRequests
+                location={location}
+                allowances={organization?.allowances}
+                readOnly={readOnly}
+              />
+            </div>
             <div className="settings-side">
               {connections.length > 0 && (
                 <div className="card side-card">

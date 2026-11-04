@@ -275,6 +275,8 @@ export async function proposeAfterSync(connectionId: string, deps: ActionDeps): 
   // A Cloudflare token only reads fetches, and a Google Analytics sign-in only reads sessions:
   // there is nothing to do through either.
   if (connection.kind === "cloudflare" || connection.kind === "google_analytics") return 0;
+  // Review requests are proposed from the receipts that come in, never from a sync.
+  if (connection.kind === "review_requests") return 0;
   // An answer subdomain has no sign-in to open.
   if (connection.kind === "hosted_pages") return proposeHostedPages(connection, deps);
   if (!key) return 0;

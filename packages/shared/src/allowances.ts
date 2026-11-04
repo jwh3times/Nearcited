@@ -49,6 +49,9 @@ export const ALLOWANCE_KINDS: Record<string, AllowanceKind> = {
     counted: false,
     name: "Standing permission: actions of a kind done without asking",
   },
+  // Asking a location's customers for a review by email, from the receipts copied to it
+  // (`review-requests.ts`). `REVIEW_REQUESTS_ALLOWANCE` there is this key.
+  review_requests: { counted: true, name: "Review requests sent for you" },
 };
 
 /** The most a plan may give of a counted kind, for each location, in a month. */

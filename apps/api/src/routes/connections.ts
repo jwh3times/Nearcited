@@ -16,7 +16,8 @@ export const connectionRoutes = new Hono<AppEnv>();
  * Refuses to change what an answer subdomain is matched to: it is made for its location, under
  * that location's website, and is that location's until it is removed. Nor what a Cloudflare zone
  * is matched to: the worker matches it to the location whose website it holds. Nor a Google
- * Analytics property, which it matches to the location whose website it measures.
+ * Analytics property, which it matches to the location whose website it measures. Nor review
+ * requests, which are turned on for one location.
  */
 async function refuseHandMatch(c: Context<AppEnv>, connectionId: string) {
   const connection = await c.get("store").getConnection(connectionId);
@@ -32,6 +33,13 @@ async function refuseHandMatch(c: Context<AppEnv>, connectionId: string) {
       422,
       "not_matched_by_hand",
       "A Cloudflare zone is matched to the location whose website it holds, each time it is read.",
+    );
+  }
+  if (connection?.kind === "review_requests") {
+    throw new ApiError(
+      422,
+      "not_matched_by_hand",
+      "Review requests belong to the location they were turned on for. Turn them off to turn on another's.",
     );
   }
   if (connection?.kind === "google_analytics") {

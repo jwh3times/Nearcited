@@ -162,6 +162,9 @@ async function read(
     case "google_analytics":
       // Read with its sessions: `syncProperties`.
       return { choices: [] };
+    case "review_requests":
+      // Nothing to read: it has no sign-in. `syncConnection` keeps what it has.
+      return { choices: [] };
   }
 }
 
@@ -187,6 +190,8 @@ async function withdraw(
       return true;
     case "google_analytics":
       return withdrawSignIn(signIn, outside);
+    case "review_requests":
+      return true;
   }
 }
 
@@ -267,7 +272,8 @@ export async function removeConnection(
   if (connection.kind === "hosted_pages") return removeAnswerSubdomain(connection, deps);
 
   // Whether the outside service no longer holds the access. Not where it could not be asked.
-  let takenBack = connection.kind === "sample";
+  // Review requests gave no outside service any.
+  let takenBack = connection.kind === "sample" || connection.kind === "review_requests";
   const sealed = await store.getConnectionSecret(connectionId);
   if (sealed && key) {
     let signIn: string | null = null;
@@ -342,6 +348,14 @@ export async function syncConnection(
       await recordFailure(connectionId, false, deps);
       return "failed";
     }
+  }
+
+  // Review requests have no sign-in and nothing outside to read. A sync only says they were
+  // looked at, keeping what they reach: their own location.
+  if (connection.kind === "review_requests") {
+    return (await store.recordConnectionSync(connectionId, connection.choices))
+      ? "synced"
+      : "not_working";
   }
 
   const sealed = await store.getConnectionSecret(connectionId);
