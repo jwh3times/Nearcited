@@ -2479,7 +2479,11 @@ drift.
 
 Input checks live there too (`packages/shared/src/inputs.ts`): a phone number is stored in E.164
 form, read in the location's own country; a website gets `https://` if typed without a scheme and
-must be a public web address; the postal code is exact for US and CA and loosely shaped elsewhere.
+must be a public web address; the postal code is exact for US and CA and loosely shaped elsewhere;
+a time zone must be an IANA name the runtime knows, and is kept as the runtime spells it
+(`normalizeTimeZone`), where the database checks only the shape of a name. The edit form fills an
+empty time zone in from the member's browser, kept only if they save it, and leaves it empty in the
+operator's read-only view.
 The web app runs the same checks beside each field. Stored rows are not rewritten, so one that no
 longer validates is corrected the next time its Settings are saved.
 
@@ -2652,9 +2656,9 @@ drop it.
 - The card shows the last thirty days of visits and no more. Older counts are kept with their
   location and shown nowhere: the route asks `location_visits()` for thirty days
   (`VISITS_SHOWN_DAYS`), though the function takes up to 366, and no page asks for a longer run.
-- The days in the counts are days in UTC, as the database keeps them, because a location holds no
-  time zone. A visit late in a local evening may be counted on the next day, and the card says a
-  day is a day in UTC.
+- The days in the counts are days in UTC, as the database keeps them: the counts do not read the
+  time zone a location may hold. A visit late in a local evening may be counted on the next day,
+  and the card says a day is a day in UTC.
 - On sample data what the line reported is empty until a line really reports. None of it is
   generated for a deployment in mock mode or for a test organization, so those counts are only what
   a line on a real site reports to that deployment. The Google Analytics section beside them is made
