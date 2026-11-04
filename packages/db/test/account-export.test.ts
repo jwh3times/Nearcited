@@ -58,7 +58,7 @@ async function seeded(name: string, by: string) {
     [org, by],
   );
   const { id: location } = await one<{ id: string }>(
-    "insert into public.locations (organization_id, name, city, website) values ($1, $2, 'Raleigh', 'https://www.joespizza.example') returning id",
+    "insert into public.locations (organization_id, name, city, website, time_zone) values ($1, $2, 'Raleigh', 'https://www.joespizza.example', 'America/New_York') returning id",
     [org, name],
   );
   const { id: query } = await one<{ id: string }>(
@@ -165,6 +165,7 @@ describe("downloading everything", () => {
     expect(exported.answers.map((row) => row.shown)).toEqual([true]);
     expect(exported.organization.id).toBe(org);
     expect(exported.locations.map((row) => row.id)).toEqual([location]);
+    expect(exported.locations.map((row) => row.time_zone)).toEqual(["America/New_York"]);
     expect(exported.prompts).toHaveLength(1);
     expect(exported.scans).toHaveLength(1);
     expect(exported.answers.map((row) => row.answer_excerpt)).toEqual([

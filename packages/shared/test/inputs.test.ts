@@ -132,6 +132,30 @@ describe("what a business says it does", () => {
   });
 });
 
+describe("a location's time zone", () => {
+  const zone = (time_zone: unknown) => LocationInputSchema.parse({ ...joes, time_zone }).time_zone;
+
+  it("is an IANA name, stored the way the runtime spells it", () => {
+    expect(zone("America/Chicago")).toBe("America/Chicago");
+    expect(zone("  america/new_york ")).toBe("America/New_York");
+    expect(zone("Europe/London")).toBe("Europe/London");
+  });
+
+  it("is refused when it names no time zone, or only an offset", () => {
+    const message = "Choose a time zone from the list, like America/Chicago";
+    expect(errors({ time_zone: "America/Springfield" }).time_zone).toBe(message);
+    expect(errors({ time_zone: "Central" }).time_zone).toBe(message);
+    expect(errors({ time_zone: "+05:00" }).time_zone).toBe(message);
+    expect(errors({ time_zone: "a".repeat(65) }).time_zone).toBe(message);
+  });
+
+  it("is none when blank, and left alone when a form does not send it", () => {
+    expect(zone("  ")).toBeNull();
+    expect(zone(null)).toBeNull();
+    expect("time_zone" in LocationInputSchema.parse(joes)).toBe(false);
+  });
+});
+
 describe("fieldErrors", () => {
   it("gives one message per field, the first for each", () => {
     expect(fieldErrors(LocationInputSchema, { name: "", city: "", website: "x y" })).toEqual({

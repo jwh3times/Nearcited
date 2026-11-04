@@ -173,6 +173,35 @@ describe("locations and tracked queries", () => {
     ).rejects.toThrow(/permission denied/);
   });
 
+  it("keep a time zone a member sets, as a name and never anything else", async () => {
+    const zone = (value: string | null) =>
+      as("authenticated", alice, () =>
+        rows<{ time_zone: string | null }>(
+          "update public.locations set time_zone = $2 where id = $1 returning time_zone",
+          [locationId, value],
+        ),
+      );
+    expect(
+      await rows("select time_zone from public.locations where id = $1", [locationId]),
+    ).toEqual([{ time_zone: null }]);
+    expect(await zone("America/Argentina/Buenos_Aires")).toEqual([
+      { time_zone: "America/Argentina/Buenos_Aires" },
+    ]);
+    for (const bad of ["+05:00", "America/", "America Chicago", "a".repeat(65)]) {
+      await expect(zone(bad)).rejects.toThrow(/check constraint/);
+    }
+    // A stranger's update finds no row.
+    await as("authenticated", bob, () =>
+      db.query("update public.locations set time_zone = 'Europe/Paris' where id = $1", [
+        locationId,
+      ]),
+    );
+    expect(
+      await rows("select time_zone from public.locations where id = $1", [locationId]),
+    ).toEqual([{ time_zone: "America/Argentina/Buenos_Aires" }]);
+    expect(await zone(null)).toEqual([{ time_zone: null }]);
+  });
+
   it("cannot be read or written by a non-member", async () => {
     expect(
       await as("authenticated", bob, () => rows("select id from public.locations")),

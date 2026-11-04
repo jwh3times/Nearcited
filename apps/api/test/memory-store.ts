@@ -3368,6 +3368,7 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
       const location: Location = {
         ...input,
         what_we_do: input.what_we_do ?? null,
+        time_zone: input.time_zone ?? null,
         id: crypto.randomUUID(),
         organization_id: organizationId,
         latitude: null,
@@ -3396,8 +3397,13 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
       const location = visibleLocation(id);
       if (!location) return null;
       // As the database does: a detail the input leaves out is not written.
-      const { what_we_do, ...rest } = input;
-      return Object.assign(location, rest, what_we_do === undefined ? {} : { what_we_do });
+      const { what_we_do, time_zone, ...rest } = input;
+      return Object.assign(
+        location,
+        rest,
+        what_we_do === undefined ? {} : { what_we_do },
+        time_zone === undefined ? {} : { time_zone },
+      );
     },
 
     async deleteLocation(id) {

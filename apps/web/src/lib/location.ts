@@ -4,13 +4,21 @@ import {
   type Location,
   type LocationFormValues,
   needsPoint,
+  normalizeTimeZone,
   type QueryKind,
   type Surface,
   type TrackedQuery,
 } from "@nearcited/shared";
 
-/** A location as the edit form starts: every field a user may set, blank where none is on file. */
-export function locationFormValues(location: Location): Required<LocationFormValues> {
+/**
+ * A location as the edit form starts: every field a user may set, blank where none is on file.
+ * The time zone is the exception: where none is stored, the form starts on `here`, the browser's,
+ * so saving the form sets it.
+ */
+export function locationFormValues(
+  location: Location,
+  here: string | null = browserTimeZone(),
+): Required<LocationFormValues> {
   return {
     name: location.name,
     website: location.website ?? "",
@@ -24,7 +32,26 @@ export function locationFormValues(location: Location): Required<LocationFormVal
     google_place_id: location.google_place_id ?? "",
     primary_category: location.primary_category ?? "",
     what_we_do: location.what_we_do ?? "",
+    time_zone: location.time_zone ?? here ?? "",
   };
+}
+
+/** The time zone this browser is in, as an IANA name, or null where it gives none it should. */
+export function browserTimeZone(): string | null {
+  try {
+    return normalizeTimeZone(Intl.DateTimeFormat().resolvedOptions().timeZone ?? "");
+  } catch {
+    return null;
+  }
+}
+
+/** Every time zone this browser knows, by IANA name, for a list to choose from. */
+export function timeZoneNames(): string[] {
+  try {
+    return Intl.supportedValuesOf("timeZone");
+  } catch {
+    return [];
+  }
 }
 
 /**

@@ -708,6 +708,20 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
     await expect(
       aliceStore.updateLocation(location.id, { ...unsaid, what_we_do: "a".repeat(601) }),
     ).rejects.toThrow();
+    // So is its time zone, which starts as none; the database refuses what is not a name.
+    expect(location.time_zone).toBeNull();
+    const { time_zone: _zone, ...unzoned } = fields;
+    expect(
+      await aliceStore.updateLocation(location.id, { ...unzoned, time_zone: "America/Chicago" }),
+    ).toEqual({ ...location, time_zone: "America/Chicago" });
+    expect(await aliceStore.updateLocation(location.id, unzoned)).toEqual({
+      ...location,
+      time_zone: "America/Chicago",
+    });
+    await expect(
+      aliceStore.updateLocation(location.id, { ...unzoned, time_zone: "+05:00" }),
+    ).rejects.toThrow();
+    expect(await aliceStore.updateLocation(location.id, fields)).toEqual(location);
     await expect(
       bobStore.createLocation(organization.id, { ...location, name: "Planted" }),
     ).rejects.toMatchObject({ kind: "forbidden" });
