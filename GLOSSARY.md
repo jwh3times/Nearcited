@@ -153,8 +153,14 @@ system works; this file only settles vocabulary.
 - **Review request**: one message from the product to one of a business's customers, asking for a
   review on a site that lets a business ask. Sent to every customer alike, once, offering
   nothing.
-- **Customer contact**: a customer's name and their email address or phone number, held only to
-  send a review request and deleted afterwards.
+- **Customer contact**: a customer's email address and the day their job was finished, held only
+  to send one review request and deleted 30 days after it was sent. Nobody sees it in full; the
+  record that remains says only whether the address was asked and whether it opted out.
+- **Receipt address**: an address of a location's own that its owner adds once as a copy on the
+  receipts or invoices their own tool already sends, so the product learns who was served and on
+  what day. The first kind of customer source.
+- **Confirmed sender**: an address that sends receipts to a receipt address and that an owner or
+  admin confirmed is their own tool. A receipt from any other sender is not read.
 - **Organization role**: what a person may do inside one organization: owner, admin or member.
   Whoever creates an organization is its owner. It says nothing about the product as a whole.
   - **Member**: anyone in an organization, and the role of someone who is only that: they see
