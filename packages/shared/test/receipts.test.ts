@@ -66,6 +66,11 @@ describe("reading a copied receipt", () => {
       // The sender's own header, read after Cloudflare's, is not Cloudflare's word.
       "mx.cloudflare.net; spf=fail; dkim=fail, mx.cloudflare.net; dmarc=pass",
       "evil.example; dmarc=pass; spf=pass smtp.mailfrom=squareup.com",
+      // A comment within a comment, or one left open, is not read at all.
+      "mx.cloudflare.net; dmarc=pass (a (nested) comment)",
+      "mx.cloudflare.net; dmarc=pass (left open",
+      "mx.cloudflare.net; dmarc=pass (escaped \\) close",
+      "mx.cloudflare.net; dmarc=pass ) stray",
       "",
       null,
     ]) {
@@ -74,6 +79,16 @@ describe("reading a copied receipt", () => {
         String(results),
       ).toEqual({ dropped: "unauthenticated" });
     }
+  });
+
+  it("reads a header crafted to be slow in the time a plain one takes", () => {
+    // Anyone can send mail to a receipt address, so the header is read in one pass.
+    const results = `mx.cloudflare.net; dmarc=pass (${"\\(".repeat(100_000)}`;
+    const started = performance.now();
+    expect(readReceipt(receipt({ authentication_results: results }), JOES)).toEqual({
+      dropped: "unauthenticated",
+    });
+    expect(performance.now() - started).toBeLessThan(500);
   });
 
   it("picks the customer from the addresses that are neither the business's own nor the product's", () => {

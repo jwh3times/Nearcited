@@ -86,10 +86,8 @@ export function readReceipt(
  * neither.
  */
 function passesForSender(results: string | null, sender: string): boolean {
-  if (!results) return false;
-  // Comments say nothing a result rests on. A comment within a comment is not read at all.
-  const bare = results.replace(/\((?:[^()\\]|\\.)*\)/g, " ");
-  if (/[()]/.test(bare)) return false;
+  const bare = results ? withoutComments(results) : null;
+  if (bare === null) return false;
   // Several headers of the name are joined with commas; Cloudflare's is the first.
   const [own = ""] = bare.split(",");
   const [service, ...found] = own.split(";").map((part) => part.trim());
@@ -113,6 +111,30 @@ function passesForSender(results: string | null, sender: string): boolean {
     const by = domainOf(signed);
     return within(domain, by) || within(by, domain);
   });
+}
+
+/**
+ * A header with each comment taken out, since comments say nothing a result rests on, or null
+ * where one sits within another, is left open, or closes nothing. Read in one pass: anyone can
+ * send mail to a receipt address, so the header is theirs to make as long and odd as they like.
+ */
+function withoutComments(header: string): string | null {
+  let bare = "";
+  let inComment = false;
+  for (let i = 0; i < header.length; i++) {
+    const char = header[i];
+    if (!inComment) {
+      if (char === ")") return null;
+      if (char === "(") inComment = true;
+      else bare += char;
+    } else if (char === "\\") i++;
+    else if (char === "(") return null;
+    else if (char === ")") {
+      inComment = false;
+      bare += " ";
+    }
+  }
+  return inComment ? null : bare;
 }
 
 /** The sender: the one address `From:` names, or else the envelope's. */
