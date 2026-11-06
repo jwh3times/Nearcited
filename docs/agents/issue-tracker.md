@@ -43,8 +43,8 @@ Work from a ready private issue needs no public issue: see `Private work` in
 ## Project board
 
 [Nearcited](https://github.com/users/jwh3times/projects/10) (project 10, owner `jwh3times`) holds every
-open issue from both trackers. The issue is the record; the board is a view of all of them with three fields that
-carry the sequencing. The board is private. [Build order](https://github.com/jwh3times/Nearcited/issues/15)
+open issue from both trackers. The issue is the record; the board is a view of all of them with four fields that
+carry the sequencing, and its items are kept in `Priority` order. The board is private. [Build order](https://github.com/jwh3times/Nearcited/issues/15)
 shows the same order to public readers, so move an issue in its task list when its `Stage` changes.
 
 | Field    | Options                                                                                                                                                              | Meaning                                                                    |
@@ -52,6 +52,13 @@ shows the same order to public readers, so move an issue in its task list when i
 | `Status` | Todo, In Progress, Done                                                                                                                                              | Closing an issue sets Done. Set In Progress by hand when work starts.      |
 | `Stage`  | 1 - Make it real, 2 - Find out whether anyone wants it, 3 - Safe for someone else to use, 4 - Does the work for the owner, 5 - Sellable, 6 - Rounding out, Decisions and upkeep | The order to build in. Lower stages first.                                 |
 | `Gate`   | None, Owner decision, Owner action, External                                                                                                                         | What must happen outside the code before the item can finish.              |
+| `Priority` | P0 - Now, P1 - Next, P2 - Soon, P3 - Later                                                                                                                         | How much it matters now, set whether or not it is blocked. The tracking issue #15 has none. |
+
+- **P0 - Now**: on the critical path of what is being built, or an owner step that holds it up.
+- **P1 - Next**: the next slices of that work, and owner steps that protect revenue or prove the
+  product.
+- **P2 - Soon**: worth doing once P0 and P1 clear, including tracks waiting on a long outside wait.
+- **P3 - Later**: deferred, speculative, or waiting on volume or adoption.
 
 - **Owner decision**: the owner has to choose something first (a vendor, a price, where code lives).
 - **Owner action**: the owner has to do something an agent cannot (create an account, set a secret,
@@ -59,10 +66,15 @@ shows the same order to public readers, so move an issue in its task list when i
 - **External**: waiting on a third party.
 
 What blocks what is recorded as native issue dependencies, described under
-[Wayfinding operations](#wayfinding-operations), and never in a board field.
+[Wayfinding operations](#wayfinding-operations), and never in a board field. The `blocked` label
+mirrors them in issue lists (`docs/agents/triage-labels.md`).
 
-**The frontier**, what to build next: open items in the lowest stage that have no open blocker and a
-`Gate` of None.
+**The frontier**, what to build next: open items with no open blocker and a `Gate` of None, highest
+`Priority` first, then the lowest stage.
+
+When an issue is added, closed or unblocked, move the items so the board still reads in `Priority`
+order: `gh api graphql` with the `updateProjectV2ItemPosition` mutation (`projectId`, `itemId`, and
+`afterId`, the item it goes after, left out for the top).
 
 Commands. Read field and option IDs each time; they are not stable enough to write down.
 
@@ -72,7 +84,7 @@ Commands. Read field and option IDs each time; they are not stable enough to wri
 - **Set a field**: `gh project item-edit --project-id <project-id> --id <item-id> --field-id <field-id> --single-select-option-id <option-id>`.
   The project ID is `gh project view 10 --owner jwh3times --format json -q .id`.
 
-Every new issue, public or private, goes on the board with all three fields set, in the same
+Every new issue, public or private, goes on the board with all four fields set, in the same
 session that opens it. A private issue on the board stays visible only to people who can read
 the private repository.
 
@@ -126,14 +138,17 @@ jwh3times 10
   changes, move it in the task list of the public Build order issue (#15) too.
 - `Gate`: `None` / `Owner decision` / `Owner action` / `External` — what must happen outside the
   code before the item can finish.
+- `Priority`: `P0 - Now` / `P1 - Next` / `P2 - Soon` / `P3 - Later` — how much it matters now,
+  whether or not it is blocked. The board's items are kept in this order.
 
-Every new issue, public or private, gets all three in the session that opens it.
+Every new issue, public or private, gets all four in the session that opens it.
 
 ## New work
 
 issue — in the shape the existing ones use (Why, Scope, Done when, Depends on), labelled `bug` or
 `enhancement` (`documentation` for doc drift) plus one triage label, and added to the board with
-`Status`, `Stage` and `Gate` set. A blocker is a native dependency.
+`Status`, `Stage`, `Gate` and `Priority` set, in `Priority` order. A blocker is a native dependency,
+and the issue also carries `blocked` while it has an open one.
 
 ## Security findings
 

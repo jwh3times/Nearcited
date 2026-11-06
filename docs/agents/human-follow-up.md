@@ -8,4 +8,5 @@ Required human actions left by completed agent work follow the procedure in the 
 
 same as Board — `Gate` `Owner action` (`Owner decision` for a decision, `External` while waiting on
 a third party), `Status` `Todo`, `Stage` the stage of the work it gates, else
-`Decisions and upkeep`. A prerequisite is a native `blocked_by` dependency.
+`Decisions and upkeep`, and `Priority` as `docs/agents/issue-tracker.md` defines it. A prerequisite
+is a native `blocked_by` dependency, and the issue carries `blocked` while one is open.

@@ -492,13 +492,14 @@ here.
 
 Issues live in GitHub Issues, through the `gh` CLI: public work in `jwh3times/Nearcited`,
 confidential work in the private companion's tracker. Every open issue from both is on the
-Nearcited project board (project 10), whose `Stage` and `Gate` fields carry the sequencing. See
-`docs/agents/issue-tracker.md`.
+Nearcited project board (project 10), whose `Stage`, `Gate` and `Priority` fields carry the
+sequencing, with the items kept in `Priority` order. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
 The five default labels (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`,
-`wontfix`), all of which exist in the tracker. See `docs/agents/triage-labels.md`.
+`wontfix`), plus `blocked` beside them while an issue has an open blocker or an outside wait, all of
+which exist in both trackers. See `docs/agents/triage-labels.md`.
 
 ### Development flow
 
