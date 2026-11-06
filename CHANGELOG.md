@@ -9,6 +9,18 @@ counting builds on a release line.
 
 No unreleased changes.
 
+## [1.3.1] - 2026-11-06
+
+### Changed
+
+- The project board gains a `Priority` field, from P0 (now) to P3 (later), set whether or not an
+  issue is blocked, and its items are kept in that order. What to build next is now the open items
+  with no open blocker and no gate, highest priority first, then the lowest stage.
+- Issues carry a `blocked` label beside their triage label while they have an open blocker or wait
+  on an outside party, so an issue list shows what can be picked up. The native issue dependency
+  stays the record of what blocks what. `AGENTS.md`, `docs/agents/issue-tracker.md`,
+  `docs/agents/triage-labels.md` and `docs/agents/human-follow-up.md` describe both. Nothing the product does changes.
+
 ## [1.3.0] - 2026-11-04
 
 ### Added
@@ -138,7 +150,8 @@ deployed.
   (`scripts/check-changelog.mjs`); a Dependabot merge gets its section on the next human pull
   request.
 
-[Unreleased]: https://github.com/jwh3times/Nearcited/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/jwh3times/Nearcited/compare/v1.3.1...HEAD
+[1.3.1]: https://github.com/jwh3times/Nearcited/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/jwh3times/Nearcited/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/jwh3times/Nearcited/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/jwh3times/Nearcited/compare/v1.0.5...v1.1.0
