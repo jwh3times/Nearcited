@@ -59,6 +59,7 @@ import {
   type KeptAnswerSubdomain,
   type KeptReviewRequests,
   RECEIPT_OUTCOMES,
+  REVIEW_REQUEST_PROPOSALS,
   type Store,
   StoreError,
   type StoreErrorKind,
@@ -349,7 +350,7 @@ const ORGANIZATION_COLUMNS =
 
 // What a member is sent of an action. `subject` and `basis` are the worker's own bookkeeping.
 const ACTION_COLUMNS =
-  "id, location_id, kind, connection_id, summary, seen, seen_dropped_at, proposed_text, written_by, status, proposed_at, lapses_at, approved_by_email, approved_at, approved_text, declined_by_email, declined_at, decline_reason, done_at, failed_at, failure, lapsed_at, lapse_reason, retry_of, takes_back, approved_under, approved_under_by_email, approved_under_at, always_asks";
+  "id, location_id, kind, connection_id, summary, seen, seen_dropped_at, proposed_text, written_by, status, proposed_at, lapses_at, due_at, approved_by_email, approved_at, approved_text, declined_by_email, declined_at, decline_reason, done_at, failed_at, failure, lapsed_at, lapse_reason, retry_of, takes_back, approved_under, approved_under_by_email, approved_under_at, always_asks";
 
 const STANDING_PERMISSION_COLUMNS =
   "id, kind, given_by_email, given_at, ended_at, ended_by_email, end_reason, ended_by_action";
@@ -1059,6 +1060,78 @@ export function createSupabaseStore(
     async recordReceiptDrop(locationId, reason) {
       const { error } = await db.rpc("record_receipt_drop", { location: locationId, reason });
       if (error) fail("Count a dropped receipt", error);
+    },
+
+    async listContactsToAsk() {
+      const data = await every("List the contacts to ask", (from, to, first) =>
+        db.rpc("contacts_to_ask", {}, counted(first)).range(from, to),
+      );
+      return z
+        .array(
+          z.object({
+            id: z.uuid(),
+            organization_id: z.uuid(),
+            location_id: z.uuid(),
+            address: z.string(),
+            masked: z.string(),
+            job_day: z.string(),
+          }),
+        )
+        .parse(data ?? []);
+    },
+
+    async proposeReviewRequest(contactId, fingerprint, summary, wording) {
+      const { data, error } = await db.rpc("propose_review_request", {
+        contact: contactId,
+        fingerprint,
+        what: summary,
+        wording,
+      });
+      if (error) fail("Propose a review request", error);
+      return z.enum(REVIEW_REQUEST_PROPOSALS).parse(data);
+    },
+
+    async getContactToSend(actionId) {
+      // The address is read only here, by the worker, which the service role is.
+      const { data, error } = await db
+        .from("actions")
+        .select("customer_contacts(address, organization_id, sample_data)")
+        .eq("id", actionId)
+        .maybeSingle();
+      if (error) fail("Read the contact a review request asks", error);
+      return (
+        z
+          .object({
+            customer_contacts: z
+              .object({
+                address: z.string(),
+                organization_id: z.uuid(),
+                sample_data: z.boolean(),
+              })
+              .nullable(),
+          })
+          .nullable()
+          .parse(data)?.customer_contacts ?? null
+      );
+    },
+
+    async getAskingRecord(organizationId, fingerprint) {
+      const { data, error } = await db
+        .rpc("asking_record", { org: organizationId, fingerprint })
+        .single();
+      if (error) fail("Read whom an organization asked", error);
+      return z
+        .object({
+          asked_by: z.uuid().nullable(),
+          asked_recently: z.boolean(),
+          opted_out: z.boolean(),
+        })
+        .parse(data);
+    },
+
+    async markAsked(actionId, fingerprint) {
+      const { error } = await db.rpc("mark_asked", { action: actionId, fingerprint });
+      if (error) fail("Record that a review request asked its address", error);
     },
 
     async dropExpiredHeldContacts() {
@@ -1801,7 +1874,9 @@ export function createSupabaseStore(
         .lt("approved_at", before)
         // Nobody is on it, or whoever was has been on it since before then and is taken to
         // have died.
-        .or(`carrying_since.is.null,carrying_since.lt.${before}`);
+        .or(`carrying_since.is.null,carrying_since.lt.${before}`)
+        // Nor one sent at a set time of day that has not come yet.
+        .or(`due_at.is.null,due_at.lte.${new Date().toISOString()}`);
       if (error) fail("List stalled actions", error);
       return z
         .array(z.object({ id: z.uuid() }))

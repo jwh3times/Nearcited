@@ -1684,6 +1684,67 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
     });
     expect(await receiving.dropExpiredHeldContacts()).toBe(0);
 
+    // Review requests: the worker lists the ready contacts, proposes asking one, reads whom it
+    // asks, and records the address asked once the email went. The job is today's, so its week
+    // is not over whenever this runs.
+    const jobDay = new Date().toISOString().slice(0, 10);
+    expect(
+      await receiving.receiveReceipt({ ...receipt, customer: "sam@example.org", job_day: jobDay }),
+    ).toBe("ready");
+    const sam = (await receiving.listContactsToAsk()).find(
+      (contact) => contact.address === "sam@example.org",
+    );
+    expect(sam).toMatchObject({
+      organization_id: organization.id,
+      location_id: asking.id,
+      masked: "s•••@example.org",
+      job_day: jobDay,
+    });
+    expect(
+      await receiving.proposeReviewRequest(
+        sam?.id ?? "",
+        "fingerprint-of-sam",
+        "Ask s•••@example.org for a review on Google",
+        "The wording",
+      ),
+    ).toBe("proposed");
+    const [request] = (await aliceStore.listLocationActions(asking.id)).filter(
+      (action) => action.kind === "review_request",
+    );
+    expect(request).toMatchObject({
+      status: "proposed",
+      proposed_text: "The wording",
+      due_at: null,
+    });
+    expect(await receiving.getContactToSend(request?.id ?? "")).toEqual({
+      address: "sam@example.org",
+      organization_id: organization.id,
+      sample_data: false,
+    });
+    expect(await receiving.getAskingRecord(organization.id, "fingerprint-of-sam")).toEqual({
+      asked_by: null,
+      asked_recently: false,
+      opted_out: false,
+    });
+    // Approved, it is left out of the stalled list until its 10:00 comes, then listed.
+    expect(await aliceStore.approveAction(request?.id ?? "")).toMatchObject({ status: "approved" });
+    const approved = await aliceStore.getAction(request?.id ?? "");
+    expect(approved?.due_at).not.toBeNull();
+    const longAfter = "2100-01-01T00:00:00.000Z";
+    expect(await receiving.listStalledActions(longAfter)).not.toContain(request?.id);
+    await admin
+      .from("actions")
+      .update({ due_at: new Date(Date.now() - 60_000).toISOString() })
+      .eq("id", request?.id ?? "")
+      .throwOnError();
+    expect(await receiving.listStalledActions(longAfter)).toContain(request?.id);
+    await receiving.markAsked(request?.id ?? "", "fingerprint-of-sam");
+    expect(await receiving.getAskingRecord(organization.id, "fingerprint-of-sam")).toEqual({
+      asked_by: request?.id,
+      asked_recently: true,
+      opted_out: false,
+    });
+
     // Answer subdomains: made by an owner or admin, read by members, checked by the worker.
     const included = await aliceStore.getOrganization(organization.id);
     await admin

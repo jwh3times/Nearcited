@@ -10,11 +10,13 @@ import { useState } from "react";
 import {
   actionState,
   actionText,
+  approvableTogether,
   END_QUESTION,
   editable,
   giveQuestion,
   isMarkup,
   isPage,
+  mayTakeBack,
   pageAddress,
   permissionShown,
   standingLine,
@@ -77,6 +79,9 @@ export function Actions({ actions, organizationId, onChanged, readOnly }: Action
           </span>
         </div>
         {actions.waiting.length === 0 && <p className="muted">Nothing is waiting.</p>}
+        {!readOnly && (
+          <ApproveAll requests={approvableTogether(actions.waiting)} onChanged={onChanged} />
+        )}
         {actions.waiting.map((action) => (
           <Proposal key={action.id} action={action} onChanged={onChanged} readOnly={readOnly} />
         ))}
@@ -290,6 +295,36 @@ function Proposal({
   );
 }
 
+/**
+ * Approves every review request listed at once: one yes recorded for each, as if each had been
+ * approved on its own. Shown where two or more wait.
+ */
+function ApproveAll({ requests, onChanged }: { requests: Action[]; onChanged: () => void }) {
+  const approve = useMutation({
+    mutationFn: async () => {
+      for (const request of requests) await api.approveAction(request.id);
+    },
+    onSettled: onChanged,
+  });
+  if (requests.length === 0) return null;
+  return (
+    <div className="stack">
+      <div className="button-row">
+        <button type="button" disabled={approve.isPending} onClick={() => approve.mutate()}>
+          {approve.isPending
+            ? "Approving"
+            : `Approve all ${requests.length} review requests listed`}
+        </button>
+      </div>
+      <p className="small muted">
+        Each is sent at 10:00 in this location's time zone the morning after the job, or the next
+        morning if that has passed.
+      </p>
+      <ErrorNote error={approve.error} />
+    </div>
+  );
+}
+
 /** One action that has been answered or has lapsed: what it was, and what became of it. */
 function Recorded({
   action,
@@ -342,7 +377,7 @@ function Recorded({
           </button>
         </div>
       )}
-      {action.status === "done" && !takenBack && !readOnly && (
+      {mayTakeBack(action, takenBack) && !readOnly && (
         <div className="button-row">
           <button
             type="button"

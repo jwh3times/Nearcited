@@ -62,6 +62,7 @@ import {
   PLAN_ASSISTANTS,
   qualifyingSites,
   RECEIPTS_LISTED,
+  REVIEW_REQUESTS_ALLOWANCE,
   receiptAddress,
   reductions,
   STANDING_PERMISSION_AFTER,
@@ -86,6 +87,7 @@ import {
   type UsageSource,
   type ZoneMatch,
 } from "../src/store/types";
+import { atLocalTime, nextSameTime, twelveMonthsBefore } from "./zoned-time";
 
 /**
  * An in-memory Store for tests. It mimics the one property of the real database the API relies
@@ -154,7 +156,20 @@ export interface MemoryDb {
     seen_until: string | null;
     /** The month, as `YYYY-MM`, whose allowance this action holds one of. */
     allowance_month: string | null;
+    /** The customer contact a review request asks. */
+    contact_id: string | null;
+    /** The earliest it may be carried out, for a kind sent at a set time of day. */
+    not_before: string | null;
   })[];
+  /** The `asked_addresses` table: whom each organization asked, by keyed fingerprint. */
+  askedAddresses: {
+    organization_id: string;
+    fingerprint: string;
+    asked_at: string;
+    action_id: string | null;
+  }[];
+  /** The `opted_out_addresses` table: who opted out of each organization's review requests. */
+  optedOutAddresses: { organization_id: string; fingerprint: string; opted_out_at: string }[];
   /** Every standing permission given, with its organization and when its owners were told. */
   standingPermissions: (StandingPermission & {
     organization_id: string;
@@ -199,7 +214,10 @@ export interface MemoryDb {
    * The `action_kind_terms` table: the allowance a kind of action takes from, and how many days
    * what it replaced may be kept. A test changes a kind's terms to stand for a real kind.
    */
-  actionKindTerms: Map<string, { allowance: string | null; keeps_seen_days: number | null }>;
+  actionKindTerms: Map<
+    string,
+    { allowance: string | null; keeps_seen_days: number | null; can_take_back?: boolean }
+  >;
   /** The sample account's made-up listings, keyed `connection:external`. */
   sampleLines: Map<string, string>;
   connections: Connection[];
@@ -347,6 +365,10 @@ export function createMemoryDb(): MemoryDb {
       ["wordpress_details", { allowance: "wordpress", keeps_seen_days: null }],
       ["wordpress_page", { allowance: "wordpress", keeps_seen_days: null }],
       ["hosted_page", { allowance: "hosted_pages", keeps_seen_days: null }],
+      [
+        "review_request",
+        { allowance: "review_requests", keeps_seen_days: null, can_take_back: false },
+      ],
     ]),
     sampleLines: new Map(),
     connections: [],
@@ -367,6 +389,8 @@ export function createMemoryDb(): MemoryDb {
     receiptSenders: [],
     customerContacts: [],
     receiptDrops: [],
+    askedAddresses: [],
+    optedOutAddresses: [],
     hostedPages: [],
     pageFetches: [],
     pauseTold: new Map(),
@@ -461,18 +485,31 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
   const isOperator = userId !== null && db.operators.has(userId);
   const readsOrg = (organizationId: string) => isOperator || seesOrg(organizationId);
   /** An action as a member is sent it: without the worker's own bookkeeping. */
-  const sentAction = ({
-    subject: _subject,
-    basis: _basis,
-    attempts: _attempts,
-    carrying_since: _since,
-    told_at: _told,
-    waiting_told_at: _waitingTold,
-    recommendation_id: _task,
-    seen_until: _until,
-    allowance_month: _month,
-    ...action
-  }: MemoryDb["actions"][number]): Action => action;
+  const sentAction = (kept: MemoryDb["actions"][number]): Action => {
+    const {
+      subject: _subject,
+      basis: _basis,
+      attempts: _attempts,
+      carrying_since: _since,
+      told_at: _told,
+      waiting_told_at: _waitingTold,
+      recommendation_id: _task,
+      seen_until: _until,
+      allowance_month: _month,
+      contact_id: _contact,
+      not_before: _notBefore,
+      ...action
+    } = kept;
+    return { ...action, due_at: dueOf(kept) };
+  };
+  /** Mirrors set_action_due_at(): when an approved action with a set time is due, else null. */
+  const dueOf = (action: MemoryDb["actions"][number]): string | null => {
+    if (action.not_before === null || action.status !== "approved" || !action.approved_at) {
+      return null;
+    }
+    const zone = db.locations.find((l) => l.id === action.location_id)?.time_zone ?? "UTC";
+    return nextSameTime(action.not_before, action.approved_at, zone);
+  };
   const thisMonth = () => (db.now ?? new Date().toISOString()).slice(0, 7);
   /** Mirrors claim_allowance(): the month's number is the plan's for each location it covers. */
   const takeAllowance = (organizationId: string, kind: string, amount: number) => {
@@ -645,6 +682,9 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
     seen_dropped_at: "seen_until" in action ? action.seen_dropped_at : null,
     seen_until: "seen_until" in action ? action.seen_until : seenUntil(action, now),
     allowance_month: null,
+    due_at: null,
+    contact_id: "contact_id" in action ? action.contact_id : null,
+    not_before: "not_before" in action ? action.not_before : null,
   });
   /** The standing permission current for an organization and a kind, if one is. */
   const currentPermission = (organizationId: string, kind: string) =>
@@ -693,7 +733,11 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
       approved_under: null,
       approved_under_by_email: null,
       approved_under_at: null,
-      lapses_at: new Date(Date.parse(now) + 14 * 86_400_000).toISOString(),
+      // One with a set time keeps the week it may go in.
+      lapses_at:
+        action.not_before === null
+          ? new Date(Date.parse(now) + 14 * 86_400_000).toISOString()
+          : action.lapses_at,
       waiting_told_at: null,
       attempts: 0,
       carrying_since: null,
@@ -1508,6 +1552,9 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
       if (done.status !== "done") {
         throw new StoreError("limit", "Only something that was done can be taken back.");
       }
+      if (db.actionKindTerms.get(done.kind)?.can_take_back === false) {
+        throw new StoreError("limit", "This cannot be taken back once it was done.");
+      }
       if (done.seen_dropped_at !== null) {
         throw new StoreError("limit", "What it replaced is no longer kept.");
       }
@@ -1552,6 +1599,13 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
       if (failed.status !== "failed") {
         throw new StoreError("limit", "Only an action that failed can be asked for again.");
       }
+      const asked = db.now ?? new Date().toISOString();
+      if (failed.not_before !== null && failed.lapses_at <= asked) {
+        throw new StoreError(
+          "limit",
+          "This is not asked for again: the week after the job is over.",
+        );
+      }
       if (openFor(failed.location_id, failed.kind, failed.subject)) {
         throw new StoreError("limit", "There is already one of these waiting or on its way.");
       }
@@ -1565,6 +1619,8 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         approved_text: failed.approved_text,
         always_asks: false,
         retry_of: failed.id,
+        // It goes at its own time, in its own week.
+        lapses_at: failed.not_before === null ? newAction(failed, now).lapses_at : failed.lapses_at,
       };
       db.actions.push(again);
       return sentAction(again);
@@ -1718,7 +1774,9 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         (candidate) =>
           candidate.id === id &&
           candidate.status === "approved" &&
-          (candidate.carrying_since === null || candidate.carrying_since < stale),
+          (candidate.carrying_since === null || candidate.carrying_since < stale) &&
+          // Not before it is due.
+          !((dueOf(candidate) ?? now) > now),
       );
       const organizationId = db.locations.find(
         (l) => l.id === action?.location_id,
@@ -1953,7 +2011,9 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
             action.status === "approved" &&
             action.approved_at !== null &&
             action.approved_at < before &&
-            (action.carrying_since === null || action.carrying_since < before),
+            (action.carrying_since === null || action.carrying_since < before) &&
+            // Nor one not yet due.
+            !((dueOf(action) ?? "") > (db.now ?? new Date().toISOString())),
         )
         .map((action) => action.id);
     },
@@ -2611,6 +2671,155 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
 
     async recordReceiptDrop(locationId, reason) {
       countDrop(locationId, reason);
+    },
+
+    async getContactToSend(actionId) {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      const contactId = db.actions.find((action) => action.id === actionId)?.contact_id;
+      const contact = db.customerContacts.find((kept) => kept.id === contactId);
+      return contact
+        ? {
+            address: contact.address,
+            organization_id: contact.organization_id,
+            sample_data: contact.sample_data,
+          }
+        : null;
+    },
+
+    async getAskingRecord(organizationId, fingerprint) {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      const of = (kept: { organization_id: string; fingerprint: string }) =>
+        kept.organization_id === organizationId && kept.fingerprint === fingerprint;
+      const asked = db.askedAddresses.find(of);
+      const yearAgo = twelveMonthsBefore(db.now ?? new Date().toISOString());
+      return {
+        asked_by: asked?.action_id ?? null,
+        asked_recently: asked !== undefined && asked.asked_at > yearAgo,
+        opted_out: db.optedOutAddresses.some(of),
+      };
+    },
+
+    // Mirrors mark_asked().
+    async markAsked(actionId, fingerprint) {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      const action = db.actions.find((kept) => kept.id === actionId);
+      const organizationId = action && organizationOf(action.location_id)?.id;
+      if (!organizationId) return;
+      const asked_at = db.now ?? new Date().toISOString();
+      db.askedAddresses = [
+        ...db.askedAddresses.filter(
+          (kept) => !(kept.organization_id === organizationId && kept.fingerprint === fingerprint),
+        ),
+        { organization_id: organizationId, fingerprint, asked_at, action_id: actionId },
+      ];
+    },
+
+    // Mirrors contacts_to_ask().
+    async listContactsToAsk() {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      return db.customerContacts
+        .filter((contact) => {
+          const organization = db.organizations.find((o) => o.id === contact.organization_id);
+          const settings = db.reviewRequests.find(
+            (kept) => kept.location_id === contact.location_id && kept.released_at === null,
+          );
+          return (
+            contact.status === "ready" &&
+            organization?.allowances[REVIEW_REQUESTS_ALLOWANCE] !== undefined &&
+            !closing(contact.organization_id) &&
+            settings !== undefined &&
+            db.connections.find((c) => c.id === settings.connection_id)?.status === "working" &&
+            !db.actions.some((action) => action.contact_id === contact.id)
+          );
+        })
+        .sort((a, b) => a.received_at.localeCompare(b.received_at) || a.id.localeCompare(b.id))
+        .map(({ id, organization_id, location_id, address, masked, job_day }) => ({
+          id,
+          organization_id,
+          location_id,
+          address,
+          masked,
+          job_day,
+        }));
+    },
+
+    // Mirrors propose_review_request().
+    async proposeReviewRequest(contactId, fingerprint, summary, wording) {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      const contact = db.customerContacts.find((kept) => kept.id === contactId);
+      if (contact?.status !== "ready") return "not_ready";
+      if (db.actions.some((action) => action.contact_id === contactId)) return "already_proposed";
+      const organization = db.organizations.find((o) => o.id === contact.organization_id);
+      const allowance = organization?.allowances[REVIEW_REQUESTS_ALLOWANCE];
+      if (!organization || allowance === undefined) return "not_included";
+      const settings = db.reviewRequests.find(
+        (kept) => kept.location_id === contact.location_id && kept.released_at === null,
+      );
+      if (
+        !settings ||
+        db.connections.find((c) => c.id === settings.connection_id)?.status !== "working"
+      ) {
+        return "not_on";
+      }
+      const zone = db.locations.find((l) => l.id === contact.location_id)?.time_zone ?? "UTC";
+      const now = db.now ?? new Date().toISOString();
+      const forget = () => {
+        db.customerContacts = db.customerContacts.filter((kept) => kept.id !== contactId);
+      };
+      const lapsesAt = atLocalTime(addDays(contact.job_day, 7), "10:00", zone);
+      if (Date.parse(lapsesAt) <= Date.parse(now)) {
+        forget();
+        return "too_late";
+      }
+      const of = (kept: { organization_id: string; fingerprint: string }) =>
+        kept.organization_id === organization.id && kept.fingerprint === fingerprint;
+      if (db.optedOutAddresses.some(of)) {
+        forget();
+        return "opted_out";
+      }
+      const yearAgo = twelveMonthsBefore(now);
+      if (db.askedAddresses.some((kept) => of(kept) && kept.asked_at > yearAgo)) {
+        forget();
+        return "asked_before";
+      }
+      if (allowance !== true) {
+        const used =
+          db.allowanceUse.get(`${organization.id}:${REVIEW_REQUESTS_ALLOWANCE}:${thisMonth()}`) ??
+          0;
+        const outstanding = db.actions.filter(
+          (action) =>
+            action.kind === "review_request" &&
+            (action.status === "approved" ||
+              (action.status === "proposed" && action.lapses_at > now)) &&
+            action.allowance_month === null &&
+            organizationOf(action.location_id)?.id === organization.id,
+        ).length;
+        if (used + outstanding >= allowedEachMonth(allowance, organization.max_locations)) {
+          countDrop(contact.location_id, "allowance_used");
+          forget();
+          return "allowance_used";
+        }
+      }
+      if (wording === null) return "no_wording";
+      const made = await this.proposeAction({
+        location_id: contact.location_id,
+        kind: "review_request",
+        connection_id: settings.connection_id,
+        subject: `contact:${contactId}`,
+        basis: wording,
+        summary,
+        seen: { text: null },
+        proposed_text: wording,
+        written_by: "rule",
+      });
+      const kept = made && db.actions.find((action) => action.id === made.id);
+      if (!kept) return "not_proposed";
+      Object.assign(kept, {
+        contact_id: contactId,
+        not_before: atLocalTime(addDays(contact.job_day, 1), "10:00", zone),
+        lapses_at: lapsesAt,
+      });
+      return kept.status === "approved" ? "approved" : "proposed";
     },
 
     async dropExpiredHeldContacts() {

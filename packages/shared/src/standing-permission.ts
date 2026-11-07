@@ -21,4 +21,5 @@ export const ACTION_KIND_DOING: Record<ActionKind, string> = {
   wordpress_details: "add or update the business details on your home page",
   wordpress_page: "publish pages on your WordPress site",
   hosted_page: "publish pages on your answer subdomain",
+  review_request: "send review requests to your customers",
 };

@@ -83,6 +83,8 @@ export function droppedNote(reason: ReceiptDrop, count: number): string {
       return `${receipts} dropped: no customer's address could be found in "To".`;
     case "several_customers":
       return `${receipts} dropped: "To" named more than one customer, so none was picked.`;
+    case "allowance_used":
+      return `${count === 1 ? "1 customer" : `${count} customers`} not asked: this month's allowance was used.`;
   }
 }
 

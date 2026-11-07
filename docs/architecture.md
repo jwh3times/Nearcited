@@ -21,7 +21,9 @@ Everything below is the main one.
   also fails audits still `queued` after 30 minutes (see "Shareable audits"), and queues again
   the removal of any connection asked for more than 15 minutes ago and not finished, the first
   sync of any connection made in the last day that still has none (see "Connections"), and any
-  approved action nobody is carrying out (`requeueStalledActions`; see "Actions") and any draft
+  approved action nobody is carrying out that is due (`requeueStalledActions`; see "Actions"),
+  proposes a review request for each ready customer contact (`proposeReviewRequests`; see
+  "Actions"), and queues again any draft
   asked for that nobody is writing (`requeueStalledDrafts`; see "Drafts"), and checks again each
   answer subdomain still waiting for its record or its certificate that was last checked more than
   ten minutes ago (`requeueAnswerSubdomainChecks`; see "Connections"), and queues again any closing
@@ -1423,8 +1425,8 @@ five can break or pause in practice.
   one, and the match routes refuse them (`not_matched_by_hand`). A location has them on once at a
   time, and they can be turned on again, with a new address, once the removal has finished. The
   "Review requests" card is on the location's Settings tab, shown only where the organization's
-  allowances include the kind. Nothing is sent to a customer yet, and nothing takes from the
-  allowance, which is counted and on no plan (see "Tenancy").
+  allowances include the kind. A ready contact becomes a review request, an action of its own kind
+  that takes from the allowance, which is counted and on no plan (see "Actions" and "Tenancy").
 - **A receipt is read by rule, and kept only as a customer contact.** Issue #291, part of #146
   (`docs/adr/0031-a-customer-contact-is-read-only-by-the-worker.md`; the terms are in
   `GLOSSARY.md`). The business's own tool copies each receipt it sends a customer to the location's
@@ -1450,7 +1452,8 @@ five can break or pause in practice.
   from a declined sender, or with no customer or several, is dropped: `record_receipt_drop()` adds
   one to `receipt_drops` for the location, the day (UTC) and the reason (`unauthenticated`,
   `not_on`, `declined_sender`, `no_customer` or `several_customers`), and nothing else of it is
-  kept. Otherwise `receive_receipt()` keeps the sender in `receipt_senders`, the first time as
+  kept. `propose_review_request()` counts the same way, as `allowance_used`, a contact it does not
+  ask because the month's allowance is spoken for (see "Actions"). Otherwise `receive_receipt()` keeps the sender in `receipt_senders`, the first time as
   `waiting`, and the customer's address and the day of the job in `customer_contacts`, once for a
   location, an address and a day. A contact from a confirmed sender is `ready`; one from a waiting
   sender is `held`. `confirm_receipt_sender()` makes what that sender sent `ready`, and
@@ -1477,6 +1480,9 @@ five can break or pause in practice.
   `POST` answers 503 `connections_unavailable`. A kind that is not offered answers 422
   `connection_unavailable`. A value that is not base64, or not 32 bytes, throws instead of
   sealing weakly. Changing the key makes every sign-in already kept unreadable (see "Known gaps").
+  Review requests derive their keys from it too (see "Actions"), so without it none is proposed or
+  sent, and changing it leaves every fingerprint kept matching nothing and every link to opt out
+  already sent invalid.
 
 The Connections page is at `/connections`, and at `/operator/o/:organizationId/connections` for
 the operator reading through an account, where `can_manage` is false and nothing on it can be
@@ -1793,14 +1799,15 @@ record_connection_sync(), once every read has worked
 An action is one thing the product does outside itself for a location, once a member says yes
 (`actions`; the terms are in `GLOSSARY.md`, the decision in
 `docs/adr/0014-only-the-worker-carries-out-an-action.md`). It is `proposed`, then `approved` and
-`done` or `failed`; a proposed one can instead be `declined` or `lapsed`. There are four kinds.
+`done` or `failed`; a proposed one can instead be `declined` or `lapsed`. There are five kinds.
 `sample` sets the opening line of one of the sample account's listings, rows in `sample_listings`
 that stand in for an outside service, so nothing leaves the product. `wordpress_details` adds the
 business's details to the home page of a connected WordPress site, or changes them there (below). It
 takes from the `wordpress` allowance, which is included with no number, so it counts nothing.
 `wordpress_page` publishes a page task's copy as a new page on that site, on the same terms (below).
 `hosted_page` serves the same copy on the location's answer subdomain, from `hosted_pages`, on the
-`hosted_pages` allowance (below, and "Hosted pages").
+`hosted_pages` allowance (below, and "Hosted pages"). `review_request` emails one customer of the
+location, asking for a review, on the counted `review_requests` allowance (below).
 A decision about what the product may change on a business's site is in
 `docs/adr/0018-on-a-business-site-the-product-changes-only-what-it-made.md`.
 
@@ -1837,6 +1844,47 @@ A decision about what the product may change on a business's site is in
   and the summary is "Publish the page “<title>” at <hostname>". `connectionToPublishWith` also
   returns a location's `hosted_pages` connection, so a written page draft queues a check that
   proposes at once.
+- **A review request is proposed for each ready customer contact.** Every run of the schedule calls
+  `proposeReviewRequests` (`apps/api/src/actions/review-requests.ts`; issue #292, part of #146),
+  which reads `contacts_to_ask()` a page at a time (`listContactsToAsk`): the ready contacts with no
+  action yet, where the plan includes the allowance, the location's review requests are on and
+  working, and the organization is not being closed. For each it works out the wording the owner
+  approved (`currentWording`, from `approvedWording` in `packages/shared/src/review-requests.ts`,
+  with `OPT_OUT_SHOWN` where each customer's own link goes) and the keyed fingerprint of the
+  address, and calls `propose_review_request()`, which only the worker may call. That deletes the
+  contact and proposes nothing once the week after the job is over (10:00 seven days after it, on
+  the location's clock), where the address opted out of the organization (`opted_out_addresses`),
+  and where the organization asked it within twelve months from any location (`asked_addresses`).
+  Where the month's allowance is spoken for, by what `allowance_use` took this month and the
+  requests approved or waiting that have not taken yet, it counts the contact in `receipt_drops` as
+  `allowance_used` and deletes it; it reads the month and takes nothing, which stays
+  `claim_action()`'s. Where the location has no review form left on the site chosen, the contact
+  waits (`no_wording`). Otherwise `propose_action()` makes the request, with the subject
+  `contact:<id>`, the wording as its text and "Ask j•••@gmail.com for a review on <site>" as its
+  summary, and it gets `contact_id`, `not_before` (10:00 the morning after the job) and its
+  `lapses_at`. Standing permission applies as to any kind. It is approved as it stands, and where two or more
+  wait the tab offers "Approve all N review requests listed", which records one yes for each.
+- **A review request goes at 10:00 the morning after the job.** A trigger on `actions`
+  (`set_action_due_at`) keeps `due_at` while an action with a `not_before` is approved: that time,
+  or, approved after it, the next time the location's clock shows 10:00 (`next_same_time()`).
+  `claim_action()` refuses it before then. `retry_action()` keeps its `not_before` and its week and
+  refuses one whose week is over, and `return_to_waiting()` keeps its week too.
+- **A review request is sent once.** Its handler (`reviewRequest`, `apps/api/src/actions/index.ts`)
+  needs no sign-in. It reads the contact in full (`getContactToSend`, worker only) and fingerprints
+  the address. What is there is whether this request already asked it (`asking_record()`, worker
+  only): if so it is done, and nothing more is sent. It is out of date where the contact is gone,
+  the organization asked the address meanwhile or it opted out, or the wording is no longer what the
+  owner approved. Otherwise it is sent through Resend (`apps/api/src/email/review-request.ts`) from
+  `REVIEW_REQUESTS_FROM` under the business's name (quoted, so it cannot add an address or a
+  header), with `Reply-To` the location's reply address, the approved wording, the customer's own
+  link to opt out (`<APP_URL>/opt-out/<organization>.<fingerprint>.<signature>`; the page is not
+  built) and the idempotency key `review-request/<action id>`, and `mark_asked()` records the
+  fingerprint. The fingerprint and the link's signature are HMACs whose keys are derived from
+  `CONNECTIONS_KEY` by HKDF, one for each use (`askingKeys`), so neither can be read back and
+  neither is one more secret to keep. A test organization, a made-up contact and a deployment on
+  sample data send nothing, and the request is still marked asked and done. Without
+  `REVIEW_REQUESTS_FROM` or `RESEND_API_KEY`, or without `CONNECTIONS_KEY`, it fails at once, since
+  trying again cannot help.
 - **One open action for a thing, and a no is remembered.** `subject` (what it is about) and `basis`
   (what the proposal rests on; here, the proposed text) are the worker's bookkeeping, and no route
   sends them. A partial unique index allows one `proposed` or `approved` action for a location, kind
@@ -1848,7 +1896,10 @@ A decision about what the product may change on a business's site is in
   allowance and is given 30 days, though nothing limits how long a made-up listing may be held, so
   that dropping can be seen where the data is generated. `wordpress_details` and `wordpress_page` name the
   `wordpress` allowance, which counts nothing, and have no limit on keeping what they replaced;
-  `hosted_page` names `hosted_pages`, which is the same, with no limit either.
+  `hosted_page` names `hosted_pages`, which is the same, with no limit either. `review_request`
+  names `review_requests`, which is counted, and replaces nothing. `can_take_back` is false for
+  `review_request` alone: an email that was sent stays sent (`KINDS_NOT_TAKEN_BACK` in the shared
+  package says the same, for the page).
 - **A request records the answer.** `approve_action()`, `decline_action()` and `retry_action()` are
   security-definer functions that return a row only to a member of the location's organization
   (`can_access_location`), so their routes answer 404 to anyone else, the operator included. An
@@ -1893,7 +1944,8 @@ A decision about what the product may change on a business's site is in
   whoever asked, with `takes_back` pointing at it. Its `seen.text` is what the first put there and
   its `proposed_text` is what the first replaced, null meaning that the block is removed. It answers
   any member of the location's organization and no one else, the operator included. It raises
-  `NC013` (409) for an action that is not done, one whose `seen` was dropped, one with another open
+  `NC013` (409) for an action that is not done, one of a kind that cannot be taken back, one whose
+  `seen` was dropped, one with another open
   for the same subject, and one a later `done` action on the same subject has changed.
   `finish_action()` records the take-back and clears `acted_at` and `acted_by_action` on the task
   the first had marked. `propose_action()` does not propose again for a subject whose `done` action
@@ -1901,7 +1953,8 @@ A decision about what the product may change on a business's site is in
 - **It is carried out once, and only by the worker.** `carryOutAction` first calls
   `claim_action()`, which counts the try and, where the kind takes from an allowance, takes one
   from the month's (below). It answers zero, and the worker goes no further, unless the action is
-  approved and no worker has had it in the last ten minutes. The worker then finds
+  approved, due (below) and no worker has had it in the last ten minutes. One approved and not yet
+  due returns `not_yet` before it is claimed. The worker then finds
   the connection, the location's match and the opened sign-in; if the connection is not working,
   the match is gone or the sign-in will not open, the action fails with that reason. Then it reads
   what is there. If that is already the text to put there (what was approved, which is the proposal
@@ -1947,7 +2000,8 @@ A decision about what the product may change on a business's site is in
   retries a failed action by itself; a member asks again.
 - **A lost message is asked for again.** Every run of the schedule calls `requeueStalledActions`:
   each action approved more than 15 minutes ago that no worker has (`carrying_since` is null), or
-  that a worker took more than 15 minutes ago, goes on the queue again, at most 100 a run. That
+  that a worker took more than 15 minutes ago, goes on the queue again, at most 100 a run, unless
+  its `due_at` has not come yet; so a review request goes within a quarter of an hour of its time. That
   covers a message that was lost, an action the worker let go of to be tried again, and one whose
   worker died: a worker's hold lasts ten minutes, so the next can take it.
 - **The owners are told within 48 hours.** The daily run calls `sendActionNotices`: for each
@@ -1957,7 +2011,8 @@ A decision about what the product may change on a business's site is in
   what is newly waiting for a yes, which standing permission was given or ended
   (`listPermissionsToTell`, `markPermissionsTold`), and each sender of receipts waiting for an owner
   or admin with a receipt held since it was last named (`listSendersToTell`, `markSendersTold`; see
-  "Connections"). A permission or a sender named holds nothing up while it is untold: only actions
+  "Connections"). Review requests are told as one line for each location instead of one for each
+  request ("Riverside: 12 review requests sent, 3 waiting for a yes"), linking to its Actions tab. A permission or a sender named holds nothing up while it is untold: only actions
   do. `told_at` is when an action counted as told of, and
   `waiting_told_at` when a message said it was waiting; only the worker's secret key writes them
   (`markActionsTold`), and only once the email went. Where `RESEND_API_KEY` is not set on live
@@ -2007,7 +2062,8 @@ A decision about what the product may change on a business's site is in
   out-of-date action marks nothing. The sample kind does no task's work. A `wordpress_details`
   action marks the `site:structured_data` task it was proposed for, and a take-back of it clears
   the mark.
-- **A proposal nobody answers lapses.** `lapses_at` is fourteen days after it was proposed. The
+- **A proposal nobody answers lapses.** `lapses_at` is fourteen days after it was proposed, or for
+  a review request 10:00 seven days after the job. The
   daily run calls `lapse_actions()`, which only the worker may call, and `approve_action()` refuses
   one past its day before then. The record says whether it lapsed because nobody answered or
   because it was out of date.
@@ -2025,7 +2081,7 @@ and carries the count of those waiting. It lists what is waiting, each with what
 text it would put there and who wrote it (editable for a kind that allows it, where the button then reads "Approve as changed"; the details
 block is shown as code, with no text box),
 "Approve" and "Decline" with a reason of up to 200 characters, and below it the record, newest first
-(at most 100 actions in all), with "Try again" on a failed one and "Take it back", behind a confirmation, on a done one. The record shows what an action replaced ("What it replaced", or
+(at most 100 actions in all), with "Try again" on a failed one and "Take it back", behind a confirmation, on a done one of a kind that can be taken back. An approved review request says when it goes ("Goes on <day>, at 10:00 in this location's time zone."). The record shows what an action replaced ("What it replaced", or
 "What was there" for one that was not done), or "No longer kept" once it was dropped. While an action is approved the
 page asks again every couple of seconds. When the organization is held, a notice above the lists says
 so. A "Standing permission" section, from the `permissions`, `permission_included` and `may_change_permission` the list route returns, says for each kind how many of the three needed count, offers the switch to an owner or admin once they do, and shows who gave a permission standing and when; a plan that does not include it is told so. The sidebar says how many are waiting at each location
@@ -2220,6 +2276,10 @@ and the operator and written by no API role: only the worker's `receive_receipt(
 organization and no one else, the operator included, decide a sender. `customer_contacts.address` is
 granted to no API role, the operator included: every other column is granted by name, so a
 caller reads a contact masked (see "Connections").
+`asked_addresses` and `opted_out_addresses`, the keyed fingerprints of the addresses an organization
+asked and of those that opted out of it, have row-level security on, no policy and no grant for any
+API role, the operator included: only the worker's `mark_asked()`, `asking_record()` and
+`propose_review_request()` reach them (see "Actions").
 `standing_permissions` is read by the organization's members and the operator and written by no API
 role, only by `give_standing_permission()` and `end_standing_permission()`, which answer an owner or
 admin alone, and by the database's own functions when a take-back or the plan ends one (see "Actions").
@@ -2679,23 +2739,25 @@ drop it.
   or not.
   Every paid plan includes `drafts` and `visits`, Pro and Enterprise include `wordpress`,
   `hosted_pages` and `standing_permission`, no plan includes `fetches` or `review_requests` until
-  the operator puts it on one, and the free plan includes none. Nothing takes from
-  `review_requests` yet, since no request is sent. A test organization is
+  the operator puts it on one, and the free plan includes none. A review request takes from
+  `review_requests` when it is carried out. A test organization is
   given every kind, so its drafts are counted and its visits and WordPress connection are included,
   but it is refused an answer subdomain, whose pages would go out under a real domain, and is
   offered no Cloudflare or Google Analytics connection, its fetches and sessions being made up. The
   `wordpress`, `hosted_pages`, `cloudflare`, `google_analytics` and `review_requests` kinds of connection name an allowance, and the kinds of action
   that go through the first two take from those two, which are included without a number; so a number
-  for any kind but `drafts` would be stored, shown and lowered by announcement, but no work would
+  for any kind but `drafts` and `review_requests` would be stored, shown and lowered by announcement, but no work would
   stop at it or be counted against it. What an allowance can stop is a kind of connection that
   needs it (see "Connections"), a kind of action that takes from it (see "Actions"), standing
   permission (see "Actions"), a draft (see "Drafts") and counting a visit (see "Visits from
   assistants") ([#133](https://github.com/jwh3times/Nearcited/issues/133)).
-- Review requests stop at receiving receipts (see "Connections"). No request is proposed or sent to
-  a customer, so a ready contact is used for nothing yet; there is no opt-out and no fingerprint of
-  an address asked; and a contact is not deleted when its review requests are turned off, or paused
-  because the plan stops including them, but only with its location or organization, or once it has
-  been held seven days. Whether a business's list of customers is confidential is read from the words of its location's category alone: one whose category names it otherwise is let through
+- Review requests stop short of the opt-out and of deleting contacts (see "Actions"). The link to
+  opt out each request carries opens no page, nothing writes `opted_out_addresses`, and a bounce or
+  a complaint stops nothing (#293). A contact is not deleted 30 days after its request was sent,
+  nor when its review requests are turned off, or paused because the plan stops including them,
+  which also lapses nothing waiting, but only with its location or organization, once it has been
+  held seven days, or when it is not asked (#294). A fingerprint asked is kept as long as its
+  organization, though only one asked within twelve months stops a request. Whether a business's list of customers is confidential is read from the words of its location's category alone: one whose category names it otherwise is let through
   on the owner's word, and one whose category only looks like one (a massage therapist, a
   veterinary clinic) is refused.
 - A real draft is written only where the private tuning has instructions for its kind, and it

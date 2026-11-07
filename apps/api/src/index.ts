@@ -25,6 +25,7 @@ import {
   requeueStalledActions,
 } from "./actions";
 import { sendActionNotices } from "./actions/notice";
+import { type Asking, askingKeys, proposeReviewRequests } from "./actions/review-requests";
 import { createApp } from "./app";
 import { runAuditPart } from "./audits/runner";
 import { authenticateWithSupabase } from "./auth";
@@ -52,6 +53,7 @@ import { sealingKey } from "./connections/seal";
 import { requeueStalledDrafts, writeDraft } from "./drafts";
 import { createLiveDraftWriter, liveDraftKinds } from "./drafts/claude";
 import { buildScanReportEmail, type Email, sendEmail } from "./email/report";
+import { reviewRequestSender } from "./email/review-request";
 import type { Env } from "./env";
 import {
   createGeocoder,
@@ -90,6 +92,19 @@ const hostingOf = (env: Env): Hosting => ({
   sampleData: usesSampleData(env),
 });
 
+/** What review requests need of this deployment. Undefined without `CONNECTIONS_KEY`. */
+async function reviewRequestsOf(env: Env): Promise<Asking | undefined> {
+  const keys = await askingKeys(env.CONNECTIONS_KEY);
+  return keys
+    ? {
+        keys,
+        appUrl: env.APP_URL,
+        sampleData: usesSampleData(env),
+        send: reviewRequestSender(env),
+      }
+    : undefined;
+}
+
 /** The schedule that only sweeps. Any other trigger, including a manual test, also queues scans. */
 const SWEEP_ONLY_CRON = "*/15 * * * *";
 
@@ -101,8 +116,9 @@ export default {
   /**
    * Cron. Every run clears abandoned scans and unfinished audits, and asks again for any
    * connection's removal or first sync that has not been finished, any approved action nobody
-   * is carrying out, any draft nobody is writing and any closing of an account nobody finished,
-   * and checks again every answer subdomain still waiting for its record; the daily run also
+   * is carrying out that is due, any draft nobody is writing and any closing of an account nobody
+   * finished, checks again every answer subdomain still waiting for its record, and proposes a
+   * review request for each customer contact ready for one; the daily run also
    * queues a scan for every location that is due and a sync for every connection that is, lapses
    * the proposals nobody answered, drops what an action replaced once it may be kept no longer,
    * deletes the customer contacts held seven days with nobody confirming their sender,
@@ -122,6 +138,13 @@ export default {
     if (firstSyncs > 0) console.log(`Queued ${firstSyncs} first syncs of connections again`);
     const stalledActions = await requeueStalledActions(store, env.SCAN_QUEUE);
     if (stalledActions > 0) console.log(`Queued ${stalledActions} approved actions again`);
+    // Proposing is the worker's alone. A request is sent the morning after the job, so a quarter
+    // of an hour is soon enough.
+    const asking = await reviewRequestsOf(env);
+    if (asking) {
+      const asked = await proposeReviewRequests({ store, asking });
+      if (asked > 0) console.log(`Proposed ${asked} review requests`);
+    }
     const stalledDrafts = await requeueStalledDrafts(store, env.SCAN_QUEUE);
     if (stalledDrafts > 0) console.log(`Queued ${stalledDrafts} drafts again`);
     const closings = await requeueStalledClosings(store, env.SCAN_QUEUE);
@@ -378,6 +401,7 @@ export default {
             key: await sealingKey(env.CONNECTIONS_KEY),
             outside: { localOrigin: env.WORDPRESS_LOCAL_ORIGIN ?? null },
             hosting: hostingOf(env),
+            asking: await reviewRequestsOf(env),
           });
           console.log(`${what}: ${outcome}`);
           // The thing had changed since the member was shown it. Reading the account again now

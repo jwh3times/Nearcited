@@ -1466,6 +1466,8 @@ export const RECEIPT_DROPS = [
   "no_customer",
   /** `To:` names more than one customer. */
   "several_customers",
+  /** Its customer was not asked: the month's allowance of review requests was spoken for. */
+  "allowance_used",
 ] as const;
 export type ReceiptDrop = (typeof RECEIPT_DROPS)[number];
 
@@ -1593,7 +1595,8 @@ export type ClosingMessage = z.infer<typeof ClosingMessageSchema>;
  * a made-up line on a sample listing, where the data is generated. `wordpress_details` puts the
  * business details block at the end of a WordPress home page (`wordpress.ts`), and
  * `wordpress_page` publishes a page task's copy as a new page of the site (`pages.ts`), and
- * `hosted_page` serves it on the location's answer subdomain (`hosted-pages.ts`). See
+ * `hosted_page` serves it on the location's answer subdomain (`hosted-pages.ts`).
+ * `review_request` asks one customer for a review by email (`review-requests.ts`). See
  * `docs/adr/0014-only-the-worker-carries-out-an-action.md`.
  */
 export const ACTION_KINDS = [
@@ -1601,6 +1604,7 @@ export const ACTION_KINDS = [
   "wordpress_details",
   "wordpress_page",
   "hosted_page",
+  "review_request",
 ] as const;
 export const ActionKindSchema = z.enum(ACTION_KINDS);
 export type ActionKind = z.infer<typeof ActionKindSchema>;
@@ -1615,6 +1619,12 @@ export const EDITABLE_ACTION_KINDS: readonly ActionKind[] = [
   "wordpress_page",
   "hosted_page",
 ];
+
+/**
+ * The kinds of action that cannot be taken back once done, so no take-back is offered: an email
+ * that was sent stays sent. The database holds the same in `action_kind_terms.can_take_back`.
+ */
+export const KINDS_NOT_TAKEN_BACK: readonly ActionKind[] = ["review_request"];
 
 /**
  * Where an action stands. `proposed` waits for a member's yes. `approved` is on its way to
@@ -1658,6 +1668,11 @@ export const ActionSchema = z.object({
   proposed_at: Timestamp,
   /** When it stops waiting, if nobody has answered. */
   lapses_at: Timestamp,
+  /**
+   * When it is carried out, for a kind sent at a set time of day once it is approved: a review
+   * request goes at 10:00 in the location's time zone. Null for the rest, and while it waits.
+   */
+  due_at: Timestamp.nullable(),
   approved_by_email: z.string().nullable(),
   approved_at: Timestamp.nullable(),
   /** What was approved, when a member changed the text first. Null when it went as proposed. */
