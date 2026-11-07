@@ -145,6 +145,38 @@ alter table public.receipt_drops add constraint receipt_drops_reason_check check
   'allowance_used'
 ));
 
+-- The ready customer contacts no review request was proposed for yet, where the plan includes
+-- review requests and the location's are on, with the full address the worker fingerprints. The
+-- oldest first, at most 500: the schedule reads it again at its next run. Not for an organization
+-- being closed. Worker only.
+create function public.contacts_to_ask()
+returns table (
+  id uuid,
+  organization_id uuid,
+  location_id uuid,
+  address text,
+  masked text,
+  job_day date
+)
+language sql stable security definer set search_path = ''
+as $$
+  select c.id, c.organization_id, c.location_id, c.address, c.masked, c.job_day
+  from public.customer_contacts c
+  join public.organizations o on o.id = c.organization_id
+  join public.review_request_settings s
+    on s.location_id = c.location_id and s.released_at is null
+  join public.connections x on x.id = s.connection_id and x.status = 'working'
+  where c.status = 'ready'
+    and o.allowances ? 'review_requests'
+    and o.closing_at is null
+    and not exists (select 1 from public.actions a where a.contact_id = c.id)
+  order by c.received_at, c.id
+  limit 500;
+$$;
+
+revoke execute on function public.contacts_to_ask() from public, anon, authenticated;
+grant execute on function public.contacts_to_ask() to service_role;
+
 -- Proposes asking one ready customer contact for a review, as the worker composed it: `fingerprint`
 -- is the keyed fingerprint of the address, `what` the sentence it is shown as and `wording` the
 -- email as the owner approved it. Says what became of it:

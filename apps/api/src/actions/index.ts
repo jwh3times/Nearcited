@@ -2,6 +2,7 @@ import {
   type Action,
   type ActionKind,
   type ActionMessage,
+  approvedWording,
   buildBusinessBlock,
   type Connection,
   type ConnectionMatch,
@@ -18,6 +19,7 @@ import {
   type Recommendation,
   underWebsite,
   withDetails,
+  withOptOut,
 } from "@nearcited/shared";
 import { type Hosting, readWordPressSignIn, SignInRefused } from "../connections";
 import { tellIndexNow } from "../connections/hosted";
@@ -33,6 +35,7 @@ import {
   writePageContent,
 } from "../connections/wordpress";
 import type { NewAction, Store } from "../store/types";
+import type { Asking } from "./review-requests";
 
 /**
  * Actions: what the product does outside itself for a location, once a member said yes
@@ -56,6 +59,10 @@ export interface ActionDeps {
    * out. Without one the schedule finds it, a quarter of an hour later.
    */
   queue?: Pick<Queue<ActionMessage>, "send">;
+  /** What review requests need: the keys, the app's address and the sender. */
+  asking?: Asking;
+  /** The present moment, which a test sets. */
+  now?: Date;
 }
 
 /**
@@ -87,7 +94,15 @@ interface Target {
   location: Location;
   /** Where answer subdomains are served from, for a kind that tells IndexNow. */
   hosting?: Hosting;
+  /** What review requests need, for that kind. */
+  asking?: Asking;
 }
+
+/**
+ * Thrown where trying again will not help, so the action is failed at once: something the
+ * deployment lacks, which nobody can mend before the next try.
+ */
+class CannotBeDone extends Error {}
 
 /** How one kind of action reads what is there now and makes its change. */
 interface ActionHandler {
@@ -247,11 +262,98 @@ const hostedPage: ActionHandler = {
   },
 };
 
+/** What stands for a customer the organization asked meanwhile, or who opted out of it. */
+const ASKED_MEANWHILE = "This customer was asked meanwhile, or opted out.";
+/** What stands for a customer whose contact is no longer kept. */
+const CONTACT_GONE = "This customer's contact is no longer kept.";
+/** What stands for wording that is no longer what the owner approved. */
+const WORDING_CHANGED = "The wording is no longer what was approved.";
+
+/** What a review request needs of the deployment, or why it cannot go. */
+function askingOf({ asking }: Target): Asking {
+  if (!asking) {
+    throw new CannotBeDone("Review requests cannot be sent here: CONNECTIONS_KEY is not set.");
+  }
+  return asking;
+}
+
+/** The customer a review request asks, with the keyed fingerprint of their address. */
+async function customerOf(target: Target) {
+  const contact = await target.store.getContactToSend(target.action.id);
+  return contact
+    ? { ...contact, fingerprint: await askingOf(target).keys.fingerprint(contact.address) }
+    : null;
+}
+
+/** The email the location's customers are sent now, from its name and the site chosen. */
+async function wordingNow({ store, location }: Target) {
+  const [settings, listings] = await Promise.all([
+    store.getLocationReviewRequests(location.id),
+    store.listListings(location.id),
+  ]);
+  const email = settings ? approvedWording(location.name, settings.site, listings) : null;
+  return settings && email ? { settings, email } : null;
+}
+
+/**
+ * Asks one customer for a review by email (`review-requests.ts`). What is there is whether this
+ * request already went, which makes a message delivered twice harmless. It is out of date where
+ * the organization asked the customer meanwhile or they opted out, where their contact is gone,
+ * and where the wording is no longer what was approved. Sending writes the "asked" fingerprint.
+ * A test organization, a made-up contact and a deployment on sample data send nothing.
+ */
+const reviewRequest: ActionHandler = {
+  async current(target) {
+    const customer = await customerOf(target);
+    if (!customer) return CONTACT_GONE;
+    const record = await target.store.getAskingRecord(
+      customer.organization_id,
+      customer.fingerprint,
+    );
+    if (record.asked_by === target.action.id) return actionText(target.action);
+    const yearAgo = Date.now() - 365 * 86_400_000;
+    if (record.opted_out || (record.asked_at && Date.parse(record.asked_at) > yearAgo)) {
+      return ASKED_MEANWHILE;
+    }
+    if ((await wordingNow(target))?.email.body !== actionText(target.action)) {
+      return WORDING_CHANGED;
+    }
+    return null;
+  },
+  async apply(target, text) {
+    const asking = askingOf(target);
+    const [customer, now, organization] = await Promise.all([
+      customerOf(target),
+      wordingNow(target),
+      target.store.getOrganization(target.location.organization_id),
+    ]);
+    if (!customer || !now || text === null) throw new Error(CONTACT_GONE);
+    const nothingLeaves = asking.sampleData || customer.sample_data || organization?.is_test;
+    if (!nothingLeaves) {
+      if (!asking.send) {
+        throw new CannotBeDone("Outgoing email for review requests is not set up.");
+      }
+      const token = await asking.keys.optOutToken(customer.organization_id, customer.fingerprint);
+      await asking.send({
+        from_name: now.email.sender,
+        to: customer.address,
+        reply_to: now.settings.reply_to,
+        subject: now.email.subject,
+        text: withOptOut(text, `${asking.appUrl.replace(/\/$/, "")}/opt-out/${token}`),
+        key: `review-request/${target.action.id}`,
+      });
+    }
+    await target.store.markAsked(target.action.id, customer.fingerprint);
+    return undefined;
+  },
+};
+
 const HANDLERS: Record<ActionKind, ActionHandler> = {
   sample,
   wordpress_details: wordpressDetails,
   wordpress_page: wordpressPage,
   hosted_page: hostedPage,
+  review_request: reviewRequest,
 };
 
 /** What the sample listing of a location should open with, composed by rule from its details. */
@@ -523,7 +625,8 @@ export type CarriedOut =
   | "not_approved"
   | "busy"
   | "held"
-  | "waiting";
+  | "waiting"
+  | "not_yet";
 
 /** The text an action puts there: what was approved, which is the proposal unless it was changed. */
 export const actionText = (action: Pick<Action, "approved_text" | "proposed_text">) =>
@@ -549,10 +652,12 @@ export const actionText = (action: Pick<Action, "approved_text" | "proposed_text
  */
 export async function carryOutAction(
   actionId: string,
-  { store, key, outside = {}, hosting }: ActionDeps,
+  { store, key, outside = {}, hosting, asking, now = new Date() }: ActionDeps,
 ): Promise<CarriedOut> {
   const action = await store.getAction(actionId);
   if (action?.status !== "approved") return "not_approved";
+  // One sent at a set time of day waits for it. The schedule asks again once it has come.
+  if (action.due_at && Date.parse(action.due_at) > now.getTime()) return "not_yet";
   // Nothing more is carried out for an organization whose owners have gone 36 hours untold of
   // something that was. The action stays approved, and the schedule asks again.
   const location = await store.getLocation(action.location_id);
@@ -581,9 +686,10 @@ export async function carryOutAction(
   }
   const match = connection.matches.find((kept) => kept.location_id === action.location_id);
   if (!match) return fail("This location is no longer matched to that account.");
-  // An answer subdomain has no sign-in: its pages are served from the product's own tables.
+  // An answer subdomain has no sign-in: its pages are served from the product's own tables. Nor
+  // do review requests: the product sends them itself.
   let signIn = "";
-  if (connection.kind !== "hosted_pages") {
+  if (connection.kind !== "hosted_pages" && connection.kind !== "review_requests") {
     const sealed = await store.getConnectionSecret(connection.id);
     if (!sealed || !key) return fail("The account's sign-in could not be read.");
     try {
@@ -609,7 +715,17 @@ export async function carryOutAction(
 
   const handler = HANDLERS[action.kind];
   if (!location) return fail("The location is no longer there.");
-  const target = { store, connection, match, signIn, outside, action, location, hosting };
+  const target = {
+    store,
+    connection,
+    match,
+    signIn,
+    outside,
+    action,
+    location,
+    hosting,
+    asking,
+  };
   // Where a kind's work has an address of its own, it is kept for the task the action did.
   const keep = async (address: string | undefined) => {
     if (address && text !== null) await store.keepPublishedPage(actionId, address);
@@ -635,6 +751,7 @@ export async function carryOutAction(
     if (error instanceof SignInRefused || error instanceof WordPressRefused) {
       return fail("The account refused the sign-in.");
     }
+    if (error instanceof CannotBeDone) return fail(why);
     if (attempt >= MOST_ATTEMPTS) return fail(why);
     await store.finishAction(actionId, "again", why);
     return "again";

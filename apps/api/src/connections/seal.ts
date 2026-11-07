@@ -19,15 +19,25 @@ const fromBase64 = (text: string) => Uint8Array.from(atob(text), (char) => char.
  * half a key is not a weaker one, it is a mistake to be told about.
  */
 export async function sealingKey(secret: string | undefined): Promise<CryptoKey | null> {
+  const bytes = secretBytes(secret);
+  if (!bytes) return null;
+  return crypto.subtle.importKey("raw", bytes, "AES-GCM", false, ["encrypt", "decrypt"]);
+}
+
+/**
+ * The 32 bytes of a deployment's `CONNECTIONS_KEY`, which other keys are derived from. Null where
+ * none is set; throws for a value that is not a key.
+ */
+export function secretBytes(secret: string | undefined): Uint8Array<ArrayBuffer> | null {
   if (!secret) return null;
-  let bytes: Uint8Array;
+  let bytes: Uint8Array<ArrayBuffer>;
   try {
     bytes = fromBase64(secret.trim());
   } catch {
     throw new Error("CONNECTIONS_KEY is not base64.");
   }
   if (bytes.length !== 32) throw new Error("CONNECTIONS_KEY must be 32 bytes, in base64.");
-  return crypto.subtle.importKey("raw", bytes, "AES-GCM", false, ["encrypt", "decrypt"]);
+  return bytes;
 }
 
 /** Seals a sign-in for one connection. What comes back is safe to store. */

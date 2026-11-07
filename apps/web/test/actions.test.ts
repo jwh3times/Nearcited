@@ -27,6 +27,7 @@ const action = (extra: Partial<Action> = {}): Action => ({
   status: "proposed",
   proposed_at: "2026-10-12T09:00:00.000Z",
   lapses_at: "2026-10-26T09:00:00.000Z",
+  due_at: null,
   approved_by_email: null,
   approved_at: null,
   approved_text: null,

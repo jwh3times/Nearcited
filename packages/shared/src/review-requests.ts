@@ -224,3 +224,25 @@ export function reviewRequestEmail({
 
 /** What a member is shown in place of the link to opt out, which each email has its own of. */
 export const OPT_OUT_SHOWN = "[a link to opt out, which works with one click]";
+
+/**
+ * The email a location's customers are sent, as its owner approved it and a member approves each
+ * request: with `OPT_OUT_SHOWN` where each customer's own link goes. Null where the location has
+ * no review form on the site chosen, so there is nothing to ask for.
+ */
+export function approvedWording(
+  business: string,
+  site: string,
+  listings: readonly Pick<Listing, "site" | "url">[],
+): ReviewRequestEmail | null {
+  const listing = listings.find((candidate) => candidate.site === site);
+  const link = listing ? askingLink(listing) : null;
+  return link === null ? null : reviewRequestEmail({ business, site, link, optOut: OPT_OUT_SHOWN });
+}
+
+/**
+ * The email one customer is sent: the approved wording with their own link to opt out where the
+ * member was shown `OPT_OUT_SHOWN`.
+ */
+export const withOptOut = (wording: string, optOut: string): string =>
+  wording.replace(OPT_OUT_SHOWN, optOut);
