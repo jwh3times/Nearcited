@@ -8,8 +8,10 @@ import {
 } from "@nearcited/shared";
 import { beforeEach, describe, expect, it } from "vitest";
 import { carryOutAction } from "../src/actions";
+import { sendActionNotices } from "../src/actions/notice";
 import { type Asking, askingKeys, proposeReviewRequests } from "../src/actions/review-requests";
 import { createApp } from "../src/app";
+import { reviewRequestPayload } from "../src/email/review-request";
 import type { Env } from "../src/env";
 import { receiveEmail } from "../src/receipts";
 import { createMemoryDb, type MemoryDb, memoryStore } from "./memory-store";
@@ -259,5 +261,231 @@ describe("a review request", () => {
     db.now = "2026-11-06T03:31:00.000Z";
     expect(await proposeReviewRequests({ store: worker(), asking: await asking() })).toBe(0);
     expect((await actionsOf(location.id)).waiting).toEqual([]);
+  });
+
+  /** Proposes, approves as Bob and carries out every request waiting, at `at`. */
+  async function sendAll(locationId: string, at: string) {
+    await proposeReviewRequests({ store: worker(), asking: await asking() });
+    const ids: string[] = [];
+    for (const proposal of (await actionsOf(locationId)).waiting) {
+      expect((await call(bob, "POST", `/actions/${proposal.id}/approve`, {})).status).toBe(200);
+      ids.push(proposal.id);
+    }
+    const before = db.now;
+    db.now = at;
+    const outcomes = [];
+    for (const id of ids) {
+      outcomes.push(
+        await carryOutAction(id, {
+          store: worker(),
+          key: null,
+          asking: await asking(),
+          now: new Date(at),
+        }),
+      );
+    }
+    db.now = before;
+    return outcomes;
+  }
+
+  it("sends nothing for a test organization, and is still done", async () => {
+    const { organization, location, settings } = await joes();
+    await receipt(settings.receipt_address, location.id, "jane@example.org");
+    db.now = "2026-11-04T03:31:00.000Z";
+    const kept = db.organizations.find((candidate) => candidate.id === organization.id);
+    if (kept) kept.is_test = true;
+    expect(await sendAll(location.id, "2026-11-04T15:00:00.000Z")).toEqual(["done"]);
+    expect(sent).toEqual([]);
+  });
+
+  it("sends nothing on a deployment with sample data, and is still done", async () => {
+    const { location, settings } = await joes();
+    await receipt(settings.receipt_address, location.id, "jane@example.org");
+    db.now = "2026-11-04T03:31:00.000Z";
+    await proposeReviewRequests({ store: worker(), asking: await asking() });
+    const [proposal] = (await actionsOf(location.id)).waiting;
+    await call(bob, "POST", `/actions/${proposal?.id}/approve`, {});
+    db.now = "2026-11-04T15:00:00.000Z";
+    const outcome = await carryOutAction(proposal?.id ?? "", {
+      store: worker(),
+      key: null,
+      asking: { ...(await asking()), sampleData: true },
+      now: new Date("2026-11-04T15:00:00.000Z"),
+    });
+    expect(outcome).toBe("done");
+    expect(sent).toEqual([]);
+  });
+
+  it("fails at once where outgoing email for review requests is not set up", async () => {
+    const { location, settings } = await joes();
+    await receipt(settings.receipt_address, location.id, "jane@example.org");
+    db.now = "2026-11-04T03:31:00.000Z";
+    await proposeReviewRequests({ store: worker(), asking: await asking() });
+    const [proposal] = (await actionsOf(location.id)).waiting;
+    await call(bob, "POST", `/actions/${proposal?.id}/approve`, {});
+    const { send: _send, ...unsent } = await asking();
+    db.now = "2026-11-04T15:00:00.000Z";
+    expect(
+      await carryOutAction(proposal?.id ?? "", {
+        store: worker(),
+        key: null,
+        asking: unsent,
+        now: new Date("2026-11-04T15:00:00.000Z"),
+      }),
+    ).toBe("failed");
+    expect((await actionsOf(location.id)).record).toMatchObject([
+      { status: "failed", failure: "Outgoing email for review requests is not set up." },
+    ]);
+  });
+
+  it("is not proposed once the month's allowance is spoken for, and that is counted", async () => {
+    const { organization, location, settings } = await joes();
+    const kept = db.organizations.find((candidate) => candidate.id === organization.id);
+    if (kept) {
+      Object.assign(kept, {
+        max_locations: 1,
+        allowances: { ...kept.allowances, review_requests: 1 },
+      });
+    }
+    await receipt(settings.receipt_address, location.id, "jane@example.org");
+    await receipt(settings.receipt_address, location.id, "sam@example.org");
+    db.now = "2026-11-04T03:31:00.000Z";
+
+    expect(await proposeReviewRequests({ store: worker(), asking: await asking() })).toBe(1);
+    const read = LocationReceiptsSchema.parse(
+      await (await call(alice, "GET", `/locations/${location.id}/receipts`)).json(),
+    );
+    expect(read.dropped).toEqual({ allowance_used: 1 });
+    // The customer not asked is not kept.
+    expect(read.contacts.map((contact) => contact.masked)).toEqual(["j•••@example.org"]);
+  });
+
+  it("offers no take-back once it was sent", async () => {
+    const { location, settings } = await joes();
+    await receipt(settings.receipt_address, location.id, "jane@example.org");
+    db.now = "2026-11-04T03:31:00.000Z";
+    const [outcome] = await sendAll(location.id, "2026-11-04T15:00:00.000Z");
+    expect(outcome).toBe("done");
+    const [done] = (await actionsOf(location.id)).record;
+    const asked = await call(bob, "POST", `/actions/${done?.id}/take-back`);
+    expect(asked.status).toBe(409);
+  });
+
+  it("is told to the owners as one line for each location, linking to the list", async () => {
+    const { location, settings } = await joes();
+    await receipt(settings.receipt_address, location.id, "a@example.org");
+    await receipt(settings.receipt_address, location.id, "b@example.org");
+    db.now = "2026-11-04T03:31:00.000Z";
+    await sendAll(location.id, "2026-11-04T15:00:00.000Z");
+    await receipt(
+      settings.receipt_address,
+      location.id,
+      "c@example.org",
+      "2026-11-04",
+      "2026-11-05T03:30:00.000Z",
+    );
+    db.now = "2026-11-05T03:31:00.000Z";
+    await proposeReviewRequests({ store: worker(), asking: await asking() });
+
+    const told: { to: string[]; text: string }[] = [];
+    db.now = "2026-11-05T12:00:00.000Z";
+    await sendActionNotices({
+      store: worker(),
+      send: async (to, email) => {
+        told.push({ to, text: email.text });
+      },
+      appUrl: "https://nearcited.example",
+    });
+    expect(told).toHaveLength(1);
+    const text = told[0]?.text ?? "";
+    expect(text).toContain(
+      `- Joe's Pizza: 2 review requests sent, 1 waiting for a yes. See them: https://nearcited.example/locations/${location.id}?tab=actions`,
+    );
+    // Not a line for each customer.
+    expect(text).not.toContain("Ask ");
+    expect(text).not.toContain("•••");
+  });
+
+  it("after three approved and sent, may go under standing permission without a member's yes", async () => {
+    const { organization, location, settings } = await joes();
+    const kept = db.organizations.find((candidate) => candidate.id === organization.id);
+    if (kept) kept.allowances = { ...kept.allowances, standing_permission: true };
+    for (const customer of ["a@example.org", "b@example.org", "c@example.org"]) {
+      await receipt(settings.receipt_address, location.id, customer);
+    }
+    db.now = "2026-11-04T03:31:00.000Z";
+    expect(await sendAll(location.id, "2026-11-04T15:00:00.000Z")).toEqual([
+      "done",
+      "done",
+      "done",
+    ]);
+    // The day's notice tells the owners, as the schedule would.
+    db.now = "2026-11-05T12:00:00.000Z";
+    await sendActionNotices({
+      store: worker(),
+      send: async () => {},
+      appUrl: "https://nearcited.example",
+    });
+    const given = await call(
+      alice,
+      "POST",
+      `/organizations/${organization.id}/standing-permissions`,
+      {
+        kind: "review_request",
+      },
+    );
+    expect(given.status).toBe(201);
+
+    await receipt(
+      settings.receipt_address,
+      location.id,
+      "d@example.org",
+      "2026-11-05",
+      "2026-11-06T03:30:00.000Z",
+    );
+    db.now = "2026-11-06T03:31:00.000Z";
+    expect(await proposeReviewRequests({ store: worker(), asking: await asking() })).toBe(1);
+    const { waiting, record } = await actionsOf(location.id);
+    expect(waiting).toEqual([]);
+    const [underPermission] = record;
+    expect(underPermission).toMatchObject({
+      status: "approved",
+      due_at: "2026-11-06T15:00:00.000Z",
+    });
+    db.now = "2026-11-06T15:00:00.000Z";
+    expect(
+      await carryOutAction(underPermission?.id ?? "", {
+        store: worker(),
+        key: null,
+        asking: await asking(),
+        now: new Date("2026-11-06T15:00:00.000Z"),
+      }),
+    ).toBe("done");
+    expect(sent.map((email) => email.to)).toEqual([
+      "a@example.org",
+      "b@example.org",
+      "c@example.org",
+      "d@example.org",
+    ]);
+  });
+});
+
+describe("a review request as the mail service is handed it", () => {
+  it("is from the product's address under the business's name, which cannot add a header", () => {
+    const payload = reviewRequestPayload("requests@ask.nearcited.example", {
+      from_name: `Joe's "Best" Pizza\r\nBcc: everyone@example.org`,
+      to: "jane@example.org",
+      reply_to: "owner@joespizza.com",
+      subject: "Would you review Joe's Pizza on Google?",
+      text: "Hello",
+      key: "review-request/1",
+    });
+    expect(payload).toEqual({
+      from: `"Joe's \\"Best\\" Pizza Bcc: everyone@example.org" <requests@ask.nearcited.example>`,
+      to: ["jane@example.org"],
+      replyTo: "owner@joespizza.com",
+      subject: "Would you review Joe's Pizza on Google?",
+      text: "Hello",
+    });
   });
 });

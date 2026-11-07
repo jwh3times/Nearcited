@@ -43,16 +43,47 @@ function endedLine(permission: EndedPermission): string {
   return `${why} These wait for a yes again.`;
 }
 
+/** How many review requests one location sent, and how many newly wait for a yes. */
+interface RequestsAt {
+  location_name: string;
+  sent: number;
+  waiting: number;
+}
+
+/**
+ * Review requests by location, in the order their locations first come: told as one line each,
+ * since a location may ask dozens of customers a day.
+ */
+function requestsByLocation(done: NoticedAction[], waiting: NoticedAction[]) {
+  const at = new Map<string, RequestsAt>();
+  const add = (rows: NoticedAction[], which: "sent" | "waiting") => {
+    for (const { action, location_name } of rows) {
+      if (action.kind !== "review_request") continue;
+      const kept = at.get(action.location_id) ?? { location_name, sent: 0, waiting: 0 };
+      kept[which]++;
+      at.set(action.location_id, kept);
+    }
+  };
+  add(done, "sent");
+  add(waiting, "waiting");
+  return at;
+}
+
 /**
  * The day's message to an organization's owners: everything Nearcited did for it since the last
  * one, with who approved each or the standing permission it was done under, what is newly waiting
- * for a yes, and any standing permission given or ended. An owner is told of what they approved
- * themselves too: this is the record of what changed.
+ * for a yes, and any standing permission given or ended. Review requests are told as one line for
+ * each location, with how many were sent and how many wait, linking to the list. An owner is told
+ * of what they approved themselves too: this is the record of what changed.
  */
 export function buildActionNoticeEmail(email: ActionNoticeEmail): Email {
-  const { organization, done, waiting, given = [], ended = [], senders = [] } = email;
+  const { organization, given = [], ended = [], senders = [] } = email;
   const app = email.appUrl.replace(/\/$/, "");
   const count = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+  const notRequest = ({ action }: NoticedAction) => action.kind !== "review_request";
+  const done = email.done.filter(notRequest);
+  const waiting = email.waiting.filter(notRequest);
+  const requests = requestsByLocation(email.done, email.waiting);
   const lines: string[] = [];
 
   if (done.length > 0) {
@@ -92,6 +123,27 @@ export function buildActionNoticeEmail(email: ActionNoticeEmail): Email {
     }
     lines.push("", "Nothing waiting is done until someone in your organization approves it.", "");
   }
+  if (requests.size > 0) {
+    lines.push("Review requests:", "");
+    for (const [locationId, { location_name, sent, waiting: asked }] of requests) {
+      const said = [
+        sent > 0 ? `${count(sent, "review request", "review requests")} sent` : "",
+        asked > 0
+          ? `${sent > 0 ? asked : count(asked, "review request", "review requests")} waiting for a yes`
+          : "",
+      ]
+        .filter(Boolean)
+        .join(", ");
+      lines.push(
+        `- ${location_name}: ${said}. See them: ${app}/locations/${locationId}?tab=actions`,
+      );
+    }
+    lines.push(
+      "",
+      "A review request waiting is sent only once someone in your organization approves it, and lapses a week after the job.",
+      "",
+    );
+  }
   if (given.length > 0 || ended.length > 0) {
     lines.push("Standing permission:", "");
     for (const permission of given) {
@@ -103,7 +155,7 @@ export function buildActionNoticeEmail(email: ActionNoticeEmail): Email {
     for (const permission of ended) lines.push(endedLine(permission));
     lines.push("");
   }
-  if (done.some(({ action }) => action.approved_under) || given.length > 0) {
+  if (email.done.some(({ action }) => action.approved_under) || given.length > 0) {
     lines.push(
       "An owner or admin can end a standing permission on the Actions tab of any location, and from then on everything of that kind waits for a yes.",
       "",
@@ -132,9 +184,9 @@ export function buildActionNoticeEmail(email: ActionNoticeEmail): Email {
 
   return {
     subject:
-      done.length > 0
+      email.done.length > 0
         ? `What Nearcited did for ${organization}`
-        : waiting.length > 0
+        : email.waiting.length > 0
           ? `Waiting for your yes at ${organization}`
           : given.length > 0 || ended.length > 0
             ? `Standing permission at ${organization}`

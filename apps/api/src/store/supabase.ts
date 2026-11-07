@@ -1886,7 +1886,9 @@ export function createSupabaseStore(
         .lt("approved_at", before)
         // Nobody is on it, or whoever was has been on it since before then and is taken to
         // have died.
-        .or(`carrying_since.is.null,carrying_since.lt.${before}`);
+        .or(`carrying_since.is.null,carrying_since.lt.${before}`)
+        // Nor one sent at a set time of day that has not come yet.
+        .or(`due_at.is.null,due_at.lte.${new Date().toISOString()}`);
       if (error) fail("List stalled actions", error);
       return z
         .array(z.object({ id: z.uuid() }))

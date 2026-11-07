@@ -3,6 +3,7 @@ import {
   type Action,
   type ActionKind,
   EDITABLE_ACTION_KINDS,
+  KINDS_NOT_TAKEN_BACK,
   type KindPermission,
   type LocationActions,
   pageParts,
@@ -66,7 +67,10 @@ export function actionState(action: Action, day: (iso: string) => string): strin
           : ""
       }`;
     case "approved":
-      return `${approved} Being carried out.`;
+      // One sent at a set time says when: a review request goes at 10:00 on the location's clock.
+      return action.due_at
+        ? `${approved} Goes on ${day(action.due_at)}, at 10:00 in this location's time zone.`
+        : `${approved} Being carried out.`;
     case "done":
       return `Done${action.done_at ? ` on ${day(action.done_at)}` : ""}. ${approved}`;
     case "failed":
@@ -77,7 +81,9 @@ export function actionState(action: Action, day: (iso: string) => string): strin
       }${action.decline_reason ? `: ${action.decline_reason}` : "."}`;
     case "lapsed":
       if (action.lapse_reason !== "out_of_date") {
-        return `Lapsed${action.lapsed_at ? ` on ${day(action.lapsed_at)}` : ""}: nobody answered in fourteen days.`;
+        return `Lapsed${action.lapsed_at ? ` on ${day(action.lapsed_at)}` : ""}: nobody answered ${
+          action.kind === "review_request" ? "within a week of the job" : "in fourteen days"
+        }.`;
       }
       // Dropped before it lapsed: there was nothing left to check what was there against.
       return droppedFirst(action)
@@ -110,6 +116,22 @@ export const editable = (action: Pick<Action, "kind">): boolean =>
 /** Whether what an action puts there is markup, shown as it is written rather than as prose. */
 export const isMarkup = (action: Pick<Action, "kind">): boolean =>
   action.kind === "wordpress_details";
+
+/**
+ * Whether a member may ask to have a done action taken back: not one already taken back, and not
+ * one of a kind that cannot be, such as a review request that was sent.
+ */
+export const mayTakeBack = (action: Pick<Action, "kind" | "status">, takenBack: boolean) =>
+  action.status === "done" && !takenBack && !KINDS_NOT_TAKEN_BACK.includes(action.kind);
+
+/**
+ * The waiting review requests a member may approve all at once, one yes recorded for each: offered
+ * where two or more are listed. Nothing of another kind goes with them.
+ */
+export function approvableTogether(waiting: readonly Action[]): Action[] {
+  const requests = waiting.filter((action) => action.kind === "review_request");
+  return requests.length >= 2 ? requests : [];
+}
 
 /** What the page asks before taking an action back. */
 export const TAKE_BACK_QUESTION =

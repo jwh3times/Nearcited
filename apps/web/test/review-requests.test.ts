@@ -23,11 +23,18 @@ describe("the review requests card", () => {
   });
 
   it("says why receipts were dropped, for every reason there is, counted", () => {
-    for (const reason of RECEIPT_DROPS) {
+    for (const reason of RECEIPT_DROPS.filter((kept) => kept !== "allowance_used")) {
       expect(droppedNote(reason, 1), reason).toMatch(/^1 receipt dropped: /);
       expect(droppedNote(reason, 3), reason).toMatch(/^3 receipts dropped: /);
     }
     expect(droppedNote("several_customers", 2)).toMatch(/more than one customer/);
+    // A customer kept and then not asked, rather than a receipt dropped as it came in.
+    expect(droppedNote("allowance_used", 1)).toBe(
+      "1 customer not asked: this month's allowance was used.",
+    );
+    expect(droppedNote("allowance_used", 3)).toBe(
+      "3 customers not asked: this month's allowance was used.",
+    );
   });
 
   it("says where each sender stands", () => {

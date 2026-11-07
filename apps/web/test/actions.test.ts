@@ -4,10 +4,12 @@ import {
   actionState,
   actionsQuery,
   actionText,
+  approvableTogether,
   editable,
   hasActions,
   isMarkup,
   isPage,
+  mayTakeBack,
   pageAddress,
   permissionShown,
   whatItReplaced,
@@ -338,5 +340,61 @@ describe("permissionShown", () => {
         { permission_included: true, may_change_permission: false },
       ),
     ).toBe("standing");
+  });
+});
+
+describe("review requests on the Actions tab", () => {
+  const request = (extra: Partial<Action> = {}) =>
+    action({
+      kind: "review_request",
+      summary: "Ask j•••@example.org for a review on Google",
+      lapses_at: "2026-11-10T15:00:00.000Z",
+      ...extra,
+    });
+
+  it("are approved all at once only where two or more are listed, and nothing else with them", () => {
+    const listed = [
+      request({ id: "ac000000-0000-4000-8000-000000000001" }),
+      action({ id: "ac000000-0000-4000-8000-000000000002", kind: "hosted_page" }),
+      request({ id: "ac000000-0000-4000-8000-000000000003" }),
+    ];
+    expect(approvableTogether(listed).map((kept) => kept.id)).toEqual([
+      "ac000000-0000-4000-8000-000000000001",
+      "ac000000-0000-4000-8000-000000000003",
+    ]);
+    expect(approvableTogether(listed.slice(0, 2))).toEqual([]);
+  });
+
+  it("offer no take-back once sent, where a page may be taken back", () => {
+    expect(mayTakeBack(request({ status: "done" }), false)).toBe(false);
+    expect(mayTakeBack(action({ kind: "hosted_page", status: "done" }), false)).toBe(true);
+    expect(mayTakeBack(action({ kind: "hosted_page", status: "done" }), true)).toBe(false);
+    expect(mayTakeBack(action({ kind: "hosted_page", status: "failed" }), false)).toBe(false);
+  });
+
+  it("say when an approved one goes, and that an unanswered one lapsed a week after the job", () => {
+    expect(
+      actionState(
+        request({
+          status: "approved",
+          approved_by_email: "bob@example.com",
+          approved_at: "2026-11-04T03:40:00.000Z",
+          due_at: "2026-11-04T15:00:00.000Z",
+        }),
+        day,
+      ),
+    ).toBe(
+      "Approved by bob@example.com. Goes on 2026-11-04, at 10:00 in this location's time zone.",
+    );
+    expect(
+      actionState(
+        request({
+          status: "lapsed",
+          lapse_reason: "expired",
+          lapsed_at: "2026-11-10T15:00:00.000Z",
+        }),
+        day,
+      ),
+    ).toBe("Lapsed on 2026-11-10: nobody answered within a week of the job.");
   });
 });

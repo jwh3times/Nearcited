@@ -70,6 +70,12 @@ export interface Env {
   MAPBOX_TOKEN?: string;
   /** Optional. Without it, scheduled scans finish without sending a report. */
   RESEND_API_KEY?: string;
+  /**
+   * Optional. The address review requests are sent from, on the product's sending subdomain, such
+   * as `requests@ask.example.com`; each goes under the business's name. Without it, or without
+   * `RESEND_API_KEY`, an approved review request fails instead of going out.
+   */
+  REVIEW_REQUESTS_FROM?: string;
   /** Optional secret. Without both Stripe values nobody can subscribe and the webhook is off. */
   STRIPE_SECRET_KEY?: string;
   /** Optional secret. The signing secret of the webhook endpoint registered at Stripe. */
