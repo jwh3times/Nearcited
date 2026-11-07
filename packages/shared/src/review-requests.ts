@@ -17,12 +17,29 @@ import { listedSite } from "./source-kinds";
 /** The allowance a plan includes review requests with. A key of `ALLOWANCE_KINDS`. */
 export const REVIEW_REQUESTS_ALLOWANCE = "review_requests";
 
-/** Where a location's receipt address is: the product's own domain for receiving receipts. */
-export const RECEIPTS_DOMAIN = "receipts.nearcited.com";
+/** The product's own domain. Every address at it, or at a name under it, is the product's. */
+export const PRODUCT_DOMAIN = "nearcited.com";
+
+/**
+ * A receipt address, `receipts+<name>@nearcited.com`: a subaddress of the one mailbox receipts
+ * arrive at, `receipts@nearcited.com`. Cloudflare Email Routing has no catch-all for a subdomain,
+ * so one rule sends that mailbox to the Worker and its subaddressing matches every `+<name>` to
+ * the rule (`docs/adr/0032-receipts-arrive-as-subaddresses-of-one-mailbox.md`). The name is the 32
+ * lowercase hex characters the database keeps.
+ */
+const RECEIPT_ADDRESS = /^receipts\+([0-9a-f]{32})@nearcited\.com$/;
 
 /** A receipt address as it is written, from the name the database keeps for it. */
 export function receiptAddress(name: string): string {
-  return `${name}@${RECEIPTS_DOMAIN}`;
+  return `receipts+${name}@${PRODUCT_DOMAIN}`;
+}
+
+/**
+ * The name the database keeps for a receipt address, read back from the address a message was
+ * sent to, or null for an address in any other form, which is nobody's.
+ */
+export function receiptName(address: string): string | null {
+  return RECEIPT_ADDRESS.exec(address.trim().toLowerCase())?.[1] ?? null;
 }
 
 /**

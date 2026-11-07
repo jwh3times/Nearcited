@@ -218,9 +218,12 @@ describe("a receipt copied to a receipt address", () => {
   it("is refused for an address that is nobody's", async () => {
     const { location, address } = await asking();
     for (const to of [
-      "00000000000000000000000000000000@receipts.nearcited.com",
-      address.replace("receipts.nearcited.com", "elsewhere.example"),
-      "postmaster@receipts.nearcited.com",
+      "receipts+00000000000000000000000000000000@nearcited.com",
+      address.replace("@nearcited.com", "@elsewhere.example"),
+      // The form before #300, which nothing routed.
+      address.replace(/^receipts\+(\w+)@/, "$1@receipts."),
+      "receipts@nearcited.com",
+      "postmaster@nearcited.com",
     ]) {
       expect(await receive(receipt(to)), to).toBe("unknown");
     }

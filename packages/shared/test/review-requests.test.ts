@@ -4,6 +4,7 @@ import {
   isConfidentialCategory,
   qualifyingSites,
   receiptAddress,
+  receiptName,
   reviewRequestEmail,
 } from "../src/review-requests";
 import type { Listing, SourceSummary } from "../src/schemas";
@@ -113,10 +114,37 @@ describe("a confidential kind of business", () => {
 });
 
 describe("a receipt address", () => {
-  it("is the location's own name at the product's receiving domain", () => {
-    expect(receiptAddress("0123456789abcdef0123456789abcdef")).toBe(
-      "0123456789abcdef0123456789abcdef@receipts.nearcited.com",
-    );
+  const name = "0123456789abcdef0123456789abcdef";
+
+  it("is the location's own name as a subaddress of the product's receipts mailbox", () => {
+    expect(receiptAddress(name)).toBe(`receipts+${name}@nearcited.com`);
+  });
+
+  it("is read back to its name, whatever its case or the space around it", () => {
+    expect(receiptName(`receipts+${name}@nearcited.com`)).toBe(name);
+    expect(receiptName(`  Receipts+${name.toUpperCase()}@NearCited.com `)).toBe(name);
+  });
+
+  it("is no one's in any other form", () => {
+    for (const address of [
+      `${name}@receipts.nearcited.com`,
+      `receipts+${name}@receipts.nearcited.com`,
+      `receipts+${name}@elsewhere.example`,
+      `receipts+${name}@nearcited.com.example`,
+      `receipts+${name.slice(1)}@nearcited.com`,
+      `receipts+${name}0@nearcited.com`,
+      `receipts+${name.replace("0", "g")}@nearcited.com`,
+      `receipts+${name}+more@nearcited.com`,
+      `receipt+${name}@nearcited.com`,
+      `x.receipts+${name}@nearcited.com`,
+      `${name}@nearcited.com`,
+      "receipts@nearcited.com",
+      "receipts+@nearcited.com",
+      `<receipts+${name}@nearcited.com>`,
+      "",
+    ]) {
+      expect(receiptName(address), address).toBeNull();
+    }
   });
 });
 

@@ -1,5 +1,5 @@
 import { hashOf } from "./fetches";
-import { RECEIPTS_DOMAIN } from "./review-requests";
+import { PRODUCT_DOMAIN } from "./review-requests";
 import type { ReceiptDrop } from "./schemas";
 
 /**
@@ -144,9 +144,6 @@ function senderOf(message: ReceiptIn): string | null {
   const envelope = addressesIn(message.envelope_from);
   return envelope?.length === 1 && envelope[0] ? envelope[0] : null;
 }
-
-/** The product's own domain, and every name under it. */
-const PRODUCT_DOMAIN = RECEIPTS_DOMAIN.split(".").slice(-2).join(".");
 
 const domainOf = (address: string) => address.slice(address.lastIndexOf("@") + 1);
 const within = (domain: string, of: string) => domain === of || domain.endsWith(`.${of}`);

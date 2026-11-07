@@ -96,7 +96,7 @@ describe("reading a copied receipt", () => {
       '"Joe\'s Pizza, Raleigh" <orders@joespizza.com>',
       "receipts@messaging.squareup.com",
       "Owner <owner@joespizza.com>",
-      "abc123@receipts.nearcited.com",
+      "receipts+0123456789abcdef0123456789abcdef@nearcited.com",
       "help@nearcited.com",
       "jane@example.org (Jane)",
       "Shop <shop@mail.joespizza.com>",
@@ -111,7 +111,7 @@ describe("reading a copied receipt", () => {
       null,
       "",
       "undisclosed-recipients:;",
-      "orders@joespizza.com, abc@receipts.nearcited.com",
+      "orders@joespizza.com, receipts+0123456789abcdef0123456789abcdef@nearcited.com",
       "not an address",
       "Jane <jane@example.org",
     ]) {

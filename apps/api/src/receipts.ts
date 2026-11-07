@@ -1,11 +1,11 @@
-import { RECEIPTS_DOMAIN, type ReceiptDrop, readReceipt, sampleReceipts } from "@nearcited/shared";
+import { type ReceiptDrop, readReceipt, receiptName, sampleReceipts } from "@nearcited/shared";
 import type { ReceiptOutcome, Store } from "./store/types";
 
 /**
  * Receiving receipts copied to a location's receipt address (issue #291, part of #146,
  * `docs/adr/0031-a-customer-contact-is-read-only-by-the-worker.md`). The Worker's `email` handler
- * is the entry point: Cloudflare Email Routing hands it every message to the receiving domain,
- * with no signed-in user, and it acts as the worker.
+ * is the entry point: Cloudflare Email Routing hands it every message to the receipts mailbox and
+ * its subaddresses, with no signed-in user, and it acts as the worker.
  */
 
 /** A received message, as the email handler is given it. */
@@ -31,18 +31,9 @@ export interface ReceiveDeps {
  */
 export type Received = ReceiptOutcome | ReceiptDrop | "sample";
 
-/** The name in front of the receiving domain, for an address there that could be a receipt address. */
-function receiptName(to: string): string | null {
-  const address = to.trim().toLowerCase();
-  const at = address.lastIndexOf("@");
-  const name = address.slice(0, at);
-  return at > 0 && address.slice(at + 1) === RECEIPTS_DOMAIN && /^[0-9a-f]{32}$/.test(name)
-    ? name
-    : null;
-}
-
 /**
- * Receives one message to the receiving domain. A receipt that passes DKIM or SPF and names one
+ * Receives one message to the receipts mailbox. One to an address that is not a receipt address
+ * (`receiptName`), or is nobody's, is `unknown`. A receipt that passes DKIM or SPF and names one
  * customer, for review requests that are on, is kept as a contact: held until an owner or admin
  * confirms its sender, ready from a confirmed one. Anything else is dropped and counted for its
  * location, and nothing of it is kept.

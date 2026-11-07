@@ -62,9 +62,11 @@ Everything below is the main one.
   at most a second for others to join it (`max_batch_timeout` in `wrangler.jsonc`), because
   somebody is usually watching the page for it; a message that lands in a batch behind scans
   still waits for those to finish.
-- **`email`**: Cloudflare Email Routing hands it every message to the receiving domain,
-  `receipts.nearcited.com` (`RECEIPTS_DOMAIN`), which is a receipt copied to a location's receipt
-  address. It arrives with no signed-in user and is received as the worker, with the secret key as
+- **`email`**: Cloudflare Email Routing hands it every message to `receipts@nearcited.com` and
+  its subaddresses, which is a receipt copied to a location's receipt address,
+  `receipts+<name>@nearcited.com` (`receiptAddress` and `receiptName`,
+  `packages/shared/src/review-requests.ts`;
+  `docs/adr/0032-receipts-arrive-as-subaddresses-of-one-mailbox.md`). It arrives with no signed-in user and is received as the worker, with the secret key as
   the cron and the queue are, by `receiveEmail` (`apps/api/src/receipts.ts`; see "Connections"). A
   message to an address that is nobody's is refused (`setReject`). Nothing of a message is logged
   but what became of it. The handler needs no binding: the Email Routing rule on the zone is what
@@ -1389,8 +1391,9 @@ five can break or pause in practice.
   The generic connect route does not take the kind and `create_connection()` refuses it.
   `turn_on_review_requests()` makes the connection, its match to the location and its
   `review_request_settings` row in one step, with a new receipt address: 32 hex characters from
-  `gen_random_uuid()` (`new_receipt_address()`, which no API role may call) in front of
-  `receipts.nearcited.com` (`RECEIPTS_DOMAIN`, `packages/shared/src/review-requests.ts`). It
+  `gen_random_uuid()` (`new_receipt_address()`, which no API role may call), written out as a
+  subaddress of the receipts mailbox, `receipts+<name>@nearcited.com` (`receiptAddress`,
+  `packages/shared/src/review-requests.ts`, and `export_organization()`). It
   refuses a plan without the `review_requests` allowance, a location that has them on already, one
   with no time zone (a request would be sent at a time of the location's day), one whose
   `primary_category` names a kind of business whose list of customers is confidential
