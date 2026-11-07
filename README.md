@@ -853,8 +853,10 @@ Receipts need one step on the zone, once. A receipt address is a subaddress of o
 subdomain ([ADR 0032](docs/adr/0032-receipts-arrive-as-subaddresses-of-one-mailbox.md)). With
 Email Routing on for `nearcited.com`, turn on subaddressing in its settings and add one rule that
 sends `receipts@nearcited.com` to the Worker (`nearcited`). Cloudflare then matches every
-`receipts+<name>@nearcited.com` to that rule. The Worker's `email` handler needs no binding or
-secret. Until the rule is there, nothing copied to a receipt address reaches the Worker.
+`receipts+<name>@nearcited.com` to that rule. Turning Email Routing on replaces the zone's MX
+records, so every other address `nearcited.com` receives at needs a rule of its own too, forwarding
+it to a mailbox elsewhere. The Worker's `email` handler needs no binding or secret. Until the rule
+is there, nothing copied to a receipt address reaches the Worker.
 
 Every merge to `main` is a release. `.github/workflows/version.yml` tags it with the version its
 `CHANGELOG.md` section names, and `.github/workflows/deploy.yml` then deploys that commit: it runs
