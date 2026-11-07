@@ -11,7 +11,10 @@
 /** The kind of allowance a plan has when it includes hosted pages. */
 export const HOSTED_PAGES_ALLOWANCE = "hosted_pages";
 
-/** The Cloudflare zone the app and every answer subdomain are served on. */
+/**
+ * The product's own domain: the Cloudflare zone the app and every answer subdomain are served on,
+ * and receipts arrive at. Every address at it, or at a name under it, is the product's.
+ */
 export const ZONE_DOMAIN = "nearcited.com";
 
 /** Where an answer subdomain's record points: a name of the connection's own under this. */

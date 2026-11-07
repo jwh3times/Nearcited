@@ -330,7 +330,7 @@ export interface KeptReviewRequests {
   connection_id: string;
   organization_id: string;
   location_id: string | null;
-  /** The name in front of the receiving domain (`receiptAddress`). */
+  /** The name in a receipt address, its subaddress (`receiptAddress`). */
   receipt_address: string;
   address_made_at: string;
   site: string;
@@ -700,7 +700,7 @@ export interface Store {
    * Declines a waiting sender, which deletes what it sent that was held. Null as for confirming.
    */
   declineReceiptSender(id: string): Promise<ReceiptSender | null>;
-  /** Whose a receipt address is, by the name in front of the receiving domain. Worker only. */
+  /** Whose a receipt address is, by its name (`receiptName`). Worker only. */
   findReceiptAddress(name: string): Promise<ReceiptAddressOwner | null>;
   /** Keeps what a receipt said, as a contact held or ready, or counts it dropped. Worker only. */
   receiveReceipt(receipt: ReceivedReceipt): Promise<ReceiptOutcome>;

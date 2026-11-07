@@ -194,7 +194,7 @@ describe("turning review requests on", () => {
       turned_on_by_email: `${dave}@example.com`,
       status: "working",
     });
-    expect(settings.receipt_address).toMatch(/^[0-9a-f]{32}@receipts\.nearcited\.com$/);
+    expect(settings.receipt_address).toMatch(/^receipts\+[0-9a-f]{32}@nearcited\.com$/);
     // Any member reads them, and the operator too.
     for (const user of [bob, erin]) {
       expect((await standing(user, location.id)).settings, user).toEqual(settings);

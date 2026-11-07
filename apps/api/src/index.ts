@@ -188,10 +188,11 @@ export default {
   },
 
   /**
-   * Email Routing: a message to the receiving domain, which is a receipt copied to a location's
-   * receipt address. It arrives with no signed-in user and is received as the worker: kept as a
-   * customer contact, or dropped and counted (`receiveEmail`). An address that is nobody's is
-   * refused. Nothing of a message is logged but what became of it.
+   * Email Routing: a message to the receipts mailbox, `receipts@nearcited.com`, or a subaddress of
+   * it, which is a receipt copied to a location's receipt address. It arrives with no signed-in
+   * user and is received as the worker: kept as a customer contact, or dropped and counted
+   * (`receiveEmail`). An address that is nobody's is refused. Nothing of a message is logged but
+   * what became of it.
    */
   async email(message, env) {
     const store = createSupabaseStore(createAdminClient(env));

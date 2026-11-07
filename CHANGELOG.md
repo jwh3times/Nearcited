@@ -9,6 +9,33 @@ counting builds on a release line.
 
 No unreleased changes.
 
+## [1.3.3] - 2026-11-07
+
+### Fixed
+
+- A location's receipt address is now `receipts+<name>@nearcited.com`, a subaddress of one
+  mailbox, so mail to it can reach the Worker (#300). The address 1.3.0 gave each location, at
+  `receipts.nearcited.com`, could not: Cloudflare Email Routing has no catch-all rule for a
+  subdomain, only one rule for each address. One rule now sends `receipts@nearcited.com` to the
+  Worker, and Email Routing's subaddressing matches every location's address to it
+  (`docs/adr/0032-receipts-arrive-as-subaddresses-of-one-mailbox.md`). The README's Deploy section
+  says how to set that up.
+  - The name a location keeps is unchanged. Its Settings tab and the owner's export write it in
+    the new form, and a message to an address in any other form, the old one included, is
+    refused.
+  - Nothing was ever received at the old form, since nothing routed it, and no plan includes
+    review requests, so nobody is told of the change. An owner who copied the old address onto
+    their receipts copies the new one from the Settings tab.
+
+## [1.3.2] - 2026-11-06
+
+### Changed
+
+- Dependency updates: `@anthropic-ai/sdk` 1.3.0 to 1.4.0, `hono` 4.13.14 to 4.13.16,
+  `@cloudflare/workers-types` 5.20261031.1 to 5.20261103.1, `wrangler` 4.156.0 to 4.156.2,
+  `@tanstack/react-query` 5.105.0 to 5.105.3, `@vitejs/plugin-react` 6.1.2 to 6.2.1,
+  `@electric-sql/pglite` 0.5.13 to 0.5.14 and `vitest` 5.0.5 to 5.1.0.
+
 ## [1.3.1] - 2026-11-06
 
 ### Changed
@@ -150,7 +177,9 @@ deployed.
   (`scripts/check-changelog.mjs`); a Dependabot merge gets its section on the next human pull
   request.
 
-[Unreleased]: https://github.com/jwh3times/Nearcited/compare/v1.3.1...HEAD
+[Unreleased]: https://github.com/jwh3times/Nearcited/compare/v1.3.3...HEAD
+[1.3.3]: https://github.com/jwh3times/Nearcited/compare/v1.3.2...v1.3.3
+[1.3.2]: https://github.com/jwh3times/Nearcited/compare/v1.3.1...v1.3.2
 [1.3.1]: https://github.com/jwh3times/Nearcited/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/jwh3times/Nearcited/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/jwh3times/Nearcited/compare/v1.1.0...v1.2.0

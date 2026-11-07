@@ -200,12 +200,13 @@ Nearcited is multi-tenant, and tenant isolation is enforced by Postgres row-leve
   another organization's review requests or their receipt address, working out or guessing a
   receipt address, and an address that was replaced or let go still belonging to a location.
 - Receipts and customer contacts. The Worker's `email` handler takes mail to
-  `receipts.nearcited.com` from anyone, with no sign-in, and acts as the worker, so each of these is
-  a report: a receipt kept when Cloudflare's own result showed neither DMARC nor DKIM or SPF passing
-  for its sender's own domain; a customer picked by a guess; a receipt kept for review requests that
-  are off, from a declined sender or for a test organization; a message to an address that is
-  nobody's reaching any location; and anything of a message kept or logged but its sender, its one
-  customer, the day of the job and what became of it. Also reading a customer contact's full
+  `receipts@nearcited.com` and its subaddresses from anyone, with no sign-in, and acts as the
+  worker, so each of these is a report: a receipt kept when Cloudflare's own result showed neither
+  DMARC nor DKIM or SPF passing for its sender's own domain; a customer picked by a guess; a
+  receipt kept for review requests that are off, from a declined sender or for a test
+  organization; a message to an address that is nobody's reaching any location; and anything of a
+  message kept or logged but its sender, its one customer, the day of the job and what became of
+  it. Also reading a customer contact's full
   address by any path but the worker's (`customer_contacts.address` is granted to no API role, the
   operator included, and no route, response, export or log line carries it); calling
   `receive_receipt()`, `record_receipt_drop()` or `drop_expired_held_contacts()` as anyone but the

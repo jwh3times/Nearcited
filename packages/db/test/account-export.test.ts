@@ -7,6 +7,7 @@ import {
   type ExportList,
   exportColumns,
   receiptAddress,
+  receiptName,
 } from "@nearcited/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
@@ -191,10 +192,10 @@ describe("downloading everything", () => {
     // The receipt address written out whole, as the app shows it.
     const [asking] = exported.review_requests;
     expect(asking?.site).toBe("google.com");
+    expect(asking?.receipt_address).toMatch(/^receipts\+[0-9a-f]{32}@nearcited\.com$/);
     expect(asking?.receipt_address).toBe(
-      receiptAddress(asking?.receipt_address.split("@")[0] ?? ""),
+      receiptAddress(receiptName(asking?.receipt_address ?? "") ?? ""),
     );
-    expect(asking?.receipt_address).toMatch(/^[0-9a-f]{32}@/);
     expect(exported.listings.map((row) => row.site)).toEqual(["yelp"]);
     expect(exported.visits.map((row) => row.count)).toEqual([3]);
     expect(exported.site_fetches.map((row) => [row.fetcher, row.path, row.count])).toEqual([
