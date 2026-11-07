@@ -37,6 +37,13 @@ export function atLocalTime(day: string, time: string, zone: string): string {
   return new Date(wall - (wallClock(guess, zone) - guess)).toISOString();
 }
 
+/** Mirrors `now() - interval '12 months'`: the same moment, twelve calendar months before. */
+export function twelveMonthsBefore(instant: string): string {
+  const moment = new Date(instant);
+  moment.setUTCFullYear(moment.getUTCFullYear() - 1);
+  return moment.toISOString();
+}
+
 /** The day and the time of day the clock in `zone` shows at `instant`. */
 function localParts(instant: string, zone: string): { day: string; time: string } {
   const shown = new Date(wallClock(Date.parse(instant), zone)).toISOString();

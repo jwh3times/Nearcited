@@ -93,7 +93,7 @@ const hostingOf = (env: Env): Hosting => ({
 });
 
 /** What review requests need of this deployment. Undefined without `CONNECTIONS_KEY`. */
-async function askingOf(env: Env): Promise<Asking | undefined> {
+async function reviewRequestsOf(env: Env): Promise<Asking | undefined> {
   const keys = await askingKeys(env.CONNECTIONS_KEY);
   return keys
     ? {
@@ -140,7 +140,7 @@ export default {
     if (stalledActions > 0) console.log(`Queued ${stalledActions} approved actions again`);
     // Proposing is the worker's alone. A request is sent the morning after the job, so a quarter
     // of an hour is soon enough.
-    const asking = await askingOf(env);
+    const asking = await reviewRequestsOf(env);
     if (asking) {
       const asked = await proposeReviewRequests({ store, asking });
       if (asked > 0) console.log(`Proposed ${asked} review requests`);
@@ -401,7 +401,7 @@ export default {
             key: await sealingKey(env.CONNECTIONS_KEY),
             outside: { localOrigin: env.WORDPRESS_LOCAL_ORIGIN ?? null },
             hosting: hostingOf(env),
-            asking: await askingOf(env),
+            asking: await reviewRequestsOf(env),
           });
           console.log(`${what}: ${outcome}`);
           // The thing had changed since the member was shown it. Reading the account again now

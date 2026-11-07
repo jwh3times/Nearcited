@@ -87,7 +87,7 @@ import {
   type UsageSource,
   type ZoneMatch,
 } from "../src/store/types";
-import { atLocalTime, nextSameTime } from "./zoned-time";
+import { atLocalTime, nextSameTime, twelveMonthsBefore } from "./zoned-time";
 
 /**
  * An in-memory Store for tests. It mimics the one property of the real database the API relies
@@ -1599,8 +1599,8 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
       if (failed.status !== "failed") {
         throw new StoreError("limit", "Only an action that failed can be asked for again.");
       }
-      const now0 = db.now ?? new Date().toISOString();
-      if (failed.not_before !== null && failed.lapses_at <= now0) {
+      const asked = db.now ?? new Date().toISOString();
+      if (failed.not_before !== null && failed.lapses_at <= asked) {
         throw new StoreError(
           "limit",
           "This is not asked for again: the week after the job is over.",
@@ -2691,9 +2691,10 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
       const of = (kept: { organization_id: string; fingerprint: string }) =>
         kept.organization_id === organizationId && kept.fingerprint === fingerprint;
       const asked = db.askedAddresses.find(of);
+      const yearAgo = twelveMonthsBefore(db.now ?? new Date().toISOString());
       return {
         asked_by: asked?.action_id ?? null,
-        asked_at: asked?.asked_at ?? null,
+        asked_recently: asked !== undefined && asked.asked_at > yearAgo,
         opted_out: db.optedOutAddresses.some(of),
       };
     },
@@ -2732,7 +2733,6 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
           );
         })
         .sort((a, b) => a.received_at.localeCompare(b.received_at) || a.id.localeCompare(b.id))
-        .slice(0, 500)
         .map(({ id, organization_id, location_id, address, masked, job_day }) => ({
           id,
           organization_id,
@@ -2777,7 +2777,7 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         forget();
         return "opted_out";
       }
-      const yearAgo = new Date(Date.parse(now) - 365 * 86_400_000).toISOString();
+      const yearAgo = twelveMonthsBefore(now);
       if (db.askedAddresses.some((kept) => of(kept) && kept.asked_at > yearAgo)) {
         forget();
         return "asked_before";
@@ -2789,7 +2789,8 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         const outstanding = db.actions.filter(
           (action) =>
             action.kind === "review_request" &&
-            (action.status === "proposed" || action.status === "approved") &&
+            (action.status === "approved" ||
+              (action.status === "proposed" && action.lapses_at > now)) &&
             action.allowance_month === null &&
             organizationOf(action.location_id)?.id === organization.id,
         ).length;
@@ -2799,6 +2800,7 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
           return "allowance_used";
         }
       }
+      if (wording === null) return "no_wording";
       const made = await this.proposeAction({
         location_id: contact.location_id,
         kind: "review_request",

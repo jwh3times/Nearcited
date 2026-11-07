@@ -36,7 +36,7 @@ create index actions_contact on public.actions (contact_id) where contact_id is 
 -- `not_before` shows. For the trigger below.
 create function public.next_same_time(not_before timestamptz, from_at timestamptz, zone text)
 returns timestamptz
-language plpgsql immutable set search_path = ''
+language plpgsql stable set search_path = ''
 as $$
 declare
   local_from timestamp := from_at at time zone zone;
@@ -137,6 +137,29 @@ $$;
 revoke execute on function public.mark_asked(uuid, text) from public, anon, authenticated;
 grant execute on function public.mark_asked(uuid, text) to service_role;
 
+-- What an organization's record says of an address, by its keyed fingerprint: the request that
+-- last asked it, whether that was within twelve months, and whether it opted out. Worker only.
+create function public.asking_record(org uuid, fingerprint text)
+returns table (asked_by uuid, asked_recently boolean, opted_out boolean)
+language sql stable security definer set search_path = ''
+as $$
+  select
+    (select a.action_id from public.asked_addresses a
+     where a.organization_id = org and a.fingerprint = asking_record.fingerprint),
+    exists (
+      select 1 from public.asked_addresses a
+      where a.organization_id = org and a.fingerprint = asking_record.fingerprint
+        and a.asked_at > now() - interval '12 months'
+    ),
+    exists (
+      select 1 from public.opted_out_addresses o
+      where o.organization_id = org and o.fingerprint = asking_record.fingerprint
+    );
+$$;
+
+revoke execute on function public.asking_record(uuid, text) from public, anon, authenticated;
+grant execute on function public.asking_record(uuid, text) to service_role;
+
 -- A contact not asked because the month's allowance was spoken for is counted with the receipts
 -- dropped for its location.
 alter table public.receipt_drops drop constraint receipt_drops_reason_check;
@@ -147,8 +170,8 @@ alter table public.receipt_drops add constraint receipt_drops_reason_check check
 
 -- The ready customer contacts no review request was proposed for yet, where the plan includes
 -- review requests and the location's are on, with the full address the worker fingerprints. The
--- oldest first, at most 500: the schedule reads it again at its next run. Not for an organization
--- being closed. Worker only.
+-- oldest first, in an order no two share, for the worker to read a page at a time. Not for an
+-- organization being closed. Worker only.
 create function public.contacts_to_ask()
 returns table (
   id uuid,
@@ -170,8 +193,7 @@ as $$
     and o.allowances ? 'review_requests'
     and o.closing_at is null
     and not exists (select 1 from public.actions a where a.contact_id = c.id)
-  order by c.received_at, c.id
-  limit 500;
+  order by c.received_at, c.id;
 $$;
 
 revoke execute on function public.contacts_to_ask() from public, anon, authenticated;
@@ -179,7 +201,8 @@ grant execute on function public.contacts_to_ask() to service_role;
 
 -- Proposes asking one ready customer contact for a review, as the worker composed it: `fingerprint`
 -- is the keyed fingerprint of the address, `what` the sentence it is shown as and `wording` the
--- email as the owner approved it. Says what became of it:
+-- email as the owner approved it, null where the location has no review form left on the site
+-- chosen. Says what became of it:
 --   `proposed`, or `approved` where standing permission approved it as it was made;
 --   `already_proposed`, where the contact already has its action;
 --   `not_ready`, where there is no such contact or its sender is not confirmed, `not_included`,
@@ -188,7 +211,8 @@ grant execute on function public.contacts_to_ask() to service_role;
 --   `allowance_used`, where the month's allowance is spoken for: counted for the location;
 --   `too_late`, where the week after the job is over, `opted_out`, where the address opted out of
 --   the organization, and `asked_before`, where the organization asked it within twelve months:
---   each deletes the contact.
+--   each deletes the contact;
+--   `no_wording`, where there is no wording to send: the contact waits, until its week is over.
 -- Worker only.
 create function public.propose_review_request(
   contact uuid,
@@ -264,12 +288,17 @@ begin
     from public.actions a
     join public.locations l on l.id = a.location_id
     where l.organization_id = c.organization_id and a.kind = 'review_request'
-      and a.status in ('proposed', 'approved') and a.allowance_month is null;
+      and a.allowance_month is null
+      and (a.status = 'approved' or (a.status = 'proposed' and a.lapses_at > now()));
     if spoken_for >= (allowance #>> '{}')::integer * locations then
       perform public.record_receipt_drop(c.location_id, 'allowance_used');
       delete from public.customer_contacts where id = contact;
       return 'allowance_used';
     end if;
+  end if;
+
+  if wording is null then
+    return 'no_wording';
   end if;
 
   select * into made from public.propose_action(

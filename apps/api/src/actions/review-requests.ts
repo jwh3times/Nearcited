@@ -1,6 +1,6 @@
-import { approvedWording, siteName } from "@nearcited/shared";
+import { approvedWording, type ReviewRequestEmail, siteName } from "@nearcited/shared";
 import { secretBytes } from "../connections/seal";
-import type { Store } from "../store/types";
+import type { KeptReviewRequests, Store } from "../store/types";
 
 /**
  * Review requests (issue #292, part of #146): the worker proposes asking each ready customer
@@ -91,10 +91,29 @@ export async function askingKeys(secret: string | undefined): Promise<AskingKeys
 }
 
 /**
+ * The email a location's customers are sent now, as its owner approved it: from its name, the site
+ * chosen and its listing there, with its review requests' settings. Null where they are off, or the
+ * location has no review form left on the site chosen.
+ */
+export async function currentWording(
+  store: Store,
+  locationId: string,
+): Promise<{ settings: KeptReviewRequests; email: ReviewRequestEmail } | null> {
+  const [location, settings, listings] = await Promise.all([
+    store.getLocation(locationId),
+    store.getLocationReviewRequests(locationId),
+    store.listListings(locationId),
+  ]);
+  const email =
+    location && settings ? approvedWording(location.name, settings.site, listings) : null;
+  return settings && email ? { settings, email } : null;
+}
+
+/**
  * Proposes asking each ready customer contact no request was proposed for yet, in the wording its
  * location's owner approved. A location with no review form left on the site chosen proposes
- * nothing, and its contacts wait. Returns how many were proposed, approved by standing permission
- * as they were made included.
+ * nothing: its contacts wait, until their week is over. Returns how many were proposed, approved by
+ * standing permission as they were made included.
  */
 export async function proposeReviewRequests({
   store,
@@ -103,33 +122,22 @@ export async function proposeReviewRequests({
   store: Store;
   asking: Asking;
 }): Promise<number> {
-  const wordings = new Map<string, { wording: string; site: string } | null>();
+  const wordings = new Map<string, Awaited<ReturnType<typeof currentWording>>>();
   const wordingOf = async (locationId: string) => {
-    if (!wordings.has(locationId)) {
-      const [location, settings, listings] = await Promise.all([
-        store.getLocation(locationId),
-        store.getLocationReviewRequests(locationId),
-        store.listListings(locationId),
-      ]);
-      const email =
-        location && settings ? approvedWording(location.name, settings.site, listings) : null;
-      wordings.set(
-        locationId,
-        email && settings ? { wording: email.body, site: settings.site } : null,
-      );
-    }
+    if (!wordings.has(locationId))
+      wordings.set(locationId, await currentWording(store, locationId));
     return wordings.get(locationId) ?? null;
   };
 
   let proposed = 0;
   for (const contact of await store.listContactsToAsk()) {
-    const kept = await wordingOf(contact.location_id);
-    if (!kept) continue;
+    const now = await wordingOf(contact.location_id);
+    // With no wording the contact is still checked, so one whose week is over is not kept.
     const outcome = await store.proposeReviewRequest(
       contact.id,
       await asking.keys.fingerprint(contact.address),
-      `Ask ${contact.masked} for a review on ${siteName(kept.site)}`,
-      kept.wording,
+      now ? `Ask ${contact.masked} for a review on ${siteName(now.settings.site)}` : "",
+      now?.email.body ?? null,
     );
     if (outcome === "proposed" || outcome === "approved") proposed++;
   }

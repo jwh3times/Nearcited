@@ -1063,8 +1063,9 @@ export function createSupabaseStore(
     },
 
     async listContactsToAsk() {
-      const { data, error } = await db.rpc("contacts_to_ask");
-      if (error) fail("List the contacts to ask", error);
+      const data = await every("List the contacts to ask", (from, to, first) =>
+        db.rpc("contacts_to_ask", {}, counted(first)).range(from, to),
+      );
       return z
         .array(
           z.object({
@@ -1115,30 +1116,17 @@ export function createSupabaseStore(
     },
 
     async getAskingRecord(organizationId, fingerprint) {
-      const [asked, optedOut] = await Promise.all([
-        db
-          .from("asked_addresses")
-          .select("action_id, asked_at")
-          .eq("organization_id", organizationId)
-          .eq("fingerprint", fingerprint)
-          .maybeSingle(),
-        db
-          .from("opted_out_addresses")
-          .select("fingerprint")
-          .eq("organization_id", organizationId)
-          .eq("fingerprint", fingerprint)
-          .maybeSingle(),
-      ]);
-      if (asked.error) fail("Read whom an organization asked", asked.error);
-      if (optedOut.error) fail("Read who opted out", optedOut.error);
-      const kept = asked.data
-        ? z.object({ action_id: z.uuid().nullable(), asked_at: z.string() }).parse(asked.data)
-        : null;
-      return {
-        asked_by: kept?.action_id ?? null,
-        asked_at: kept?.asked_at ?? null,
-        opted_out: optedOut.data !== null,
-      };
+      const { data, error } = await db
+        .rpc("asking_record", { org: organizationId, fingerprint })
+        .single();
+      if (error) fail("Read whom an organization asked", error);
+      return z
+        .object({
+          asked_by: z.uuid().nullable(),
+          asked_recently: z.boolean(),
+          opted_out: z.boolean(),
+        })
+        .parse(data);
     },
 
     async markAsked(actionId, fingerprint) {

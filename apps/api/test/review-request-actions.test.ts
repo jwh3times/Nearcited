@@ -426,6 +426,10 @@ describe("a review request", () => {
       send: async () => {},
       appUrl: "https://nearcited.example",
     });
+    // Three approved as proposed and sent: standing permission is offered for them.
+    expect((await actionsOf(location.id)).permissions).toEqual([
+      { kind: "review_request", counted: 3, standing: null },
+    ]);
     const given = await call(
       alice,
       "POST",

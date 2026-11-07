@@ -186,7 +186,6 @@ export interface PermissionToTell {
   ended_untold: boolean;
 }
 
-/** A receipt address, as the worker reads it to receive a receipt: whose it is and whether it is on. */
 /** A ready customer contact no review request was proposed for yet, as only the worker reads it. */
 export interface ContactToAsk {
   id: string;
@@ -217,10 +216,12 @@ export const REVIEW_REQUEST_PROPOSALS = [
   "opted_out",
   "asked_before",
   "allowance_used",
+  "no_wording",
   "not_proposed",
 ] as const;
 export type ReviewRequestProposal = (typeof REVIEW_REQUEST_PROPOSALS)[number];
 
+/** A receipt address, as the worker reads it to receive a receipt: whose it is and whether it is on. */
 export interface ReceiptAddressOwner {
   connection_id: string;
   organization_id: string;
@@ -747,19 +748,20 @@ export interface Store {
   dropExpiredHeldContacts(): Promise<number>;
   /**
    * The ready customer contacts no review request was proposed for yet, where the plan includes
-   * review requests and the location's are on, oldest first and at most 500. Worker only.
+   * review requests and the location's are on, oldest first. Worker only.
    */
   listContactsToAsk(): Promise<ContactToAsk[]>;
   /**
    * Proposes asking one contact for a review: `fingerprint` is the keyed fingerprint of its
    * address, `summary` the sentence a member is shown and `wording` the email as its owner
-   * approved it. Worker only.
+   * approved it, or null where the location has no review form left to send anyone to. Worker
+   * only.
    */
   proposeReviewRequest(
     contactId: string,
     fingerprint: string,
     summary: string,
-    wording: string,
+    wording: string | null,
   ): Promise<ReviewRequestProposal>;
   /**
    * The customer a review request asks, by the request: the full address, whose contact it is and
@@ -770,12 +772,12 @@ export interface Store {
   ): Promise<{ address: string; organization_id: string; sample_data: boolean } | null>;
   /**
    * What an organization's record says of an address, by its keyed fingerprint: the request that
-   * last asked it and when, and whether it opted out. Worker only.
+   * last asked it, whether that was within twelve months, and whether it opted out. Worker only.
    */
   getAskingRecord(
     organizationId: string,
     fingerprint: string,
-  ): Promise<{ asked_by: string | null; asked_at: string | null; opted_out: boolean }>;
+  ): Promise<{ asked_by: string | null; asked_recently: boolean; opted_out: boolean }>;
   /** Records that a review request asked its address, once the email went. Worker only. */
   markAsked(actionId: string, fingerprint: string): Promise<void>;
   /** The senders waiting with a receipt held that their owners were not told of. Worker only. */

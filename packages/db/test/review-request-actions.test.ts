@@ -113,12 +113,12 @@ async function contactOf(connection: string, customer: string, day: string) {
   return id;
 }
 
-/** What the worker's proposing makes of one contact. */
-const propose = (contact: string, fingerprint: string) =>
+/** What the worker's proposing makes of one contact, with the wording its location has, if any. */
+const propose = (contact: string, fingerprint: string, wording: string | null = "The wording") =>
   as("service_role", null, () =>
     one<{ outcome: string }>(
-      "select public.propose_review_request($1, $2, 'Ask j•••@example.org for a review', 'The wording') as outcome",
-      [contact, fingerprint],
+      "select public.propose_review_request($1, $2, 'Ask j•••@example.org for a review', $3) as outcome",
+      [contact, fingerprint, wording],
     ),
   ).then((row) => row.outcome);
 
@@ -252,10 +252,20 @@ describe("review requests as actions", () => {
     expect(await propose(again, "f-twice")).toBe("asked_before");
     expect(await rows("select 1 from public.customer_contacts where id = $1", [again])).toEqual([]);
 
+    const record = () =>
+      as("service_role", null, () =>
+        one<{ asked_by: string | null; asked_recently: boolean; opted_out: boolean }>(
+          "select * from public.asking_record($1, 'f-twice')",
+          [org],
+        ),
+      );
+    expect(await record()).toEqual({ asked_by: id, asked_recently: true, opted_out: false });
+
     // Thirteen months on, they may be asked again.
     await db.query(
       "update public.asked_addresses set asked_at = now() - interval '13 months' where fingerprint = 'f-twice'",
     );
+    expect(await record()).toEqual({ asked_by: id, asked_recently: false, opted_out: false });
     const later = await contactOf(shop.connection, "twice@example.org", await localDay(0));
     expect(await propose(later, "f-twice")).toBe("proposed");
   });
@@ -293,6 +303,49 @@ describe("review requests as actions", () => {
         shop.location,
       ]),
     ).toEqual([{ reason: "allowance_used", count: 1 }]);
+  });
+
+  it("waits with no wording to send, and deletes the contact once its week is over", async () => {
+    const waits = await contactOf(joes.connection, "waits-wording@example.org", await localDay(0));
+    expect(await propose(waits, "f-waits-wording", null)).toBe("no_wording");
+    expect(
+      await rows("select 1 from public.customer_contacts where id = $1", [waits]),
+    ).toHaveLength(1);
+    expect(await rows("select 1 from public.actions where contact_id = $1", [waits])).toEqual([]);
+
+    const over = await contactOf(joes.connection, "over-wording@example.org", await localDay(-8));
+    expect(await propose(over, "f-over-wording", null)).toBe("too_late");
+    expect(await rows("select 1 from public.customer_contacts where id = $1", [over])).toEqual([]);
+  });
+
+  it("counts toward the month nothing that waited past its week", async () => {
+    const small = await organizationOf("One Late Shop", stranger, 1);
+    await db.query("update public.organizations set max_locations = 1 where id = $1", [small]);
+    const shop = await askingLocation(small, stranger, "One Late Shop");
+    const first = await contactOf(shop.connection, "lapsing@example.org", await localDay(0));
+    expect(await propose(first, "f-lapsing")).toBe("proposed");
+    // Its week is over, and the daily run has not lapsed it yet.
+    await db.query(
+      "update public.actions set lapses_at = now() - interval '1 minute' where contact_id = $1",
+      [first],
+    );
+    const second = await contactOf(shop.connection, "after@example.org", await localDay(0));
+    expect(await propose(second, "f-after")).toBe("proposed");
+  });
+
+  it("is not approved, and lapses unsent, once a week after the job has passed", async () => {
+    const contact = await contactOf(joes.connection, "unanswered@example.org", await localDay(0));
+    await propose(contact, "f-unanswered");
+    const { id } = await actionOf(contact);
+    await db.query(
+      "update public.actions set lapses_at = now() - interval '1 minute' where id = $1",
+      [id],
+    );
+    await expect(
+      as("authenticated", member, () => db.query("select 1 from public.approve_action($1)", [id])),
+    ).rejects.toThrow(/no longer waiting for a yes/);
+    await as("service_role", null, () => db.query("select public.lapse_actions()"));
+    expect(await actionOf(contact)).toMatchObject({ status: "lapsed", due_at: null });
   });
 
   it("proposes nothing where the plan does not include review requests, and keeps the contact", async () => {
@@ -419,6 +472,14 @@ describe("review requests as actions", () => {
       }
       await expect(
         as(role, user, () => db.query("select public.mark_asked(gen_random_uuid(), 'f')")),
+      ).rejects.toThrow(/permission denied/);
+      await expect(
+        as(role, user, () =>
+          db.query("select * from public.asking_record(gen_random_uuid(), 'f')"),
+        ),
+      ).rejects.toThrow(/permission denied/);
+      await expect(
+        as(role, user, () => db.query("select * from public.contacts_to_ask()")),
       ).rejects.toThrow(/permission denied/);
       await expect(
         as(role, user, () =>

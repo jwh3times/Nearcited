@@ -1723,12 +1723,25 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
     });
     expect(await receiving.getAskingRecord(organization.id, "fingerprint-of-sam")).toEqual({
       asked_by: null,
-      asked_at: null,
+      asked_recently: false,
       opted_out: false,
     });
+    // Approved, it is left out of the stalled list until its 10:00 comes, then listed.
+    expect(await aliceStore.approveAction(request?.id ?? "")).toMatchObject({ status: "approved" });
+    const approved = await aliceStore.getAction(request?.id ?? "");
+    expect(approved?.due_at).not.toBeNull();
+    const longAfter = "2100-01-01T00:00:00.000Z";
+    expect(await receiving.listStalledActions(longAfter)).not.toContain(request?.id);
+    await admin
+      .from("actions")
+      .update({ due_at: new Date(Date.now() - 60_000).toISOString() })
+      .eq("id", request?.id ?? "")
+      .throwOnError();
+    expect(await receiving.listStalledActions(longAfter)).toContain(request?.id);
     await receiving.markAsked(request?.id ?? "", "fingerprint-of-sam");
-    expect(await receiving.getAskingRecord(organization.id, "fingerprint-of-sam")).toMatchObject({
+    expect(await receiving.getAskingRecord(organization.id, "fingerprint-of-sam")).toEqual({
       asked_by: request?.id,
+      asked_recently: true,
       opted_out: false,
     });
 

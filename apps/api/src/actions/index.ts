@@ -2,7 +2,6 @@ import {
   type Action,
   type ActionKind,
   type ActionMessage,
-  approvedWording,
   buildBusinessBlock,
   type Connection,
   type ConnectionMatch,
@@ -35,7 +34,7 @@ import {
   writePageContent,
 } from "../connections/wordpress";
 import type { NewAction, Store } from "../store/types";
-import type { Asking } from "./review-requests";
+import { type Asking, currentWording } from "./review-requests";
 
 /**
  * Actions: what the product does outside itself for a location, once a member said yes
@@ -268,6 +267,8 @@ const ASKED_MEANWHILE = "This customer was asked meanwhile, or opted out.";
 const CONTACT_GONE = "This customer's contact is no longer kept.";
 /** What stands for wording that is no longer what the owner approved. */
 const WORDING_CHANGED = "The wording is no longer what was approved.";
+/** Why one cannot go: the location has no review form left on the site chosen. */
+const NO_WORDING = "There is no review form left to send this customer to.";
 
 /** What a review request needs of the deployment, or why it cannot go. */
 function askingOf({ asking }: Target): Asking {
@@ -283,16 +284,6 @@ async function customerOf(target: Target) {
   return contact
     ? { ...contact, fingerprint: await askingOf(target).keys.fingerprint(contact.address) }
     : null;
-}
-
-/** The email the location's customers are sent now, from its name and the site chosen. */
-async function wordingNow({ store, location }: Target) {
-  const [settings, listings] = await Promise.all([
-    store.getLocationReviewRequests(location.id),
-    store.listListings(location.id),
-  ]);
-  const email = settings ? approvedWording(location.name, settings.site, listings) : null;
-  return settings && email ? { settings, email } : null;
 }
 
 /**
@@ -311,23 +302,20 @@ const reviewRequest: ActionHandler = {
       customer.fingerprint,
     );
     if (record.asked_by === target.action.id) return actionText(target.action);
-    const yearAgo = Date.now() - 365 * 86_400_000;
-    if (record.opted_out || (record.asked_at && Date.parse(record.asked_at) > yearAgo)) {
-      return ASKED_MEANWHILE;
-    }
-    if ((await wordingNow(target))?.email.body !== actionText(target.action)) {
-      return WORDING_CHANGED;
-    }
+    if (record.opted_out || record.asked_recently) return ASKED_MEANWHILE;
+    const wording = await currentWording(target.store, target.location.id);
+    if (wording?.email.body !== actionText(target.action)) return WORDING_CHANGED;
     return null;
   },
   async apply(target, text) {
     const asking = askingOf(target);
-    const [customer, now, organization] = await Promise.all([
+    const [customer, wording, organization] = await Promise.all([
       customerOf(target),
-      wordingNow(target),
+      currentWording(target.store, target.location.id),
       target.store.getOrganization(target.location.organization_id),
     ]);
-    if (!customer || !now || text === null) throw new Error(CONTACT_GONE);
+    if (!customer || text === null) throw new Error(CONTACT_GONE);
+    if (!wording) throw new Error(NO_WORDING);
     const nothingLeaves = asking.sampleData || customer.sample_data || organization?.is_test;
     if (!nothingLeaves) {
       if (!asking.send) {
@@ -335,10 +323,10 @@ const reviewRequest: ActionHandler = {
       }
       const token = await asking.keys.optOutToken(customer.organization_id, customer.fingerprint);
       await asking.send({
-        from_name: now.email.sender,
+        from_name: wording.email.sender,
         to: customer.address,
-        reply_to: now.settings.reply_to,
-        subject: now.email.subject,
+        reply_to: wording.settings.reply_to,
+        subject: wording.email.subject,
         text: withOptOut(text, `${asking.appUrl.replace(/\/$/, "")}/opt-out/${token}`),
         key: `review-request/${target.action.id}`,
       });
