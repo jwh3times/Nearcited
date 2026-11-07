@@ -4387,14 +4387,36 @@ describe("the operator", () => {
       await expect(as("anon", null, () => db.query(read))).rejects.toThrow(/permission denied/);
       expect(
         await rows(
-          "select kind, allowance, keeps_seen_days from public.action_kind_terms order by kind",
+          "select kind, allowance, keeps_seen_days, can_take_back from public.action_kind_terms order by kind",
         ),
       ).toEqual([
-        { kind: "sample", allowance: null, keeps_seen_days: 30 },
+        { kind: "sample", allowance: null, keeps_seen_days: 30, can_take_back: true },
         // The business's own site limits nothing about how long its page may be kept.
-        { kind: "wordpress_details", allowance: "wordpress", keeps_seen_days: null },
-        { kind: "wordpress_page", allowance: "wordpress", keeps_seen_days: null },
-        { kind: "hosted_page", allowance: "hosted_pages", keeps_seen_days: null },
+        {
+          kind: "wordpress_details",
+          allowance: "wordpress",
+          keeps_seen_days: null,
+          can_take_back: true,
+        },
+        {
+          kind: "wordpress_page",
+          allowance: "wordpress",
+          keeps_seen_days: null,
+          can_take_back: true,
+        },
+        {
+          kind: "hosted_page",
+          allowance: "hosted_pages",
+          keeps_seen_days: null,
+          can_take_back: true,
+        },
+        // A review request that was sent cannot be unsent.
+        {
+          kind: "review_request",
+          allowance: "review_requests",
+          keeps_seen_days: null,
+          can_take_back: false,
+        },
       ]);
     });
 
