@@ -66,8 +66,9 @@ Everything below is the main one.
   its subaddresses, which is a receipt copied to a location's receipt address,
   `receipts+<name>@nearcited.com` (`receiptAddress` and `receiptName`,
   `packages/shared/src/review-requests.ts`;
-  `docs/adr/0032-receipts-arrive-as-subaddresses-of-one-mailbox.md`). It arrives with no signed-in user and is received as the worker, with the secret key as
-  the cron and the queue are, by `receiveEmail` (`apps/api/src/receipts.ts`; see "Connections"). A
+  `docs/adr/0032-receipts-arrive-as-subaddresses-of-one-mailbox.md`). It arrives with no
+  signed-in user and is received as the worker, with the secret key as the cron and the queue
+  are, by `receiveEmail` (`apps/api/src/receipts.ts`; see "Connections"). A
   message to an address that is nobody's is refused (`setReject`). Nothing of a message is logged
   but what became of it. The handler needs no binding: the Email Routing rule on the zone is what
   sends the mail to it (see the README's "Deploy").

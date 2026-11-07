@@ -1,5 +1,5 @@
 import { hashOf } from "./fetches";
-import { PRODUCT_DOMAIN } from "./review-requests";
+import { ZONE_DOMAIN } from "./hosted-pages";
 import type { ReceiptDrop } from "./schemas";
 
 /**
@@ -149,7 +149,7 @@ const domainOf = (address: string) => address.slice(address.lastIndexOf("@") + 1
 const within = (domain: string, of: string) => domain === of || domain.endsWith(`.${of}`);
 
 function isProducts(address: string): boolean {
-  return within(domainOf(address), PRODUCT_DOMAIN);
+  return within(domainOf(address), ZONE_DOMAIN);
 }
 
 /** The business's own: its tool that sent the receipt, its reply address and its website's mail. */

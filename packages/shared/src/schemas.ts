@@ -1393,7 +1393,7 @@ export type ReviewSite = z.infer<typeof ReviewSiteSchema>;
 export const ReviewRequestSettingsSchema = z.object({
   connection_id: Id,
   location_id: Id,
-  /** The address its owner copies receipts to, at the product's receiving domain. */
+  /** The address its owner copies receipts to, `receipts+<name>@nearcited.com` (`receiptAddress`). */
   receipt_address: z.string(),
   /** When the receipt address was made: when they were turned on, or it was last replaced. */
   address_made_at: Timestamp,

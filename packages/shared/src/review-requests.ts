@@ -1,4 +1,5 @@
 import { requestToSend, siteName } from "./asking";
+import { ZONE_DOMAIN } from "./hosted-pages";
 import { asksForReviewLink, listingSite, reviewForm } from "./listings";
 import type { Listing, ReviewSite, SourceSummary } from "./schemas";
 import { listedSite } from "./source-kinds";
@@ -17,9 +18,6 @@ import { listedSite } from "./source-kinds";
 /** The allowance a plan includes review requests with. A key of `ALLOWANCE_KINDS`. */
 export const REVIEW_REQUESTS_ALLOWANCE = "review_requests";
 
-/** The product's own domain. Every address at it, or at a name under it, is the product's. */
-export const PRODUCT_DOMAIN = "nearcited.com";
-
 /**
  * A receipt address, `receipts+<name>@nearcited.com`: a subaddress of the one mailbox receipts
  * arrive at, `receipts@nearcited.com`. Cloudflare Email Routing has no catch-all for a subdomain,
@@ -27,11 +25,13 @@ export const PRODUCT_DOMAIN = "nearcited.com";
  * the rule (`docs/adr/0032-receipts-arrive-as-subaddresses-of-one-mailbox.md`). The name is the 32
  * lowercase hex characters the database keeps.
  */
-const RECEIPT_ADDRESS = /^receipts\+([0-9a-f]{32})@nearcited\.com$/;
+const RECEIPT_ADDRESS = new RegExp(
+  `^receipts\\+([0-9a-f]{32})@${ZONE_DOMAIN.replaceAll(".", "\\.")}$`,
+);
 
 /** A receipt address as it is written, from the name the database keeps for it. */
 export function receiptAddress(name: string): string {
-  return `receipts+${name}@${PRODUCT_DOMAIN}`;
+  return `receipts+${name}@${ZONE_DOMAIN}`;
 }
 
 /**

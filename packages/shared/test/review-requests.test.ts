@@ -120,6 +120,10 @@ describe("a receipt address", () => {
     expect(receiptAddress(name)).toBe(`receipts+${name}@nearcited.com`);
   });
 
+  it("is read back to the name it was written from", () => {
+    expect(receiptName(receiptAddress(name))).toBe(name);
+  });
+
   it("is read back to its name, whatever its case or the space around it", () => {
     expect(receiptName(`receipts+${name}@nearcited.com`)).toBe(name);
     expect(receiptName(`  Receipts+${name.toUpperCase()}@NearCited.com `)).toBe(name);
@@ -131,6 +135,8 @@ describe("a receipt address", () => {
       `receipts+${name}@receipts.nearcited.com`,
       `receipts+${name}@elsewhere.example`,
       `receipts+${name}@nearcited.com.example`,
+      `receipts+${name}@nearcitedxcom`,
+      `receiptss${name}@nearcited.com`,
       `receipts+${name.slice(1)}@nearcited.com`,
       `receipts+${name}0@nearcited.com`,
       `receipts+${name.replace("0", "g")}@nearcited.com`,
