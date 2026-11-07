@@ -190,16 +190,18 @@ pass `pnpm check` and run in mock mode without it.
   36 hours untold, and a yes is refused where no notice could be sent (`requireNotice`). Keep
   both, and mark an action told only when the email went, for a test organization, or on sample
   data with no email to send with. A kind of action has a row in `action_kind_terms`: the
-  allowance it takes from, and how many days what it replaced may be kept. `claim_action()` takes
-  from the month and `finish_action()` gives it back when the thing was not done and marks the
-  task the action did: count an action nowhere else, and add no path by which a member clears a
-  task an action marked, but taking that action back. What an action read from outside is kept in `seen` and nowhere else, so
+  allowance it takes from, how many days what it replaced may be kept, and whether it can be taken
+  back. `claim_action()` takes from the month and `finish_action()` gives it back when the thing
+  was not done and marks the task the action did: take from or give back to the month nowhere
+  else (a proposal may read what is spoken for, as `propose_review_request()` does), and add no
+  path by which a member clears a task an action marked, but taking that action back. What an action read from outside is kept in `seen` and nowhere else, so
   that `drop_expired_seen()` can drop it on its day. On a business's own site an action adds or
   changes only what the product made, marked as its own, and compares only that part before it
   writes (`docs/adr/0018-on-a-business-site-the-product-changes-only-what-it-made.md`): never
   edit the owner's text, menus, themes or plugins. A change composed by rule is approved as it
   is (`EDITABLE_ACTION_KINDS`). Taking back is a new action made only by `take_back_action()`,
-  which a member asks for, and it removes only what the action put there. Standing permission is
+  which a member asks for, and it removes only what the action put there; a kind that cannot be
+  taken back, such as a review request that was sent, is refused. Standing permission is
   a yes given in advance, and only `propose_action()` applies it, as an action is made;
   `claim_action()` checks it again and puts back to waiting what it no longer covers
   (`docs/adr/0025-standing-permission-is-checked-where-an-action-is-approved-and-carried-out.md`).
@@ -329,7 +331,11 @@ pass `pnpm check` and run in mock mode without it.
   leaves contacts out (`docs/adr/0031-a-customer-contact-is-read-only-by-the-worker.md`). Keep the
   column ungranted, select contacts by named columns, and log nothing of a message but what became
   of it. A test organization and a deployment on sample data receive nothing: their receipts are
-  made up when the review requests sync (`sampleReceipts`), kept as `sample_data`.
+  made up when the review requests sync (`sampleReceipts`), kept as `sample_data`. Only the worker
+  proposes a review request from a contact (`propose_review_request()`) and sends it, and it sends
+  nothing for a test organization, a made-up contact or a deployment on sample data. Whom an
+  organization asked and who opted out are kept only as a keyed fingerprint of the address
+  (`asked_addresses`, `opted_out_addresses`, which no API role reads), never the address.
 - **Only the worker closes an account.** A request records an owner's ask through
   `request_closing()`, which answers an owner of the organization and no one else, refuses the
   operator, a test account and a name that is not the organization's, and queues the worker

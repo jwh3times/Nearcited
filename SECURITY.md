@@ -215,6 +215,14 @@ Nearcited is multi-tenant, and tenant isolation is enforced by Postgres row-leve
   anyone but an owner or admin of its organization, the operator included; writing
   `receipt_senders`, `customer_contacts` or `receipt_drops` directly; and reading another
   organization's senders, contacts or dropped receipts.
+- Review requests sent to customers. Each of these is a report: proposing or sending one as anyone
+  but the worker, or calling `contacts_to_ask()`, `propose_review_request()`, `asking_record()` or
+  `mark_asked()` through the API; reading or writing `asked_addresses` or `opted_out_addresses`,
+  which no API role reaches, the operator included, or reading an address back from a fingerprint;
+  a request sent before its time, after its week, twice, without a member's yes or standing
+  permission, past the month's allowance, to an address the organization asked within twelve months
+  or that opted out of it, for a test organization or on sample data; and a business's name or
+  anything else in a request adding an address or a header.
 - Reading a shareable audit without its link, or after it was revoked or expired; listing audits;
   or creating one. `/api/audits/:token` is the one route that gives out an organization's data
   with no sign-in, and the token in the link is the only key to it. `/api/plans` needs no sign-in

@@ -9,6 +9,41 @@ counting builds on a release line.
 
 No unreleased changes.
 
+## [1.4.0] - 2026-11-07
+
+### Added
+
+- Review requests: a customer contact becomes a request for a review, which a member approves
+  and the product emails to the customer the morning after the job (#292, part of #146). No plan
+  includes review requests yet, so nothing is sent to a real customer.
+  - **Proposing:** every 15 minutes the worker makes one request for each ready contact, in the
+    wording the owner approved on the Settings tab. A location with no wording keeps its contacts
+    waiting until a week after the job.
+  - **Who is not asked:** a customer the organization asked in the last 12 months, from any of
+    its locations, or who opted out of it, gets no request, and the contact is deleted. Both are
+    checked against a keyed fingerprint of the address, which cannot be read back to it. Once the
+    requests sent this month and those still waiting reach the plan's allowance, a customer is
+    not asked either: the
+    contact is deleted and the Settings tab counts them ("3 customers not asked: this month's
+    allowance was used.").
+  - **When it goes:** an approved request is sent at 10:00 in the location's time zone the day
+    after the job, or at the next 10:00 if it was approved later. The Actions tab says when. One
+    nobody approves lapses unsent at 10:00 a week after the job.
+  - **What the customer gets:** an email under the business's name, from the product's sending
+    address (`REVIEW_REQUESTS_FROM`), with replies going to the location's reply address. It has
+    the approved wording, the link to the review form and a one-click opt-out link. The page the
+    opt-out link opens comes in #293. Sending records the address as asked. Before sending, the
+    worker checks again that the contact is still there, that nobody asked them or they opted
+    out meanwhile, and that the wording is the one approved. If not, nothing is sent.
+  - **Approving:** "Approve all N review requests listed" records one yes for each. After three,
+    standing permission is offered, as for other actions, and under it requests go without a
+    member's yes. A request that was sent cannot be taken back, so none offers a take-back.
+  - **The daily notice** gives one line per location, for example "Riverside: 12 review requests
+    sent, 3 waiting for a yes", and links to its Actions tab.
+  - A test organization, sample contacts and a deployment on sample data send nothing. Without
+    `REVIEW_REQUESTS_FROM` or `RESEND_API_KEY`, an approved request fails and says outgoing email
+    for review requests is not set up.
+
 ## [1.3.3] - 2026-11-07
 
 ### Fixed
@@ -177,7 +212,8 @@ deployed.
   (`scripts/check-changelog.mjs`); a Dependabot merge gets its section on the next human pull
   request.
 
-[Unreleased]: https://github.com/jwh3times/Nearcited/compare/v1.3.3...HEAD
+[Unreleased]: https://github.com/jwh3times/Nearcited/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/jwh3times/Nearcited/compare/v1.3.3...v1.4.0
 [1.3.3]: https://github.com/jwh3times/Nearcited/compare/v1.3.2...v1.3.3
 [1.3.2]: https://github.com/jwh3times/Nearcited/compare/v1.3.1...v1.3.2
 [1.3.1]: https://github.com/jwh3times/Nearcited/compare/v1.3.0...v1.3.1
