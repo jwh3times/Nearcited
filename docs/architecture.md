@@ -59,7 +59,7 @@ Everything below is the main one.
   after a sync that read the account it also proposes actions. A message shaped
   `{ action_id, step }` carries out one approved action (see "Actions"). A message shaped
   `{ draft_id, step }` writes one draft a member asked for (see "Drafts"). A message shaped
-  `{ closing_id, step }` closes one account (see "Closing an account"). A message shaped `{ fit_subscription: organization_id }` reprices one subscription without the stronger lines its plan no longer sells (`fitSubscription`, `apps/api/src/billing/fit.ts`; see "Tenancy"). The consumer is handed
+  `{ closing_id, step }` closes one account (see "Closing an account"). A message shaped `{ fit_subscription: organization_id }` reprices one subscription without the stronger lines its plan no longer sells (`fitSubscription`, `apps/api/src/billing/fit.ts`; see "Tenancy"). A message shaped `{ opt_out: { organization_id, fingerprint } }` or `{ stopped: { fingerprint, reason } }` records an opt-out, or a hard bounce or a complaint, that a route checked (`recordDoNotAsk`; see "Actions"). The consumer is handed
   up to five messages at a time and works through them one after another. A lone message waits
   at most a second for others to join it (`max_batch_timeout` in `wrangler.jsonc`), because
   somebody is usually watching the page for it; a message that lands in a batch behind scans
@@ -975,7 +975,7 @@ never the admin client, and sets `Cache-Control: private, no-store` and
 `X-Robots-Tag: noindex, nofollow`, because the link is the secret. `record_audit_part()` is
 callable by `service_role` only.
 
-The web pages at `/audit/:token`, `/privacy`, `/terms` and `/bot` are rendered before the sign-in gate; the audit page polls while the
+The web pages at `/audit/:token`, `/opt-out/:token`, `/privacy`, `/terms` and `/bot` are rendered before the sign-in gate; the audit page polls while the
 audit is queued.
 
 ## Visits from assistants
@@ -1853,8 +1853,10 @@ A decision about what the product may change on a business's site is in
   with `OPT_OUT_SHOWN` where each customer's own link goes) and the keyed fingerprint of the
   address, and calls `propose_review_request()`, which only the worker may call. That deletes the
   contact and proposes nothing once the week after the job is over (10:00 seven days after it, on
-  the location's clock), where the address opted out of the organization (`opted_out_addresses`),
-  and where the organization asked it within twelve months from any location (`asked_addresses`).
+  the location's clock), where the address bounced hard or complained about a review request from
+  any organization (`stopped_addresses`, outcome `stopped`), where it opted out of the organization
+  (`opted_out_addresses`), and where the organization asked it within twelve months from any
+  location (`asked_addresses`).
   Where the month's allowance is spoken for, by what `allowance_use` took this month and the
   requests approved or waiting that have not taken yet, it counts the contact in `receipt_drops` as
   `allowance_used` and deletes it; it reads the month and takes nothing, which stays
@@ -1873,18 +1875,42 @@ A decision about what the product may change on a business's site is in
   needs no sign-in. It reads the contact in full (`getContactToSend`, worker only) and fingerprints
   the address. What is there is whether this request already asked it (`asking_record()`, worker
   only): if so it is done, and nothing more is sent. It is out of date where the contact is gone,
-  the organization asked the address meanwhile or it opted out, or the wording is no longer what the
-  owner approved. Otherwise it is sent through Resend (`apps/api/src/email/review-request.ts`) from
+  the organization asked the address meanwhile, it opted out or it was stopped (`asking_record()`
+  reports a stopped address as opted out), or the wording is no longer what the owner approved. Otherwise it is sent through Resend (`apps/api/src/email/review-request.ts`) from
   `REVIEW_REQUESTS_FROM` under the business's name (quoted, so it cannot add an address or a
   header), with `Reply-To` the location's reply address, the approved wording, the customer's own
-  link to opt out (`<APP_URL>/opt-out/<organization>.<fingerprint>.<signature>`; the page is not
-  built) and the idempotency key `review-request/<action id>`, and `mark_asked()` records the
-  fingerprint. The fingerprint and the link's signature are HMACs whose keys are derived from
+  link to opt out (`<APP_URL>/opt-out/<organization>.<fingerprint>.<signature>`), the one-click
+  unsubscribe headers (RFC 8058: `List-Unsubscribe` naming `<APP_URL>/api/opt-out/<same token>`,
+  and `List-Unsubscribe-Post`), the Resend tag `kind=review_request` and the idempotency key
+  `review-request/<action id>`, and `mark_asked()` records the fingerprint. The fingerprint and the link's signature are HMACs whose keys are derived from
   `CONNECTIONS_KEY` by HKDF, one for each use (`askingKeys`), so neither can be read back and
   neither is one more secret to keep. A test organization, a made-up contact and a deployment on
   sample data send nothing, and the request is still marked asked and done. Without
   `REVIEW_REQUESTS_FROM` or `RESEND_API_KEY`, or without `CONNECTIONS_KEY`, it fails at once, since
   trying again cannot help.
+- **A customer opts out, and a bounce or a complaint stops an address, through the worker.**
+  Both arrive with no signed-in user (issue #293, part of #146), and neither route reads the
+  database, so neither answers differently for an address on file. The link to opt out opens the
+  page `/opt-out/:token` (`apps/web/src/pages/OptOut.tsx`), which is not indexed and records
+  nothing until "Stop these emails" is clicked, since a mail scanner may open it. The click, or a
+  mail client's one click, posts to `POST /api/opt-out/:token`, which checks the token's signature
+  (`readOptOutToken`, constant time, against the link key `askingKeys` derives), queues
+  `{ opt_out: { organization_id, fingerprint } }` and answers `{ opted_out: true }`; a token this
+  deployment did not sign is 404. `GET` on the same path, a mail client opening the header's link
+  in a browser, is sent on to the page with a 303 and records nothing. Resend reports on what it
+  sent at `POST /api/resend/webhook` (`readDeliveryReport`, `apps/api/src/email/delivery-reports.ts`),
+  which checks the Standard Webhooks signature against `RESEND_WEBHOOK_SECRET`, with a timestamp
+  within five minutes, before it parses anything. Only an email tagged `kind=review_request`
+  counts: `email.bounced` with a `Permanent` bounce stops its recipients as `bounce`, and
+  `email.complained` as `complaint`; a soft bounce and every other event are answered 200 and
+  ignored, and a soft bounce is never tried again. The route turns each recipient address into its
+  keyed fingerprint, queues `{ stopped: { fingerprint, reason } }`, and keeps and logs no address.
+  The worker records them (`recordDoNotAsk`, `apps/api/src/actions/review-requests.ts`) through
+  `opt_out_address()`, which writes `opted_out_addresses` for an organization that is still there,
+  and `stop_address()`, which writes `stopped_addresses`, keeping the first reason; both answer the
+  worker alone. An opt-out holds for every location of its organization and no other; a stopped
+  address is asked by no organization, since the sending address is the product's
+  (`docs/adr/0031-a-customer-contact-is-read-only-by-the-worker.md`).
 - **One open action for a thing, and a no is remembered.** `subject` (what it is about) and `basis`
   (what the proposal rests on; here, the proposed text) are the worker's bookkeeping, and no route
   sends them. A partial unique index allows one `proposed` or `approved` action for a location, kind
@@ -2276,10 +2302,12 @@ and the operator and written by no API role: only the worker's `receive_receipt(
 organization and no one else, the operator included, decide a sender. `customer_contacts.address` is
 granted to no API role, the operator included: every other column is granted by name, so a
 caller reads a contact masked (see "Connections").
-`asked_addresses` and `opted_out_addresses`, the keyed fingerprints of the addresses an organization
-asked and of those that opted out of it, have row-level security on, no policy and no grant for any
-API role, the operator included: only the worker's `mark_asked()`, `asking_record()` and
-`propose_review_request()` reach them (see "Actions").
+`asked_addresses`, `opted_out_addresses` and `stopped_addresses`, the keyed fingerprints of the
+addresses an organization asked, of those that opted out of it, and of those that bounced hard or
+complained about any organization's review request, have row-level security on, no policy and no
+grant for any API role, the operator included: only the worker's `mark_asked()`,
+`opt_out_address()`, `stop_address()`, `asking_record()` and `propose_review_request()` reach them
+(see "Actions"). `stopped_addresses` belongs to no organization and is kept when one is deleted.
 `standing_permissions` is read by the organization's members and the operator and written by no API
 role, only by `give_standing_permission()` and `end_standing_permission()`, which answer an owner or
 admin alone, and by the database's own functions when a take-back or the plan ends one (see "Actions").
@@ -2751,9 +2779,7 @@ drop it.
   needs it (see "Connections"), a kind of action that takes from it (see "Actions"), standing
   permission (see "Actions"), a draft (see "Drafts") and counting a visit (see "Visits from
   assistants") ([#133](https://github.com/jwh3times/Nearcited/issues/133)).
-- Review requests stop short of the opt-out and of deleting contacts (see "Actions"). The link to
-  opt out each request carries opens no page, nothing writes `opted_out_addresses`, and a bounce or
-  a complaint stops nothing (#293). A contact is not deleted 30 days after its request was sent,
+- Review requests stop short of deleting contacts (see "Actions"). A contact is not deleted 30 days after its request was sent,
   nor when its review requests are turned off, or paused because the plan stops including them,
   which also lapses nothing waiting, but only with its location or organization, once it has been
   held seven days, or when it is not asked (#294). A fingerprint asked is kept as long as its

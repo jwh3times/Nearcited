@@ -334,8 +334,14 @@ pass `pnpm check` and run in mock mode without it.
   made up when the review requests sync (`sampleReceipts`), kept as `sample_data`. Only the worker
   proposes a review request from a contact (`propose_review_request()`) and sends it, and it sends
   nothing for a test organization, a made-up contact or a deployment on sample data. Whom an
-  organization asked and who opted out are kept only as a keyed fingerprint of the address
-  (`asked_addresses`, `opted_out_addresses`, which no API role reads), never the address.
+  organization asked, who opted out of it, and which addresses bounced hard or complained, which no
+  organization asks again, are kept only as a keyed fingerprint of the address (`asked_addresses`,
+  `opted_out_addresses`, `stopped_addresses`, which no API role reads), never the address. An
+  opt-out (`/api/opt-out/:token`) and the provider's report of a bounce or a complaint
+  (`/api/resend/webhook`) arrive with no sign-in: the route checks the link's signature or the
+  provider's first, reads nothing, queues only a fingerprint and answers the same for every
+  address, and only the worker records them (`opt_out_address()`, `stop_address()`). The webhook
+  reads a recipient's address only to fingerprint it, and keeps and logs none.
 - **Only the worker closes an account.** A request records an owner's ask through
   `request_closing()`, which answers an owner of the organization and no one else, refuses the
   operator, a test account and a name that is not the organization's, and queues the worker
