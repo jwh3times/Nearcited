@@ -559,6 +559,9 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
   /** Whether an owner has asked for the organization to be closed. */
   const closing = (organizationId: string) =>
     db.closings.some((asked) => asked.organization_id === organizationId);
+  /** Whether an address bounced hard or complained, which no organization asks again. */
+  const stopped = (fingerprint: string) =>
+    db.stoppedAddresses.some((kept) => kept.fingerprint === fingerprint);
   const nowIso = () => db.now ?? new Date().toISOString();
   const inDays = (from: string, days: number) =>
     new Date(Date.parse(from) + days * 86_400_000).toISOString();
@@ -2699,9 +2702,7 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
       return {
         asked_by: asked?.action_id ?? null,
         asked_recently: asked !== undefined && asked.asked_at > yearAgo,
-        opted_out:
-          db.optedOutAddresses.some(of) ||
-          db.stoppedAddresses.some((kept) => kept.fingerprint === fingerprint),
+        opted_out: db.optedOutAddresses.some(of) || stopped(fingerprint),
       };
     },
 
@@ -2724,7 +2725,7 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
     // Mirrors stop_address(): the first reason is kept.
     async stopAddress(fingerprint, reason) {
       if (userId !== null) throw new StoreError("forbidden", "worker only");
-      if (db.stoppedAddresses.some((kept) => kept.fingerprint === fingerprint)) return;
+      if (stopped(fingerprint)) return;
       db.stoppedAddresses.push({
         fingerprint,
         reason,
@@ -2804,7 +2805,7 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         forget();
         return "too_late";
       }
-      if (db.stoppedAddresses.some((kept) => kept.fingerprint === fingerprint)) {
+      if (stopped(fingerprint)) {
         forget();
         return "stopped";
       }

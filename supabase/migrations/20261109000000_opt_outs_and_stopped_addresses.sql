@@ -52,8 +52,9 @@ $$;
 revoke execute on function public.stop_address(text, text) from public, anon, authenticated;
 grant execute on function public.stop_address(text, text) to service_role;
 
--- As before, and an address that bounced hard or complained counts as opted out of every
--- organization. Worker only.
+-- As before, and `opted_out` now says the organization may not ask the address: it opted out of
+-- this organization, or it bounced hard or complained, which counts for every organization.
+-- Worker only.
 create or replace function public.asking_record(org uuid, fingerprint text)
 returns table (asked_by uuid, asked_recently boolean, opted_out boolean)
 language sql stable security definer set search_path = ''
@@ -140,8 +141,8 @@ begin
   -- Nobody whose address bounced hard or complained is asked by any organization again, and
   -- nothing of them is kept.
   if exists (
-    select 1 from public.stopped_addresses o
-    where o.fingerprint = propose_review_request.fingerprint
+    select 1 from public.stopped_addresses stopped
+    where stopped.fingerprint = propose_review_request.fingerprint
   ) then
     delete from public.customer_contacts where id = contact;
     return 'stopped';

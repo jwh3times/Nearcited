@@ -1,7 +1,7 @@
 import { useMutation } from "@tanstack/react-query";
-import { useEffect } from "react";
 import { Logo } from "../components/Logo";
 import { api } from "../lib/api";
+import { useNoIndex } from "../lib/no-index";
 import { optOutPage } from "../lib/opt-out";
 import { useTheme } from "../lib/theme";
 
@@ -15,13 +15,7 @@ export function OptOut({ token }: { token: string }) {
   const page = optOutPage(optOut.status, optOut.error);
 
   // The link is the only key to this page, so ask search engines to leave it alone.
-  useEffect(() => {
-    const robots = document.createElement("meta");
-    robots.name = "robots";
-    robots.content = "noindex, nofollow";
-    document.head.append(robots);
-    return () => robots.remove();
-  }, []);
+  useNoIndex();
 
   useTheme();
 

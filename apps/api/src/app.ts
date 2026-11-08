@@ -2,6 +2,7 @@ import {
   assistantOf,
   type DraftKind,
   hostOf,
+  type OptOutAnswer,
   type PlanAssistant,
   type Rates,
   toPublicAudit,
@@ -15,8 +16,8 @@ import { thankForSubscription } from "./billing/started";
 import { createStripePayments } from "./billing/stripe";
 import { syncSubscription } from "./billing/sync";
 import { type Payments, SignatureError } from "./billing/types";
+import { DeliveryReportSignatureError, readDeliveryReport } from "./email/delivery-reports";
 import { type Email, sendEmail } from "./email/report";
-import { ReportSignatureError, readEmailReport } from "./email/reports";
 import type { Env } from "./env";
 import { ApiError } from "./errors";
 import { actionRoutes } from "./routes/actions";
@@ -229,8 +230,14 @@ export function createApp(deps: AppDeps = { authenticate: authenticateWithSupaba
     if (!carried) throw new ApiError(404, "not_found", "This link does not work.");
     await c.env.SCAN_QUEUE.send({ opt_out: carried });
     c.header("Cache-Control", "no-store");
-    return c.json({ opted_out: true });
+    return c.json({ opted_out: true } satisfies OptOutAnswer);
   });
+
+  // The same link opened in a browser, by a mail client that does not post the one click: it goes
+  // to the page, where the click is made. Opening it records nothing, as a mail scanner may.
+  app.get("/opt-out/:token", (c) =>
+    c.redirect(`/opt-out/${encodeURIComponent(c.req.param("token"))}`, 303),
+  );
 
   // The email provider reporting a hard bounce or a complaint about a review request. No
   // sign-in: the signature is what says it came from the provider. It is checked, each address is
@@ -245,9 +252,9 @@ export function createApp(deps: AppDeps = { authenticate: authenticateWithSupaba
         "Reports from the email provider are off here.",
       );
     }
-    let report: Awaited<ReturnType<typeof readEmailReport>>;
+    let report: Awaited<ReturnType<typeof readDeliveryReport>>;
     try {
-      report = await readEmailReport(
+      report = await readDeliveryReport(
         await c.req.text(),
         {
           id: c.req.header("svix-id") ?? null,
@@ -257,7 +264,7 @@ export function createApp(deps: AppDeps = { authenticate: authenticateWithSupaba
         secret,
       );
     } catch (error) {
-      if (!(error instanceof ReportSignatureError)) throw error;
+      if (!(error instanceof DeliveryReportSignatureError)) throw error;
       throw new ApiError(400, "invalid_signature", "The signature did not verify.");
     }
     if (report) {

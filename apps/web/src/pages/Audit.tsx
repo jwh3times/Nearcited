@@ -12,6 +12,7 @@ import { SourceTable } from "../components/SourceTable";
 import { ApiRequestError, api } from "../lib/api";
 import { auditAnswers, auditCompetitors, auditPending, auditSurfaces } from "../lib/audit";
 import { listOf } from "../lib/format";
+import { useNoIndex } from "../lib/no-index";
 import { useTheme } from "../lib/theme";
 
 const day = new Intl.DateTimeFormat(undefined, { dateStyle: "long" });
@@ -30,13 +31,7 @@ export function Audit({ token }: { token: string }) {
   });
 
   // The link is the only key to this page, so ask search engines to leave it alone.
-  useEffect(() => {
-    const robots = document.createElement("meta");
-    robots.name = "robots";
-    robots.content = "noindex, nofollow";
-    document.head.append(robots);
-    return () => robots.remove();
-  }, []);
+  useNoIndex();
 
   const name = audit.data?.business_name;
   useEffect(() => {

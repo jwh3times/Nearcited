@@ -774,7 +774,9 @@ export interface Store {
   ): Promise<{ address: string; organization_id: string; sample_data: boolean } | null>;
   /**
    * What an organization's record says of an address, by its keyed fingerprint: the request that
-   * last asked it, whether that was within twelve months, and whether it opted out. Worker only.
+   * last asked it, whether that was within twelve months, and whether it may not be asked: it
+   * opted out of the organization, or bounced hard or complained, which counts for every one.
+   * Worker only.
    */
   getAskingRecord(
     organizationId: string,

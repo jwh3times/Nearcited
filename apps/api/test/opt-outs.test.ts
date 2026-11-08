@@ -10,7 +10,8 @@ import {
   type Asking,
   askingKeys,
   proposeReviewRequests,
-  recordAskingReport,
+  readDoNotAskMessage,
+  recordDoNotAsk,
 } from "../src/actions/review-requests";
 import { createApp } from "../src/app";
 import { reviewRequestPayload } from "../src/email/review-request";
@@ -174,6 +175,8 @@ async function sendOne(owner: string, locationId: string) {
       now: new Date(db.now),
     }),
   ).toBe("done");
+  // Approving queued the action, which was just carried out here.
+  queued = [];
   const email = sent.at(-1);
   if (!email) throw new Error("Nothing sent");
   return email;
@@ -181,8 +184,10 @@ async function sendOne(owner: string, locationId: string) {
 
 /** Hands everything the routes queued to the worker, as the queue consumer does. */
 async function work() {
-  for (const message of queued.splice(0)) {
-    await recordAskingReport(message, { store: worker() });
+  for (const body of queued.splice(0)) {
+    const message = readDoNotAskMessage(body);
+    if (!message) throw new Error(`Not a message for recordDoNotAsk: ${JSON.stringify(body)}`);
+    await recordDoNotAsk(message, { store: worker() });
   }
 }
 
@@ -274,8 +279,6 @@ describe("opting out of review requests", () => {
 
     const link = email.text.match(/https:\/\/nearcited\.example\/opt-out\/(\S+)/)?.[1] ?? "";
     expect(link).not.toBe("");
-    // Approving queued the action, which the worker carried out above.
-    queued = [];
     const answer = await post(`/opt-out/${link}`);
     expect(answer.status).toBe(200);
     // The route only queued the worker.
@@ -322,6 +325,19 @@ describe("opting out of review requests", () => {
 
     await receipt(alice, north, "jane@example.org");
     expect(await propose()).toBe(0);
+  });
+
+  it("sends a mail client that opens the unsubscribe link to the page, and records nothing", async () => {
+    const keys = await askingKeys(SECRET);
+    if (!keys) throw new Error("No keys");
+    const token = await keys.optOutToken(
+      crypto.randomUUID(),
+      await keys.fingerprint("a@example.org"),
+    );
+    const opened = await app.request(`/api/opt-out/${token}`, { method: "GET" }, env);
+    expect(opened.status).toBe(303);
+    expect(opened.headers.get("Location")).toBe(`/opt-out/${token}`);
+    expect(queued).toEqual([]);
   });
 
   it("answers the same for every address, and turns away a link it did not sign", async () => {

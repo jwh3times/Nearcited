@@ -12,13 +12,11 @@ import {
   type LimitChangeMessage,
   LimitChangeMessageSchema,
   type OptOutMessage,
-  OptOutMessageSchema,
   type PriceChangeMessage,
   PriceChangeMessageSchema,
   type ScanMessage,
   ScanMessageSchema,
   type StoppedAddressMessage,
-  StoppedAddressMessageSchema,
   SubscriptionFitMessageSchema,
   strongerAssistants,
 } from "@nearcited/shared";
@@ -33,7 +31,8 @@ import {
   type Asking,
   askingKeys,
   proposeReviewRequests,
-  recordAskingReport,
+  readDoNotAskMessage,
+  recordDoNotAsk,
 } from "./actions/review-requests";
 import { createApp } from "./app";
 import { runAuditPart } from "./audits/runner";
@@ -460,12 +459,10 @@ export default {
       }
 
       // An opt-out, bounce or complaint a route checked and queued (issue #293).
-      if (
-        OptOutMessageSchema.safeParse(message.body).success ||
-        StoppedAddressMessageSchema.safeParse(message.body).success
-      ) {
+      const doNotAsk = readDoNotAskMessage(message.body);
+      if (doNotAsk) {
         try {
-          console.log(`Review requests: ${await recordAskingReport(message.body, { store })}`);
+          console.log(`Review requests: ${await recordDoNotAsk(doNotAsk, { store })}`);
           message.ack();
         } catch (error) {
           console.error("Recording an opt-out, bounce or complaint failed, will retry", error);

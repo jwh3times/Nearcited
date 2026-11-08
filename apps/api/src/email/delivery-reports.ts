@@ -10,12 +10,19 @@ import { REVIEW_REQUEST_TAG } from "./review-request";
  */
 
 /** The report is not signed with this deployment's secret, or not recently. */
-export class ReportSignatureError extends Error {}
+export class DeliveryReportSignatureError extends Error {}
 
 /** How far a report's timestamp may be from now: a replay older than this is refused. */
 const TOLERANCE_SECONDS = 5 * 60;
 
 const encoder = new TextEncoder();
+
+/** The Standard Webhooks headers a report is signed with, as the request carried them. */
+export interface SignedHeaders {
+  id: string | null;
+  timestamp: string | null;
+  signature: string | null;
+}
 
 const fromBase64 = (text: string) => Uint8Array.from(atob(text), (c) => c.charCodeAt(0));
 
@@ -26,16 +33,16 @@ const fromBase64 = (text: string) => Uint8Array.from(atob(text), (c) => c.charCo
  */
 async function verify(
   body: string,
-  headers: { id: string | null; timestamp: string | null; signature: string | null },
+  headers: SignedHeaders,
   secret: string,
   now: Date,
 ): Promise<void> {
   const { id, timestamp, signature } = headers;
   if (!id || !timestamp || !signature || !/^\d+$/.test(timestamp)) {
-    throw new ReportSignatureError("The report is not signed.");
+    throw new DeliveryReportSignatureError("The report is not signed.");
   }
   if (Math.abs(now.getTime() / 1000 - Number(timestamp)) > TOLERANCE_SECONDS) {
-    throw new ReportSignatureError("The report's timestamp is too far from now.");
+    throw new DeliveryReportSignatureError("The report's timestamp is too far from now.");
   }
   let key: CryptoKey;
   try {
@@ -47,7 +54,7 @@ async function verify(
       ["verify"],
     );
   } catch {
-    throw new ReportSignatureError("The webhook secret is not one.");
+    throw new DeliveryReportSignatureError("The webhook secret is not one.");
   }
   const signed = encoder.encode(`${id}.${timestamp}.${body}`);
   for (const candidate of signature.split(" ")) {
@@ -56,7 +63,7 @@ async function verify(
     // A constant-time comparison.
     if (await crypto.subtle.verify("HMAC", key, fromBase64(value), signed)) return;
   }
-  throw new ReportSignatureError("The signature did not verify.");
+  throw new DeliveryReportSignatureError("The signature did not verify.");
 }
 
 const ReportSchema = z.object({
@@ -76,11 +83,11 @@ const addressOf = (recipient: string) =>
  * What a signed report from the provider says to stop: the addresses a review request bounced
  * hard from, or whose owner complained of one, and why. Null for anything else: a soft bounce,
  * any other event, or a report of an email that is not a review request. Throws
- * `ReportSignatureError` where the report is not signed with `secret`.
+ * `DeliveryReportSignatureError` where the report is not signed with `secret`.
  */
-export async function readEmailReport(
+export async function readDeliveryReport(
   body: string,
-  headers: { id: string | null; timestamp: string | null; signature: string | null },
+  headers: SignedHeaders,
   secret: string,
   now = new Date(),
 ): Promise<{ reason: StopReason; addresses: string[] } | null> {

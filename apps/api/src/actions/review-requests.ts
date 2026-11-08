@@ -1,7 +1,9 @@
 import {
   approvedWording,
+  type OptOutMessage,
   OptOutMessageSchema,
   type ReviewRequestEmail,
+  type StoppedAddressMessage,
   StoppedAddressMessageSchema,
   siteName,
 } from "@nearcited/shared";
@@ -32,7 +34,7 @@ export interface AskingKeys {
    * What a link to opt out carries, once its signature is checked: null for a token this
    * deployment did not sign.
    */
-  readOptOutToken(token: string): Promise<{ organization_id: string; fingerprint: string } | null>;
+  readOptOutToken(token: string): Promise<OptOutMessage["opt_out"] | null>;
 }
 
 /** One review request as it is sent. */
@@ -111,9 +113,10 @@ export async function askingKeys(secret: string | undefined): Promise<AskingKeys
       return `${carried}.${base64Url(await sign(linkKey, carried))}`;
     },
     readOptOutToken: async (token) => {
-      const [organizationId = "", fingerprint = "", signature = ""] = token.split(".");
+      const parts = token.split(".");
+      const [organizationId = "", fingerprint = "", signature = ""] = parts;
       const bytes = fromBase64Url(signature);
-      if (token.split(".").length !== 3 || !bytes) return null;
+      if (parts.length !== 3 || !bytes) return null;
       if (!UUID.test(organizationId) || !FINGERPRINT.test(fingerprint)) return null;
       // A constant-time check of the signature over what the link carries.
       const signed = await crypto.subtle.verify(
@@ -181,24 +184,31 @@ export async function proposeReviewRequests({
   return proposed;
 }
 
+/** What a route checked and queued for the worker: an opt-out, or a bounce or a complaint. */
+export type DoNotAskMessage = OptOutMessage | StoppedAddressMessage;
+
+/** The message a route queued for `recordDoNotAsk`, or null where the body is not one. */
+export function readDoNotAskMessage(body: unknown): DoNotAskMessage | null {
+  return (
+    OptOutMessageSchema.safeParse(body).data ??
+    StoppedAddressMessageSchema.safeParse(body).data ??
+    null
+  );
+}
+
 /**
  * Records what a route was told and queued, once its signature was checked: an address that opted
  * out of an organization's review requests, or one that bounced hard or complained, which no
- * organization asks again (issue #293). Anything else is not this worker's to record.
+ * organization asks again (issue #293).
  */
-export async function recordAskingReport(
-  message: unknown,
+export async function recordDoNotAsk(
+  message: DoNotAskMessage,
   { store }: { store: Store },
-): Promise<"opted_out" | "stopped" | "not_ours"> {
-  const optOut = OptOutMessageSchema.safeParse(message);
-  if (optOut.success) {
-    await store.optOutAddress(optOut.data.opt_out.organization_id, optOut.data.opt_out.fingerprint);
+): Promise<"opted_out" | "stopped"> {
+  if ("opt_out" in message) {
+    await store.optOutAddress(message.opt_out.organization_id, message.opt_out.fingerprint);
     return "opted_out";
   }
-  const stopped = StoppedAddressMessageSchema.safeParse(message);
-  if (stopped.success) {
-    await store.stopAddress(stopped.data.stopped.fingerprint, stopped.data.stopped.reason);
-    return "stopped";
-  }
-  return "not_ours";
+  await store.stopAddress(message.stopped.fingerprint, message.stopped.reason);
+  return "stopped";
 }
