@@ -216,13 +216,22 @@ Nearcited is multi-tenant, and tenant isolation is enforced by Postgres row-leve
   `receipt_senders`, `customer_contacts` or `receipt_drops` directly; and reading another
   organization's senders, contacts or dropped receipts.
 - Review requests sent to customers. Each of these is a report: proposing or sending one as anyone
-  but the worker, or calling `contacts_to_ask()`, `propose_review_request()`, `asking_record()` or
-  `mark_asked()` through the API; reading or writing `asked_addresses` or `opted_out_addresses`,
-  which no API role reaches, the operator included, or reading an address back from a fingerprint;
-  a request sent before its time, after its week, twice, without a member's yes or standing
-  permission, past the month's allowance, to an address the organization asked within twelve months
-  or that opted out of it, for a test organization or on sample data; and a business's name or
+  but the worker, or calling `contacts_to_ask()`, `propose_review_request()`, `asking_record()`,
+  `mark_asked()`, `opt_out_address()` or `stop_address()` through the API; reading or writing
+  `asked_addresses`, `opted_out_addresses` or `stopped_addresses`, which no API role reaches, the
+  operator included, or reading an address back from a fingerprint; a request sent before its time,
+  after its week, twice, without a member's yes or standing permission, past the month's allowance,
+  to an address the organization asked within twelve months or that opted out of it, to one that
+  bounced hard or complained, for a test organization or on sample data; and a business's name or
   anything else in a request adding an address or a header.
+- Opting out and the email provider's reports. `/api/opt-out/:token` and `/api/resend/webhook`
+  need no sign-in, so the link's signature and Resend's are their only guards. Each of these is a
+  report: forging a link to opt out, or getting an opt-out recorded for an organization or an
+  address its link was not signed for; forging a report, or getting a replayed or stale one to
+  stop an address; a soft bounce, or a report on an email that is not a review request, stopping
+  one; a `GET` of the link recording anything; either route answering differently for an address
+  that is or is not on file, or keeping or logging an address; and either reading the database on
+  the request instead of leaving the record to the worker.
 - Reading a shareable audit without its link, or after it was revoked or expired; listing audits;
   or creating one. `/api/audits/:token` is the one route that gives out an organization's data
   with no sign-in, and the token in the link is the only key to it. `/api/plans` needs no sign-in

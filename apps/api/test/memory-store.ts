@@ -29,6 +29,7 @@ import type {
   ScanResult,
   SiteCheck,
   StandingPermission,
+  StopReason,
   TaskPageFetches,
   TrackedQuery,
   UsageByMonth,
@@ -170,6 +171,8 @@ export interface MemoryDb {
   }[];
   /** The `opted_out_addresses` table: who opted out of each organization's review requests. */
   optedOutAddresses: { organization_id: string; fingerprint: string; opted_out_at: string }[];
+  /** The `stopped_addresses` table: the addresses that bounced hard or complained, product-wide. */
+  stoppedAddresses: { fingerprint: string; reason: StopReason; stopped_at: string }[];
   /** Every standing permission given, with its organization and when its owners were told. */
   standingPermissions: (StandingPermission & {
     organization_id: string;
@@ -391,6 +394,7 @@ export function createMemoryDb(): MemoryDb {
     receiptDrops: [],
     askedAddresses: [],
     optedOutAddresses: [],
+    stoppedAddresses: [],
     hostedPages: [],
     pageFetches: [],
     pauseTold: new Map(),
@@ -555,6 +559,9 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
   /** Whether an owner has asked for the organization to be closed. */
   const closing = (organizationId: string) =>
     db.closings.some((asked) => asked.organization_id === organizationId);
+  /** Whether an address bounced hard or complained, which no organization asks again. */
+  const stopped = (fingerprint: string) =>
+    db.stoppedAddresses.some((kept) => kept.fingerprint === fingerprint);
   const nowIso = () => db.now ?? new Date().toISOString();
   const inDays = (from: string, days: number) =>
     new Date(Date.parse(from) + days * 86_400_000).toISOString();
@@ -2695,8 +2702,35 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
       return {
         asked_by: asked?.action_id ?? null,
         asked_recently: asked !== undefined && asked.asked_at > yearAgo,
-        opted_out: db.optedOutAddresses.some(of),
+        opted_out: db.optedOutAddresses.some(of) || stopped(fingerprint),
       };
+    },
+
+    // Mirrors opt_out_address().
+    async optOutAddress(organizationId, fingerprint) {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      const there = db.organizations.some((o) => o.id === organizationId);
+      const kept = db.optedOutAddresses.some(
+        (o) => o.organization_id === organizationId && o.fingerprint === fingerprint,
+      );
+      if (there && !kept) {
+        db.optedOutAddresses.push({
+          organization_id: organizationId,
+          fingerprint,
+          opted_out_at: db.now ?? new Date().toISOString(),
+        });
+      }
+    },
+
+    // Mirrors stop_address(): the first reason is kept.
+    async stopAddress(fingerprint, reason) {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      if (stopped(fingerprint)) return;
+      db.stoppedAddresses.push({
+        fingerprint,
+        reason,
+        stopped_at: db.now ?? new Date().toISOString(),
+      });
     },
 
     // Mirrors mark_asked().
@@ -2770,6 +2804,10 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
       if (Date.parse(lapsesAt) <= Date.parse(now)) {
         forget();
         return "too_late";
+      }
+      if (stopped(fingerprint)) {
+        forget();
+        return "stopped";
       }
       const of = (kept: { organization_id: string; fingerprint: string }) =>
         kept.organization_id === organization.id && kept.fingerprint === fingerprint;

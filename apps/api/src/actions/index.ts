@@ -322,13 +322,16 @@ const reviewRequest: ActionHandler = {
         throw new CannotBeDone("Outgoing email for review requests is not set up.");
       }
       const token = await asking.keys.optOutToken(customer.organization_id, customer.fingerprint);
+      const app = asking.appUrl.replace(/\/$/, "");
       await asking.send({
         from_name: wording.email.sender,
         to: customer.address,
         reply_to: wording.settings.reply_to,
         subject: wording.email.subject,
-        text: withOptOut(text, `${asking.appUrl.replace(/\/$/, "")}/opt-out/${token}`),
+        // The page a person opens, and the route a mail client's one click posts to.
+        text: withOptOut(text, `${app}/opt-out/${token}`),
         key: `review-request/${target.action.id}`,
+        unsubscribe: `${app}/api/opt-out/${token}`,
       });
     }
     await target.store.markAsked(target.action.id, customer.fingerprint);

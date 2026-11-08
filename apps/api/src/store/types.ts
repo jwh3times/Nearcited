@@ -60,6 +60,7 @@ import type {
   SeenBefore,
   SiteCheck,
   StandingPermission,
+  StopReason,
   StoredAudit,
   SubscriptionFact,
   Surface,
@@ -218,6 +219,7 @@ export const REVIEW_REQUEST_PROPOSALS = [
   "allowance_used",
   "no_wording",
   "not_proposed",
+  "stopped",
 ] as const;
 export type ReviewRequestProposal = (typeof REVIEW_REQUEST_PROPOSALS)[number];
 
@@ -772,7 +774,9 @@ export interface Store {
   ): Promise<{ address: string; organization_id: string; sample_data: boolean } | null>;
   /**
    * What an organization's record says of an address, by its keyed fingerprint: the request that
-   * last asked it, whether that was within twelve months, and whether it opted out. Worker only.
+   * last asked it, whether that was within twelve months, and whether it may not be asked: it
+   * opted out of the organization, or bounced hard or complained, which counts for every one.
+   * Worker only.
    */
   getAskingRecord(
     organizationId: string,
@@ -780,6 +784,16 @@ export interface Store {
   ): Promise<{ asked_by: string | null; asked_recently: boolean; opted_out: boolean }>;
   /** Records that a review request asked its address, once the email went. Worker only. */
   markAsked(actionId: string, fingerprint: string): Promise<void>;
+  /**
+   * Records that an address opted out of an organization's review requests, by its keyed
+   * fingerprint. Nothing for an organization that is not there. Worker only.
+   */
+  optOutAddress(organizationId: string, fingerprint: string): Promise<void>;
+  /**
+   * Records that an address bounced hard or complained about a review request, by its keyed
+   * fingerprint: no organization asks it again. Worker only.
+   */
+  stopAddress(fingerprint: string, reason: StopReason): Promise<void>;
   /** The senders waiting with a receipt held that their owners were not told of. Worker only. */
   listSendersToTell(): Promise<SenderToTell[]>;
   /** Keeps that the owners were told these senders wait. Worker only. */

@@ -9,6 +9,30 @@ counting builds on a release line.
 
 No unreleased changes.
 
+## [1.5.0] - 2026-11-07
+
+### Added
+
+- A customer can stop a business's review requests in one click, and an address that bounces
+  or complains is never asked again (#293, part of #146). No plan includes review requests yet,
+  so nothing is sent to a real customer.
+  - **The opt-out page:** the link in every review request opens a page that needs no sign-in.
+    Nothing changes until the customer clicks "Stop these emails", so a mail scanner opening the
+    link does nothing. The click stops review requests to that address from every location of
+    the business, and from no other business.
+  - **One-click unsubscribe:** every request also carries the `List-Unsubscribe` and
+    `List-Unsubscribe-Post` headers, so a mail client's own unsubscribe button does the same. A
+    mail client that opens the link in a browser instead lands on the page.
+  - **Bounces and complaints:** Resend reports them to a webhook at `/api/resend/webhook`,
+    checked against `RESEND_WEBHOOK_SECRET`. A hard bounce or a spam complaint about a review
+    request stops every business asking that address. Soft bounces are not retried, and reports
+    about Nearcited's own emails (scan reports, invitations) change nothing. A request already
+    waiting for a yes to such an address is not sent.
+  - **Trusting nothing:** neither route is signed in or reads anything. Each checks the link's
+    or the provider's signature, then leaves the recording to the worker. The opt-out answers
+    the same for every address, on file or not. An address is kept only as a keyed fingerprint,
+    which cannot be read back to it.
+
 ## [1.4.0] - 2026-11-07
 
 ### Added
@@ -212,7 +236,8 @@ deployed.
   (`scripts/check-changelog.mjs`); a Dependabot merge gets its section on the next human pull
   request.
 
-[Unreleased]: https://github.com/jwh3times/Nearcited/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/jwh3times/Nearcited/compare/v1.5.0...HEAD
+[1.5.0]: https://github.com/jwh3times/Nearcited/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/jwh3times/Nearcited/compare/v1.3.3...v1.4.0
 [1.3.3]: https://github.com/jwh3times/Nearcited/compare/v1.3.2...v1.3.3
 [1.3.2]: https://github.com/jwh3times/Nearcited/compare/v1.3.1...v1.3.2

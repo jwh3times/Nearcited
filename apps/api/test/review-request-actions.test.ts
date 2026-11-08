@@ -68,6 +68,7 @@ interface Sent {
   subject: string;
   text: string;
   key: string;
+  unsubscribe: string;
 }
 
 let sent: Sent[];
@@ -483,6 +484,7 @@ describe("a review request as the mail service is handed it", () => {
       subject: "Would you review Joe's Pizza on Google?",
       text: "Hello",
       key: "review-request/1",
+      unsubscribe: "https://nearcited.example/api/opt-out/token",
     });
     expect(payload).toEqual({
       from: `"Joe's \\"Best\\" Pizza Bcc: everyone@example.org" <requests@ask.nearcited.example>`,
@@ -490,6 +492,11 @@ describe("a review request as the mail service is handed it", () => {
       replyTo: "owner@joespizza.com",
       subject: "Would you review Joe's Pizza on Google?",
       text: "Hello",
+      headers: {
+        "List-Unsubscribe": "<https://nearcited.example/api/opt-out/token>",
+        "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+      },
+      tags: [{ name: "kind", value: "review_request" }],
     });
   });
 });

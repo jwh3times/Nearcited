@@ -39,6 +39,7 @@ import {
   OperatorOverviewSchema,
   OperatorPlanSchema,
   OperatorSpendSchema,
+  OptOutAnswerSchema,
   OrganizationAccountSchema,
   OrganizationConnectionsSchema,
   type OrganizationLimits,
@@ -111,6 +112,12 @@ export const api = {
   /** A shareable audit. The one call that needs no sign-in. */
   getAudit: (token: string) =>
     json(PublicAuditSchema, "GET", `/audits/${encodeURIComponent(token)}`),
+  /**
+   * A customer's click on the link to opt out of a business's review requests. Needs no sign-in:
+   * the link's own signature is the say-so.
+   */
+  optOut: (token: string) =>
+    json(OptOutAnswerSchema, "POST", `/opt-out/${encodeURIComponent(token)}`),
   /** The price list. Needs no sign-in. */
   plans: () => json(PlanSchema.array(), "GET", "/plans"),
   me: () => json(MeSchema, "GET", "/me"),

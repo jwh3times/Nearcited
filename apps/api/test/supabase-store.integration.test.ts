@@ -1744,6 +1744,20 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
       asked_recently: true,
       opted_out: false,
     });
+    // An opt-out holds for its organization; a bounce or a complaint for every one.
+    await receiving.optOutAddress(organization.id, "fingerprint-of-sam");
+    await receiving.optOutAddress(organization.id, "fingerprint-of-sam");
+    expect(await receiving.getAskingRecord(organization.id, "fingerprint-of-sam")).toMatchObject({
+      opted_out: true,
+    });
+    expect(
+      await receiving.getAskingRecord(crypto.randomUUID(), "fingerprint-of-sam"),
+    ).toMatchObject({ opted_out: false });
+    await receiving.stopAddress("fingerprint-of-ann", "bounce");
+    await receiving.stopAddress("fingerprint-of-ann", "complaint");
+    expect(
+      await receiving.getAskingRecord(crypto.randomUUID(), "fingerprint-of-ann"),
+    ).toMatchObject({ opted_out: true });
 
     // Answer subdomains: made by an owner or admin, read by members, checked by the worker.
     const included = await aliceStore.getOrganization(organization.id);

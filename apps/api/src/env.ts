@@ -5,8 +5,10 @@ import type {
   ConnectionMessage,
   DraftMessage,
   LimitChangeMessage,
+  OptOutMessage,
   PriceChangeMessage,
   ScanMessage,
+  StoppedAddressMessage,
   SubscriptionFitMessage,
 } from "@nearcited/shared";
 
@@ -17,7 +19,8 @@ export interface Env {
    * Carries scans, the prompts of shareable audits, the steps of a price change or of a
    * reduction in what a plan allows, what the worker is asked to do for a connection, the
    * approved actions it is asked to carry out, the drafts it is asked to write, the
-   * accounts it is asked to close, and the subscriptions it is asked to fit to their plan.
+   * accounts it is asked to close, the subscriptions it is asked to fit to their plan, and the
+   * opt-outs, bounces and complaints of review requests it is asked to record.
    */
   SCAN_QUEUE: Queue<
     | ScanMessage
@@ -29,6 +32,8 @@ export interface Env {
     | DraftMessage
     | ClosingMessage
     | SubscriptionFitMessage
+    | OptOutMessage
+    | StoppedAddressMessage
   >;
 
   SUPABASE_URL: string;
@@ -76,6 +81,11 @@ export interface Env {
    * `RESEND_API_KEY`, an approved review request fails instead of going out.
    */
   REVIEW_REQUESTS_FROM?: string;
+  /**
+   * Optional secret. The signing secret of the Resend webhook that reports bounces and complaints
+   * (`whsec_...`). Without it the webhook is off, and no bounce or complaint is recorded.
+   */
+  RESEND_WEBHOOK_SECRET?: string;
   /** Optional secret. Without both Stripe values nobody can subscribe and the webhook is off. */
   STRIPE_SECRET_KEY?: string;
   /** Optional secret. The signing secret of the webhook endpoint registered at Stripe. */
