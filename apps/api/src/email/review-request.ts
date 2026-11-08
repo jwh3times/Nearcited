@@ -2,10 +2,14 @@ import { Resend } from "resend";
 import type { ReviewRequestMessage } from "../actions/review-requests";
 import type { Env } from "../env";
 
+/** The tag every review request carries, so the provider's reports on it can be told apart. */
+export const REVIEW_REQUEST_TAG = { name: "kind", value: "review_request" } as const;
+
 /**
  * A review request as it is handed to the mail service: from the product's sending address under
  * the business's name, with replies going to the location's reply address. The name is quoted, so
- * nothing in it can add an address or a header.
+ * nothing in it can add an address or a header. Its headers name the one-click unsubscribe
+ * (RFC 8058), and its tag marks it as a review request for the provider's reports.
  */
 export function reviewRequestPayload(from: string, message: ReviewRequestMessage) {
   const name = message.from_name
@@ -18,6 +22,11 @@ export function reviewRequestPayload(from: string, message: ReviewRequestMessage
     replyTo: message.reply_to,
     subject: message.subject,
     text: message.text,
+    headers: {
+      "List-Unsubscribe": `<${message.unsubscribe}>`,
+      "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+    },
+    tags: [REVIEW_REQUEST_TAG],
   };
 }
 

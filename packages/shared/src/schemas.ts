@@ -1797,6 +1797,36 @@ export const ActionMessageSchema = z.object({
 });
 export type ActionMessage = z.infer<typeof ActionMessageSchema>;
 
+/** The keyed fingerprint of an address, as review requests keep it: 64 hex characters. */
+const Fingerprint = z.string().regex(/^[0-9a-f]{64}$/);
+
+/**
+ * A message asking the worker to record that an address opted out of an organization's review
+ * requests, from the link in one or its one-click unsubscribe. Carries the fingerprint the link
+ * was signed with, never the address.
+ */
+export const OptOutMessageSchema = z.object({
+  opt_out: z.object({ organization_id: Id, fingerprint: Fingerprint }),
+});
+export type OptOutMessage = z.infer<typeof OptOutMessageSchema>;
+
+/** Why no organization asks an address again: it bounced hard, or its owner complained. */
+export const STOP_REASONS = ["bounce", "complaint"] as const;
+export type StopReason = (typeof STOP_REASONS)[number];
+
+/**
+ * A message asking the worker to record that an address bounced hard or complained about a review
+ * request, from a report the email provider signed. Carries its fingerprint, never the address.
+ */
+export const StoppedAddressMessageSchema = z.object({
+  stopped: z.object({ fingerprint: Fingerprint, reason: z.enum(STOP_REASONS) }),
+});
+export type StoppedAddressMessage = z.infer<typeof StoppedAddressMessageSchema>;
+
+/** The answer to a click on a link to opt out: the same for every address, on file or not. */
+export const OptOutAnswerSchema = z.object({ opted_out: z.literal(true) });
+export type OptOutAnswer = z.infer<typeof OptOutAnswerSchema>;
+
 export const ALERT_KINDS = ["drop", "competitor", "site", "phone"] as const;
 export const AlertKindSchema = z.enum(ALERT_KINDS);
 export type AlertKind = z.infer<typeof AlertKindSchema>;

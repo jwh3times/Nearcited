@@ -1134,6 +1134,16 @@ export function createSupabaseStore(
       if (error) fail("Record that a review request asked its address", error);
     },
 
+    async optOutAddress(organizationId, fingerprint) {
+      const { error } = await db.rpc("opt_out_address", { org: organizationId, fingerprint });
+      if (error) fail("Record that an address opted out of review requests", error);
+    },
+
+    async stopAddress(fingerprint, reason) {
+      const { error } = await db.rpc("stop_address", { fingerprint, reason });
+      if (error) fail("Record that an address bounced or complained", error);
+    },
+
     async dropExpiredHeldContacts() {
       const { data, error } = await db.rpc("drop_expired_held_contacts");
       if (error) fail("Drop expired held contacts", error);

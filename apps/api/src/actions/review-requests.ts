@@ -1,4 +1,10 @@
-import { approvedWording, type ReviewRequestEmail, siteName } from "@nearcited/shared";
+import {
+  approvedWording,
+  OptOutMessageSchema,
+  type ReviewRequestEmail,
+  StoppedAddressMessageSchema,
+  siteName,
+} from "@nearcited/shared";
 import { secretBytes } from "../connections/seal";
 import type { KeptReviewRequests, Store } from "../store/types";
 
@@ -22,6 +28,11 @@ export interface AskingKeys {
    * address's fingerprint and a signature over both, never the address.
    */
   optOutToken(organizationId: string, fingerprint: string): Promise<string>;
+  /**
+   * What a link to opt out carries, once its signature is checked: null for a token this
+   * deployment did not sign.
+   */
+  readOptOutToken(token: string): Promise<{ organization_id: string; fingerprint: string } | null>;
 }
 
 /** One review request as it is sent. */
@@ -35,6 +46,8 @@ export interface ReviewRequestMessage {
   text: string;
   /** The same for every try at the same request, so the provider sends it once. */
   key: string;
+  /** Where one click opts the customer out, named in the email's unsubscribe headers. */
+  unsubscribe: string;
 }
 
 /** What review requests need of the deployment. */
@@ -52,6 +65,9 @@ const encoder = new TextEncoder();
 
 const hex = (bytes: ArrayBuffer) =>
   Array.from(new Uint8Array(bytes), (byte) => byte.toString(16).padStart(2, "0")).join("");
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const FINGERPRINT = /^[0-9a-f]{64}$/;
+
 const base64Url = (bytes: ArrayBuffer) =>
   btoa(String.fromCharCode(...new Uint8Array(bytes)))
     .replace(/\+/g, "-")
@@ -66,8 +82,15 @@ async function derived(secret: Uint8Array<ArrayBuffer>, label: string): Promise<
     base,
     { name: "HMAC", hash: "SHA-256", length: 256 },
     false,
-    ["sign"],
+    ["sign", "verify"],
   );
+}
+
+/** The bytes a base64url signature stands for, or null where it is not one. */
+function fromBase64Url(text: string): Uint8Array<ArrayBuffer> | null {
+  if (!/^[A-Za-z0-9_-]{43}$/.test(text)) return null;
+  const binary = atob(text.replace(/-/g, "+").replace(/_/g, "/"));
+  return Uint8Array.from(binary, (character) => character.charCodeAt(0));
 }
 
 /**
@@ -86,6 +109,20 @@ export async function askingKeys(secret: string | undefined): Promise<AskingKeys
     optOutToken: async (organizationId, fingerprint) => {
       const carried = `${organizationId}.${fingerprint}`;
       return `${carried}.${base64Url(await sign(linkKey, carried))}`;
+    },
+    readOptOutToken: async (token) => {
+      const [organizationId = "", fingerprint = "", signature = ""] = token.split(".");
+      const bytes = fromBase64Url(signature);
+      if (token.split(".").length !== 3 || !bytes) return null;
+      if (!UUID.test(organizationId) || !FINGERPRINT.test(fingerprint)) return null;
+      // A constant-time check of the signature over what the link carries.
+      const signed = await crypto.subtle.verify(
+        "HMAC",
+        linkKey,
+        bytes,
+        encoder.encode(`${organizationId}.${fingerprint}`),
+      );
+      return signed ? { organization_id: organizationId, fingerprint } : null;
     },
   };
 }
@@ -142,4 +179,26 @@ export async function proposeReviewRequests({
     if (outcome === "proposed" || outcome === "approved") proposed++;
   }
   return proposed;
+}
+
+/**
+ * Records what a route was told and queued, once its signature was checked: an address that opted
+ * out of an organization's review requests, or one that bounced hard or complained, which no
+ * organization asks again (issue #293). Anything else is not this worker's to record.
+ */
+export async function recordAskingReport(
+  message: unknown,
+  { store }: { store: Store },
+): Promise<"opted_out" | "stopped" | "not_ours"> {
+  const optOut = OptOutMessageSchema.safeParse(message);
+  if (optOut.success) {
+    await store.optOutAddress(optOut.data.opt_out.organization_id, optOut.data.opt_out.fingerprint);
+    return "opted_out";
+  }
+  const stopped = StoppedAddressMessageSchema.safeParse(message);
+  if (stopped.success) {
+    await store.stopAddress(stopped.data.stopped.fingerprint, stopped.data.stopped.reason);
+    return "stopped";
+  }
+  return "not_ours";
 }

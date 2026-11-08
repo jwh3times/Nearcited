@@ -11,10 +11,14 @@ import {
   DraftMessageSchema,
   type LimitChangeMessage,
   LimitChangeMessageSchema,
+  type OptOutMessage,
+  OptOutMessageSchema,
   type PriceChangeMessage,
   PriceChangeMessageSchema,
   type ScanMessage,
   ScanMessageSchema,
+  type StoppedAddressMessage,
+  StoppedAddressMessageSchema,
   SubscriptionFitMessageSchema,
   strongerAssistants,
 } from "@nearcited/shared";
@@ -25,7 +29,12 @@ import {
   requeueStalledActions,
 } from "./actions";
 import { sendActionNotices } from "./actions/notice";
-import { type Asking, askingKeys, proposeReviewRequests } from "./actions/review-requests";
+import {
+  type Asking,
+  askingKeys,
+  proposeReviewRequests,
+  recordAskingReport,
+} from "./actions/review-requests";
 import { createApp } from "./app";
 import { runAuditPart } from "./audits/runner";
 import { authenticateWithSupabase } from "./auth";
@@ -450,6 +459,21 @@ export default {
         continue;
       }
 
+      // An opt-out, bounce or complaint a route checked and queued (issue #293).
+      if (
+        OptOutMessageSchema.safeParse(message.body).success ||
+        StoppedAddressMessageSchema.safeParse(message.body).success
+      ) {
+        try {
+          console.log(`Review requests: ${await recordAskingReport(message.body, { store })}`);
+          message.ack();
+        } catch (error) {
+          console.error("Recording an opt-out, bounce or complaint failed, will retry", error);
+          message.retry();
+        }
+        continue;
+      }
+
       const parsed = ScanMessageSchema.safeParse(message.body);
       if (!parsed.success) {
         console.error("Dropping malformed scan message", message.body);
@@ -497,4 +521,6 @@ export default {
   | ActionMessage
   | DraftMessage
   | ClosingMessage
+  | OptOutMessage
+  | StoppedAddressMessage
 >;

@@ -23,6 +23,7 @@ import { Terms } from "./pages/legal/Terms";
 import { Onboarding } from "./pages/Onboarding";
 import { Operator } from "./pages/Operator";
 import { OperatorPlan } from "./pages/OperatorPlan";
+import { OptOut } from "./pages/OptOut";
 import { Pricing } from "./pages/Pricing";
 import { ReviewCard } from "./pages/ReviewCard";
 import { SignIn } from "./pages/SignIn";
@@ -31,10 +32,13 @@ import { WordPressReturn } from "./pages/WordPressReturn";
 export function App() {
   const session = useSession();
   const audit = useMatch("/audit/:token");
+  const optOut = useMatch("/opt-out/:token");
   const { pathname } = useLocation();
 
   // A shareable audit is for someone who has no account, so it comes before everything else.
   if (audit?.params.token) return <Audit token={audit.params.token} />;
+  // So does the page a customer opts out of a business's review requests on.
+  if (optOut?.params.token) return <OptOut token={optOut.params.token} />;
   // So do the policies, which have to be readable before signing in.
   if (pathname === "/privacy") return <Privacy />;
   if (pathname === "/terms") return <Terms />;
