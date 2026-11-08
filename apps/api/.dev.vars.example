@@ -25,6 +25,9 @@ RESEND_API_KEY=
 # Optional. The address review requests are sent from, on the product's sending subdomain; each
 # goes under the business's name. Without it, or RESEND_API_KEY, an approved request fails.
 REVIEW_REQUESTS_FROM=
+# Optional. The signing secret (whsec_...) of the Resend webhook at /api/resend/webhook, sent the
+# bounced and complained events. Without it, no bounce or complaint stops a review request.
+RESEND_WEBHOOK_SECRET=
 # Optional. Both are needed before anyone can subscribe: a Stripe secret key (a test-mode one
 # outside production) and the signing secret of the webhook endpoint at /api/stripe/webhook.
 STRIPE_SECRET_KEY=
