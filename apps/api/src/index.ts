@@ -181,6 +181,8 @@ export default {
     if (dropped > 0) console.log(`Dropped what ${dropped} actions replaced`);
     const held = await store.dropExpiredHeldContacts();
     if (held > 0) console.log(`Deleted ${held} customer contacts held seven days unconfirmed`);
+    const spent = await store.dropSpentContacts();
+    if (spent > 0) console.log(`Deleted ${spent} customer contacts no longer needed`);
     // The day's message to each organization's owners: what was done, and what is waiting.
     const noticed = await sendActionNotices({
       store,

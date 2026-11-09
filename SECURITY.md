@@ -208,9 +208,11 @@ Nearcited is multi-tenant, and tenant isolation is enforced by Postgres row-leve
   message kept or logged but its sender, its one customer, the day of the job and what became of
   it. Also reading a customer contact's full
   address by any path but the worker's (`customer_contacts.address` is granted to no API role, the
-  operator included, and no route, response, export or log line carries it); calling
-  `receive_receipt()`, `record_receipt_drop()` or `drop_expired_held_contacts()` as anyone but the
-  worker; confirming or declining a sender through `confirm_receipt_sender()`,
+  operator included, and no route, response, export or log line carries it); a contact kept past its
+  use (a day past thirty days after its request was sent, or past the week after the job once its
+  request ended unsent, or at all once its location's review requests stopped); calling `receive_receipt()`,
+  `record_receipt_drop()`, `drop_expired_held_contacts()` or `drop_spent_contacts()` as anyone but
+  the worker; confirming or declining a sender through `confirm_receipt_sender()`,
   `decline_receipt_sender()` or `POST /api/receipt-senders/:senderId/confirm` and `/decline` as
   anyone but an owner or admin of its organization, the operator included; writing
   `receipt_senders`, `customer_contacts` or `receipt_drops` directly; and reading another

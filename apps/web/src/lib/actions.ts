@@ -80,6 +80,11 @@ export function actionState(action: Action, day: (iso: string) => string): strin
         action.declined_at ? ` on ${day(action.declined_at)}` : ""
       }${action.decline_reason ? `: ${action.decline_reason}` : "."}`;
     case "lapsed":
+      if (action.lapse_reason === "turned_off") {
+        return `Not sent: review requests stopped for this location${
+          action.lapsed_at ? ` on ${day(action.lapsed_at)}` : ""
+        }, turned off or no longer on the plan.`;
+      }
       if (action.lapse_reason !== "out_of_date") {
         return `Lapsed${action.lapsed_at ? ` on ${day(action.lapsed_at)}` : ""}: nobody answered ${
           action.kind === "review_request" ? "within a week of the job" : "in fourteen days"
