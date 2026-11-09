@@ -2521,12 +2521,11 @@ copy, edit and lower a plan.
   whether it claimed, what the month allows and how much of it is used. `release_allowance()`,
   also worker only, gives back what was claimed for a month, for work that was then not done. A kind
   that is included without a number is not counted. Only the action functions and the draft
-  functions call either. Two kinds exist. `drafts` is counted, by `claim_draft()` and
-  `finish_draft()` (see "Drafts"). `visits` is included or not, so nothing is claimed for it:
-  `counts_visits()` checks that the organization's allowances name it before a visit is counted
-  (see "Visits from assistants"). `review_requests` is counted, and nothing claims it yet, since
-  nothing is sent (see "Connections"). No kind of action is counted yet (see "Actions" and "Known
-  gaps").
+  functions call either. What is counted here is `drafts`, by `claim_draft()` and
+  `finish_draft()` (see "Drafts"), and `review_requests`, as each review request is carried out,
+  by `claim_action()` and `finish_action()` (see "Actions"). `visits` is included or not, so
+  nothing is claimed for it: `counts_visits()` checks that the organization's allowances name it
+  before a visit is counted (see "Visits from assistants").
 - **A kind of connection can name the allowance it needs**, in `connection_kind_allowances`; see
   "Connections".
 
