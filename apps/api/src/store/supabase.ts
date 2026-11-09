@@ -1153,6 +1153,15 @@ export function createSupabaseStore(
         .parse(data ?? 0);
     },
 
+    async dropSpentContacts() {
+      const { data, error } = await db.rpc("drop_spent_contacts");
+      if (error) fail("Drop spent customer contacts", error);
+      return z
+        .number()
+        .int()
+        .parse(data ?? 0);
+    },
+
     async listSendersToTell() {
       const data = await every("List receipt senders to tell owners of", (from, to, first) =>
         db

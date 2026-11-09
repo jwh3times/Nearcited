@@ -2872,6 +2872,28 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
       return dropped;
     },
 
+    async dropSpentContacts() {
+      const now = Date.parse(db.now ?? timestamp());
+      const sentBefore = now - 30 * 86_400_000;
+      const spent = (contactId: string) => {
+        const requests = db.actions.filter((action) => action.contact_id === contactId);
+        const live = requests.some(
+          (action) =>
+            action.status === "proposed" ||
+            action.status === "approved" ||
+            (action.status === "done" && Date.parse(action.done_at ?? "") > sentBefore),
+        );
+        const over = requests.some(
+          (action) => action.status === "done" || Date.parse(action.lapses_at) <= now,
+        );
+        return over && !live;
+      };
+      const kept = db.customerContacts.filter((contact) => !spent(contact.id));
+      const dropped = db.customerContacts.length - kept.length;
+      db.customerContacts = kept;
+      return dropped;
+    },
+
     async listSendersToTell() {
       return db.receiptSenders
         .filter((sender) => sender.status === "waiting" && sender.untold)

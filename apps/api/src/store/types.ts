@@ -749,6 +749,12 @@ export interface Store {
    */
   dropExpiredHeldContacts(): Promise<number>;
   /**
+   * Deletes every contact whose review request was sent thirty days ago or more, and every one
+   * whose request ended unsent once the week after the job is over. The fingerprints stay.
+   * Returns how many. Worker only.
+   */
+  dropSpentContacts(): Promise<number>;
+  /**
    * The ready customer contacts no review request was proposed for yet, where the plan includes
    * review requests and the location's are on, oldest first. Worker only.
    */

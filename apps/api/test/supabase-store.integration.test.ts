@@ -1683,6 +1683,8 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
       dropped: {},
     });
     expect(await receiving.dropExpiredHeldContacts()).toBe(0);
+    // No request was sent thirty days ago, and none ended unsent with its week over.
+    expect(await receiving.dropSpentContacts()).toBe(0);
 
     // Review requests: the worker lists the ready contacts, proposes asking one, reads whom it
     // asks, and records the address asked once the email went. The job is today's, so its week

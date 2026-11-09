@@ -1694,7 +1694,7 @@ export const ActionSchema = z.object({
   /** Why it failed, or why the last try did not work. */
   failure: z.string().nullable(),
   lapsed_at: Timestamp.nullable(),
-  lapse_reason: z.enum(["expired", "out_of_date"]).nullable(),
+  lapse_reason: z.enum(["expired", "out_of_date", "turned_off"]).nullable(),
   /** The failed action this one was asked for again from. */
   retry_of: Id.nullable(),
   /** The action this one takes back, where a member asked to have it taken back. */
