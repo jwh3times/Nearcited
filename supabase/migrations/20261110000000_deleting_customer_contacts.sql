@@ -9,7 +9,10 @@
 -- addresses bounced hard or complained. They are kept, so turning review requests on again asks
 -- nobody twice.
 --
--- The Worker deployed before this migration keeps working: it does not call the new function.
+-- The Worker deployed before this migration keeps working. It does not call the new function. Its
+-- schema for an action does not know the new lapse reason, `turned_off`, but no action can lapse
+-- so before the Worker that knows it is deployed: the review_requests allowance is on for no plan
+-- until review requests go live (issue #295), so no organization has a review request to lapse.
 
 -- Deletes every contact whose request was sent thirty days ago or more, and every one whose
 -- request ended unsent (declined, lapsed or failed) once the week after the job is over, when it
@@ -50,38 +53,26 @@ alter table public.actions add constraint actions_lapse_reason_check
 -- When a location's review requests stop, whether an owner or admin turned them off, the plan
 -- stopped including them (fit_connections_to_plan() pauses the connection) or the location is
 -- deleted, then at once:
---   every request of theirs still waiting, for a yes or for its morning, lapses, and the month is
---     given back what one already took;
---   every contact of the location is deleted, sent or not.
--- A request being carried out right now is left to finish: with its contact gone it is not sent.
+--   every request of theirs still waiting, for a yes or for its morning, lapses;
+--   every contact of the location is deleted, sent or held, asked or not.
+-- A request being carried out, or one that already took from the month and is to be tried again,
+-- is left to the worker: with its contact gone it is not sent, and finish_action() ends it out of
+-- date and gives the month back, as the month is given back nowhere else.
 -- The receipt address stops receiving on its own: receive_receipt() drops what reaches a
 -- connection that is paused or being removed.
 create function public.stop_review_requests()
 returns trigger
 language plpgsql security definer set search_path = ''
 as $$
-declare
-  took date;
 begin
-  for took in
-    update public.actions x
-    set status = 'lapsed', lapsed_at = now(), lapse_reason = 'turned_off', due_at = null,
-        allowance_month = null
-    from public.actions was
-    where was.id = x.id
-      and x.connection_id = new.id
-      and x.kind = 'review_request'
-      and (x.status = 'proposed' or (x.status = 'approved' and x.carrying_since is null))
-    returning was.allowance_month
-  loop
-    if took is not null then
-      perform public.release_allowance(
-        new.organization_id,
-        (select t.allowance from public.action_kind_terms t where t.kind = 'review_request'),
-        took
-      );
-    end if;
-  end loop;
+  update public.actions a
+  set status = 'lapsed', lapsed_at = now(), lapse_reason = 'turned_off', due_at = null
+  where a.connection_id = new.id
+    and a.kind = 'review_request'
+    and (
+      a.status = 'proposed'
+      or (a.status = 'approved' and a.carrying_since is null and a.allowance_month is null)
+    );
 
   delete from public.customer_contacts c
   using public.review_request_settings s

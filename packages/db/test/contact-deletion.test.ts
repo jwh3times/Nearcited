@@ -276,6 +276,20 @@ describe("deleting customer contacts once they are no longer needed", () => {
     const proposedId = await requestOf(proposed);
     const dueId = await approved(due);
     const elsewhereId = await requestOf(elsewhere);
+    // A receipt from a sender nobody has confirmed yet, held.
+    await as("service_role", null, async () =>
+      db.query("select public.receive_receipt($1, 'new-till@square.example', $2, $3::date)", [
+        joes,
+        "held@example.org",
+        await localDay(0),
+      ]),
+    );
+    expect(
+      await rows(
+        "select 1 from public.customer_contacts where location_id = $1 and status = 'held'",
+        [location],
+      ),
+    ).toHaveLength(1);
 
     await as("authenticated", owner, () =>
       db.query("select 1 from public.request_connection_removal($1)", [joes]),
