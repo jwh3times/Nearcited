@@ -9,6 +9,15 @@ counting builds on a release line.
 
 No unreleased changes.
 
+## [1.6.1] - 2026-11-09
+
+### Fixed
+
+- `docs/architecture.md` no longer says "Two kinds exist" of the kinds counted in
+  `allowance_use`, or that nothing claims `review_requests` and no kind of action is counted (#298).
+  It now says what is counted there: `drafts`, and `review_requests` as each review request is
+  carried out. `visits` is only checked. Nothing the product does changes.
+
 ## [1.6.0] - 2026-11-09
 
 ### Added
@@ -253,7 +262,8 @@ deployed.
   (`scripts/check-changelog.mjs`); a Dependabot merge gets its section on the next human pull
   request.
 
-[Unreleased]: https://github.com/jwh3times/Nearcited/compare/v1.6.0...HEAD
+[Unreleased]: https://github.com/jwh3times/Nearcited/compare/v1.6.1...HEAD
+[1.6.1]: https://github.com/jwh3times/Nearcited/compare/v1.6.0...v1.6.1
 [1.6.0]: https://github.com/jwh3times/Nearcited/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/jwh3times/Nearcited/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/jwh3times/Nearcited/compare/v1.3.3...v1.4.0
