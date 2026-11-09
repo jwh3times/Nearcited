@@ -35,7 +35,7 @@
     "db:types": "supabase gen types --lang typescript > packages/shared/src/database.types.ts && biome format --write packages/shared/src/database.types.ts"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.6.4",
+    "@biomejs/biome": "^2.6.6",
     "supabase": "3.0.0",
     "typescript": "^7.0.2"
   }

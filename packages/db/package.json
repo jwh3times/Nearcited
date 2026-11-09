@@ -10,7 +10,7 @@
     "test": "vitest run"
   },
   "devDependencies": {
-    "@electric-sql/pglite": "^0.5.14",
+    "@electric-sql/pglite": "^0.5.15",
     "@nearcited/shared": "workspace:*",
     "@types/node": "^26.6.6",
     "typescript": "^7.0.2",
