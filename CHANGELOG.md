@@ -9,6 +9,23 @@ counting builds on a release line.
 
 No unreleased changes.
 
+## [1.6.0] - 2026-11-09
+
+### Added
+
+- Customer contacts are deleted once they are no longer needed (#294, part of #146). No plan
+  includes review requests yet, so no real customer's contact is kept.
+  - **After a request:** the daily run deletes a contact 30 days after its review request was
+    sent. A contact whose request was declined, lapsed or failed is deleted once the week after the
+    job is over, when it can no longer be asked for again. The request itself stays on the list,
+    with nothing of the customer's.
+  - **Turning them off:** turning a location's review requests off, or the plan no longer
+    including them, deletes every contact of the location at once, sent or not, and the receipt
+    address stops receiving. A request still waiting is not sent, and the list shows it as "Not
+    sent: review requests stopped for this location".
+  - **Kept:** whom a business asked, who opted out and which addresses bounced or complained stay
+    as fingerprints, so turning review requests on again asks nobody twice.
+
 ## [1.5.0] - 2026-11-07
 
 ### Added
@@ -236,7 +253,8 @@ deployed.
   (`scripts/check-changelog.mjs`); a Dependabot merge gets its section on the next human pull
   request.
 
-[Unreleased]: https://github.com/jwh3times/Nearcited/compare/v1.5.0...HEAD
+[Unreleased]: https://github.com/jwh3times/Nearcited/compare/v1.6.0...HEAD
+[1.6.0]: https://github.com/jwh3times/Nearcited/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/jwh3times/Nearcited/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/jwh3times/Nearcited/compare/v1.3.3...v1.4.0
 [1.3.3]: https://github.com/jwh3times/Nearcited/compare/v1.3.2...v1.3.3

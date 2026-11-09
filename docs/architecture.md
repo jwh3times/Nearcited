@@ -36,7 +36,8 @@ Everything below is the main one.
   connection that is due (`enqueueDueSyncs`). It also lapses the proposals that waited fourteen
   days (`lapse_actions()`), drops what an action replaced once it may be kept no longer
   (`drop_expired_seen()`), deletes the customer contacts held seven days with nobody confirming
-  their sender (`drop_expired_held_contacts()`; see "Connections") and tells each organization's
+  their sender (`drop_expired_held_contacts()`) and those no longer needed
+  (`drop_spent_contacts()`; see "Connections"), and tells each organization's
   owners what was done and what is newly waiting (`sendActionNotices`; see "Actions"). It also starts the removal of each connection that
   has been paused for thirty days, an answer subdomain for 120 (`expirePausedConnections`) and reminds, once, the owners and
   admins of each they were told a week ago had broken and that still is
@@ -1420,7 +1421,8 @@ five can break or pause in practice.
   off with `DELETE /api/connections/:connectionId`: `removeConnection` has nothing outside to take
   back, and `finish_connection_removal()` sets `released_at`, letting the address go. Deleting the
   location starts their removal (a trigger, `removal_reason` `location`), which the sweep of stalled
-  removals finishes. A sync reads nothing and only records that it ran, but for a test organization
+  removals finishes. Turned off, paused or removed, they delete every contact of the location at
+  once (below). A sync reads nothing and only records that it ran, but for a test organization
   and on sample data, where it makes up the day's receipts (below); no action is proposed after
   one, and the match routes refuse them (`not_matched_by_hand`). A location has them on once at a
   time, and they can be turned on again, with a new address, once the removal has finished. The
@@ -1463,8 +1465,17 @@ five can break or pause in practice.
   answer 404 to anyone else). The daily run deletes a contact held seven days
   (`drop_expired_held_contacts()`), and the daily notice to the owners names each waiting sender
   once for each receipt it held since it was last named (`receipt_senders.untold`; see "Actions").
-  `receive_receipt()`, `record_receipt_drop()` and `drop_expired_held_contacts()` are the worker's
-  alone. `customer_contacts.address` is granted to no API role: members and the operator read the
+  Nothing readable about a customer outlives its use (issue #294, part of #146). The daily run also
+  calls `drop_spent_contacts()`, which deletes a contact thirty days after its review request was
+  sent, and one whose request ended unsent (declined, lapsed or failed) once the week after the job
+  is over, when it can no longer be asked for again; the request stays, with `contact_id` cleared.
+  When a location's review requests stop, turned off by an owner or admin, paused by
+  `fit_connections_to_plan()` because the plan no longer includes them, or removed with the
+  location, a trigger on `connections` (`stop_review_requests`) deletes every contact of the
+  location at once, held ones included, and lapses its requests still waiting (see "Actions"). The
+  fingerprints asked, opted out and stopped are kept, so turning them on again asks nobody twice.
+  `receive_receipt()`, `record_receipt_drop()`, `drop_expired_held_contacts()` and
+  `drop_spent_contacts()` are the worker's alone. `customer_contacts.address` is granted to no API role: members and the operator read the
   contact through `masked` (`j•••@gmail.com`, a generated column that writes what `maskAddress`
   does) and the day, the Supabase store selects contacts by named columns, and no route or wire
   type carries the address. `GET /api/locations/:locationId/receipts`, for anyone who can read the
@@ -2093,6 +2104,13 @@ A decision about what the product may change on a business's site is in
   daily run calls `lapse_actions()`, which only the worker may call, and `approve_action()` refuses
   one past its day before then. The record says whether it lapsed because nobody answered or
   because it was out of date.
+- **A review request lapses when its location's review requests stop.** The `stop_review_requests`
+  trigger (see "Connections") lapses at once, with `lapse_reason` `turned_off`, every request of
+  the location still proposed, or approved and neither being carried out nor holding one of the
+  month's allowance. One that already took from the month is left to the worker: its contact gone,
+  it is not sent, and `finish_action()` ends it out of date and gives the month back. The Actions
+  tab says "Not sent: review requests stopped for this location on <day>, turned off or no longer
+  on the plan."
 - **Who reads and writes.** `actions` has a `select` policy for whoever can read the location and
   one for the operator, and no write grant for any API role: every change goes through the
   functions above, except `told_at` and `waiting_told_at`, which the Worker's secret key writes.
@@ -2297,9 +2315,10 @@ or admin of the location's organization alone, and by the worker's `finish_conne
 (see "Connections").
 `receipt_senders`, `customer_contacts` and `receipt_drops` are read by the organization's members
 and the operator and written by no API role: only the worker's `receive_receipt()`,
-`record_receipt_drop()` and `drop_expired_held_contacts()` write them, and
-`confirm_receipt_sender()` and `decline_receipt_sender()`, which answer an owner or admin of the
-organization and no one else, the operator included, decide a sender. `customer_contacts.address` is
+`record_receipt_drop()`, `drop_expired_held_contacts()` and `drop_spent_contacts()` write them,
+with the `stop_review_requests` trigger, which deletes a location's contacts when its review
+requests stop, and `confirm_receipt_sender()` and `decline_receipt_sender()`, which answer an owner
+or admin of the organization and no one else, the operator included, decide a sender. `customer_contacts.address` is
 granted to no API role, the operator included: every other column is granted by name, so a
 caller reads a contact masked (see "Connections").
 `asked_addresses`, `opted_out_addresses` and `stopped_addresses`, the keyed fingerprints of the
@@ -2779,10 +2798,7 @@ drop it.
   needs it (see "Connections"), a kind of action that takes from it (see "Actions"), standing
   permission (see "Actions"), a draft (see "Drafts") and counting a visit (see "Visits from
   assistants") ([#133](https://github.com/jwh3times/Nearcited/issues/133)).
-- Review requests stop short of deleting contacts (see "Actions"). A contact is not deleted 30 days after its request was sent,
-  nor when its review requests are turned off, or paused because the plan stops including them,
-  which also lapses nothing waiting, but only with its location or organization, once it has been
-  held seven days, or when it is not asked (#294). A fingerprint asked is kept as long as its
+- A fingerprint asked is kept as long as its
   organization, though only one asked within twelve months stops a request. Whether a business's list of customers is confidential is read from the words of its location's category alone: one whose category names it otherwise is let through
   on the owner's word, and one whose category only looks like one (a massage therapist, a
   veterinary clinic) is refused.

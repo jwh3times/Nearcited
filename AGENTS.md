@@ -326,6 +326,12 @@ pass `pnpm check` and run in mock mode without it.
   `receive_receipt()`, which only the worker calls. A receipt from a sender no owner or admin
   confirmed is held, and deleted after seven days; `confirm_receipt_sender()` and
   `decline_receipt_sender()` answer an owner or admin and no one else, the operator included.
+  Nothing readable about a customer outlives its use: `drop_spent_contacts()`, which only the
+  worker calls, deletes a contact thirty days after its request was sent, and one whose request
+  ended unsent once the week after the job is over, and when a location's review requests are
+  turned off, paused or removed, `stop_review_requests` deletes every contact of the location at
+  once and lapses its requests still waiting (`turned_off`). A request that already took from the
+  month is left to `finish_action()`. Keep both, and keep the fingerprints when a contact goes.
   `customer_contacts.address` is granted to no API role: every member and the operator read
   `masked` and the day, no route or wire type carries the address, and `export_organization()`
   leaves contacts out (`docs/adr/0031-a-customer-contact-is-read-only-by-the-worker.md`). Keep the
