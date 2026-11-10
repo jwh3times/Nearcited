@@ -234,6 +234,18 @@ Nearcited is multi-tenant, and tenant isolation is enforced by Postgres row-leve
   one; a `GET` of the link recording anything; either route answering differently for an address
   that is or is not on file, or keeping or logging an address; and either reading the database on
   the request instead of leaving the record to the worker.
+- "How did you find us?" on the way to the review form. `/r/:token` needs no sign-in, so the link's
+  signature is its only guard. Each of these is a report: forging a link, or getting the route to
+  send a customer anywhere but the review form a link the deployment signed carries; a link that
+  carries the customer's address; the page running a script, setting a cookie, loading an image or
+  showing anything of a link's as markup instead of text; the route reading the database, or
+  answering a link it did not sign differently by what is wrong with it; calling
+  `record_found_answer()` or `record_found_opened()` through the API, or writing `found_answers`,
+  `found_answered` or `found_question_counts` directly; a request's answer counted twice; reading
+  `found_answered` as any API role, or `found_question_counts` as anyone but the operator; and
+  reading another organization's found answers through `location_found_answers()` or
+  `GET /api/locations/:locationId/found-answers`, or any of them as a caller who is not signed in.
+  Tapping any answer on a link one holds is known: nothing is worked out from the answers.
 - Reading a shareable audit without its link, or after it was revoked or expired; listing audits;
   or creating one. `/api/audits/:token` is the one route that gives out an organization's data
   with no sign-in, and the token in the link is the only key to it. `/api/plans` needs no sign-in
