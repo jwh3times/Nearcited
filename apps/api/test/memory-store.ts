@@ -2777,17 +2777,20 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
     // Mirrors record_found_answer().
     async recordFoundAnswer(actionId, given, { sample }) {
       if (userId !== null) throw new StoreError("forbidden", "worker only");
-      const action = db.actions.find(
-        (kept) => kept.id === actionId && kept.kind === "review_request",
-      );
-      const location = action && db.locations.find((kept) => kept.id === action.location_id);
-      if (!location) return "gone";
+      if (given.assistant !== null && given.answer !== "assistant") {
+        throw new StoreError("unexpected", "Only an assistant answer names an assistant.");
+      }
       const at = db.now ?? new Date().toISOString();
       if (!sample) {
         const utc = monthIn("UTC", at);
         const counted = db.foundCounts.get(utc) ?? { opened: 0, went_on: 0 };
         db.foundCounts.set(utc, { ...counted, went_on: counted.went_on + 1 });
       }
+      const action = db.actions.find(
+        (kept) => kept.id === actionId && kept.kind === "review_request",
+      );
+      const location = action && db.locations.find((kept) => kept.id === action.location_id);
+      if (!location) return "gone";
       if (db.foundAnswered.has(actionId)) return "already";
       db.foundAnswered.add(actionId);
       const month = monthIn(location.time_zone ?? "UTC", at);
@@ -2822,8 +2825,7 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
           (kept) =>
             kept.location_id === locationId &&
             kept.sample_data === sampleData &&
-            kept.month >= since &&
-            kept.month <= now,
+            kept.month >= since,
         )
         .map(({ month, answer, assistant, count }) => ({ month, answer, assistant, count }))
         .sort(

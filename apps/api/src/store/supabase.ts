@@ -14,6 +14,7 @@ import {
   ConnectionSchema,
   CustomerContactSchema,
   DraftSchema,
+  FOUND_OUTCOMES,
   type Invitation,
   InvitationSchema,
   LimitChangeSchema,
@@ -1158,7 +1159,7 @@ export function createSupabaseStore(
         sample,
       });
       if (error) fail("Count a found answer", error);
-      return z.enum(["counted", "already", "gone"]).parse(data);
+      return z.enum(FOUND_OUTCOMES).parse(data);
     },
 
     async getLocationFoundAnswers(locationId, sampleData) {

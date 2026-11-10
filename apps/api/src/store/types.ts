@@ -23,6 +23,7 @@ import type {
   DraftKind,
   FetchCount,
   FoundGiven,
+  FoundOutcome,
   Invitation,
   InvitedRole,
   LimitChange,
@@ -809,16 +810,15 @@ export interface Store {
   recordFoundOpened(): Promise<void>;
   /**
    * Counts a found answer for a review request, by its action: unless `sample`, once more for the
-   * deployment this month as going on to the form, and the first time for the action only, for its
-   * location in the location's month, as sample data where `sample`. Says what became of it:
-   * `counted`, `already`, where the action was answered before, or `gone`, where there is no
-   * such review request. Worker only.
+   * deployment this month as going on to the form, whatever becomes of the answer, and the first
+   * time for the action only, for its location in the location's month, as sample data where
+   * `sample`. Says what became of it (`FoundOutcome`). Worker only.
    */
   recordFoundAnswer(
     actionId: string,
     given: FoundGiven,
     options: { sample: boolean },
-  ): Promise<"counted" | "already" | "gone">;
+  ): Promise<FoundOutcome>;
   /**
    * A location's found answers over the months shown (`FOUND_MONTHS_SHOWN`, this one included, in
    * the location's time zone), of sample data or not, for whoever can read the location. For

@@ -1886,6 +1886,13 @@ export const FoundMessageSchema = z.union([
 ]);
 export type FoundMessage = z.infer<typeof FoundMessageSchema>;
 
+/**
+ * What became of a found answer the worker was asked to count: `counted`; `already`, where the
+ * request was answered before; or `gone`, where there is no such review request.
+ */
+export const FOUND_OUTCOMES = ["counted", "already", "gone"] as const;
+export type FoundOutcome = (typeof FOUND_OUTCOMES)[number];
+
 /** A month as found answers are counted by: `YYYY-MM`. */
 const Month = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/);
 
@@ -2832,17 +2839,17 @@ export const ExportReviewRequestsSchema = z.object({
   released_at: Timestamp.nullable(),
 });
 
-/**
- * Everything an organization holds, as its owner downloads it. Each list's rows are the same
- * wire types the app is sent. Never a sign-in, the operator's record of changes or what the
- * providers were paid. `version` changes when the shape does.
- */
 /** How many customers gave one found answer at a location in a month, as the export lists it. */
 export const ExportFoundAnswerSchema = LocationFoundAnswersSchema.shape.months.element.extend({
   location_id: Id,
   sample_data: z.boolean(),
 });
 
+/**
+ * Everything an organization holds, as its owner downloads it. Each list's rows are the same
+ * wire types the app is sent. Never a sign-in, the operator's record of changes or what the
+ * providers were paid. `version` changes when the shape does.
+ */
 export const AccountExportSchema = z.object({
   version: z.literal(1),
   exported_at: Timestamp,

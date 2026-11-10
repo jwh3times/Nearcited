@@ -9,7 +9,7 @@ import {
   type VisitSent,
   VisitSentSchema,
 } from "@nearcited/shared";
-import { Hono } from "hono";
+import { type Context, Hono } from "hono";
 import { askingKeys } from "./actions/review-requests";
 import { type AuthedUser, type Authenticate, authenticateWithSupabase } from "./auth";
 import { thankForSubscription } from "./billing/started";
@@ -126,6 +126,10 @@ function stripeFromEnv(env: Env): Payments | null {
     ? createStripePayments(env.STRIPE_SECRET_KEY, env.STRIPE_WEBHOOK_SECRET)
     : null;
 }
+
+/** What a path nothing answers gets, under the API or beside it. */
+const noSuchRoute = (c: Context<AppEnv>) =>
+  c.json({ error: { code: "not_found", message: "No such route" } }, 404);
 
 export function createApp(deps: AppDeps = { authenticate: authenticateWithSupabase }) {
   const app = new Hono<AppEnv>().basePath("/api");
@@ -309,7 +313,7 @@ export function createApp(deps: AppDeps = { authenticate: authenticateWithSupaba
   app.route("/", visitRoutes);
   app.route("/", fetchRoutes);
 
-  app.notFound((c) => c.json({ error: { code: "not_found", message: "No such route" } }, 404));
+  app.notFound(noSuchRoute);
 
   app.onError((error, c) => {
     if (error instanceof ApiError) {
@@ -334,6 +338,6 @@ export function createApp(deps: AppDeps = { authenticate: authenticateWithSupaba
   const root = new Hono<AppEnv>();
   root.route("/r", foundRoutes);
   root.route("/", app);
-  root.notFound((c) => c.json({ error: { code: "not_found", message: "No such route" } }, 404));
+  root.notFound(noSuchRoute);
   return root;
 }

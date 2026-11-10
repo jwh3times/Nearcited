@@ -100,7 +100,8 @@ revoke execute on function public.record_found_opened() from public, anon, authe
 grant execute on function public.record_found_opened() to service_role;
 
 -- Counts a found answer for a review request, by its action. Unless `sample`, it counts once more
--- for the deployment this month as going on to the form, whatever became of the answer. The first
+-- for the deployment this month as going on to the form, whatever becomes of the answer, the
+-- request gone or not, since the customer went on all the same. The first
 -- time for the action only, it counts the answer for the action's location in the location's
 -- month, as sample data where `sample`. Says what became of it: `counted`, `already`, where the
 -- request was answered before, or `gone`, where there is no such review request. Worker only.
@@ -123,17 +124,17 @@ begin
   ) then
     raise exception 'Only an assistant answer names an assistant.' using errcode = '22023';
   end if;
+  if not sample then
+    insert into public.found_question_counts (month, went_on)
+    values (date_trunc('month', now() at time zone 'UTC')::date, 1)
+    on conflict (month) do update set went_on = public.found_question_counts.went_on + 1;
+  end if;
   select a.location_id, coalesce(l.time_zone, 'UTC') into loc, zone
   from public.actions a
   join public.locations l on l.id = a.location_id
   where a.id = record_found_answer.action and a.kind = 'review_request';
   if not found then
     return 'gone';
-  end if;
-  if not sample then
-    insert into public.found_question_counts (month, went_on)
-    values (date_trunc('month', now() at time zone 'UTC')::date, 1)
-    on conflict (month) do update set went_on = public.found_question_counts.went_on + 1;
   end if;
   insert into public.found_answered (action_id) values (record_found_answer.action)
   on conflict do nothing;

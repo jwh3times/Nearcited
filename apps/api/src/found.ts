@@ -1,9 +1,11 @@
 import {
   FOUND_ANSWER_LABELS,
+  FOUND_ANSWERS,
   FOUND_ASSISTANT_LABELS,
   FOUND_ASSISTANTS,
   type FoundMessage,
   FoundMessageSchema,
+  type FoundOutcome,
   readTap,
   tapValue,
 } from "@nearcited/shared";
@@ -84,8 +86,10 @@ export function questionPage(link: FoundLink): string {
   const which = FOUND_ASSISTANTS.map((assistant) =>
     button(tapValue({ answer: "assistant", assistant }), FOUND_ASSISTANT_LABELS[assistant]),
   ).join("\n");
-  const answer = (value: "search" | "someone_they_know" | "been_before" | "something_else") =>
-    button(value, FOUND_ANSWER_LABELS[value]);
+  // Every answer but the assistant one, which leads with its own line, and the way past.
+  const others = FOUND_ANSWERS.filter((value) => value !== "assistant" && value !== "skipped")
+    .map((value) => button(value, FOUND_ANSWER_LABELS[value]))
+    .join("\n");
   return page(
     heading,
     `<h1>${heading}</h1>
@@ -94,10 +98,7 @@ ${button("assistant", FOUND_ANSWER_LABELS.assistant)}
 <div class="which"><span>Which one?</span>
 ${which}
 </div>
-${answer("search")}
-${answer("someone_they_know")}
-${answer("been_before")}
-${answer("something_else")}
+${others}
 ${button("skipped", "Skip to the review")}
 </form>
 <p class="note">Your answer is counted with others and not kept with your name.</p>`,
@@ -127,6 +128,12 @@ async function linkOf(c: Context<AppEnv>): Promise<FoundLink | null> {
 
 /** The question's routes, at `/r`: no sign-in, no store. */
 export const foundRoutes = new Hono<AppEnv>();
+
+// A customer is shown a page, not the API's error, whatever went wrong.
+foundRoutes.onError((error, c) => {
+  console.error(`${c.req.method} /r failed`, error);
+  return c.body(NOT_WORKING, 500, PAGE_HEADERS);
+});
 
 foundRoutes.get("/:token", async (c) => {
   const link = await linkOf(c);
@@ -160,7 +167,7 @@ export function readFoundMessage(body: unknown): FoundMessage | null {
 export async function recordFound(
   message: FoundMessage,
   { store }: { store: Store },
-): Promise<"opened" | "counted" | "already" | "gone"> {
+): Promise<"opened" | FoundOutcome> {
   if ("found_opened" in message) {
     await store.recordFoundOpened();
     return "opened";
