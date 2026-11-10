@@ -15,7 +15,8 @@ export default defineConfig({
   },
   server: {
     port: 5173,
-    // The API is the Worker, run by `wrangler dev` on its default port.
-    proxy: { "/api": "http://localhost:8787" },
+    // The API is the Worker, run by `wrangler dev` on its default port, and so is the question a
+    // review request's link opens on the way to the review form.
+    proxy: { "/api": "http://localhost:8787", "/r/": "http://localhost:8787" },
   },
 });

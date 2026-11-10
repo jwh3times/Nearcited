@@ -259,9 +259,10 @@ pass `pnpm check` and run in mock mode without it.
   day or an address. The line (`apps/web/public/line.js`) sends nothing for a visit that did not
   come from an assistant, sets no cookie and keeps nothing in the browser: keep all three. Its
   list of assistants is a copy of the shared one, and the database names them too
-  (`visits.assistant`, `record_visit()`, `analytics_visits.assistant` and
-  `record_analytics_visits()`): add one in all six. The count can be padded by anyone who reads the
-  key, so no score, alert, task or bill is worked out from it. Do not open `visits` or
+  (`visits.assistant`, `record_visit()`, `analytics_visits.assistant`,
+  `record_analytics_visits()`, `FOUND_ASSISTANTS` and `found_answers.assistant`): add one in all
+  eight. The count can be padded by anyone who reads the key, so no score, alert, task or bill is
+  worked out from it. Do not open `visits` or
   `visit_lines` to a caller who is not signed in, and do not count a visit on any other path. A
   key is replaced only by `replace_site_key()`, which answers an owner or an admin of the
   location's organization and no one else, the operator included: the old key then belongs to
@@ -348,6 +349,24 @@ pass `pnpm check` and run in mock mode without it.
   provider's first, reads nothing, queues only a fingerprint and answers the same for every
   address, and only the worker records them (`opt_out_address()`, `stop_address()`). The webhook
   reads a recipient's address only to fingerprint it, and keeps and logs none.
+- **A found answer is counted by the worker, once a request, and nothing rests on it.** A review
+  request's link to the review form is the product's, `/r/<token>`, signed under a key of its own,
+  carrying the request's action, the form and the business's name, and never the address
+  (`docs/adr/0033-a-found-answer-is-counted-on-the-way-to-the-review-form.md`). Its route has no
+  sign-in and reads nothing: it checks the signature, makes the page from the link alone, queues
+  the worker and sends every tap on to the form the link carries, and a link it did not sign gets
+  the same page whatever is wrong with it. The page has no script, cookie or image, nothing of
+  Nearcited's, no box to type in, and the way past the question with the answers' weight. Only the
+  worker counts, through `record_found_answer()` and `record_found_opened()`, which only it calls:
+  the first answer for a request and no later one (`found_answered`, which no API role reads), for
+  the location by month and answer in `found_answers`, and nothing about who answered. The
+  deployment's opens and go-ons are in `found_question_counts`, which only the operator reads. Never
+  add the answers to `visits` or show their sum, and work no score, alert, task, report or bill out
+  of them: anyone holding a link can tap anything. A request that went to nobody, for a test
+  organization or on sample data, gets a made-up answer (`sampleFoundAnswer`), kept as
+  `sample_data`. The token's format keeps working for as long as an email holding it may be opened:
+  a new one takes a new version, and every earlier one is still read. Only requests the product
+  sends carry the question; the request to send and the code to print keep the form's own link.
 - **Only the worker closes an account.** A request records an owner's ask through
   `request_closing()`, which answers an owner of the organization and no one else, refuses the
   operator, a test account and a name that is not the organization's, and queues the worker

@@ -6,8 +6,10 @@
 other, the Pages Worker in `apps/pages`, serves hosted pages and nothing else (see "Hosted pages").
 Everything below is the main one.
 
-- **`fetch`**: the HTTP API, a Hono app mounted at `/api`. Only `/api/*` reaches the Worker.
-  Every other path is served from the web app's build output, with unknown paths falling back to
+- **`fetch`**: the HTTP API, a Hono app mounted at `/api`, and beside it `/r/:token`, the question
+  a review request's link opens on the way to the review form (`apps/api/src/found.ts`; see
+  "Actions"). Only `/api/*` and `/r/*` reach the Worker (`run_worker_first`), and the Vite dev
+  server proxies both to it. Every other path is served from the web app's build output, with unknown paths falling back to
   `index.html` so client-side routes work. That routing lives in `wrangler.jsonc` under `assets`.
   The build output includes `third-party-licenses.md`, the licences of the packages the web app
   bundles, which is therefore public at `/third-party-licenses.md` with no sign-in. It is a static
@@ -60,7 +62,7 @@ Everything below is the main one.
   after a sync that read the account it also proposes actions. A message shaped
   `{ action_id, step }` carries out one approved action (see "Actions"). A message shaped
   `{ draft_id, step }` writes one draft a member asked for (see "Drafts"). A message shaped
-  `{ closing_id, step }` closes one account (see "Closing an account"). A message shaped `{ fit_subscription: organization_id }` reprices one subscription without the stronger lines its plan no longer sells (`fitSubscription`, `apps/api/src/billing/fit.ts`; see "Tenancy"). A message shaped `{ opt_out: { organization_id, fingerprint } }` or `{ stopped: { fingerprint, reason } }` records an opt-out, or a hard bounce or a complaint, that a route checked (`recordDoNotAsk`; see "Actions"). The consumer is handed
+  `{ closing_id, step }` closes one account (see "Closing an account"). A message shaped `{ fit_subscription: organization_id }` reprices one subscription without the stronger lines its plan no longer sells (`fitSubscription`, `apps/api/src/billing/fit.ts`; see "Tenancy"). A message shaped `{ opt_out: { organization_id, fingerprint } }` or `{ stopped: { fingerprint, reason } }` records an opt-out, or a hard bounce or a complaint, that a route checked (`recordDoNotAsk`; see "Actions"). A message shaped `{ found_opened: true }` or `{ found: { action_id, answer, assistant } }` counts an opening of the question on the way to a review form, or a customer's answer to it (`recordFound`, `apps/api/src/found.ts`; see "Actions"). The consumer is handed
   up to five messages at a time and works through them one after another. A lone message waits
   at most a second for others to join it (`max_batch_timeout` in `wrangler.jsonc`), because
   somebody is usually watching the page for it; a message that lands in a batch behind scans
@@ -1022,7 +1024,10 @@ visits: one more for that location, day (UTC), assistant and page
   copy, since it is a plain script, and `apps/web/test/line.test.ts` holds it to the shared one.
   The database names them too, four times: the checks on `visits.assistant` and
   `analytics_visits.assistant`, and `record_visit()`'s and `record_analytics_visits()`'s own lists, and
-  the tests in `packages/db` hold them to `VISIT_ASSISTANTS`. An assistant is listed only
+  the tests in `packages/db` hold them to `VISIT_ASSISTANTS`. The assistants a customer may name for
+  "How did you find us?" are the same, with `other` beside them: `FOUND_ASSISTANTS`
+  (`packages/shared/src/schemas.ts`) and the check on `found_answers.assistant`, which a test in
+  `packages/db` holds to it (see "Actions"). An assistant is listed only
   when its visits can be told from a search: Google's AI Overviews and AI Mode arrive from
   google.com as a search does, and Copilot's answers inside Bing from bing.com, so neither is
   counted.
@@ -1861,7 +1866,8 @@ A decision about what the product may change on a business's site is in
   action yet, where the plan includes the allowance, the location's review requests are on and
   working, and the organization is not being closed. For each it works out the wording the owner
   approved (`currentWording`, from `approvedWording` in `packages/shared/src/review-requests.ts`,
-  with `OPT_OUT_SHOWN` where each customer's own link goes) and the keyed fingerprint of the
+  with `REVIEW_FORM_SHOWN` and `OPT_OUT_SHOWN` where each customer's own links go, and the review
+  form they lead to) and the keyed fingerprint of the
   address, and calls `propose_review_request()`, which only the worker may call. That deletes the
   contact and proposes nothing once the week after the job is over (10:00 seven days after it, on
   the location's clock), where the address bounced hard or complained about a review request from
@@ -1890,13 +1896,15 @@ A decision about what the product may change on a business's site is in
   reports a stopped address as opted out), or the wording is no longer what the owner approved. Otherwise it is sent through Resend (`apps/api/src/email/review-request.ts`) from
   `REVIEW_REQUESTS_FROM` under the business's name (quoted, so it cannot add an address or a
   header), with `Reply-To` the location's reply address, the approved wording, the customer's own
-  link to opt out (`<APP_URL>/opt-out/<organization>.<fingerprint>.<signature>`), the one-click
+  link to the review form by way of the question below (`<APP_URL>/r/<token>`, `withLinks`), their
+  own link to opt out (`<APP_URL>/opt-out/<organization>.<fingerprint>.<signature>`), the one-click
   unsubscribe headers (RFC 8058: `List-Unsubscribe` naming `<APP_URL>/api/opt-out/<same token>`,
   and `List-Unsubscribe-Post`), the Resend tag `kind=review_request` and the idempotency key
-  `review-request/<action id>`, and `mark_asked()` records the fingerprint. The fingerprint and the link's signature are HMACs whose keys are derived from
-  `CONNECTIONS_KEY` by HKDF, one for each use (`askingKeys`), so neither can be read back and
-  neither is one more secret to keep. A test organization, a made-up contact and a deployment on
-  sample data send nothing, and the request is still marked asked and done. Without
+  `review-request/<action id>`, and `mark_asked()` records the fingerprint. The fingerprint and the links' signatures are HMACs whose keys are derived from
+  `CONNECTIONS_KEY` by HKDF, one for each use (`askingKeys`), so none can be read back and
+  none is one more secret to keep. A test organization, a made-up contact and a deployment on
+  sample data send nothing, and the request is still marked asked and done, with a made-up found
+  answer (`sampleFoundAnswer`) counted as `sample_data`. Without
   `REVIEW_REQUESTS_FROM` or `RESEND_API_KEY`, or without `CONNECTIONS_KEY`, it fails at once, since
   trying again cannot help.
 - **A customer opts out, and a bounce or a complaint stops an address, through the worker.**
@@ -1922,6 +1930,38 @@ A decision about what the product may change on a business's site is in
   worker alone. An opt-out holds for every location of its organization and no other; a stopped
   address is asked by no organization, since the sending address is the product's
   (`docs/adr/0031-a-customer-contact-is-read-only-by-the-worker.md`).
+- **A customer is asked "How did you find us?" on the way to the review form, and only the worker
+  counts the answer.** A request's link to the form is the product's, `/r/<token>` (issue #148,
+  `docs/adr/0033-a-found-answer-is-counted-on-the-way-to-the-review-form.md`). The token is
+  `f1.<payload>.<signature>`: the payload is the request's action, the review form and the
+  business's name as the email gave them, never the address, and the signature an HMAC under a key
+  `askingKeys` derives for this use alone (`foundToken`, `readFoundToken`). A new format takes a new
+  version and every earlier one is still read, since an email holding a link may be opened for
+  years. The routes (`foundRoutes`, `apps/api/src/found.ts`) are mounted beside the API, need no
+  sign-in and use no store. `GET /r/:token` checks the signature, queues `{ found_opened: true }`
+  and makes the page from the link alone (`questionPage`): plain HTML, "How did you find
+  <business>?", one form whose buttons each post an answer (`tapValue`), the assistants named under
+  the first, and "Skip to the review" styled as the answers are. No script, cookie or image,
+  nothing of Nearcited's, `no-store`, `noindex`, `no-referrer`, and a `Content-Security-Policy` that
+  allows inline style and a form post alone. `POST /r/:token` reads the tap (`readTap`: anything
+  that is not one of the page's own values is `skipped`), queues
+  `{ found: { action_id, answer, assistant } }` and answers 303 to the form the link carries. A
+  failed queue is logged and never keeps a customer from the form. A token this deployment did not
+  sign, a cut-short one, or any token without `CONNECTIONS_KEY`, gets the same "This link is not
+  working" page with 404, and queues nothing. The worker (`recordFound`) counts an opening through
+  `record_found_opened()` and an answer through `record_found_answer()`, both worker only. The
+  latter counts a go-on for the deployment this month (UTC) in `found_question_counts`, then, the
+  first time for the action only (`found_answered`), the answer for the action's location in the
+  location's month in `found_answers`; it reports `counted`, `already` or `gone` (no such review
+  request), and the customer reached the form either way. A request that went to nobody gets
+  `sampleFoundAnswer`, the same for the same request, counted as `sample_data` and not as a
+  go-on. `GET /api/locations/:locationId/found-answers` reads the location's last six months
+  (`FOUND_MONTHS_SHOWN`) through `location_found_answers()`, as the caller, real or made-up as the
+  deployment and the organization are, and the location page's Website tab shows them as "How
+  customers say they found you" (`apps/web/src/components/FoundAnswers.tsx`) where the review
+  requests are on or something was counted. The answers are never added to the visits, and nothing
+  is worked out from them: anyone holding a link can tap anything. Only requests the product sends
+  carry the question; the request an owner sends and the code they print keep the form's own link.
 - **One open action for a thing, and a no is remembered.** `subject` (what it is about) and `basis`
   (what the proposal rests on; here, the proposed text) are the worker's bookkeeping, and no route
   sends them. A partial unique index allows one `proposed` or `approved` action for a location, kind
@@ -2308,7 +2348,13 @@ a caller who is not signed in, and written by no API role, only by `record_page_
 `site_fetches` is the same, written only by the worker's `record_site_fetches()` and read added up
 through `location_site_fetches()` (see "Fetches of a business's own site"), and so is
 `analytics_visits`, written only by the worker's `record_analytics_visits()` and read added up through
-`location_analytics_visits()` (see "Sessions from assistants, read from Google Analytics").
+`location_analytics_visits()` (see "Sessions from assistants, read from Google Analytics"), and so is
+`found_answers`, written only by the worker's `record_found_answer()` and read through
+`location_found_answers()` (see "Actions"). `found_answered`, which says only which review requests
+were answered, has row-level security on, no policy and no grant for any API role, the operator
+included, and `found_question_counts`, the deployment's monthly opens and go-ons, belongs to no
+organization and is read by the operator alone; only the worker's `record_found_answer()` and
+`record_found_opened()` write them.
 `review_request_settings` is read by the organization's members and the operator and written by no
 API role, only by `turn_on_review_requests()` and `replace_receipt_address()`, which answer an owner
 or admin of the location's organization alone, and by the worker's `finish_connection_removal()`

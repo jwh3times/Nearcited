@@ -14,6 +14,7 @@ import {
   ConnectionSchema,
   CustomerContactSchema,
   DraftSchema,
+  FOUND_OUTCOMES,
   type Invitation,
   InvitationSchema,
   LimitChangeSchema,
@@ -21,6 +22,7 @@ import {
   LocationAnalyticsVisitsSchema,
   LocationConnectionSchema,
   LocationFetchesSchema,
+  LocationFoundAnswersSchema,
   LocationSchema,
   LocationVisitsSchema,
   MemberRoleSchema,
@@ -1142,6 +1144,32 @@ export function createSupabaseStore(
     async stopAddress(fingerprint, reason) {
       const { error } = await db.rpc("stop_address", { fingerprint, reason });
       if (error) fail("Record that an address bounced or complained", error);
+    },
+
+    async recordFoundOpened() {
+      const { error } = await db.rpc("record_found_opened");
+      if (error) fail("Count an opening of the found question", error);
+    },
+
+    async recordFoundAnswer(actionId, given, { sample }) {
+      const { data, error } = await db.rpc("record_found_answer", {
+        action: actionId,
+        answer: given.answer,
+        assistant: given.assistant,
+        sample,
+      });
+      if (error) fail("Count a found answer", error);
+      return z.enum(FOUND_OUTCOMES).parse(data);
+    },
+
+    async getLocationFoundAnswers(locationId, sampleData) {
+      // Six months by a short list of answers: bounded, so read in one request.
+      const { data, error } = await db.rpc("location_found_answers", {
+        location: locationId,
+        sample: sampleData,
+      });
+      if (error) fail("Read a location's found answers", error);
+      return LocationFoundAnswersSchema.shape.months.parse(data ?? []);
     },
 
     async dropExpiredHeldContacts() {

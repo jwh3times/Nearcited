@@ -1,6 +1,7 @@
 import {
   isConfidentialCategory,
   type Location,
+  type LocationFoundAnswers,
   type LocationReviewRequests,
   type Organization,
   qualifyingSites,
@@ -189,4 +190,21 @@ reviewRequestRoutes.post("/locations/:locationId/review-requests/address", async
   const kept = await store.replaceReceiptAddress(location.id);
   if (!kept) throw notFound("Review requests");
   return c.json(sentReviewRequests(location, kept));
+});
+
+/**
+ * A location's found answers over the months shown, for anyone who can read the location: how many
+ * customers who followed a review request said each way they found the business, by month (issue
+ * #148). A test organization's, and every one in a deployment on sample data, are the made-up ones.
+ */
+reviewRequestRoutes.get("/locations/:locationId/found-answers", async (c) => {
+  const store = c.get("store");
+  const location = await requireLocation(store, uuidParam(c, "locationId", "Location"));
+  const organization = await store.getOrganization(location.organization_id);
+  if (!organization) throw notFound("Location");
+  const sampleData = usesSampleData(c.env) || organization.is_test;
+  return c.json({
+    months: await store.getLocationFoundAnswers(location.id, sampleData),
+    sample_data: sampleData,
+  } satisfies LocationFoundAnswers);
 });

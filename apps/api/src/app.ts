@@ -9,7 +9,7 @@ import {
   type VisitSent,
   VisitSentSchema,
 } from "@nearcited/shared";
-import { Hono } from "hono";
+import { type Context, Hono } from "hono";
 import { askingKeys } from "./actions/review-requests";
 import { type AuthedUser, type Authenticate, authenticateWithSupabase } from "./auth";
 import { thankForSubscription } from "./billing/started";
@@ -20,6 +20,7 @@ import { DeliveryReportSignatureError, readDeliveryReport } from "./email/delive
 import { type Email, sendEmail } from "./email/report";
 import type { Env } from "./env";
 import { ApiError } from "./errors";
+import { foundRoutes } from "./found";
 import { actionRoutes } from "./routes/actions";
 import { alertRoutes } from "./routes/alerts";
 import { billingRoutes } from "./routes/billing";
@@ -125,6 +126,10 @@ function stripeFromEnv(env: Env): Payments | null {
     ? createStripePayments(env.STRIPE_SECRET_KEY, env.STRIPE_WEBHOOK_SECRET)
     : null;
 }
+
+/** What a path nothing answers gets, under the API or beside it. */
+const noSuchRoute = (c: Context<AppEnv>) =>
+  c.json({ error: { code: "not_found", message: "No such route" } }, 404);
 
 export function createApp(deps: AppDeps = { authenticate: authenticateWithSupabase }) {
   const app = new Hono<AppEnv>().basePath("/api");
@@ -308,7 +313,7 @@ export function createApp(deps: AppDeps = { authenticate: authenticateWithSupaba
   app.route("/", visitRoutes);
   app.route("/", fetchRoutes);
 
-  app.notFound((c) => c.json({ error: { code: "not_found", message: "No such route" } }, 404));
+  app.notFound(noSuchRoute);
 
   app.onError((error, c) => {
     if (error instanceof ApiError) {
@@ -328,5 +333,11 @@ export function createApp(deps: AppDeps = { authenticate: authenticateWithSupaba
     return c.json({ error: { code: "internal", message: "Something went wrong." } }, 500);
   });
 
-  return app;
+  // The API, and beside it the question a review request's link opens on the way to the review
+  // form, which a customer opens with no sign-in and which uses no store (`found.ts`).
+  const root = new Hono<AppEnv>();
+  root.route("/r", foundRoutes);
+  root.route("/", app);
+  root.notFound(noSuchRoute);
+  return root;
 }

@@ -21,6 +21,7 @@ import { Alerts } from "../components/Alerts";
 import { BusinessBlock } from "../components/BusinessBlock";
 import { ErrorNote } from "../components/ErrorNote";
 import { Field } from "../components/Field";
+import { FoundAnswers } from "../components/FoundAnswers";
 import { HostedPages } from "../components/HostedPages";
 import { LocationEditor } from "../components/LocationEditor";
 import { NamedInstead } from "../components/NamedInstead";
@@ -528,6 +529,7 @@ export function LocationDetail() {
               onOpenSettings={openSettings}
               readOnly={readOnly}
             />
+            <FoundAnswers locationId={location.id} allowances={organization?.allowances} />
             <SiteFetches location={location} base={base} />
           </>
         )}

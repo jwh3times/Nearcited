@@ -1,6 +1,7 @@
 import {
   type Location,
   OPT_OUT_SHOWN,
+  REVIEW_FORM_SHOWN,
   type ReceiptDrop,
   type ReviewRequestEmail,
   type ReviewRequestsBar,
@@ -102,15 +103,19 @@ export function barNote(bar: ReviewRequestsBar): string {
   }
 }
 
-/** The email a customer would be sent for `site`, as an owner reads it before approving it. */
+/**
+ * The email a customer would be sent for `site`, as an owner reads it before approving it: with
+ * where each customer's own links go, to the review form by way of "How did you find us?" and to
+ * opt out, as a member is shown each request.
+ */
 export function wordingFor(
   location: Pick<Location, "name">,
-  site: Pick<ReviewSite, "site" | "link">,
+  site: Pick<ReviewSite, "site">,
 ): ReviewRequestEmail {
   return reviewRequestEmail({
     business: location.name,
     site: site.site,
-    link: site.link,
+    link: REVIEW_FORM_SHOWN,
     optOut: OPT_OUT_SHOWN,
   });
 }

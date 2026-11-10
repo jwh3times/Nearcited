@@ -4,6 +4,7 @@ import {
   LocationSchema,
   OPT_OUT_SHOWN,
   OrganizationSchema,
+  REVIEW_FORM_SHOWN,
   ReviewRequestSettingsSchema,
 } from "@nearcited/shared";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -197,7 +198,8 @@ describe("a review request", () => {
       lapses_at: "2026-11-10T15:00:00.000Z",
       due_at: null,
     });
-    expect(proposal?.proposed_text).toContain("https://g.page/r/joes-pizza/review");
+    // The member is shown where each customer's own link to the review form goes (issue #148).
+    expect(proposal?.proposed_text).toContain(REVIEW_FORM_SHOWN);
     expect(proposal?.proposed_text).toContain(
       "Nearcited sends this email for Joe's Pizza. If you reply, your reply goes to Joe's Pizza.",
     );
@@ -243,7 +245,9 @@ describe("a review request", () => {
       subject: "Would you review Joe's Pizza on Google?",
       key: `review-request/${id}`,
     });
-    expect(email?.text).toContain("https://g.page/r/joes-pizza/review");
+    // The customer's own link through the question to the review form (issue #148).
+    expect(email?.text).toMatch(/https:\/\/nearcited\.example\/r\/\S+/);
+    expect(email?.text).not.toContain(REVIEW_FORM_SHOWN);
     expect(email?.text).not.toContain(OPT_OUT_SHOWN);
     const optOut = email?.text.match(/https:\/\/nearcited\.example\/opt-out\/(\S+)/)?.[1] ?? "";
     // The link carries the organization and a fingerprint, signed, and never the address.

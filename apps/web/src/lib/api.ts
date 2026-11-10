@@ -25,6 +25,7 @@ import {
   LocationDetailSchema,
   LocationFetchesSchema,
   type LocationFormValues,
+  LocationFoundAnswersSchema,
   LocationHostedPagesSchema,
   LocationLineSchema,
   LocationReceiptsSchema,
@@ -351,6 +352,9 @@ export const api = {
   /** A location's sessions from assistants, from its Google Analytics property, and where from. */
   getAnalyticsVisits: (locationId: string) =>
     json(LocationAnalyticsVisitsSchema, "GET", `/locations/${locationId}/analytics-visits`),
+  /** What customers who followed a review request said for "How did you find us?", by month. */
+  getFoundAnswers: (locationId: string) =>
+    json(LocationFoundAnswersSchema, "GET", `/locations/${locationId}/found-answers`),
   /** A location's fetches by known fetchers over the last thirty days, and where they come from. */
   getFetches: (locationId: string) =>
     json(LocationFetchesSchema, "GET", `/locations/${locationId}/fetches`),

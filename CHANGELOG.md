@@ -9,6 +9,41 @@ counting builds on a release line.
 
 No unreleased changes.
 
+## [1.7.0] - 2026-11-10
+
+### Added
+
+- A review request asks "How did you find us?" on the way to the review form (#148).
+  - **For the customer:** the link in the email opens a short page in the business's name, with
+    five answers (an AI assistant, and which one if they like; a search; someone they know; been
+    before; something else) and "Skip to the review" with the same weight. Every tap goes straight
+    on to the review form. The page has no script, cookie or image and nothing of Nearcited's, and
+    the link carries no address. A link that was not made by the deployment gets a "This link is
+    not working" page.
+  - **For the business:** the location page shows "How customers say they found you": each answer
+    over the last six months, which assistants were named, and how many answered and skipped each
+    month. It is kept apart from the visits from assistants and never added to them, and nothing
+    else is worked out from it, since anyone holding a link can tap anything. It stays on the page
+    while it has answers to show, after review requests are turned off.
+  - **Counting:** only the first answer for a request counts, by location, month and answer, with
+    nothing about who gave it. A request for a test organization or on sample data gets a made-up
+    answer, marked as sample data.
+  - **Export:** the account export has a `found-answers.csv` sheet.
+  - **What still goes straight to the form:** the request to send by hand and the code to print
+    keep the review form's own link.
+  - The deployment keeps, for the operator alone, how many opened the question and how many went
+    on each month, to judge whether it holds customers back.
+
+## [1.6.2] - 2026-11-09
+
+### Changed
+
+- Dependency updates from Dependabot: `@biomejs/biome` 2.6.4 to 2.6.6, `@anthropic-ai/sdk` 1.4.0
+  to 1.6.0, `@supabase/supabase-js` 2.118.0 to 2.119.0, `@cloudflare/workers-types` 5.20261103.1
+  to 5.20261106.1, `wrangler` 4.156.2 to 4.158.0, `@playwright/test` 1.64.1 to 1.65.0,
+  `@tanstack/react-query` 5.105.3 to 5.106.1, `vite` 8.3.5 to 8.3.6, and `@electric-sql/pglite`
+  0.5.14 to 0.5.15.
+
 ## [1.6.1] - 2026-11-09
 
 ### Fixed
@@ -262,7 +297,9 @@ deployed.
   (`scripts/check-changelog.mjs`); a Dependabot merge gets its section on the next human pull
   request.
 
-[Unreleased]: https://github.com/jwh3times/Nearcited/compare/v1.6.1...HEAD
+[Unreleased]: https://github.com/jwh3times/Nearcited/compare/v1.7.0...HEAD
+[1.7.0]: https://github.com/jwh3times/Nearcited/compare/v1.6.2...v1.7.0
+[1.6.2]: https://github.com/jwh3times/Nearcited/compare/v1.6.1...v1.6.2
 [1.6.1]: https://github.com/jwh3times/Nearcited/compare/v1.6.0...v1.6.1
 [1.6.0]: https://github.com/jwh3times/Nearcited/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/jwh3times/Nearcited/compare/v1.4.0...v1.5.0
