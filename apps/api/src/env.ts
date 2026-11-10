@@ -4,6 +4,7 @@ import type {
   ClosingMessage,
   ConnectionMessage,
   DraftMessage,
+  FoundMessage,
   LimitChangeMessage,
   OptOutMessage,
   PriceChangeMessage,
@@ -20,7 +21,8 @@ export interface Env {
    * reduction in what a plan allows, what the worker is asked to do for a connection, the
    * approved actions it is asked to carry out, the drafts it is asked to write, the
    * accounts it is asked to close, the subscriptions it is asked to fit to their plan, and the
-   * opt-outs, bounces and complaints of review requests it is asked to record.
+   * opt-outs, bounces and complaints of review requests it is asked to record, and what customers
+   * did on the question on the way to the review form.
    */
   SCAN_QUEUE: Queue<
     | ScanMessage
@@ -34,6 +36,7 @@ export interface Env {
     | SubscriptionFitMessage
     | OptOutMessage
     | StoppedAddressMessage
+    | FoundMessage
   >;
 
   SUPABASE_URL: string;

@@ -9,6 +9,7 @@ export * from "./audit";
 export * from "./cited-pages";
 export * from "./drafts";
 export * from "./fetches";
+export * from "./found-answers";
 export * from "./google";
 export * from "./hosted-pages";
 export * from "./inputs";

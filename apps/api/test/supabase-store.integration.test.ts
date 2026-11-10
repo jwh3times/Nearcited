@@ -1760,6 +1760,34 @@ describe.skipIf(!url)("Supabase store against PostgREST", () => {
     expect(
       await receiving.getAskingRecord(crypto.randomUUID(), "fingerprint-of-ann"),
     ).toMatchObject({ opted_out: true });
+    // Found answers (issue #148): the worker counts the first answer for a request, and a member
+    // reads the location's by month; a stranger reads none.
+    await receiving.recordFoundOpened();
+    expect(
+      await receiving.recordFoundAnswer(
+        request?.id ?? "",
+        { answer: "assistant", assistant: "chatgpt" },
+        { sample: false },
+      ),
+    ).toBe("counted");
+    expect(
+      await receiving.recordFoundAnswer(
+        request?.id ?? "",
+        { answer: "search", assistant: null },
+        { sample: false },
+      ),
+    ).toBe("already");
+    expect(
+      await receiving.recordFoundAnswer(
+        crypto.randomUUID(),
+        { answer: "search", assistant: null },
+        { sample: false },
+      ),
+    ).toBe("gone");
+    expect(await aliceStore.getLocationFoundAnswers(asking.id, false)).toEqual([
+      expect.objectContaining({ answer: "assistant", assistant: "chatgpt", count: 1 }),
+    ]);
+    expect(await bobStore.getLocationFoundAnswers(asking.id, false)).toEqual([]);
 
     // Answer subdomains: made by an owner or admin, read by members, checked by the worker.
     const included = await aliceStore.getOrganization(organization.id);

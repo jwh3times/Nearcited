@@ -1,8 +1,8 @@
 import {
+  type ApprovedWording,
   approvedWording,
   type OptOutMessage,
   OptOutMessageSchema,
-  type ReviewRequestEmail,
   type StoppedAddressMessage,
   StoppedAddressMessageSchema,
   siteName,
@@ -35,6 +35,24 @@ export interface AskingKeys {
    * deployment did not sign.
    */
   readOptOutToken(token: string): Promise<OptOutMessage["opt_out"] | null>;
+  /**
+   * What a customer's link to the review form carries (`/r/<token>`): the request's action, the
+   * review form it was sent with and the business's name the email gave, signed, and never the
+   * address. Everything the question's page shows and where it leads is in it, so its route reads
+   * nothing (`docs/adr/0033-a-found-answer-is-counted-on-the-way-to-the-review-form.md`).
+   */
+  foundToken(link: FoundLink): Promise<string>;
+  /** What a link to the review form carries, once its signature is checked: null for any other. */
+  readFoundToken(token: string): Promise<FoundLink | null>;
+}
+
+/** What a customer's link to the review form carries. */
+export interface FoundLink {
+  action_id: string;
+  /** The review form, as the email was sent with it. */
+  form: string;
+  /** The business's name, as the email was sent under it. */
+  business: string;
 }
 
 /** One review request as it is sent. */
@@ -70,7 +88,7 @@ const hex = (bytes: ArrayBuffer) =>
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const FINGERPRINT = /^[0-9a-f]{64}$/;
 
-const base64Url = (bytes: ArrayBuffer) =>
+const base64Url = (bytes: ArrayBuffer | Uint8Array) =>
   btoa(String.fromCharCode(...new Uint8Array(bytes)))
     .replace(/\+/g, "-")
     .replace(/\//g, "_")
@@ -104,6 +122,7 @@ export async function askingKeys(secret: string | undefined): Promise<AskingKeys
   if (!bytes) return null;
   const fingerprintKey = await derived(bytes, "nearcited review request fingerprint");
   const linkKey = await derived(bytes, "nearcited review request opt-out link");
+  const foundKey = await derived(bytes, "nearcited review request found link");
   const sign = (key: CryptoKey, text: string) =>
     crypto.subtle.sign("HMAC", key, encoder.encode(text));
   return {
@@ -127,7 +146,51 @@ export async function askingKeys(secret: string | undefined): Promise<AskingKeys
       );
       return signed ? { organization_id: organizationId, fingerprint } : null;
     },
+    foundToken: async (link) => {
+      const carried = `${FOUND_VERSION}.${base64Url(
+        encoder.encode(JSON.stringify([link.action_id, link.form, link.business])),
+      )}`;
+      return `${carried}.${base64Url(await sign(foundKey, carried))}`;
+    },
+    readFoundToken: async (token) => {
+      const parts = token.split(".");
+      const [version = "", payload = "", signature = ""] = parts;
+      const bytes = fromBase64Url(signature);
+      if (parts.length !== 3 || version !== FOUND_VERSION || !bytes) return null;
+      if (payload.length > LONGEST_FOUND_PAYLOAD || !/^[A-Za-z0-9_-]+$/.test(payload)) return null;
+      const signed = await crypto.subtle.verify(
+        "HMAC",
+        foundKey,
+        bytes,
+        encoder.encode(`${version}.${payload}`),
+      );
+      return signed ? readFoundPayload(payload) : null;
+    },
   };
+}
+
+/**
+ * The version of a link to the review form. A link sent in an email lives for years, so a new
+ * format takes a new version and every earlier one is still read.
+ */
+const FOUND_VERSION = "f1";
+
+/** Longer than any link this deployment signs. Anything longer is not worth a signature check. */
+const LONGEST_FOUND_PAYLOAD = 2048;
+
+/** What a signed link to the review form carries, or null where it is not that. */
+function readFoundPayload(payload: string): FoundLink | null {
+  try {
+    const binary = atob(payload.replace(/-/g, "+").replace(/_/g, "/"));
+    const text = new TextDecoder().decode(Uint8Array.from(binary, (c) => c.charCodeAt(0)));
+    const [action_id, form, business] = JSON.parse(text) as unknown[];
+    if (typeof action_id !== "string" || !UUID.test(action_id)) return null;
+    if (typeof form !== "string" || new URL(form).protocol !== "https:") return null;
+    if (typeof business !== "string" || business === "") return null;
+    return { action_id, form, business };
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -138,7 +201,7 @@ export async function askingKeys(secret: string | undefined): Promise<AskingKeys
 export async function currentWording(
   store: Store,
   locationId: string,
-): Promise<{ settings: KeptReviewRequests; email: ReviewRequestEmail } | null> {
+): Promise<{ settings: KeptReviewRequests; email: ApprovedWording } | null> {
   const [location, settings, listings] = await Promise.all([
     store.getLocation(locationId),
     store.getLocationReviewRequests(locationId),

@@ -9,6 +9,7 @@ import {
   ConnectionMessageSchema,
   type DraftMessage,
   DraftMessageSchema,
+  type FoundMessage,
   type LimitChangeMessage,
   LimitChangeMessageSchema,
   type OptOutMessage,
@@ -63,6 +64,7 @@ import { createLiveDraftWriter, liveDraftKinds } from "./drafts/claude";
 import { buildScanReportEmail, type Email, sendEmail } from "./email/report";
 import { reviewRequestSender } from "./email/review-request";
 import type { Env } from "./env";
+import { readFoundMessage, recordFound } from "./found";
 import {
   createGeocoder,
   createProviders,
@@ -117,8 +119,8 @@ async function reviewRequestsOf(env: Env): Promise<Asking | undefined> {
 const SWEEP_ONLY_CRON = "*/15 * * * *";
 
 export default {
-  // Only /api/* reaches the Worker. Everything else is served from the web app's build output
-  // (see "assets" in wrangler.jsonc).
+  // Only /api/* and /r/* reach the Worker. Everything else is served from the web app's build
+  // output (see "assets" in wrangler.jsonc).
   fetch: app.fetch,
 
   /**
@@ -473,6 +475,19 @@ export default {
         continue;
       }
 
+      // What a customer did on the question on the way to the review form (issue #148).
+      const found = readFoundMessage(message.body);
+      if (found) {
+        try {
+          console.log(`Found answers: ${await recordFound(found, { store })}`);
+          message.ack();
+        } catch (error) {
+          console.error("Counting a found answer failed, will retry", error);
+          message.retry();
+        }
+        continue;
+      }
+
       const parsed = ScanMessageSchema.safeParse(message.body);
       if (!parsed.success) {
         console.error("Dropping malformed scan message", message.body);
@@ -522,4 +537,5 @@ export default {
   | ClosingMessage
   | OptOutMessage
   | StoppedAddressMessage
+  | FoundMessage
 >;

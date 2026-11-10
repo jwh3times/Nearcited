@@ -37,7 +37,9 @@ export interface AssistantReferrers {
  *
  * The line a site carries has its own copy (`apps/web/public/line.js`), kept the same by a test.
  * The database names the assistants too (`visits.assistant`, `record_visit()`,
- * `analytics_visits.assistant` and `record_analytics_visits()`): add one in all six.
+ * `analytics_visits.assistant` and `record_analytics_visits()`), and so do the assistants a
+ * customer may name for "How did you find us?" (`FOUND_ASSISTANTS`, `found_answers.assistant`):
+ * add one in all eight.
  */
 export const ASSISTANT_REFERRERS: Record<VisitAssistant, AssistantReferrers> = {
   // ChatGPT tags the links in its answers, and its apps often name no site they came from.

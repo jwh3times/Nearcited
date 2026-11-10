@@ -24,6 +24,7 @@ export const EXPORT_SHEETS = {
   site_fetches: "site-fetches.csv",
   analytics_visits: "analytics-visits.csv",
   review_requests: "review-requests.csv",
+  found_answers: "found-answers.csv",
 } as const satisfies Partial<Record<keyof AccountExport, string>>;
 
 export type ExportList = keyof typeof EXPORT_SHEETS;

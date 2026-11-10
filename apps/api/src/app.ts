@@ -20,6 +20,7 @@ import { DeliveryReportSignatureError, readDeliveryReport } from "./email/delive
 import { type Email, sendEmail } from "./email/report";
 import type { Env } from "./env";
 import { ApiError } from "./errors";
+import { foundRoutes } from "./found";
 import { actionRoutes } from "./routes/actions";
 import { alertRoutes } from "./routes/alerts";
 import { billingRoutes } from "./routes/billing";
@@ -328,5 +329,11 @@ export function createApp(deps: AppDeps = { authenticate: authenticateWithSupaba
     return c.json({ error: { code: "internal", message: "Something went wrong." } }, 500);
   });
 
-  return app;
+  // The API, and beside it the question a review request's link opens on the way to the review
+  // form, which a customer opens with no sign-in and which uses no store (`found.ts`).
+  const root = new Hono<AppEnv>();
+  root.route("/r", foundRoutes);
+  root.route("/", app);
+  root.notFound((c) => c.json({ error: { code: "not_found", message: "No such route" } }, 404));
+  return root;
 }

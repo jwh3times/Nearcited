@@ -14,6 +14,7 @@ import type {
   LimitChangeNotice,
   Listing,
   Location,
+  LocationFoundAnswers,
   Organization,
   PageFetcher,
   Plan,
@@ -48,6 +49,7 @@ import {
   CONNECTION_KIND_ALLOWANCES,
   DRAFTS_ALLOWANCE,
   FETCHED_PAGES_SHOWN,
+  FOUND_MONTHS_SHOWN,
   hostOf,
   INVITATION_DAYS,
   isConfidentialCategory,
@@ -173,6 +175,15 @@ export interface MemoryDb {
   optedOutAddresses: { organization_id: string; fingerprint: string; opted_out_at: string }[];
   /** The `stopped_addresses` table: the addresses that bounced hard or complained, product-wide. */
   stoppedAddresses: { fingerprint: string; reason: StopReason; stopped_at: string }[];
+  /** The `found_answers` table: how many gave each answer at a location in a month (`YYYY-MM`). */
+  foundAnswers: (LocationFoundAnswers["months"][number] & {
+    location_id: string;
+    sample_data: boolean;
+  })[];
+  /** The `found_answered` table: the review requests whose found answer was counted. */
+  foundAnswered: Set<string>;
+  /** The `found_question_counts` table: the deployment's opens and go-ons, by month (UTC). */
+  foundCounts: Map<string, { opened: number; went_on: number }>;
   /** Every standing permission given, with its organization and when its owners were told. */
   standingPermissions: (StandingPermission & {
     organization_id: string;
@@ -329,6 +340,24 @@ const COUNTS = [
   "searches",
 ] as const;
 
+/** The month (`YYYY-MM`) a moment falls in, in a time zone. */
+function monthIn(timeZone: string, at: string): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+  }).formatToParts(new Date(at));
+  const part = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
+  return `${part("year")}-${part("month")}`;
+}
+
+/** The month (`YYYY-MM`) `count` months before another. */
+function monthsBefore(month: string, count: number): string {
+  const [year = 0, number = 1] = month.split("-").map(Number);
+  const total = year * 12 + (number - 1) - count;
+  return `${Math.floor(total / 12)}-${String((total % 12) + 1).padStart(2, "0")}`;
+}
+
 export function createMemoryDb(): MemoryDb {
   return {
     accounts: [],
@@ -395,6 +424,9 @@ export function createMemoryDb(): MemoryDb {
     askedAddresses: [],
     optedOutAddresses: [],
     stoppedAddresses: [],
+    foundAnswers: [],
+    foundAnswered: new Set(),
+    foundCounts: new Map(),
     hostedPages: [],
     pageFetches: [],
     pauseTold: new Map(),
@@ -1032,6 +1064,7 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
             ...kept,
             receipt_address: receiptAddress(receipt_address),
           })),
+        found_answers: db.foundAnswers.filter((counted) => at.has(counted.location_id)),
       });
     },
 
@@ -2731,6 +2764,74 @@ export function memoryStore(db: MemoryDb, userId: string | null): Store {
         reason,
         stopped_at: db.now ?? new Date().toISOString(),
       });
+    },
+
+    // Mirrors record_found_opened().
+    async recordFoundOpened() {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      const month = monthIn("UTC", db.now ?? new Date().toISOString());
+      const counted = db.foundCounts.get(month) ?? { opened: 0, went_on: 0 };
+      db.foundCounts.set(month, { ...counted, opened: counted.opened + 1 });
+    },
+
+    // Mirrors record_found_answer().
+    async recordFoundAnswer(actionId, given, { sample }) {
+      if (userId !== null) throw new StoreError("forbidden", "worker only");
+      const action = db.actions.find(
+        (kept) => kept.id === actionId && kept.kind === "review_request",
+      );
+      const location = action && db.locations.find((kept) => kept.id === action.location_id);
+      if (!location) return "gone";
+      const at = db.now ?? new Date().toISOString();
+      if (!sample) {
+        const utc = monthIn("UTC", at);
+        const counted = db.foundCounts.get(utc) ?? { opened: 0, went_on: 0 };
+        db.foundCounts.set(utc, { ...counted, went_on: counted.went_on + 1 });
+      }
+      if (db.foundAnswered.has(actionId)) return "already";
+      db.foundAnswered.add(actionId);
+      const month = monthIn(location.time_zone ?? "UTC", at);
+      const same = db.foundAnswers.find(
+        (kept) =>
+          kept.location_id === location.id &&
+          kept.month === month &&
+          kept.answer === given.answer &&
+          kept.assistant === given.assistant &&
+          kept.sample_data === sample,
+      );
+      if (same) same.count += 1;
+      else
+        db.foundAnswers.push({
+          location_id: location.id,
+          month,
+          ...given,
+          count: 1,
+          sample_data: sample,
+        });
+      return "counted";
+    },
+
+    // Mirrors location_found_answers(): as the caller reads, sample data and real apart.
+    async getLocationFoundAnswers(locationId, sampleData) {
+      const location = readableLocation(locationId);
+      if (!location) return [];
+      const now = monthIn(location.time_zone ?? "UTC", db.now ?? new Date().toISOString());
+      const since = monthsBefore(now, FOUND_MONTHS_SHOWN - 1);
+      return db.foundAnswers
+        .filter(
+          (kept) =>
+            kept.location_id === locationId &&
+            kept.sample_data === sampleData &&
+            kept.month >= since &&
+            kept.month <= now,
+        )
+        .map(({ month, answer, assistant, count }) => ({ month, answer, assistant, count }))
+        .sort(
+          (a, b) =>
+            a.month.localeCompare(b.month) ||
+            a.answer.localeCompare(b.answer) ||
+            (a.assistant ?? "").localeCompare(b.assistant ?? ""),
+        );
     },
 
     // Mirrors mark_asked().

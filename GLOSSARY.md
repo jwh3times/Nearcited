@@ -153,6 +153,14 @@ system works; this file only settles vocabulary.
 - **Review request**: one message from the product to one of a business's customers, asking for a
   review on a site that lets a business ask. Sent to every customer alike, once, offering
   nothing.
+- **Found answer**: what a customer taps for "How did you find us?" on the way from a review
+  request to the review form: an assistant, and which if they say, a search, someone they know,
+  having been before, or something else. Optional, put to everyone, and it never decides where
+  they are sent. Counted, never recorded: how many gave each answer at a location in a month, and
+  nothing about who. Kept apart from visits from assistants and never added to them; anyone
+  holding the link can answer anything, so nothing is worked out from it. See
+  `docs/adr/0033-a-found-answer-is-counted-on-the-way-to-the-review-form.md`.
+  _Avoid_: source answer (a source is a cited site).
 - **Customer contact**: a customer's email address and the day their job was finished, held only
   to send one review request and deleted 30 days after it was sent. Nobody sees it in full; the
   record that remains says only whether the address was asked and whether it opted out.

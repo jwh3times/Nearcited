@@ -16,9 +16,10 @@ import {
   pageWords,
   promptOfRule,
   type Recommendation,
+  sampleFoundAnswer,
   underWebsite,
   withDetails,
-  withOptOut,
+  withLinks,
 } from "@nearcited/shared";
 import { type Hosting, readWordPressSignIn, SignInRefused } from "../connections";
 import { tellIndexNow } from "../connections/hosted";
@@ -322,19 +323,31 @@ const reviewRequest: ActionHandler = {
         throw new CannotBeDone("Outgoing email for review requests is not set up.");
       }
       const token = await asking.keys.optOutToken(customer.organization_id, customer.fingerprint);
+      const found = await asking.keys.foundToken({
+        action_id: target.action.id,
+        form: wording.email.form,
+        business: wording.email.sender,
+      });
       const app = asking.appUrl.replace(/\/$/, "");
       await asking.send({
         from_name: wording.email.sender,
         to: customer.address,
         reply_to: wording.settings.reply_to,
         subject: wording.email.subject,
-        // The page a person opens, and the route a mail client's one click posts to.
-        text: withOptOut(text, `${app}/opt-out/${token}`),
+        // The question on the way to the review form, the page a person opens to opt out, and
+        // the route a mail client's one click posts to.
+        text: withLinks(text, { form: `${app}/r/${found}`, optOut: `${app}/opt-out/${token}` }),
         key: `review-request/${target.action.id}`,
         unsubscribe: `${app}/api/opt-out/${token}`,
       });
     }
     await target.store.markAsked(target.action.id, customer.fingerprint);
+    // Nobody follows a request that went to nobody, so its answer is made up and kept as such.
+    if (nothingLeaves) {
+      await target.store.recordFoundAnswer(target.action.id, sampleFoundAnswer(target.action.id), {
+        sample: true,
+      });
+    }
     return undefined;
   },
 };

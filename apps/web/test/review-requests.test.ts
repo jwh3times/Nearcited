@@ -1,4 +1,9 @@
-import { OPT_OUT_SHOWN, RECEIPT_DROPS, REVIEW_REQUESTS_BARS } from "@nearcited/shared";
+import {
+  OPT_OUT_SHOWN,
+  RECEIPT_DROPS,
+  REVIEW_FORM_SHOWN,
+  REVIEW_REQUESTS_BARS,
+} from "@nearcited/shared";
 import { describe, expect, it } from "vitest";
 import { barNote, droppedNote, senderNote, wordingFor } from "../src/lib/review-requests";
 
@@ -8,18 +13,14 @@ describe("the review requests card", () => {
     expect(barNote("no_time_zone")).toMatch(/time zone/);
   });
 
-  it("shows the wording a customer is sent, with the opt-out line, before it is approved", () => {
-    const email = wordingFor(
-      { name: "Joe's Pizza" },
-      {
-        site: "bbb.org",
-        link: "https://www.bbb.org/us/nc/raleigh/profile/pizza/joes/leave-a-review",
-      },
-    );
+  it("shows the wording a customer is sent, with where their own links go, before it is approved", () => {
+    const email = wordingFor({ name: "Joe's Pizza" }, { site: "bbb.org" });
     expect(email.sender).toBe("Joe's Pizza");
     expect(email.body).toContain("Would you leave a review on BBB?");
     expect(email.body).toContain("Nearcited sends this email for Joe's Pizza.");
     expect(email.body.endsWith(OPT_OUT_SHOWN)).toBe(true);
+    // Each customer's own link goes to the review form by way of the question (issue #148).
+    expect(email.body).toContain(REVIEW_FORM_SHOWN);
   });
 
   it("says why receipts were dropped, for every reason there is, counted", () => {

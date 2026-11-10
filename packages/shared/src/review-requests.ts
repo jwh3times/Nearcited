@@ -226,23 +226,44 @@ export function reviewRequestEmail({
 export const OPT_OUT_SHOWN = "[a link to opt out, which works with one click]";
 
 /**
+ * What a member is shown in place of the link to the review form. Each email has its own, through
+ * the product, which asks "How did you find us?" on the way
+ * (`docs/adr/0033-a-found-answer-is-counted-on-the-way-to-the-review-form.md`).
+ */
+export const REVIEW_FORM_SHOWN =
+  '[a link to the review form, asking "How did you find us?" on the way]';
+
+/** The email a location's customers are sent, as approved, and the review form it leads to. */
+export interface ApprovedWording extends ReviewRequestEmail {
+  /** The review form each customer's own link leads to. */
+  form: string;
+}
+
+/**
  * The email a location's customers are sent, as its owner approved it and a member approves each
- * request: with `OPT_OUT_SHOWN` where each customer's own link goes. Null where the location has
- * no review form on the site chosen, so there is nothing to ask for.
+ * request: with `REVIEW_FORM_SHOWN` and `OPT_OUT_SHOWN` where each customer's own links go. Null
+ * where the location has no review form on the site chosen, so there is nothing to ask for.
  */
 export function approvedWording(
   business: string,
   site: string,
   listings: readonly Pick<Listing, "site" | "url">[],
-): ReviewRequestEmail | null {
+): ApprovedWording | null {
   const listing = listings.find((candidate) => candidate.site === site);
-  const link = listing ? askingLink(listing) : null;
-  return link === null ? null : reviewRequestEmail({ business, site, link, optOut: OPT_OUT_SHOWN });
+  const form = listing ? askingLink(listing) : null;
+  if (form === null) return null;
+  const email = reviewRequestEmail({
+    business,
+    site,
+    link: REVIEW_FORM_SHOWN,
+    optOut: OPT_OUT_SHOWN,
+  });
+  return { ...email, form };
 }
 
 /**
- * The email one customer is sent: the approved wording with their own link to opt out where the
- * member was shown `OPT_OUT_SHOWN`.
+ * The email one customer is sent: the approved wording with their own link to the review form and
+ * to opt out where the member was shown `REVIEW_FORM_SHOWN` and `OPT_OUT_SHOWN`.
  */
-export const withOptOut = (wording: string, optOut: string): string =>
-  wording.replace(OPT_OUT_SHOWN, optOut);
+export const withLinks = (wording: string, links: { form: string; optOut: string }): string =>
+  wording.replace(REVIEW_FORM_SHOWN, links.form).replace(OPT_OUT_SHOWN, links.optOut);

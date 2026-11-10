@@ -1827,6 +1827,85 @@ export type StoppedAddressMessage = z.infer<typeof StoppedAddressMessageSchema>;
 export const OptOutAnswerSchema = z.object({ opted_out: z.literal(true) });
 export type OptOutAnswer = z.infer<typeof OptOutAnswerSchema>;
 
+/**
+ * What a customer may tap for "How did you find us?" on the way from a review request to the
+ * review form (issue #148, `docs/adr/0033-a-found-answer-is-counted-on-the-way-to-the-review-form.md`),
+ * and `skipped` for one who went on without answering.
+ */
+export const FOUND_ANSWERS = [
+  "assistant",
+  "search",
+  "someone_they_know",
+  "been_before",
+  "something_else",
+  "skipped",
+] as const;
+export const FoundAnswerSchema = z.enum(FOUND_ANSWERS);
+export type FoundAnswer = z.infer<typeof FoundAnswerSchema>;
+
+/**
+ * Which assistant a customer said, for an `assistant` answer: one of the visit assistants, or
+ * `other` for another one. The database names them too (`found_answers.assistant`).
+ */
+export const FOUND_ASSISTANTS = [
+  "chatgpt",
+  "gemini",
+  "perplexity",
+  "copilot",
+  "claude",
+  "other",
+] as const;
+export const FoundAssistantSchema = z.enum(FOUND_ASSISTANTS);
+export type FoundAssistant = z.infer<typeof FoundAssistantSchema>;
+
+const onlyAnAssistantNamesOne = (given: { answer: FoundAnswer; assistant: unknown }) =>
+  given.answer === "assistant" || given.assistant === null;
+
+/** One found answer as it is counted: an answer, and for an assistant which, or none if not said. */
+export const FoundGivenSchema = z
+  .object({ answer: FoundAnswerSchema, assistant: FoundAssistantSchema.nullable() })
+  .refine(onlyAnAssistantNamesOne, { message: "Only an assistant answer names an assistant" });
+export type FoundGiven = z.infer<typeof FoundGivenSchema>;
+
+/**
+ * A message asking the worker to count what a customer did on the question's page: opened it, or
+ * tapped an answer or the way past it for a review request, by its action. Carries nothing about
+ * the customer.
+ */
+export const FoundMessageSchema = z.union([
+  z.object({ found_opened: z.literal(true) }),
+  z.object({
+    found: z
+      .object({
+        action_id: Id,
+        answer: FoundAnswerSchema,
+        assistant: FoundAssistantSchema.nullable(),
+      })
+      .refine(onlyAnAssistantNamesOne),
+  }),
+]);
+export type FoundMessage = z.infer<typeof FoundMessageSchema>;
+
+/** A month as found answers are counted by: `YYYY-MM`. */
+const Month = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/);
+
+/**
+ * A location's found answers over the months shown (`FOUND_MONTHS_SHOWN`, this one included): how
+ * many gave each answer in a month, of sample data or not. Months and answers with none are absent.
+ */
+export const LocationFoundAnswersSchema = z.object({
+  months: z.array(
+    z.object({
+      month: Month,
+      answer: FoundAnswerSchema,
+      assistant: FoundAssistantSchema.nullable(),
+      count: z.number().int().positive(),
+    }),
+  ),
+  sample_data: z.boolean(),
+});
+export type LocationFoundAnswers = z.infer<typeof LocationFoundAnswersSchema>;
+
 export const ALERT_KINDS = ["drop", "competitor", "site", "phone"] as const;
 export const AlertKindSchema = z.enum(ALERT_KINDS);
 export type AlertKind = z.infer<typeof AlertKindSchema>;
@@ -2758,6 +2837,12 @@ export const ExportReviewRequestsSchema = z.object({
  * wire types the app is sent. Never a sign-in, the operator's record of changes or what the
  * providers were paid. `version` changes when the shape does.
  */
+/** How many customers gave one found answer at a location in a month, as the export lists it. */
+export const ExportFoundAnswerSchema = LocationFoundAnswersSchema.shape.months.element.extend({
+  location_id: Id,
+  sample_data: z.boolean(),
+});
+
 export const AccountExportSchema = z.object({
   version: z.literal(1),
   exported_at: Timestamp,
@@ -2783,6 +2868,7 @@ export const AccountExportSchema = z.object({
   site_fetches: z.array(ExportSiteFetchSchema),
   analytics_visits: z.array(ExportAnalyticsVisitSchema),
   review_requests: z.array(ExportReviewRequestsSchema),
+  found_answers: z.array(ExportFoundAnswerSchema),
 });
 export type AccountExport = z.infer<typeof AccountExportSchema>;
 

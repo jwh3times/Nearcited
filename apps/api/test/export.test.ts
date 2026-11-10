@@ -183,6 +183,7 @@ describe("downloading everything", () => {
       "connections.csv",
       "drafts.csv",
       "everything.json",
+      "found-answers.csv",
       "hosted-pages.csv",
       "invitations.csv",
       "listings.csv",

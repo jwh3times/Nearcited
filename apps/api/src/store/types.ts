@@ -22,6 +22,7 @@ import type {
   Draft,
   DraftKind,
   FetchCount,
+  FoundGiven,
   Invitation,
   InvitedRole,
   LimitChange,
@@ -32,6 +33,7 @@ import type {
   LocationAnalyticsVisits,
   LocationConnection,
   LocationFetches,
+  LocationFoundAnswers,
   LocationInput,
   LocationReceipts,
   LocationVisits,
@@ -800,6 +802,32 @@ export interface Store {
    * fingerprint: no organization asks it again. Worker only.
    */
   stopAddress(fingerprint: string, reason: StopReason): Promise<void>;
+  /**
+   * Counts an opening of the question on the way to a review form, for the deployment this month
+   * (UTC). Worker only.
+   */
+  recordFoundOpened(): Promise<void>;
+  /**
+   * Counts a found answer for a review request, by its action: unless `sample`, once more for the
+   * deployment this month as going on to the form, and the first time for the action only, for its
+   * location in the location's month, as sample data where `sample`. Says what became of it:
+   * `counted`, `already`, where the action was answered before, or `gone`, where there is no
+   * such review request. Worker only.
+   */
+  recordFoundAnswer(
+    actionId: string,
+    given: FoundGiven,
+    options: { sample: boolean },
+  ): Promise<"counted" | "already" | "gone">;
+  /**
+   * A location's found answers over the months shown (`FOUND_MONTHS_SHOWN`, this one included, in
+   * the location's time zone), of sample data or not, for whoever can read the location. For
+   * anyone else there are none.
+   */
+  getLocationFoundAnswers(
+    locationId: string,
+    sampleData: boolean,
+  ): Promise<LocationFoundAnswers["months"]>;
   /** The senders waiting with a receipt held that their owners were not told of. Worker only. */
   listSendersToTell(): Promise<SenderToTell[]>;
   /** Keeps that the owners were told these senders wait. Worker only. */
