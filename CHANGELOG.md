@@ -9,6 +9,22 @@ counting builds on a release line.
 
 No unreleased changes.
 
+## [1.7.2] - 2026-11-10
+
+### Changed
+
+- The installed-skills check (`scripts/check-skills.mjs`) reads the version 2 `skills-lock.json`
+  that `skills` CLI 1.8.0 writes, whose hashes no longer depend on line endings, so the shared
+  skills install with the current CLI instead of a pinned 1.7.4 (#312). The lock is now version 2;
+  no skill's content changed.
+
+## [1.7.1] - 2026-11-10
+
+### Changed
+
+- Dependency updates from Dependabot: `hono` 4.13.16 to 4.13.17, `@cloudflare/workers-types`
+  5.20261106.1 to 5.20261107.1, and `@tanstack/react-query` 5.106.1 to 5.107.1.
+
 ## [1.7.0] - 2026-11-10
 
 ### Added
@@ -297,7 +313,9 @@ deployed.
   (`scripts/check-changelog.mjs`); a Dependabot merge gets its section on the next human pull
   request.
 
-[Unreleased]: https://github.com/jwh3times/Nearcited/compare/v1.7.0...HEAD
+[Unreleased]: https://github.com/jwh3times/Nearcited/compare/v1.7.2...HEAD
+[1.7.2]: https://github.com/jwh3times/Nearcited/compare/v1.7.1...v1.7.2
+[1.7.1]: https://github.com/jwh3times/Nearcited/compare/v1.7.0...v1.7.1
 [1.7.0]: https://github.com/jwh3times/Nearcited/compare/v1.6.2...v1.7.0
 [1.6.2]: https://github.com/jwh3times/Nearcited/compare/v1.6.1...v1.6.2
 [1.6.1]: https://github.com/jwh3times/Nearcited/compare/v1.6.0...v1.6.1
