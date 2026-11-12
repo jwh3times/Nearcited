@@ -1018,6 +1018,8 @@ The repository is set up for Claude Code and Codex.
   local edit, so a fix goes upstream.
 - `.agents/skills/` is the installed source. `.claude/skills/` is generated from it by
   `pnpm sync:agents`, and CI fails if the two differ.
+- `.mcp.json` and `.codex/config.toml` give both the same MCP servers, Context7 and Cloudflare's
+  documentation; `AGENTS.md` "MCP servers" says what else may join them.
 - `docs/agents/` tells the skills where issues live (GitHub Issues and a project board), which
   triage labels to use, where the glossary and decision records go, and how work reaches a
   change through the skills (`.agents/skills/ship/settings/dev-flow.md` and `docs/agents/dev-flow.md`). It also holds the settings the five
