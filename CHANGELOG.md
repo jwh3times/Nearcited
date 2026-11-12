@@ -9,6 +9,29 @@ counting builds on a release line.
 
 No unreleased changes.
 
+## [1.7.6] - 2026-11-12
+
+### Added
+
+- `/what-next`, a shared skill from `jwh3times/skills`, reports what to work on next. It reads the
+  open issues, open PRs and the board, and ranks the work by `Priority` and then the board's manual
+  order, per the new `Priority order` setting in `docs/agents/issue-tracker.md`. It names one item
+  and the command that takes it, and changes nothing on GitHub. The development flow's routing
+  points at it when nothing is chosen yet.
+
+## [1.7.5] - 2026-11-12
+
+### Changed
+
+- Dependency updates from Dependabot: `@vitejs/plugin-react` 6.2.1 to 6.3.0 (#316).
+
+## [1.7.4] - 2026-11-12
+
+### Changed
+
+- Dependency updates from Dependabot: `@cloudflare/workers-types` 5.20261107.1 to 5.20261109.1, in
+  the API and the Pages Worker (#314).
+
 ## [1.7.3] - 2026-11-11
 
 ### Added
@@ -323,7 +346,10 @@ deployed.
   (`scripts/check-changelog.mjs`); a Dependabot merge gets its section on the next human pull
   request.
 
-[Unreleased]: https://github.com/jwh3times/Nearcited/compare/v1.7.3...HEAD
+[Unreleased]: https://github.com/jwh3times/Nearcited/compare/v1.7.6...HEAD
+[1.7.6]: https://github.com/jwh3times/Nearcited/compare/v1.7.5...v1.7.6
+[1.7.5]: https://github.com/jwh3times/Nearcited/compare/v1.7.4...v1.7.5
+[1.7.4]: https://github.com/jwh3times/Nearcited/compare/v1.7.3...v1.7.4
 [1.7.3]: https://github.com/jwh3times/Nearcited/compare/v1.7.2...v1.7.3
 [1.7.2]: https://github.com/jwh3times/Nearcited/compare/v1.7.1...v1.7.2
 [1.7.1]: https://github.com/jwh3times/Nearcited/compare/v1.7.0...v1.7.1

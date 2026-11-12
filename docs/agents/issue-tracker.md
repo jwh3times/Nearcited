@@ -154,3 +154,8 @@ and the issue also carries `blocked` while it has an open one.
 
 The default. The review's detail and exploit-level analysis are kept in the companion, indexed in
 `private/README.md` (`AGENTS.md`, "What lives there").
+
+## Priority order
+
+- `Priority`: `P0 - Now` / `P1 - Next` / `P2 - Soon` / `P3 - Later`.
+- `board order`: the board's manual order, top first, which follows `Priority`.

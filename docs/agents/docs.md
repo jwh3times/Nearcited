@@ -82,8 +82,8 @@
   changes. `.dev.vars.example` lists every string variable in `Env`, defaults included, and leaves
   out the bindings (`ASSETS`, `SCAN_QUEUE`).
 - `.agents/skills/*/**` — skills, mirrored to `.claude/skills/`. The `mattpocock/skills` set in
-  `skills-lock.json`, and `end-session`, `handoff`, `lets-go`, `ship` and `docs-updater` from
-  `jwh3times/skills`: `frozen` here, fixed upstream and reinstalled. **When:** a skill is added,
+  `skills-lock.json`, and `end-session`, `handoff`, `lets-go`, `ship`, `docs-updater` and
+  `what-next` from `jwh3times/skills`: `frozen` here, fixed upstream and reinstalled. **When:** a skill is added,
   removed or replaced: `AGENTS.md` "Agent skills", README "Working with coding agents", and report
   the change to the owner-only `THIRD_PARTY_NOTICES.md` when a skill's source changes.
 - `CHANGELOG.md` — every release, one dated section per merge to `main`, naming the version it
