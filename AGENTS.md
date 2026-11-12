@@ -459,6 +459,25 @@ pass `pnpm check` and run in mock mode without it.
 - No secrets in the repo. Local values go in `apps/api/.dev.vars` and `apps/web/.env.local`, both
   gitignored.
 
+## MCP servers
+
+`.mcp.json` (Claude Code) and `.codex/config.toml` (Codex) give every agent here the same two:
+Context7, for a library's or tool's current documentation, and Cloudflare's documentation server.
+Both read public documentation and need no sign-in. Claude Code asks once to approve a project's
+servers; Codex reads its project file only once the checkout is a trusted project.
+
+- **Change both files and this section together**, so the two harnesses share one set.
+- **A shared server reads public documentation.** One that reaches a production service (the
+  hosted Supabase project, Cloudflare's API, Stripe, Resend) stays out of both files: production
+  steps are the owner's, and Supabase's server reads as an administrator, customers' addresses
+  included, which only the worker may read. The owner may keep Cloudflare's API server in their
+  own config, with read-only access.
+- **A secret reaches a process, never the conversation.** No MCP server reads 1Password or any
+  other secret store: a command that needs a secret runs under `op run` with an env file of
+  references.
+- **Personal servers stay in your own config.** Mail, calendars and git clients are yours; agents
+  here reach Git and GitHub through `git` and `gh`.
+
 ## Agent skills
 
 The skills in `.agents/skills/` are installed from two sources and pinned in `skills-lock.json`:

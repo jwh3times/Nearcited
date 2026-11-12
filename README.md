@@ -468,7 +468,9 @@ docs/           architecture.md: how a scan flows, the tenancy model, and known 
                 domain docs, development flow, and the shared skills' settings.
 .agents/skills/ Agent skills, as installed. Codex reads these.
 .claude/skills/ The same skills, generated for Claude Code. Do not edit.
+.codex/         config.toml: the MCP servers Codex shares, the same as .mcp.json's.
 .github/        CI, changelog, version and deploy workflows, Dependabot config, pull request template.
+.mcp.json       The MCP servers Claude Code shares (AGENTS.md "MCP servers").
 AGENTS.md       The rules a change has to follow. CLAUDE.md imports it.
 CHANGELOG.md    Every release, one section per merge to main.
 ```
@@ -1018,6 +1020,8 @@ The repository is set up for Claude Code and Codex.
   local edit, so a fix goes upstream.
 - `.agents/skills/` is the installed source. `.claude/skills/` is generated from it by
   `pnpm sync:agents`, and CI fails if the two differ.
+- `.mcp.json` and `.codex/config.toml` give both the same MCP servers, Context7 and Cloudflare's
+  documentation; `AGENTS.md` "MCP servers" says what else may join them.
 - `docs/agents/` tells the skills where issues live (GitHub Issues and a project board), which
   triage labels to use, where the glossary and decision records go, and how work reaches a
   change through the skills (`.agents/skills/ship/settings/dev-flow.md` and `docs/agents/dev-flow.md`). It also holds the settings the five

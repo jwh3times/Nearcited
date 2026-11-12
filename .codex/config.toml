@@ -1,0 +1,9 @@
+# The MCP servers every agent in this repository shares. Keep them the same as `.mcp.json`;
+# AGENTS.md "MCP servers" says what may go here. Codex reads this file only once the checkout is
+# a trusted project.
+
+[mcp_servers.context7]
+url = "https://mcp.context7.com/mcp"
+
+[mcp_servers.cloudflare-docs]
+url = "https://docs.mcp.cloudflare.com/mcp"
