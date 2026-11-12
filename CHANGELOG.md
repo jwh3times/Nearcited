@@ -9,6 +9,16 @@ counting builds on a release line.
 
 No unreleased changes.
 
+## [1.7.3] - 2026-11-11
+
+### Added
+
+- Claude Code and Codex share the same MCP servers here: Context7, for a library's current
+  documentation, and Cloudflare's documentation server, in `.mcp.json` and `.codex/config.toml`.
+  `AGENTS.md` "MCP servers" says what else may join them: a shared server reads public
+  documentation only, so none reaches production or reads a secret. Codex reads its file once the
+  checkout is a trusted project.
+
 ## [1.7.2] - 2026-11-10
 
 ### Changed
@@ -313,7 +323,8 @@ deployed.
   (`scripts/check-changelog.mjs`); a Dependabot merge gets its section on the next human pull
   request.
 
-[Unreleased]: https://github.com/jwh3times/Nearcited/compare/v1.7.2...HEAD
+[Unreleased]: https://github.com/jwh3times/Nearcited/compare/v1.7.3...HEAD
+[1.7.3]: https://github.com/jwh3times/Nearcited/compare/v1.7.2...v1.7.3
 [1.7.2]: https://github.com/jwh3times/Nearcited/compare/v1.7.1...v1.7.2
 [1.7.1]: https://github.com/jwh3times/Nearcited/compare/v1.7.0...v1.7.1
 [1.7.0]: https://github.com/jwh3times/Nearcited/compare/v1.6.2...v1.7.0
