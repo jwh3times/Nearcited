@@ -482,7 +482,7 @@ servers; Codex reads its project file only once the checkout is a trusted projec
 
 The skills in `.agents/skills/` are installed from two sources and pinned in `skills-lock.json`:
 the flow skills from [mattpocock/skills](https://github.com/mattpocock/skills), and `end-session`,
-`handoff`, `lets-go`, `ship` and `docs-updater` from
+`handoff`, `lets-go`, `ship`, `docs-updater` and `what-next` from
 [jwh3times/skills](https://github.com/jwh3times/skills). Both are MIT; see
 `THIRD_PARTY_NOTICES.md`.
 
@@ -505,16 +505,18 @@ the flow skills from [mattpocock/skills](https://github.com/mattpocock/skills), 
   run). `docs-updater` keeps the documents true to the code, by the `Doc map` in
   `docs/agents/docs.md`: `/ship` and `/end-session` run it, and run it yourself whenever a
   change touches a route, table, environment variable, command, scan behaviour, CI check or project
-  rule.
+  rule. `what-next` ranks the open issues and pull requests by `## Priority order` in
+  `docs/agents/issue-tracker.md` and recommends what to pick up next; it changes nothing, so an
+  agent may run it unasked.
 
 ### Shared skills
 
 <!-- shared:shared-skills -->
 
-`end-session`, `handoff`, `lets-go`, `ship` and `docs-updater` install from `jwh3times/skills`, and
-are never edited here: reinstalling overwrites a local edit. A fix goes upstream, and what they need
-to know about this repository goes in the settings files under `docs/agents/`, which each skill
-proposes on first run.
+`end-session`, `handoff`, `lets-go`, `ship`, `docs-updater` and `what-next` install from
+`jwh3times/skills`, and are never edited here: reinstalling overwrites a local edit. A fix goes
+upstream, and what they need to know about this repository goes in the settings files under
+`docs/agents/`, which each skill proposes on first run.
 
 The other shared skills come from one `mattpocock/skills` snapshot (v1.3.2, pinned by commit), the
 same in every repository, and are never edited here either: what they need to know goes in this
@@ -526,7 +528,7 @@ Re-running the install is the update; never run `npx skills update`, which leave
 linked to its source instead of copied:
 
 ```bash
-npx skills add jwh3times/skills -s end-session -s handoff -s lets-go -s ship -s docs-updater -a codex --copy -y
+npx skills add jwh3times/skills -s end-session -s handoff -s lets-go -s ship -s docs-updater -s what-next -a codex --copy -y
 npx skills add mattpocock/skills#d1478fcb140db0b93c0c8df17bcfd311844749d0 \
   -s ask-matt -s code-review -s codebase-design -s diagnosing-bugs -s domain-modeling -s grill-me \
   -s grill-with-docs -s grilling -s implement -s improve-codebase-architecture -s prototype \
