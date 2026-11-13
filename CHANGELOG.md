@@ -9,6 +9,15 @@ counting builds on a release line.
 
 No unreleased changes.
 
+## [1.7.7] - 2026-11-12
+
+### Changed
+
+- `/what-next` puts an active handoff first: when `handoff_map.json` names one for this repository,
+  the report leads with it and recommends `/lets-go`, and one whose document has not reached this
+  machine is shown as pending. It still changes nothing, and a machine without the handoffs config
+  skips the check.
+
 ## [1.7.6] - 2026-11-12
 
 ### Added
@@ -346,7 +355,8 @@ deployed.
   (`scripts/check-changelog.mjs`); a Dependabot merge gets its section on the next human pull
   request.
 
-[Unreleased]: https://github.com/jwh3times/Nearcited/compare/v1.7.6...HEAD
+[Unreleased]: https://github.com/jwh3times/Nearcited/compare/v1.7.7...HEAD
+[1.7.7]: https://github.com/jwh3times/Nearcited/compare/v1.7.6...v1.7.7
 [1.7.6]: https://github.com/jwh3times/Nearcited/compare/v1.7.5...v1.7.6
 [1.7.5]: https://github.com/jwh3times/Nearcited/compare/v1.7.4...v1.7.5
 [1.7.4]: https://github.com/jwh3times/Nearcited/compare/v1.7.3...v1.7.4
