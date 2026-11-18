@@ -9,6 +9,16 @@ counting builds on a release line.
 
 No unreleased changes.
 
+## [1.7.11] - 2026-11-18
+
+### Changed
+
+- Claude Code no longer asks permission for the read-only calls agents make most often here. The
+  project allowlist in `.claude/settings.json` now covers reading the project board's items,
+  fields and ID, checking the private companion's status, stash and unpushed commits, DNS lookups
+  with `nslookup`, and the documentation lookups from Context7 and Cloudflare's API server. None of
+  them writes anything.
+
 ## [1.7.10] - 2026-11-18
 
 ### Changed
@@ -385,7 +395,8 @@ deployed.
   (`scripts/check-changelog.mjs`); a Dependabot merge gets its section on the next human pull
   request.
 
-[Unreleased]: https://github.com/jwh3times/Nearcited/compare/v1.7.10...HEAD
+[Unreleased]: https://github.com/jwh3times/Nearcited/compare/v1.7.11...HEAD
+[1.7.11]: https://github.com/jwh3times/Nearcited/compare/v1.7.10...v1.7.11
 [1.7.10]: https://github.com/jwh3times/Nearcited/compare/v1.7.9...v1.7.10
 [1.7.9]: https://github.com/jwh3times/Nearcited/compare/v1.7.8...v1.7.9
 [1.7.8]: https://github.com/jwh3times/Nearcited/compare/v1.7.7...v1.7.8
