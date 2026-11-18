@@ -10,7 +10,17 @@
       "Bash(pnpm sync:agents:*)",
       "Bash(git status:*)",
       "Bash(git diff:*)",
-      "Bash(git log:*)"
+      "Bash(git log:*)",
+      "Bash(git -C private status *)",
+      "Bash(git -C private stash list)",
+      "Bash(git -C private log --branches --not --remotes --oneline)",
+      "Bash(gh project item-list *)",
+      "Bash(gh project field-list *)",
+      "Bash(gh project view *)",
+      "Bash(nslookup *)",
+      "mcp__context7__query-docs",
+      "mcp__context7__resolve-library-id",
+      "mcp__cloudflare-api__docs"
     ]
   }
 }
