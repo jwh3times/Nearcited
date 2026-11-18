@@ -19,3 +19,6 @@ supabase/.temp/
 # Written by the end-to-end tests.
 playwright-report/
 test-results/
+
+# Each machine's own Claude Code settings. Ignored here, not only globally, so Biome skips it too.
+.claude/settings.local.json
