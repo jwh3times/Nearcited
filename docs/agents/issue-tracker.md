@@ -88,6 +88,16 @@ Every new issue, public or private, goes on the board with all four fields set, 
 session that opens it. A private issue on the board stays visible only to people who can read
 the private repository.
 
+## Board and dependency mechanics
+
+- **The board adds a new public issue by itself and can race `gh project item-add`,** which then
+  fails with `Content already exists in this project`. Look the item up and set its fields:
+  `gh project item-list 10 --owner jwh3times --limit 500 --format json --jq '.items[] | select(.content.url == "<url>") | .id'`.
+  Make a publishing script resumable, so a re-run skips issues it already created.
+- **Right after adding or removing a blocker, `issue_dependencies_summary` can still show the old
+  count.** Check the `dependencies/blocked_by` list, or read the summary again a moment later, before
+  concluding the edit failed; don't redo it.
+
 ## Pull requests as a triage surface
 
 **PRs as a request surface: no.** Outside pull requests are not merged (see `CONTRIBUTING.md`), and Dependabot is the only routine pull request author, so `/triage` works on issues only.

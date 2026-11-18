@@ -65,6 +65,10 @@
   subjects, bump and release details, and how a slice that finishes its own ticket links both.
   **When:** one of those changes; the PR template's first line follows the shared flow's linking
   rule.
+- `docs/agents/merging.md`, `docs/agents/local-runs.md` — from open PR to finished merge and
+  deploy, including Dependabot and production steps; the development machine's traps. **When:** a
+  merge, deploy or local-run lesson is learned that no check enforces, or a command they quote
+  changes.
 - `docs/agents/issue-tracker.md`, `docs/agents/triage-labels.md`, `docs/agents/domain.md` — where
   issues live, the board and its fields, the label vocabulary, where the glossary and decision
   records live. **When:** a tracker, a board field or option, or a label changes.
