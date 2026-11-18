@@ -465,7 +465,8 @@ private/        The private companion, when checked out. Ignored here; its own r
 docs/           architecture.md: how a scan flows, the tenancy model, and known gaps.
                 adr/: decisions that are hard to reverse, and why they were made.
                 agents/: the settings the agent skills read: the issue tracker and board, labels,
-                domain docs, development flow, and the shared skills' settings.
+                domain docs, development flow, and the shared skills' settings; merging.md and
+                local-runs.md: merging and deploying, and the development machine's traps.
 .agents/skills/ Agent skills, as installed. Codex reads these.
 .claude/skills/ The same skills, generated for Claude Code. Do not edit.
 .codex/         config.toml: the MCP servers Codex shares, the same as .mcp.json's.
@@ -1027,7 +1028,9 @@ The repository is set up for Claude Code and Codex.
   triage labels to use, where the glossary and decision records go, and how work reaches a
   change through the skills (`.agents/skills/ship/settings/dev-flow.md` and `docs/agents/dev-flow.md`). It also holds the settings the six
   shared skills read: `workspace.md`, `issue-tracker.md`, `human-follow-up.md`, `docs.md`
-  (which document owns which fact), `releases.md`, `ship.md` and `handoffs.md`.
+  (which document owns which fact), `releases.md`, `ship.md` and `handoffs.md`, and two guides
+  agents read directly: `merging.md` (from an open pull request to a finished merge and deploy)
+  and `local-runs.md` (the development machine's traps).
 
 To add or update skills, run the installer for one source at a time, then regenerate the copy.
 The `mattpocock/skills` snapshot's command, pinned by commit, is in `AGENTS.md`. Never run

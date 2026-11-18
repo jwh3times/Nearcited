@@ -9,6 +9,36 @@ counting builds on a release line.
 
 No unreleased changes.
 
+## [1.7.10] - 2026-11-18
+
+### Changed
+
+- What agents learned about merging, deploying and running the project locally now lives in the
+  repository, where every agent and machine reads it, instead of one machine's memory.
+  `docs/agents/merging.md` covers the merge order changelog versions need, catching a Dependabot PR
+  up with `@dependabot rebase`, reading a check stuck at pending, and how to hand production steps
+  to the maintainer. `docs/agents/local-runs.md` covers the traps of a machine shared with other
+  projects and taking a headless screenshot of the web app. `docs/agents/issue-tracker.md` adds how
+  the board and issue dependencies can lag behind a change. `AGENTS.md` says when to read each
+  guide.
+
+## [1.7.9] - 2026-11-16
+
+### Changed
+
+- Dependency updates from Dependabot: `@biomejs/biome` 2.6.6 to 2.6.7, `@anthropic-ai/sdk` 1.7.0
+  to 1.8.0, `hono` 4.13.17 to 4.13.18, `resend` 6.37.0 to 6.38.0, `@cloudflare/workers-types`
+  5.20261110.1 to 5.20261113.1, `wrangler` 4.159.0 to 4.161.0, and `vite` 8.3.7 to 8.3.8 (#320).
+
+## [1.7.8] - 2026-11-13
+
+### Changed
+
+- Dependency updates from Dependabot: `supabase` 3.0.0 to 3.1.0, `@anthropic-ai/sdk` 1.6.0 to
+  1.7.0, `@cloudflare/workers-types` 5.20261109.1 to 5.20261110.1, `wrangler` 4.158.0 to 4.159.0,
+  `vite` 8.3.6 to 8.3.7, `@electric-sql/pglite` 0.5.15 to 0.5.16, and `libphonenumber-js` 1.13.15
+  to 1.13.16 (#319).
+
 ## [1.7.7] - 2026-11-12
 
 ### Changed
@@ -355,7 +385,10 @@ deployed.
   (`scripts/check-changelog.mjs`); a Dependabot merge gets its section on the next human pull
   request.
 
-[Unreleased]: https://github.com/jwh3times/Nearcited/compare/v1.7.7...HEAD
+[Unreleased]: https://github.com/jwh3times/Nearcited/compare/v1.7.10...HEAD
+[1.7.10]: https://github.com/jwh3times/Nearcited/compare/v1.7.9...v1.7.10
+[1.7.9]: https://github.com/jwh3times/Nearcited/compare/v1.7.8...v1.7.9
+[1.7.8]: https://github.com/jwh3times/Nearcited/compare/v1.7.7...v1.7.8
 [1.7.7]: https://github.com/jwh3times/Nearcited/compare/v1.7.6...v1.7.7
 [1.7.6]: https://github.com/jwh3times/Nearcited/compare/v1.7.5...v1.7.6
 [1.7.5]: https://github.com/jwh3times/Nearcited/compare/v1.7.4...v1.7.5

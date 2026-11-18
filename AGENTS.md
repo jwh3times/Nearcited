@@ -562,7 +562,11 @@ which exist in both trackers. See `docs/agents/triage-labels.md`.
 ### Development flow
 
 See [Development flow](#development-flow) above, `.agents/skills/ship/settings/dev-flow.md` for the whole flow, and
-`docs/agents/dev-flow.md` for what this repository adds.
+`docs/agents/dev-flow.md` for what this repository adds. Past `/ship`, `docs/agents/merging.md`
+takes an open pull request through the merge and the deploy: read it before merging, catching up a
+Dependabot pull request or running anything against the hosted project. `docs/agents/local-runs.md`
+holds the development machine's traps: read it before stopping a Worker or a container, or
+screenshotting the app.
 
 ### Domain docs
 
