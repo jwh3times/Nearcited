@@ -9,6 +9,22 @@ counting builds on a release line.
 
 No unreleased changes.
 
+## [1.7.13] - 2026-11-18
+
+### Changed
+
+- The repository's own `.gitignore` now ignores `.claude/settings.local.json`, each machine's Claude
+  Code settings. Until now only a global git ignore hid it, which Biome does not read, so `pnpm lint`
+  failed whenever a session wrote the file in a layout Biome would reformat.
+
+## [1.7.12] - 2026-11-18
+
+### Changed
+
+- Dependency updates from Dependabot: `@biomejs/biome` 2.6.7 to 2.6.8, `resend` 6.38.0 to 6.38.1,
+  `@cloudflare/workers-types` 5.20261113.1 to 5.20261115.1, `wrangler` 4.161.0 to 4.162.0, and
+  `@playwright/test` 1.65.0 to 1.65.1 (#325).
+
 ## [1.7.11] - 2026-11-18
 
 ### Changed
@@ -395,7 +411,9 @@ deployed.
   (`scripts/check-changelog.mjs`); a Dependabot merge gets its section on the next human pull
   request.
 
-[Unreleased]: https://github.com/jwh3times/Nearcited/compare/v1.7.11...HEAD
+[Unreleased]: https://github.com/jwh3times/Nearcited/compare/v1.7.13...HEAD
+[1.7.13]: https://github.com/jwh3times/Nearcited/compare/v1.7.12...v1.7.13
+[1.7.12]: https://github.com/jwh3times/Nearcited/compare/v1.7.11...v1.7.12
 [1.7.11]: https://github.com/jwh3times/Nearcited/compare/v1.7.10...v1.7.11
 [1.7.10]: https://github.com/jwh3times/Nearcited/compare/v1.7.9...v1.7.10
 [1.7.9]: https://github.com/jwh3times/Nearcited/compare/v1.7.8...v1.7.9
