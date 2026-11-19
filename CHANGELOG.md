@@ -9,6 +9,16 @@ counting builds on a release line.
 
 No unreleased changes.
 
+## [1.7.14] - 2026-11-18
+
+### Changed
+
+- `docs/agents/merging.md` records two lessons from merging a Dependabot PR. An `@dependabot rebase`
+  can go unanswered, so it is posted once more when Dependabot has not reacted within a few
+  minutes. Dependabot may also answer by closing the PR and opening a replacement, which is then
+  the one to merge, after its diff is read again for new packages. And CodeQL's analysis does not
+  run on a Dependabot PR, which still merges.
+
 ## [1.7.13] - 2026-11-18
 
 ### Changed
@@ -411,7 +421,8 @@ deployed.
   (`scripts/check-changelog.mjs`); a Dependabot merge gets its section on the next human pull
   request.
 
-[Unreleased]: https://github.com/jwh3times/Nearcited/compare/v1.7.13...HEAD
+[Unreleased]: https://github.com/jwh3times/Nearcited/compare/v1.7.14...HEAD
+[1.7.14]: https://github.com/jwh3times/Nearcited/compare/v1.7.13...v1.7.14
 [1.7.13]: https://github.com/jwh3times/Nearcited/compare/v1.7.12...v1.7.13
 [1.7.12]: https://github.com/jwh3times/Nearcited/compare/v1.7.11...v1.7.12
 [1.7.11]: https://github.com/jwh3times/Nearcited/compare/v1.7.10...v1.7.11
