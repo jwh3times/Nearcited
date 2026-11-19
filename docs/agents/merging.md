@@ -20,6 +20,11 @@ migrations first; what an agent may never run is in [workspace](workspace.md#dev
   `gh pr comment <n> --body "@dependabot rebase"`, wait for the head sha to change and CI to rerun,
   then merge. A Dependabot merge mints a version with no changelog section, which the next `/ship`
   backfills.
+- **`@dependabot rebase` can go unanswered.** Dependabot reacts to a command it takes within about a
+  minute; with no reaction after a few minutes, post it once more. It may instead close the PR
+  ("Looks like these dependencies are updatable in another way") and open a replacement that is
+  already current with `main` and may carry more bumps: merge the replacement, after reading its
+  diff again for new packages.
 
 ## Reading CI
 
@@ -28,6 +33,8 @@ migrations first; what an agent may never run is in [workspace](workspace.md#dev
   `gh run view <id> --json status,conclusion,jobs` and the log before waiting longer; if the job
   finished, `gh run rerun <run-id>` gives a real result within a minute. To wait for a release, watch
   for the tag and the Deploy run, not the Version run's listed status.
+- **CodeQL skips a Dependabot PR.** Its `Analyze` jobs do not run and the `CodeQL` check reports
+  `skipping`; the PR still shows `CLEAN` and merges. On a human PR it runs.
 - **A failure before any test ran is the runner's.** "End-to-end in a browser" failing at
   `supabase start` with `address already in use` on 54322 passed on `gh run rerun <id> --failed`.
   Read `gh run view <id> --log-failed` first.
