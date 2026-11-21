@@ -28,7 +28,8 @@ hosted pages on businesses' answer subdomains, and Supabase for Postgres and aut
   any `.claude/agents`), and the shared blocks in this file, after installing or changing a skill.
 - `pnpm lint:agents`: check that the agent and skill sources read correctly from their generated
   copies.
-- `pnpm changelog:check`: check `CHANGELOG.md` has the section for the version this merge mints.
+- `pnpm changelog:check`: check the branch's `changelog.d/` fragment, and that it changed no
+  `CHANGELOG.md` section (`Version` stamps them after the merge).
 - `pnpm migrations:check`: fail if the branch changes a migration already on `main`.
 
 ## Development flow
@@ -539,8 +540,9 @@ node scripts/sync-agents.mjs
 ```
 
 `scripts/sync-agents.mjs`, `lint-agent-neutrality.mjs`, `check-docs.mjs`, `check-skills.mjs`, and
-`sync-main.mjs`, `next-version.mjs` and `check-changelog.mjs` where this repository carries them, are
-canonical in `jwh3times/skills` with their tests: fix them there, then copy them here.
+`sync-main.mjs`, `next-version.mjs`, `check-changelog.mjs` and `stamp-changelog.mjs` where this
+repository carries them, are canonical in `jwh3times/skills` with their tests: fix them there, then
+copy them here.
 `sync-agents.mjs` also writes the marked blocks in this file: change them in `jwh3times/skills`, not
 here.
 

@@ -14,6 +14,7 @@
       "!scripts/check-skills*.mjs",
       "!scripts/next-version*.mjs",
       "!scripts/check-changelog*.mjs",
+      "!scripts/stamp-changelog*.mjs",
       "!.agents",
       "!.claude/skills"
     ]

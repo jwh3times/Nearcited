@@ -1,56 +1,109 @@
 name: Version
 
-# Tags every merge to main as a release, v<major>.<minor>.<build>, and creates its GitHub release.
-# The release line comes from the root package.json, whose patch slot counts builds: the first
-# merge on a line uses package.json's value exactly (bumping to 1.2.0 mints v1.2.0), and later
-# merges on the line count up from the newest tag. scripts/next-version.mjs makes the computation,
-# the same one the changelog check makes on the pull request, so the tag is the version the merge's
-# CHANGELOG.md section names.
+# Releases every merge to main as v<major>.<minor>.<build> (`Scheme: stamp-on-tag`,
+# docs/adr/0034-a-merges-changelog-section-is-written-when-it-is-tagged.md).
 #
-# A tag rather than a version commit back to main: it works on a protected branch and never
-# re-triggers CI. The Deploy workflow runs when this one succeeds, so what deploys is a tagged
-# release. To see which release a checkout is: git describe --tags
+# On each push to main this runs scripts/stamp-changelog.mjs, which walks main's first-parent
+# history back to the newest v<major>.<minor>.<build> tag and, for each untagged merge, oldest first:
+#   - builds its dated CHANGELOG.md section from the changelog.d/ fragments that merge added, or
+#     from its pull request's title when it added none (a Dependabot PR, say);
+#   - computes its version the way scripts/next-version.mjs does, from the root package.json's
+#     release line at that merge and the tags so far: the first merge on a line uses package.json's
+#     value exactly, and later ones count the build up from the newest tag;
+#   - tags the merge commit itself, so a tag is exactly the code that merge deployed.
+# It makes one stamp commit, `chore(release): v<x.y.z>[, ...] [skip ci]`, that adds the sections
+# and their footer links and deletes the used fragments. This job pushes that commit and the tags
+# in one atomic push, then creates a GitHub release per tag from its section.
+#
+# The push uses a token from the release GitHub App, which the main ruleset lists as its bypass
+# actor: GITHUB_TOKEN cannot bypass a ruleset. The App's client ID is the RELEASE_APP_CLIENT_ID
+# variable and its private key the RELEASE_APP_PRIVATE_KEY secret. `[skip ci]` keeps the App's push
+# from starting CI or this workflow again, so no run of this workflow is for a stamp commit.
+#
+# The Deploy workflow runs when this one succeeds and deploys the commit this run was for, the
+# merge, never main's tip, which by then is the stamp commit. When main moves during a run, the
+# push is refused as non-fast-forward; that is benign: this run still succeeds, so its merge
+# deploys, and the run waiting behind it stamps and tags both merges. That merge's tag then arrives
+# shortly after its deploy rather than before it.
+#
+# To see which release a checkout is: git describe --tags
 on:
   push:
     branches: [main]
 
 permissions:
-  contents: write # to push the tag and create the release
+  contents: write # gh release create with GITHUB_TOKEN
 
-# Two merges close together must not compute the same tag.
+# Runs take turns and never cancel the one running: a run waiting here starts from main's new tip
+# and stamps every merge the run before it did not.
 concurrency:
   group: version-main
   cancel-in-progress: false
 
 jobs:
   tag:
-    name: Tag and release
+    name: Stamp the changelog, tag and release
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
+      - name: Create a release App token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
       - uses: actions/checkout@v7
         with:
-          fetch-depth: 0 # every tag, to count the builds on the line
+          ref: main # main's tip, not the pushed commit: a later merge may already be on it
+          fetch-depth: 0 # full history and every tag, to find the untagged merges
+          token: ${{ steps.app-token.outputs.token }}
       - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
           # This job needs only Node. Without this, setup-node sees packageManager in
           # package.json and looks for pnpm to set up a cache.
           package-manager-cache: false
-      - name: Tag the merge and create its release
+      - name: Stamp the changelog and push the tags
+        id: stamp
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
+        run: |
+          bot="${APP_SLUG}[bot]"
+          bot_id=$(gh api "/users/${bot}" --jq .id)
+          git config user.name "$bot"
+          git config user.email "${bot_id}+${bot}@users.noreply.github.com"
+
+          node scripts/stamp-changelog.mjs --notes-dir "$RUNNER_TEMP/notes" > "$RUNNER_TEMP/tags.txt"
+          if [ ! -s "$RUNNER_TEMP/tags.txt" ]; then
+            echo "Every merge on main is tagged; nothing to release." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          tags=$(cut -d' ' -f1 "$RUNNER_TEMP/tags.txt")
+
+          refs=()
+          for tag in $tags; do refs+=("refs/tags/${tag}"); done
+          if ! git push --atomic origin HEAD:main "${refs[@]}" 2> "$RUNNER_TEMP/push.log"; then
+            cat "$RUNNER_TEMP/push.log" >&2
+            # Only main moving is benign: the run waiting behind this one stamps both merges.
+            if grep -Eq 'HEAD -> main \((fetch first|non-fast-forward)\)' "$RUNNER_TEMP/push.log"; then
+              echo "::notice::main moved during this run; the next run releases these merges."
+              echo "main moved during this run; the next run releases these merges." >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            exit 1
+          fi
+          cat "$RUNNER_TEMP/push.log" >&2
+          echo "released=true" >> "$GITHUB_OUTPUT"
+      - name: Create the GitHub releases
+        if: steps.stamp.outputs.released == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # A rerun finds the tag it made and makes no second one.
-          tag=$(git tag --points-at "$GITHUB_SHA" --list 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1 || true)
-          if [ -z "$tag" ]; then
-            tag="v$(node scripts/next-version.mjs)"
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git tag -a "$tag" -m "Release $tag"
-            git push origin "refs/tags/$tag"
-          fi
-          if ! gh release view "$tag" >/dev/null 2>&1; then
-            gh release create "$tag" --target "$GITHUB_SHA" --title "$tag" \
-              --notes "Release $tag. What changed is in CHANGELOG.md."
-          fi
-          echo "### Released \`$tag\` from \`$GITHUB_SHA\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Released" >> "$GITHUB_STEP_SUMMARY"
+          while read -r tag sha; do
+            gh release create "$tag" --verify-tag --title "$tag" \
+              --notes-file "$RUNNER_TEMP/notes/${tag}.md"
+            echo "- \`${tag}\` on \`${sha}\`" >> "$GITHUB_STEP_SUMMARY"
+          done < "$RUNNER_TEMP/tags.txt"

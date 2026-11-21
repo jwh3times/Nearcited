@@ -6,7 +6,8 @@ adds.
 ## Commit subjects
 
 The branch's type is for the branch only; commit subjects stay plain sentences in the imperative, with
-no type prefix.
+no type prefix. The one exception is the Version workflow's stamp commit,
+`chore(release): v<x.y.z> [skip ci]`, which the canonical script writes.
 
 ## Exemption details
 
@@ -15,10 +16,11 @@ no type prefix.
 
 ## Release prep
 
-A commit that only readies a release: the `CHANGELOG.md` section for the version the merge mints,
-and, for a new major or minor line, the root `package.json` `version`. Every merge to `main` is a
-release: the Version workflow tags it, and the Deploy workflow applies its migrations and deploys it
-(`docs/agents/releases.md`). A merge is therefore a production deploy, and a migration in it reaches
+A commit that only readies a release: the branch's `changelog.d/` fragment, a backfilled section for
+a version tagged before the move to `stamp-on-tag` with none, and, for a new major or minor line, the
+root `package.json` `version`. No branch names the version its merge mints. Every merge to `main` is
+a release: the Version workflow stamps its section and tags it, and the Deploy workflow applies its
+migrations and deploys it (`docs/agents/releases.md`). A merge is therefore a production deploy, and a migration in it reaches
 the hosted project before its Worker does.
 
 ## Linking

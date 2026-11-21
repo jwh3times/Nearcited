@@ -9,17 +9,17 @@ migrations first; what an agent may never run is in [workspace](workspace.md#dev
   merge's Version tag and Deploy run follow on their own; watching them and reading the Deploy log
   is the agent's part. Running a hosted push or the Deploy workflow directly is not: hand those to
   the maintainer.
-- **Merge several PRs in changelog-version order.** First the PR whose `CHANGELOG.md` section claims
-  the next version; wait for its `v*` tag (`git tag --points-at origin/main`) before the next merge,
-  or that PR's changelog check breaks and needs a re-ship.
+- **Open PRs merge in any order.** No branch names a version: each carries a `changelog.d/`
+  fragment, and the Version workflow stamps the merge's section and tags it
+  (`docs/agents/releases.md`), so catching up never touches the changelog.
 - **`main` requires up-to-date branches**, so every other open PR then shows `BEHIND`:
   `gh pr update-branch <n>`, wait for its checks to pass again (about five minutes), then merge.
+  Merge it once the previous merge's stamp commit, `chore(release): v<x.y.z> [skip ci]`, is on
+  `main` (`git log -1 origin/main`): an update made before it lands leaves the PR behind again.
 - **A Dependabot PR catches up with `@dependabot rebase`**, never `gh pr update-branch` or a merge of
-  `main`: those put a human-authored commit at the branch tip, and `ship`'s changelog backfill
-  credits a version to the bot only when the merged branch's author is `dependabot[bot]`. Comment
+  `main`: a merge commit pushed to its branch stops Dependabot from rebasing it later. Comment
   `gh pr comment <n> --body "@dependabot rebase"`, wait for the head sha to change and CI to rerun,
-  then merge. A Dependabot merge mints a version with no changelog section, which the next `/ship`
-  backfills.
+  then merge. It writes no fragment, and its merge gets a section from its PR title.
 - **`@dependabot rebase` can go unanswered.** Dependabot reacts to a command it takes within about a
   minute; with no reaction after a few minutes, post it once more. It may instead close the PR
   ("Looks like these dependencies are updatable in another way") and open a replacement that is
@@ -32,7 +32,9 @@ migrations first; what an agent may never run is in [workspace](workspace.md#dev
   `pending` for 15 minutes while `gh run view <id>` said the run had succeeded. Read
   `gh run view <id> --json status,conclusion,jobs` and the log before waiting longer; if the job
   finished, `gh run rerun <run-id>` gives a real result within a minute. To wait for a release, watch
-  for the tag and the Deploy run, not the Version run's listed status.
+  for the tag (`git tag --points-at <merge sha>`) and the Deploy run, not the Version run's listed
+  status. A Version run that found `main` moved succeeds with the notice "main moved during this
+  run" and tags nothing: its merge still deploys, and the run after it tags it.
 - **CodeQL skips a Dependabot PR.** Its `Analyze` jobs do not run and the `CodeQL` check reports
   `skipping`; the PR still shows `CLEAN` and merges. On a human PR it runs.
 - **A failure before any test ran is the runner's.** "End-to-end in a browser" failing at
