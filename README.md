@@ -458,9 +458,10 @@ scripts/        integration-db.sh prepares a plain Postgres for the store integr
                 check-skills.mjs checks the installed skills against skills-lock.json and the shared
                 install commands.
                 check-docs.mjs checks local doc links and that the doc map lists every document.
-                next-version.mjs computes the version a merge mints; check-changelog.mjs checks
-                CHANGELOG.md has its section; check-migrations.mjs fails a branch that changes a
-                merged migration.
+                next-version.mjs computes the version a merge mints; stamp-changelog.mjs writes
+                each merge's CHANGELOG.md section from its fragments and tags it; check-changelog.mjs
+                checks a branch's fragment and that it changed no section; check-migrations.mjs
+                fails a branch that changes a merged migration.
 private/        The private companion, when checked out. Ignored here; its own repository.
 docs/           architecture.md: how a scan flows, the tenancy model, and known gaps.
                 adr/: decisions that are hard to reverse, and why they were made.
@@ -473,7 +474,8 @@ docs/           architecture.md: how a scan flows, the tenancy model, and known 
 .github/        CI, changelog, version and deploy workflows, Dependabot config, pull request template.
 .mcp.json       The MCP servers Claude Code shares (AGENTS.md "MCP servers").
 AGENTS.md       The rules a change has to follow. CLAUDE.md imports it.
-CHANGELOG.md    Every release, one section per merge to main.
+CHANGELOG.md    Every release, one section per merge to main, written when the merge is tagged.
+changelog.d/    Each branch's changelog entries, one fragment per branch, until its merge is stamped.
 ```
 
 ## Run it locally
@@ -581,7 +583,7 @@ None of these files is committed. `apps/api/.dev.vars.example`, `apps/web/.env.e
 | `pnpm sync:agents` | Regenerate `.claude/skills` and `.codex/agents` from their sources, and the shared blocks in `AGENTS.md` |
 | `pnpm sync:agents:check` | Fail if a generated copy or shared block is stale |
 | `pnpm lint:agents` | Fail if an agent or skill source reads wrongly from its generated copy |
-| `pnpm changelog:check` | Fail unless `CHANGELOG.md` has a section for the version this branch's merge will mint, and for every released version |
+| `pnpm changelog:check` | Fail if this branch adds, removes or renumbers a `CHANGELOG.md` section (a backfill for a version already tagged with none aside), adds entries to `Unreleased`, changes a fragment already on `main`, or adds a `changelog.d/` fragment that does not parse |
 | `pnpm migrations:check` | Fail if this branch edits, renames or deletes a migration `origin/main` already has (`-- --base <ref>` compares with another) |
 
 `audit:create` takes `--name` and `--city` (required), `--region`, `--country` (default `US`),
@@ -907,13 +909,15 @@ is there, nothing copied to a receipt address reaches the Worker.
 
 Review requests are sent through Resend from an address on a sending subdomain of the product's own, kept apart from the address reports come from. Verify that subdomain with Resend, adding the DNS records Resend gives to the zone, then set the address as `REVIEW_REQUESTS_FROM` on the Worker (above). Until both are done, an approved review request fails with "Outgoing email for review requests is not set up." For a hard bounce or a complaint to stop an address, add a webhook in Resend pointing at `<APP_URL>/api/resend/webhook`, sent the `email.bounced` and `email.complained` events, and set its signing secret as `RESEND_WEBHOOK_SECRET` on the Worker (above). Until then the route answers 503, and an address that bounced or complained can still be asked by a business that has not asked it before.
 
-Every merge to `main` is a release. `.github/workflows/version.yml` tags it with the version its
-`CHANGELOG.md` section names, and `.github/workflows/deploy.yml` then deploys that commit: it runs
+Every merge to `main` is a release. `.github/workflows/version.yml` writes its `CHANGELOG.md`
+section from the branch's `changelog.d/` fragment (or its pull request's title, with none) and tags
+it, and `.github/workflows/deploy.yml`
+then deploys that merge commit, never the stamp commit that carries the section: it runs
 the tests, lists the migrations the hosted project has not applied (`pnpm exec supabase db push
 --remote --dry-run`, with the CLI the lockfile pins), applies them, and only then does step 4. A
 failed migration stops the deploy, and the Workers already live keep running. The workflow can
 also be run by hand, which deploys the branch it is run on. It reads its credentials from the 1Password `Nearcited` vault at run time,
-so GitHub holds one secret, `OP_SERVICE_ACCOUNT_TOKEN`, for a service account that can read only
+so the one secret GitHub holds for it is `OP_SERVICE_ACCOUNT_TOKEN`, for a service account that can read only
 that vault. The vault items it expects are named at the top of that file: the Cloudflare token and
 account, the deploy key for the private companion, and the `Supabase` item's `access_token` and
 `database_password`. The project's ref comes from `VITE_SUPABASE_URL`. GitHub's runners have no
@@ -950,8 +954,9 @@ answers 503 `drafts_unavailable`, except for a test organization, whose drafts a
   lists every document (`scripts/check-docs.mjs`); and `End-to-end in a browser`, which runs
   `pnpm e2e` against a local Supabase stack.
 - **`main` is protected by a ruleset.** Changes arrive by pull request with the required checks
-  passing on an up-to-date branch and review threads resolved. Force pushes and deleting the
-  branch are blocked. A CodeQL security alert of medium severity or higher blocks the merge, and
+  passing on an up-to-date branch and review threads resolved, merged with a merge commit. Force
+  pushes and deleting the branch are blocked. The release GitHub App is the one bypass actor, so
+  that Version can push its stamp commit. A CodeQL security alert of medium severity or higher blocks the merge, and
   so does any other alert that is an error or a warning. Copilot reviews each push.
 - **Dependabot** (`.github/dependabot.yml`) checks npm and GitHub Actions versions every day at
   05:00 US Eastern. Minor and patch updates arrive as one pull request per ecosystem; majors
@@ -960,15 +965,23 @@ answers 503 `drafts_unavailable`, except for a test organization, whose drafts a
 - **Secret scanning with push protection** and **private vulnerability reporting** are on. See
   [SECURITY.md](SECURITY.md) for how to report a problem.
 - **Changelog Version** (`.github/workflows/changelog.yml`) runs on every pull request:
-  `Changelog names the version this merge mints` fails unless `CHANGELOG.md` has a section for
-  the version `scripts/next-version.mjs` predicts, and for every version already released.
-  Dependabot's pull requests pass it, and the next human pull request writes their sections. It
-  is a required check.
-- **Version** (`.github/workflows/version.yml`) tags every merge to `main` `v<major>.<minor>.<build>`
-  and creates its GitHub release. The release line is the root `package.json`'s `version`; each
-  merge on the line counts the build up by one.
-- **Deploy** (`.github/workflows/deploy.yml`) runs when Version succeeds, and by hand. It applies
-  the hosted project's pending migrations, then deploys both Workers (see [Deploy](#deploy)). When
+  `Changelog names the version this merge mints`, a name kept from before the move to fragments,
+  fails a branch that adds, removes or renumbers a `CHANGELOG.md` section, adds entries to
+  `Unreleased`, changes a fragment already on `main`, or adds a `changelog.d/` fragment that does
+  not parse. A branch with no fragment passes, Dependabot's included. It is a required check.
+- **Version** (`.github/workflows/version.yml`) runs on every merge to `main`: it writes the merge's
+  dated `CHANGELOG.md` section from its fragments, or from its pull request's title when it has
+  none, tags the merge `v<major>.<minor>.<build>`, pushes both in a `[skip ci]` commit with the
+  release GitHub App's token (the `main` ruleset's bypass actor), and creates the GitHub release with
+  the section as its notes
+  ([ADR 0034](docs/adr/0034-a-merges-changelog-section-is-written-when-it-is-tagged.md)). The
+  release line is the root `package.json`'s `version`; each merge on the line counts the build up by
+  one. The App's client ID is the repository variable `RELEASE_APP_CLIENT_ID` and its private key
+  the secret `RELEASE_APP_PRIVATE_KEY`. When `main` moves during a run, the run still succeeds and
+  tags nothing, its merge deploys, and the next run tags it.
+- **Deploy** (`.github/workflows/deploy.yml`) runs when Version succeeds, and by hand. It deploys
+  the merge the Version run was for, never the stamp commit: it applies the hosted project's
+  pending migrations, then deploys both Workers (see [Deploy](#deploy)). When
   the repository variable `SMOKE_TEST` is `on`, a second job, `Smoke test the deployment`, runs
   `pnpm smoke` against the result.
 

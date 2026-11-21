@@ -1,7 +1,12 @@
 name: Deploy
 
-# Every merge to main: runs when the Version workflow has tagged it, and deploys that commit. It
-# can also be run by hand, which deploys the branch it is run on. The hosted project's pending
+# Every merge to main: runs when the Version workflow's run for it succeeds, and deploys that merge
+# commit. Version's push of the stamp commit carries `[skip ci]`, so no Version run, and so no
+# deploy, is ever for a stamp commit. Version normally tags the merge before this starts; when main
+# moved during its run, the run still succeeds and the next one tags the merge, shortly after this
+# deploy (docs/adr/0034-a-merges-changelog-section-is-written-when-it-is-tagged.md). It can also be
+# run by hand, which deploys the tip of the branch it is run on: on main, usually a stamp commit,
+# whose code is its merge's. The hosted project's pending
 # migrations are applied first, then both Workers deploy: a migration leaves the running Worker
 # working (AGENTS.md), and a failed one stops the deploy before anything new goes live.
 # Credentials come from the 1Password `Nearcited` vault at run time, through a service account
@@ -28,13 +33,14 @@ concurrency:
 
 jobs:
   deploy:
-    # After a merge, only once its tag is made.
+    # After a merge, only once its Version run succeeds (normally after its tag is made).
     if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
         with:
-          # A workflow_run event carries main's newest commit; deploy the one that was tagged.
+          # A workflow_run event carries main's newest commit, by now the stamp commit; deploy the
+          # merge the Version run was for.
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
       - name: Load credentials from 1Password
         id: op

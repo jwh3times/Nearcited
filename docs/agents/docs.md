@@ -91,7 +91,14 @@
   removed or replaced: `AGENTS.md` "Agent skills", README "Working with coding agents", and report
   the change to the owner-only `THIRD_PARTY_NOTICES.md` when a skill's source changes.
 - `CHANGELOG.md` — every release, one dated section per merge to `main`, naming the version it
-  mints. `ship-owned`: `ship` writes the section; outside `ship`, an `Unreleased` entry at most.
+  minted. `frozen`: `.github/workflows/version.yml` stamps each section after the merge; a branch
+  edits only the policy at the top, or backfills a section for a version tagged before the move to
+  `stamp-on-tag` with none.
+- `changelog.d/*.md` — one fragment per branch, its changelog entries, which `version.yml` stamps
+  into the merge's section and deletes. `ship-owned`: `ship` writes the branch's own; a fragment
+  already on `main` belongs to the merge that added it.
+- `changelog.d/README.md` — how a fragment is named and written. **When:** the fragment format or
+  the stamping changes.
 - `LICENSE`, `THIRD_PARTY_NOTICES.md`, the copyright line — `owner-only`.
 - `private/README.md` — the companion's index: what belongs there, each file's class (living,
   reference snapshot, historical evidence) and what it owns, and its rules. **When:** a private file

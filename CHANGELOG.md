@@ -1,13 +1,26 @@
 # Changelog
 
 Every merge to `main` is a release: it is tagged `v<major>.<minor>.<build>`, and its section below
-names the version it mints. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+names the version it minted. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html), with the patch number
 counting builds on a release line.
+
+No branch edits this file. Each writes its entries to its own fragment in `changelog.d/`, and after
+the merge `.github/workflows/version.yml` stamps them into the merge's dated section and tags the
+merge ([ADR 0034](docs/adr/0034-a-merges-changelog-section-is-written-when-it-is-tagged.md)). A
+merge that added no fragment gets one entry from its pull request's title.
 
 ## [Unreleased]
 
 No unreleased changes.
+
+## [1.7.15] - 2026-11-20
+
+### Changed
+
+- Dependency updates from Dependabot: `@anthropic-ai/sdk` 1.8.0 to 1.9.0, `hono` 4.13.18 to
+  4.13.19, `@cloudflare/workers-types` 5.20261115.1 to 5.20261117.1, `wrangler` 4.162.0 to
+  4.163.0, and the Supabase CLI (`supabase`) 3.1.0 to 3.2.0 (#330).
 
 ## [1.7.14] - 2026-11-18
 
@@ -421,7 +434,8 @@ deployed.
   (`scripts/check-changelog.mjs`); a Dependabot merge gets its section on the next human pull
   request.
 
-[Unreleased]: https://github.com/jwh3times/Nearcited/compare/v1.7.14...HEAD
+[Unreleased]: https://github.com/jwh3times/Nearcited/compare/v1.7.15...HEAD
+[1.7.15]: https://github.com/jwh3times/Nearcited/compare/v1.7.14...v1.7.15
 [1.7.14]: https://github.com/jwh3times/Nearcited/compare/v1.7.13...v1.7.14
 [1.7.13]: https://github.com/jwh3times/Nearcited/compare/v1.7.12...v1.7.13
 [1.7.12]: https://github.com/jwh3times/Nearcited/compare/v1.7.11...v1.7.12

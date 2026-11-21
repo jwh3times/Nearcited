@@ -1,16 +1,20 @@
 name: Changelog Version
 
-# Fails a pull request unless CHANGELOG.md has a section for the version its merge will mint.
-# scripts/next-version.mjs predicts the tag version.yml will make, from the release line in
-# package.json and the tags; scripts/check-changelog.mjs compares it with the newest section, and
-# also requires a section for every released version (Dependabot's included).
+# Guards the changelog under `Scheme: stamp-on-tag`
+# (docs/adr/0034-a-merges-changelog-section-is-written-when-it-is-tagged.md).
 #
-# Dependabot's pull requests are exempt, since a bot writes no entry: the next human pull request
-# backfills their sections, and the check fails it until it does. The exemption is inside the step,
-# not a job-level `if`, so the check always reports a status.
+# No branch names a version or edits CHANGELOG.md's sections: each writes its entries to its own
+# changelog.d/<branch-slug>.md fragment, and version.yml stamps them into the merge's dated section
+# after it lands. scripts/check-changelog.mjs fails a pull request that adds, removes or renumbers a
+# version section (except a backfill for a version already tagged with none), adds entries to
+# `## [Unreleased]`, edits or deletes a fragment already on main (it belongs to the merge that
+# added it), or adds a fragment that does not parse. A pull request with no fragment passes: its
+# merge gets a one-entry section from its title, so Dependabot's run the same check with no
+# exemption.
 #
-# The prediction is exact only when nothing merges between this run and the merge. "Require
-# branches to be up to date before merging" makes an intervening merge re-run it.
+# The job keeps its name from the scheme before (it no longer predicts a version): the main ruleset
+# requires "Changelog names the version this merge mints" by name, and a renamed job would leave
+# that check pending.
 on:
   pull_request:
     branches: [main]
@@ -29,17 +33,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          fetch-depth: 0 # every tag, to predict the build number
+          fetch-depth: 0 # full history and tags, to diff the branch against its merge base
       - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
           package-manager-cache: false
-      - name: Check CHANGELOG.md names the version this merge mints
-        env:
-          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
-        run: |
-          if [ "$PR_AUTHOR" = "dependabot[bot]" ]; then
-            echo "A Dependabot pull request: its section is backfilled by the next human pull request."
-            exit 0
-          fi
-          node scripts/check-changelog.mjs
+      - name: Check the changelog and fragments
+        run: node scripts/check-changelog.mjs
