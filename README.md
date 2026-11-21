@@ -910,13 +910,14 @@ is there, nothing copied to a receipt address reaches the Worker.
 Review requests are sent through Resend from an address on a sending subdomain of the product's own, kept apart from the address reports come from. Verify that subdomain with Resend, adding the DNS records Resend gives to the zone, then set the address as `REVIEW_REQUESTS_FROM` on the Worker (above). Until both are done, an approved review request fails with "Outgoing email for review requests is not set up." For a hard bounce or a complaint to stop an address, add a webhook in Resend pointing at `<APP_URL>/api/resend/webhook`, sent the `email.bounced` and `email.complained` events, and set its signing secret as `RESEND_WEBHOOK_SECRET` on the Worker (above). Until then the route answers 503, and an address that bounced or complained can still be asked by a business that has not asked it before.
 
 Every merge to `main` is a release. `.github/workflows/version.yml` writes its `CHANGELOG.md`
-section from the branch's `changelog.d/` fragment and tags it, and `.github/workflows/deploy.yml`
+section from the branch's `changelog.d/` fragment (or its pull request's title, with none) and tags
+it, and `.github/workflows/deploy.yml`
 then deploys that merge commit, never the stamp commit that carries the section: it runs
 the tests, lists the migrations the hosted project has not applied (`pnpm exec supabase db push
 --remote --dry-run`, with the CLI the lockfile pins), applies them, and only then does step 4. A
 failed migration stops the deploy, and the Workers already live keep running. The workflow can
 also be run by hand, which deploys the branch it is run on. It reads its credentials from the 1Password `Nearcited` vault at run time,
-so GitHub holds one secret, `OP_SERVICE_ACCOUNT_TOKEN`, for a service account that can read only
+so the one secret GitHub holds for it is `OP_SERVICE_ACCOUNT_TOKEN`, for a service account that can read only
 that vault. The vault items it expects are named at the top of that file: the Cloudflare token and
 account, the deploy key for the private companion, and the `Supabase` item's `access_token` and
 `database_password`. The project's ref comes from `VITE_SUPABASE_URL`. GitHub's runners have no
@@ -975,7 +976,9 @@ answers 503 `drafts_unavailable`, except for a test organization, whose drafts a
   the section as its notes
   ([ADR 0034](docs/adr/0034-a-merges-changelog-section-is-written-when-it-is-tagged.md)). The
   release line is the root `package.json`'s `version`; each merge on the line counts the build up by
-  one.
+  one. The App's client ID is the repository variable `RELEASE_APP_CLIENT_ID` and its private key
+  the secret `RELEASE_APP_PRIVATE_KEY`. When `main` moves during a run, the run still succeeds and
+  tags nothing, its merge deploys, and the next run tags it.
 - **Deploy** (`.github/workflows/deploy.yml`) runs when Version succeeds, and by hand. It deploys
   the merge the Version run was for, never the stamp commit: it applies the hosted project's
   pending migrations, then deploys both Workers (see [Deploy](#deploy)). When

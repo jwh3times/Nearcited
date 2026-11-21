@@ -33,7 +33,7 @@ concurrency:
 
 jobs:
   deploy:
-    # After a merge, only once its tag is made.
+    # After a merge, only once its Version run succeeds (normally after its tag is made).
     if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     steps:
