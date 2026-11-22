@@ -69,6 +69,12 @@
   deploy, including Dependabot and production steps; the development machine's traps. **When:** a
   merge, deploy or local-run lesson is learned that no check enforces, or a command they quote
   changes.
+- `docs/agents/dependabot.md` — what reviewing a Dependabot PR takes here: the install to
+  reproduce, where each dependency is used, the stack facts a review must not get wrong, and the
+  known fix for each kind of bump that has broken before. Read by the `dependabot` skill. **When:**
+  `.github/dependabot.yml`, a workflow's actions or `with:` inputs, a toolchain pin (`.nvmrc`,
+  `packageManager`) or a package's major dependencies change, or a fix to a Dependabot PR is
+  confirmed.
 - `docs/agents/issue-tracker.md`, `docs/agents/triage-labels.md`, `docs/agents/domain.md` — where
   issues live, the board and its fields, the label vocabulary, where the glossary and decision
   records live. **When:** a tracker, a board field or option, or a label changes.
