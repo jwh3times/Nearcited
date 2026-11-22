@@ -14,6 +14,12 @@ merge that added no fragment gets one entry from its pull request's title.
 
 No unreleased changes.
 
+## [1.7.20] - 2026-11-21
+
+### Changed
+
+- Take the latest shared skills and scripts from jwh3times/skills (#336)
+
 ## [1.7.19] - 2026-11-21
 
 ### Changed
@@ -470,7 +476,8 @@ deployed.
   (`scripts/check-changelog.mjs`); a Dependabot merge gets its section on the next human pull
   request.
 
-[Unreleased]: https://github.com/jwh3times/Nearcited/compare/v1.7.19...HEAD
+[Unreleased]: https://github.com/jwh3times/Nearcited/compare/v1.7.20...HEAD
+[1.7.20]: https://github.com/jwh3times/Nearcited/compare/v1.7.19...v1.7.20
 [1.7.19]: https://github.com/jwh3times/Nearcited/compare/v1.7.18...v1.7.19
 [1.7.18]: https://github.com/jwh3times/Nearcited/compare/v1.7.17...v1.7.18
 [1.7.17]: https://github.com/jwh3times/Nearcited/compare/v1.7.16...v1.7.17
