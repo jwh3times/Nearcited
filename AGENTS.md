@@ -484,8 +484,8 @@ servers; Codex reads its project file only once the checkout is a trusted projec
 ## Agent skills
 
 The skills in `.agents/skills/` are installed from two sources and pinned in `skills-lock.json`:
-the flow skills from [mattpocock/skills](https://github.com/mattpocock/skills), and `end-session`,
-`handoff`, `lets-go`, `ship`, `docs-updater` and `what-next` from
+the flow skills from [mattpocock/skills](https://github.com/mattpocock/skills), and the ones the
+`shared-skills` block below lists from
 [jwh3times/skills](https://github.com/jwh3times/skills). Both are MIT; see
 `THIRD_PARTY_NOTICES.md`.
 
