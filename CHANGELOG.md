@@ -14,6 +14,15 @@ merge that added no fragment gets one entry from its pull request's title.
 
 No unreleased changes.
 
+## [1.7.24] - 2026-11-22
+
+### Changed
+
+- `AGENTS.md` "Agent skills" and the Doc map in `docs/agents/docs.md` no longer list the
+  `jwh3times/skills` skills by hand, a list that had gone stale and missed `land` and
+  `dependabot`. Both now point at the `shared-skills` block in `AGENTS.md`, which the install
+  command keeps current.
+
 ## [1.7.23] - 2026-11-22
 
 ### Added
@@ -499,7 +508,8 @@ deployed.
   (`scripts/check-changelog.mjs`); a Dependabot merge gets its section on the next human pull
   request.
 
-[Unreleased]: https://github.com/jwh3times/Nearcited/compare/v1.7.23...HEAD
+[Unreleased]: https://github.com/jwh3times/Nearcited/compare/v1.7.24...HEAD
+[1.7.24]: https://github.com/jwh3times/Nearcited/compare/v1.7.23...v1.7.24
 [1.7.23]: https://github.com/jwh3times/Nearcited/compare/v1.7.22...v1.7.23
 [1.7.22]: https://github.com/jwh3times/Nearcited/compare/v1.7.21...v1.7.22
 [1.7.21]: https://github.com/jwh3times/Nearcited/compare/v1.7.20...v1.7.21
