@@ -14,6 +14,17 @@ merge that added no fragment gets one entry from its pull request's title.
 
 No unreleased changes.
 
+## [1.7.23] - 2026-11-22
+
+### Added
+
+- `docs/agents/dependabot.md` holds what the shared `/dependabot` skill needs to review a
+  Dependabot pull request here: the pnpm install to reproduce, where each dependency is used, the
+  facts about this stack a review must not get wrong (the Version and Deploy workflows run only
+  after a merge, so a green PR says nothing about the actions and Supabase CLI commands only they
+  run), and the gates and known fixes for each kind of bump, including the `@anthropic-ai/sdk`
+  request-URL assertion that a minor once broke. The Doc map lists it.
+
 ## [1.7.22] - 2026-11-22
 
 ### Changed
@@ -488,7 +499,8 @@ deployed.
   (`scripts/check-changelog.mjs`); a Dependabot merge gets its section on the next human pull
   request.
 
-[Unreleased]: https://github.com/jwh3times/Nearcited/compare/v1.7.22...HEAD
+[Unreleased]: https://github.com/jwh3times/Nearcited/compare/v1.7.23...HEAD
+[1.7.23]: https://github.com/jwh3times/Nearcited/compare/v1.7.22...v1.7.23
 [1.7.22]: https://github.com/jwh3times/Nearcited/compare/v1.7.21...v1.7.22
 [1.7.21]: https://github.com/jwh3times/Nearcited/compare/v1.7.20...v1.7.21
 [1.7.20]: https://github.com/jwh3times/Nearcited/compare/v1.7.19...v1.7.20
