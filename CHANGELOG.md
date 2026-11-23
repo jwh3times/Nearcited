@@ -14,6 +14,20 @@ merge that added no fragment gets one entry from its pull request's title.
 
 No unreleased changes.
 
+## [1.7.30] - 2026-11-23
+
+### Added
+
+- `docs/agents/guard.md` holds this repository's own rules for the shared guard hook
+  (`scripts/guard.mjs`), on top of the rules it applies everywhere. It denies the commands that
+  delete the local database (`supabase stop --no-backup`, `supabase db reset`, removing or pruning
+  the `supabase_*_nearcited` volumes), act on the hosted project or production (`supabase link`,
+  `supabase db push` without `--dry-run`, `pnpm cf:deploy`, `wrangler deploy` without `--dry-run`,
+  `wrangler secret`, a manual Deploy run), `pnpm local:env --force`, `npx skills update`, and
+  stopping `workerd` by image name. It asks before `supabase stop`, and protects `private/`, the
+  local key files, the Supabase CLI state and `node_modules/`. The docs map lists the new file. No
+  product behavior changes.
+
 ## [1.7.29] - 2026-11-23
 
 ### Changed
@@ -551,7 +565,8 @@ deployed.
   (`scripts/check-changelog.mjs`); a Dependabot merge gets its section on the next human pull
   request.
 
-[Unreleased]: https://github.com/jwh3times/Nearcited/compare/v1.7.29...HEAD
+[Unreleased]: https://github.com/jwh3times/Nearcited/compare/v1.7.30...HEAD
+[1.7.30]: https://github.com/jwh3times/Nearcited/compare/v1.7.29...v1.7.30
 [1.7.29]: https://github.com/jwh3times/Nearcited/compare/v1.7.28...v1.7.29
 [1.7.28]: https://github.com/jwh3times/Nearcited/compare/v1.7.27...v1.7.28
 [1.7.27]: https://github.com/jwh3times/Nearcited/compare/v1.7.26...v1.7.27
