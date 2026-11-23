@@ -510,7 +510,10 @@ the flow skills from [mattpocock/skills](https://github.com/mattpocock/skills), 
   change touches a route, table, environment variable, command, scan behaviour, CI check or project
   rule. `what-next` ranks the open issues and pull requests by `## Priority order` in
   `docs/agents/issue-tracker.md` and recommends what to pick up next; it changes nothing, so an
-  agent may run it unasked.
+  agent may run it unasked. `land` merges a pull request the user has named, by
+  `docs/agents/merging.md`, and confirms its release, its deploy and the issues it closed;
+  `dependabot` reviews the open Dependabot pull requests by `docs/agents/dependabot.md` and hands
+  the ones the user names to `land`, and nothing merges a Dependabot pull request on its own.
 
 ### Shared skills
 

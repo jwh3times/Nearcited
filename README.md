@@ -1025,32 +1025,35 @@ The repository is set up for Claude Code and Codex.
   [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)) and are pinned in `skills-lock.json`. Among
   them: `/triage`, `/to-spec`, `/to-tickets`, `/implement`, `/tdd`, `/diagnosing-bugs`,
   `/code-review`, `/grill-me` and `/improve-codebase-architecture`. `/ask-matt` picks one for you.
-- Six more are from [jwh3times/skills](https://github.com/jwh3times/skills) (MIT), shared with
-  other repositories and pinned the same way: `/ship` checks a branch against the rules in
-  `AGENTS.md`, refreshes the docs and opens the pull request; `/end-session` records what a
-  session learned, files new work and human follow-ups as issues, and cleans up; `/handoff` and
-  `/lets-go` pass a session between machines; `docs-updater`, which `/ship` and `/end-session` run,
-  keeps these documents true to the code; `/what-next` ranks the open issues and pull requests and
-  recommends what to pick up next, changing nothing. They are never edited here: reinstalling overwrites a
-  local edit, so a fix goes upstream.
+- The rest are from [jwh3times/skills](https://github.com/jwh3times/skills) (MIT), shared with
+  other repositories and pinned the same way; the `shared-skills` block in `AGENTS.md` lists them.
+  `/ship` checks a branch against the rules in `AGENTS.md`, refreshes the docs and opens the pull
+  request; `/land` merges a pull request you name and confirms its release and deploy;
+  `/dependabot` reviews the open Dependabot pull requests and hands the ones you name to `/land`;
+  `/end-session` records what a session learned, files new work and human follow-ups as issues,
+  and cleans up; `/handoff` and `/lets-go` pass a session between machines; `docs-updater`, which
+  `/ship` and `/end-session` run, keeps these documents true to the code; `/what-next` ranks the
+  open issues and pull requests and recommends what to pick up next, changing nothing. They are
+  never edited here: reinstalling overwrites a local edit, so a fix goes upstream.
 - `.agents/skills/` is the installed source. `.claude/skills/` is generated from it by
   `pnpm sync:agents`, and CI fails if the two differ.
 - `.mcp.json` and `.codex/config.toml` give both the same MCP servers, Context7 and Cloudflare's
   documentation; `AGENTS.md` "MCP servers" says what else may join them.
 - `docs/agents/` tells the skills where issues live (GitHub Issues and a project board), which
   triage labels to use, where the glossary and decision records go, and how work reaches a
-  change through the skills (`.agents/skills/ship/settings/dev-flow.md` and `docs/agents/dev-flow.md`). It also holds the settings the six
+  change through the skills (`.agents/skills/ship/settings/dev-flow.md` and `docs/agents/dev-flow.md`). It also holds the settings the
   shared skills read: `workspace.md`, `issue-tracker.md`, `human-follow-up.md`, `docs.md`
-  (which document owns which fact), `releases.md`, `ship.md` and `handoffs.md`, and two guides
-  agents read directly: `merging.md` (from an open pull request to a finished merge and deploy)
-  and `local-runs.md` (the development machine's traps).
+  (which document owns which fact), `releases.md`, `ship.md`, `handoffs.md`, `dependabot.md`
+  (what reviewing a Dependabot pull request takes here) and `merging.md` (from an open pull
+  request to a finished merge and deploy, which `/land` reads), and a guide agents read directly:
+  `local-runs.md` (the development machine's traps).
 
 To add or update skills, run the installer for one source at a time, then regenerate the copy.
 The `mattpocock/skills` snapshot's command, pinned by commit, is in `AGENTS.md`. Never run
 `npx skills update`, which leaves `.claude/skills/` linked to the sources instead of copied:
 
 ```sh
-npx skills add jwh3times/skills -s end-session -s handoff -s lets-go -s ship -s docs-updater -s what-next -a codex --copy -y
+npx skills add jwh3times/skills -s end-session -s handoff -s lets-go -s ship -s land -s dependabot -s docs-updater -s what-next -a codex --copy -y
 pnpm sync:agents
 ```
 
