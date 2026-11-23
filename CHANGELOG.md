@@ -14,6 +14,17 @@ merge that added no fragment gets one entry from its pull request's title.
 
 No unreleased changes.
 
+## [1.7.25] - 2026-11-22
+
+### Changed
+
+- The README's "Working with coding agents", `AGENTS.md` "Agent skills" and
+  `THIRD_PARTY_NOTICES.md` now cover all the skills installed from `jwh3times/skills`. They said
+  there were six and missed `land` and `dependabot`. The README describes `/land` and
+  `/dependabot`, lists `dependabot.md` and `merging.md` among the settings the shared skills read,
+  and its install command carries `-s land -s dependabot`. The notices file points at the
+  `shared-skills` block in `AGENTS.md` instead of a list of its own.
+
 ## [1.7.24] - 2026-11-22
 
 ### Changed
@@ -508,7 +519,8 @@ deployed.
   (`scripts/check-changelog.mjs`); a Dependabot merge gets its section on the next human pull
   request.
 
-[Unreleased]: https://github.com/jwh3times/Nearcited/compare/v1.7.24...HEAD
+[Unreleased]: https://github.com/jwh3times/Nearcited/compare/v1.7.25...HEAD
+[1.7.25]: https://github.com/jwh3times/Nearcited/compare/v1.7.24...v1.7.25
 [1.7.24]: https://github.com/jwh3times/Nearcited/compare/v1.7.23...v1.7.24
 [1.7.23]: https://github.com/jwh3times/Nearcited/compare/v1.7.22...v1.7.23
 [1.7.22]: https://github.com/jwh3times/Nearcited/compare/v1.7.21...v1.7.22
