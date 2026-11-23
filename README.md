@@ -467,7 +467,8 @@ docs/           architecture.md: how a scan flows, the tenancy model, and known 
                 adr/: decisions that are hard to reverse, and why they were made.
                 agents/: the settings the agent skills read: the issue tracker and board, labels,
                 domain docs, development flow, and the shared skills' settings; merging.md and
-                local-runs.md: merging and deploying, and the development machine's traps.
+                local-runs.md: merging and deploying, and the development machine's traps; and
+                each area's own rules, which AGENTS.md points to.
 .agents/skills/ Agent skills, as installed. Codex reads these.
 .claude/skills/ The same skills, generated for Claude Code. Do not edit.
 .codex/         config.toml: the MCP servers Codex shares, the same as .mcp.json's.
@@ -1019,7 +1020,8 @@ npm run sync:main        # fast-forward main in both checkouts; refuses a dirty 
 
 The repository is set up for Claude Code and Codex.
 
-- [`AGENTS.md`](AGENTS.md) holds the rules a change has to follow. Codex reads it directly, and
+- [`AGENTS.md`](AGENTS.md) holds the rules a change has to follow, and points to the files under
+  `docs/agents/` that hold each area's own. Codex reads it directly, and
   [`CLAUDE.md`](CLAUDE.md) imports it for Claude Code.
 - The flow skills are from [mattpocock/skills](https://github.com/mattpocock/skills) (MIT; see
   [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)) and are pinned in `skills-lock.json`. Among

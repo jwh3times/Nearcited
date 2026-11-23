@@ -1589,7 +1589,7 @@ stays the main Worker's (see "Connections"); the Pages Worker only serves what i
   is only logged. The function is granted to `anon` like `hosted_page()` and trusts nothing it is
   told: the day is its own (UTC), the page must be live on a live answer subdomain, the fetcher
   must be one the table's check names (the same list as `PAGE_FETCHERS`, which a business's own
-  site's fetches use too; add one in all six places `AGENTS.md` names), and a
+  site's fetches use too; add one in all six places `docs/agents/sites-and-pages.md` names), and a
   page's count for a day and a fetcher stops at `MOST_FETCHES_A_DAY` (1,000). It tells the caller
   nothing either way. `hosted_page_fetches` keeps only a count for a page, a day and a fetcher.
   `GET /api/locations/:id` reads it through `location_page_fetches()` (as the caller) for the last
