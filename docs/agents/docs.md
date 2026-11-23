@@ -92,6 +92,9 @@
   (`.github/workflows/ci.yml`, the ruleset): `ship.md` `Fast checks`; a project rule changes:
   `ship.md` `## Rule triggers`; a build or test output path, an ignored local file or a dev-stack
   command changes: `workspace.md`; a document is added, renamed or retired: this `Doc map`.
+- `docs/agents/guard.md` — the commands and paths `scripts/guard.mjs` stops here, on top of its
+  shared rules. **When:** a **Never run** command, a dev-stack command or a never-remove path in
+  `workspace.md` changes, or a production step in `merging.md` or a trap in `local-runs.md`.
 - `.github/pull_request_template.md` — the issue line it opens with and the before-merging
   checklist, a short subset of the rules in `AGENTS.md`. **When:** the linking rule changes, or the
   rule a checklist line names changes.
