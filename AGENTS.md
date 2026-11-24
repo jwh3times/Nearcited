@@ -229,14 +229,14 @@ the flow skills from [mattpocock/skills](https://github.com/mattpocock/skills), 
   stays right, then regenerate the copy.
 
 - When a project rule, a required check or a
-  document's job changes, update the setting that names it (`ship.md` `## Rule triggers` and
+  document's job changes, update the setting that names it (`open-pr.md` `## Rule triggers` and
   `Fast checks`, the `Doc map` in `docs.md`).
-- `ship` checks a branch against `## Rule triggers`, refreshes the docs, runs the fast checks and
+- `open-pr` checks a branch against `## Rule triggers`, refreshes the docs, runs the fast checks and
   opens the pull request; `end-session` records what a session learned, files new work and human
   follow-ups as issues, and cleans up; `handoff` and `lets-go` pass a session to another machine
   (the machine's own setup is in `~/.config/handoffs/config`, which `handoff` proposes on its first
   run). `docs-updater` keeps the documents true to the code, by the `Doc map` in
-  `docs/agents/docs.md`: `/ship` and `/end-session` run it, and run it yourself whenever a
+  `docs/agents/docs.md`: `/open-pr` and `/end-session` run it, and run it yourself whenever a
   change touches a route, table, environment variable, command, scan behaviour, CI check or project
   rule. `what-next` ranks the open issues and pull requests by `## Priority order` in
   `docs/agents/issue-tracker.md` and recommends what to pick up next; it changes nothing, so an
@@ -300,8 +300,8 @@ which exist in both trackers. See `docs/agents/triage-labels.md`.
 
 ### Development flow
 
-See [Development flow](#development-flow) above, `.agents/skills/ship/settings/dev-flow.md` for the whole flow, and
-`docs/agents/dev-flow.md` for what this repository adds. Past `/ship`, `docs/agents/merging.md`
+See [Development flow](#development-flow) above, `.agents/skills/open-pr/settings/dev-flow.md` for the whole flow, and
+`docs/agents/dev-flow.md` for what this repository adds. Past `/open-pr`, `docs/agents/merging.md`
 takes an open pull request through the merge and the deploy: read it before merging, catching up a
 Dependabot pull request or running anything against the hosted project. `docs/agents/local-runs.md`
 holds the development machine's traps: read it before stopping a Worker or a container, or
