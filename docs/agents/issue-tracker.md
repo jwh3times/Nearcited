@@ -38,7 +38,7 @@ Required human follow-ups go to the private tracker too (`human-follow-up.md`).
 leaks that it exists. A private issue may cite public work freely.
 
 Work from a ready private issue needs no public issue: see `Private work` in
-`.agents/skills/ship/settings/dev-flow.md`.
+`.agents/skills/open-pr/settings/dev-flow.md`.
 
 ## Project board
 
