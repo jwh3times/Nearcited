@@ -55,3 +55,14 @@ pass `--remote` to a hosted command, and read the `Target:` line of any Supabase
 believing its output: a bare command targets a local stack, which on a shared machine can be another
 project's. A login stored on the machine means a hosted command can act with no credentials in the
 environment, so a missing variable is no safeguard.
+
+## Dependabot catch-up
+
+`gh pr comment <n> --body "@dependabot rebase"` — never `gh pr update-branch`, whose merge commit
+stops Dependabot from rebasing the PR later (see "Merging" above).
+
+## Deploys
+
+- `deploy.yml` — runs on `workflow_run` of Version, so its run lists `main`'s tip when Version
+  finished, normally the stamp commit's sha, not the merge's; it still checks out and deploys the
+  merge. It applies the merge's migrations, then deploys both Workers.
