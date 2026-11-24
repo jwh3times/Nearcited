@@ -14,6 +14,15 @@ merge that added no fragment gets one entry from its pull request's title.
 
 No unreleased changes.
 
+## [1.7.38] - 2026-11-24
+
+### Changed
+
+- `docs/agents/merging.md` now carries the shared `land` skill's `Dependabot catch-up` and
+  `Deploys` settings, so `land` catches a Dependabot pull request up with `@dependabot rebase` and
+  watches the Deploy workflow after each merge, as the merging guide already said. No product
+  behavior changes.
+
 ## [1.7.37] - 2026-11-24
 
 ### Changed
@@ -609,7 +618,8 @@ deployed.
   (`scripts/check-changelog.mjs`); a Dependabot merge gets its section on the next human pull
   request.
 
-[Unreleased]: https://github.com/jwh3times/Nearcited/compare/v1.7.37...HEAD
+[Unreleased]: https://github.com/jwh3times/Nearcited/compare/v1.7.38...HEAD
+[1.7.38]: https://github.com/jwh3times/Nearcited/compare/v1.7.37...v1.7.38
 [1.7.37]: https://github.com/jwh3times/Nearcited/compare/v1.7.36...v1.7.37
 [1.7.36]: https://github.com/jwh3times/Nearcited/compare/v1.7.35...v1.7.36
 [1.7.35]: https://github.com/jwh3times/Nearcited/compare/v1.7.34...v1.7.35
