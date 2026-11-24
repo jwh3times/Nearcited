@@ -150,6 +150,8 @@ jwh3times 10
   code before the item can finish.
 - `Priority`: `P0 - Now` / `P1 - Next` / `P2 - Soon` / `P3 - Later` — how much it matters now,
   whether or not it is blocked. The board's items are kept in this order.
+- `Due` (date): set only when the action has a real deadline (an expiry, a renewal, an offer's
+  end, a date someone else set), never an aspirational one; empty otherwise.
 
 Every new issue, public or private, gets all four in the session that opens it.
 

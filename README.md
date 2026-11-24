@@ -1046,7 +1046,8 @@ The repository is set up for Claude Code and Codex.
   change through the skills (`.agents/skills/ship/settings/dev-flow.md` and `docs/agents/dev-flow.md`). It also holds the settings the
   shared skills read: `workspace.md`, `issue-tracker.md`, `human-follow-up.md`, `docs.md`
   (which document owns which fact), `releases.md`, `ship.md`, `handoffs.md`, `dependabot.md`
-  (what reviewing a Dependabot pull request takes here) and `merging.md` (from an open pull
+  (what reviewing a Dependabot pull request takes here), `test-proof.md` (how `test-prover` runs
+  one test on its own here) and `merging.md` (from an open pull
   request to a finished merge and deploy, which `/land` reads), and a guide agents read directly:
   `local-runs.md` (the development machine's traps).
 
