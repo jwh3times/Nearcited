@@ -87,11 +87,12 @@
   issues live, the board and its fields, the label vocabulary, where the glossary and decision
   records live. **When:** a tracker, a board field or option, or a label changes.
 - `docs/agents/workspace.md`, `docs/agents/human-follow-up.md`, `docs/agents/docs.md`,
-  `docs/agents/releases.md`, `docs/agents/ship.md`, `docs/agents/handoffs.md` — the settings the
-  shared skills read. **When:** a required check or CI job changes
-  (`.github/workflows/ci.yml`, the ruleset): `ship.md` `Fast checks`; a project rule changes:
-  `ship.md` `## Rule triggers`; a build or test output path, an ignored local file or a dev-stack
-  command changes: `workspace.md`; a document is added, renamed or retired: this `Doc map`.
+  `docs/agents/releases.md`, `docs/agents/ship.md`, `docs/agents/handoffs.md`,
+  `docs/agents/test-proof.md` — the settings the shared skills read. **When:** a required check or
+  CI job changes (`.github/workflows/ci.yml`, the ruleset): `ship.md` `Fast checks`; a project rule
+  changes: `ship.md` `## Rule triggers`; a build or test output path, an ignored local file or a
+  dev-stack command changes: `workspace.md`; a test runner, a package's `test` script or a test
+  folder changes: `test-proof.md`; a document is added, renamed or retired: this `Doc map`.
 - `docs/agents/guard.md` — the commands and paths `scripts/guard.mjs` stops here, on top of its
   shared rules. **When:** a **Never run** command, a dev-stack command or a never-remove path in
   `workspace.md` changes, or a production step in `merging.md` or a trap in `local-runs.md`.
