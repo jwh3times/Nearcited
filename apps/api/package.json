@@ -15,7 +15,7 @@
     "@nearcited/shared": "workspace:*",
     "@supabase/supabase-js": "^2.119.2",
     "fflate": "^0.8.3",
-    "hono": "^4.13.19",
+    "hono": "^4.13.20",
     "resend": "^6.39.0",
     "stripe": "^23.2.0",
     "zod": "^4.6.7"
