@@ -14,6 +14,12 @@ merge that added no fragment gets one entry from its pull request's title.
 
 No unreleased changes.
 
+## [1.7.41] - 2026-11-25
+
+### Changed
+
+- Bump `hono` from `4.13.19` to `4.13.20` in the minor-and-patch group (#360)
+
 ## [1.7.40] - 2026-11-25
 
 ### Changed
@@ -630,7 +636,8 @@ deployed.
   (`scripts/check-changelog.mjs`); a Dependabot merge gets its section on the next human pull
   request.
 
-[Unreleased]: https://github.com/jwh3times/Nearcited/compare/v1.7.40...HEAD
+[Unreleased]: https://github.com/jwh3times/Nearcited/compare/v1.7.41...HEAD
+[1.7.41]: https://github.com/jwh3times/Nearcited/compare/v1.7.40...v1.7.41
 [1.7.40]: https://github.com/jwh3times/Nearcited/compare/v1.7.39...v1.7.40
 [1.7.39]: https://github.com/jwh3times/Nearcited/compare/v1.7.38...v1.7.39
 [1.7.38]: https://github.com/jwh3times/Nearcited/compare/v1.7.37...v1.7.38
